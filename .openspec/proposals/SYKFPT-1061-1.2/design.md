@@ -9,8 +9,8 @@
 - **Encoding**: `UTF-8`。
 - **BOM 引入**: 子模块通过 `import` 范围引入 `connector-bom`。
 
-## 3. 依赖库清单建议
-- **Spring Boot**: 4.0.0-M1 (或根据最新可用版本调整)
-- **Redis**: Spring Data Redis
-- **Security**: Spring Security (用于接口防护)
-- **Tests**: JUnit 5, AssertJ, Mockito
+## 3. 核心依赖版本矩阵
+- **Spring Boot**: 4.0.3
+- **Spring Cloud Alibaba**: 2024.x (适配 Boot 4 的最新预览版或稳定版)
+- **Nacos**: 2.4.x (作为注册中心与配置中心)
+- **JDK**: 21 (LTS)
