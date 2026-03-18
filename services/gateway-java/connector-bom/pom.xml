@@ -24,10 +24,28 @@
         <junit.version>5.10.1</junit.version>
         <assertj.version>3.24.2</assertj.version>
         <mockito.version>5.7.0</mockito.version>
+        <spring-cloud.version>2023.0.1</spring-cloud.version>
+        <wiremock.version>3.3.1</wiremock.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Spring Cloud -->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            
+            <!-- WireMock for API testing -->
+            <dependency>
+                <groupId>org.wiremock</groupId>
+                <artifactId>wiremock-standalone</artifactId>
+                <version>${wiremock.version}</version>
+                <scope>test</scope>
+            </dependency>
             <!-- Spring Boot Stack -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
