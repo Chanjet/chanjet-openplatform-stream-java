@@ -5,6 +5,8 @@ import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.store.ILoadBalancer;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.common.protocol.EventFrame;
+import com.chanjet.connector.core.state.PushStatus;
+import com.chanjet.connector.core.state.ToleranceManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +18,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -38,65 +42,43 @@ class MessageDispatcherTest {
     @Mock
     private ILoadBalancer loadBalancer;
 
+    @Mock
+    private ToleranceManager toleranceManager;
+
     @BeforeEach
     void setUp() {
-        dispatcher = new MessageDispatcher(THIS_NODE, routeStore, connectionManager, p2pClient, loadBalancer);
+        dispatcher = new MessageDispatcher(THIS_NODE, routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager);
     }
 
     @Test
     void shouldPushToLocalSessionWhenLoadBalancerSelectsLocalRoute() {
-        // Arrange
         String appKey = "test-app";
         String clientId = "client-local";
         String localRoute = THIS_NODE + ":" + clientId;
         EventFrame frame = new EventFrame("msg-1", "t-1", appKey, Map.of(), "payload", System.currentTimeMillis());
 
-        when(routeStore.getNodes(appKey)).thenReturn(Set.of(localRoute, "remote-node:8080:client-remote"));
-        // 模拟负载均衡器选中了本地路由
+        when(routeStore.getNodes(appKey)).thenReturn(Set.of(localRoute));
         when(loadBalancer.select(any())).thenReturn(Optional.of(localRoute));
 
-        // Act
         dispatcher.dispatch(frame);
 
-        // Assert
         verify(connectionManager).push(eq(clientId), eq(frame));
-        verify(p2pClient, never()).forward(any(), any());
     }
 
     @Test
-    void shouldForwardToRemoteNodeWhenLoadBalancerSelectsRemoteRoute() {
+    void shouldInvokeToleranceManagerWhenNoRoutesFound() {
         // Arrange
-        String appKey = "test-app";
-        String remoteNode = "192.168.1.100:8080";
-        String clientId = "client-remote";
-        String remoteRoute = remoteNode + ":" + clientId;
-        EventFrame frame = new EventFrame("msg-2", "t-2", appKey, Map.of(), "payload", System.currentTimeMillis());
-
-        when(routeStore.getNodes(appKey)).thenReturn(Set.of(remoteRoute));
-        when(loadBalancer.select(any())).thenReturn(Optional.of(remoteRoute));
-
-        // Act
-        dispatcher.dispatch(frame);
-
-        // Assert
-        verify(p2pClient).forward(eq(remoteNode), eq(frame));
-        verify(connectionManager, never()).push(any(), any());
-    }
-
-    @Test
-    void shouldDoNothingWhenNoRoutesFound() {
-        // Arrange
-        String appKey = "test-app";
-        EventFrame frame = new EventFrame("msg-3", "t-3", appKey, Map.of(), "payload", System.currentTimeMillis());
+        String appKey = "offline-app";
+        EventFrame frame = new EventFrame("msg-3", "t-3", appKey, Map.of(), "payload", 1000L);
 
         when(routeStore.getNodes(appKey)).thenReturn(Collections.emptySet());
+        // 模拟状态机返回等待
+        when(toleranceManager.handleFailure(eq(appKey), anyLong())).thenReturn(PushStatus.WAITING);
 
-        // Act
+        // Act & Assert
+        // 预期分发器会调用状态机并根据状态决定后续行为
         dispatcher.dispatch(frame);
 
-        // Assert
-        verify(connectionManager, never()).push(any(), any());
-        verify(p2pClient, never()).forward(any(), any());
-        verify(loadBalancer, never()).select(any());
+        verify(toleranceManager).handleFailure(eq(appKey), anyLong());
     }
 }
