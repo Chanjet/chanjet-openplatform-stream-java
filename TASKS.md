@@ -3,7 +3,7 @@
 本清单用于跟踪项目的开发进度，建议后续通过 `openSpec` skills 逐步为每个任务创建详细提案。
 
 ## 🚩 阶段一：项目工程初始化 (Foundation - Scaffolding)
-- [ ] **Task 1.1: Monorepo 骨架搭设**
+- [x] **Task 1.1: Monorepo 骨架搭设**
     - **内容**：创建根目录 `Makefile`，初始化 `services/` 和 `proto/` 目录。
     - **输出**：项目目录结构，根目录构建脚本。
 - [ ] **Task 1.2: Java 父工程与 BOM 配置**
