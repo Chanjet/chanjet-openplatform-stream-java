@@ -5,18 +5,20 @@
 - **线程模型**: 同步阻塞，充分利用 Java 21 虚拟线程在 I/O 等待时的自动挂起特性。
 - **序列化**: Jackson (JSON)。
 
-## 2. 路由与 Service ID 配置
-网关通过 Nacos 发现目标服务，`ServiceId` 均通过配置文件动态注入。
+## 1. 架构定位：基础设施适配器 (Adapter)
+本模块实现 `connector-api` 定义的契约，充当领域层与外部微服务之间的“转换器”。
 
-| 能力名称 | 对应 API 路径 | 默认 Service ID |
+## 2. 微服务发现与路由
+API 调用细节封装在 `RemoteCjtCoreAdapter` 中，领域层对其不可见。
+
+| 契约接口 | 映射 ServiceId | 映射 API 路径 |
 | :--- | :--- | :--- |
-| **签名验证** | `/internal/v1/auth/verify-sign` | `cjt-auth-service` |
-| **推送控制** | `/internal/v1/subscriptions/{appKey}/push-status` | `cjt-subscription-manager` |
+| `IAuthService` | `${services.auth.id}` | `/internal/v1/auth/verify-sign` |
+| `IPushControl` | `${services.subscription.id}` | `/internal/v1/subscriptions/{appKey}/push-status` |
 
-## 3. 实现技术细节
-- **LoadBalancer**: 使用 `Spring Cloud LoadBalancer` 拦截 `RestClient` 请求。
-- **配置化**: 采用 `@Value("${services.auth.id}")` 和 `@Value("${services.subscription.id}")`。
-- **统一 Client**: 抽象 `MicroserviceClient` 基础类，统一处理服务发现失败和熔断逻辑。
+## 3. 技术实现 (Infra 层)
+- **解耦机制**: 领域层通过 `@Autowired IAuthService` 调用，Infra 层通过 `RestClient` + `ServiceId` 提供实现。
+- **LoadBalancer**: 集成 `Spring Cloud LoadBalancer` 实现透明的微服务发现。
 
 ## 4. TDD 测试矩阵 (Integration)
 - `shouldResolveServiceIdAndVerifySignSuccessfully()`: 模拟负载均衡成功并返回验证结果。
