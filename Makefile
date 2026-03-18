@@ -27,10 +27,10 @@ proto:
 
 build-java:
 	@echo "Building Java services..."
-	@if [ -f services/gateway-java/pom.xml ]; then 
-		cd services/gateway-java && mvn clean package; 
-	else 
-		echo "Skipping: services/gateway-java/pom.xml not found."; 
+	@if [ -f services/gateway-java/pom.xml ]; then \
+		cd services/gateway-java && mvn clean install; \
+	else \
+		echo "Skipping: services/gateway-java/pom.xml not found."; \
 	fi
 
 test:

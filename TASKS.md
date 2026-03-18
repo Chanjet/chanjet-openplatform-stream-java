@@ -6,7 +6,7 @@
 - [x] **Task 1.1: Monorepo 骨架搭设**
     - **内容**：创建根目录 `Makefile`，初始化 `services/` 和 `proto/` 目录。
     - **输出**：项目目录结构，根目录构建脚本。
-- [ ] **Task 1.2: Java 父工程与 BOM 配置**
+- [x] **Task 1.2: Java 父工程与 BOM 配置**
     - **内容**：在 `services/gateway-java/` 下创建 Maven 父工程，配置 Spring Boot 4 和 JDK 21 依赖版本管理。
     - **输出**：`pom.xml`, `connector-bom` 模块。
 
