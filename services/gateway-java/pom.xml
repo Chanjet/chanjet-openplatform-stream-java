@@ -14,6 +14,8 @@
 
     <modules>
         <module>connector-bom</module>
+        <module>connector-common</module>
+        <module>connector-api</module>
     </modules>
 
     <properties>

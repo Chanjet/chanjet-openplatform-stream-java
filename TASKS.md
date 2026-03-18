@@ -14,7 +14,7 @@
 - [x] **Task 2.1: Protobuf 协议定义**
     - **内容**：在 `proto/` 目录下定义 `EventFrame`, `AckFrame`, `RouteRecord` 等跨语言模型。
     - **输出**：`.proto` 文件。
-- [ ] **Task 2.2: Java SPI 接口契约定义**
+- [x] **Task 2.2: Java SPI 接口契约定义**
     - **内容**：实现 `connector-api` 模块，定义 `IRouteStore`, `IConnectionManager`, `IAuthService` 等核心接口。
     - **输出**：`connector-api` 源代码。
 
