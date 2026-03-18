@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package com.chanjet.connector.proto.model;
+
+option java_package = "com.chanjet.connector.proto.model";
+option java_multiple_files = true;
+option go_package = "github.com/chanjet/open-streaming-connector/proto/model";
+
+// 系统通知帧 (Gateway <-> Client)
+message SystemFrame {
+  enum SystemEventType {
+    UNSPECIFIED = 0;
+    CONNECTED = 1;      // 建连成功确认
+    RECONNECT = 2;      // 建议重连 (通常在网关重启时下发)
+    TIMEOUT = 3;        // 消息处理超时
+    KICKOUT = 4;        // 同一 ClientID 抢占踢出
+    HEARTBEAT_PING = 5; // 心跳请求
+    HEARTBEAT_PONG = 6; // 心跳响应
+  }
+
+  SystemEventType type = 1;
+  map<string, string> data = 2; // 随类型变化的元数据
+  int64 timestamp = 3;
+}
+
+// 路由记录模型 (用于持久化至 Redis)
+message RouteRecord {
+  string node_id = 1;           // 网关节点 IP:Port
+  string client_id = 2;         // 客户端实例标识
+  int64 connect_time = 3;       // 首次建连时间
+  map<string, string> tags = 4; // 实例标签 (如 hostname, pid)
+}

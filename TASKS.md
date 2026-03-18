@@ -11,7 +11,7 @@
     - **输出**：`pom.xml`, `connector-bom` 模块。
 
 ## 📐 阶段二：契约定义 (Foundation - Contract)
-- [ ] **Task 2.1: Protobuf 协议定义**
+- [x] **Task 2.1: Protobuf 协议定义**
     - **内容**：在 `proto/` 目录下定义 `EventFrame`, `AckFrame`, `RouteRecord` 等跨语言模型。
     - **输出**：`.proto` 文件。
 - [ ] **Task 2.2: Java SPI 接口契约定义**
