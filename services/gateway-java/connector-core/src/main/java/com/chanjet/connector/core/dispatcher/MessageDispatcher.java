@@ -45,7 +45,6 @@ public class MessageDispatcher {
     public void dispatch(EventFrame frame) {
         AcquisitionResult result = resilienceManager.tryAcquire(frame.appKey());
         if (result != AcquisitionResult.ALLOWED) {
-            // TODO: 后续可在 Controller 层处理限流异常映射
             return;
         }
 
@@ -78,10 +77,22 @@ public class MessageDispatcher {
         String targetNodeId = route.substring(0, lastColonIndex);
         String clientId = route.substring(lastColonIndex + 1);
 
+        // 构造带有精准目标 ClientID 的帧
+        EventFrame targetedFrame = new EventFrame(
+                frame.msgType(),
+                frame.msgId(),
+                frame.traceId(),
+                frame.appKey(),
+                clientId, // 精准填充目标 ClientID
+                frame.headers(),
+                frame.payload(),
+                frame.timestamp()
+        );
+
         if (targetNodeId.equals(nodeId)) {
-            return connectionManager.push(clientId, frame);
+            return connectionManager.push(clientId, targetedFrame);
         } else {
-            p2pClient.forward(targetNodeId, frame);
+            p2pClient.forward(targetNodeId, targetedFrame);
             return true;
         }
     }

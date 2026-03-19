@@ -37,6 +37,7 @@ public class LocalConnectionManager implements IConnectionManager {
                                 frame.msgId(),
                                 frame.traceId(),
                                 frame.appKey(),
+                                clientId, // 设置 targetClientId
                                 frame.headers(),
                                 frame.payload(),
                                 frame.timestamp()

@@ -18,11 +18,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 import java.util.Set;
@@ -39,9 +37,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-    "connector.node-id=TCK-NODE:8080" // 强制固定 nodeId 方便测试
+    "connector.node-id=TCK-NODE:8080"
 })
 @AutoConfigureMockMvc
+@Import(TckTestConfig.class)
 class TckIntegrationTest {
 
     private static final Logger log = LoggerFactory.getLogger(TckIntegrationTest.class);
@@ -78,7 +77,6 @@ class TckIntegrationTest {
         when(authService.verifySign(anyString(), anyString(), anyString())).thenReturn(true);
         when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
         
-        // 关键修复：使用测试环境注入的 nodeId 构造路由
         String routeValue = nodeId + ":" + clientId;
         when(routeStore.getNodes(appKey)).thenReturn(Set.of(routeValue));
         when(loadBalancer.select(any())).thenReturn(Optional.of(routeValue));
@@ -91,7 +89,6 @@ class TckIntegrationTest {
                 .build();
         
         sdkClient.onEvent(frame -> {
-            log.info("TCK SDK received frame: {}", frame);
             receivedFrames.add(frame);
             return true;
         });
@@ -119,13 +116,39 @@ class TckIntegrationTest {
 
         sdkClient.stop();
     }
-}
 
-@RestController
-class TckChallengeController {
-    @Autowired private INonceStore nonceStore;
-    @GetMapping("/v1/ws/challenge")
-    public Map<String, Object> challenge(@RequestParam("app_key") String appKey) {
-        return Map.of("code", "GW-0000", "data", Map.of("nonce", nonceStore.createNonce(appKey)));
+    @Test
+    void tck03_shouldForwardToExactClientInMultiClientScenario() throws Exception {
+        String appKey = "multi-app";
+        String clientIdA = "client-A";
+        String clientIdB = "client-B";
+        
+        when(nonceStore.createNonce(appKey)).thenReturn("n-any");
+        when(nonceStore.verifyAndConsume(anyString(), anyString())).thenReturn(true);
+        when(authService.verifySign(anyString(), anyString(), anyString())).thenReturn(true);
+        when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
+        
+        String routeB = nodeId + ":" + clientIdB;
+        when(routeStore.getNodes(appKey)).thenReturn(Set.of(nodeId + ":" + clientIdA, routeB));
+        when(loadBalancer.select(any())).thenReturn(Optional.of(routeB));
+
+        BlockingQueue<EventFrame> queueB = new LinkedBlockingQueue<>();
+        GatewayClient sdkB = GatewayClient.builder()
+                .appKey(appKey).appSecret("s").gatewayUrl("http://localhost:" + port).build();
+        sdkB.onEvent(frame -> { queueB.add(frame); return true; });
+        sdkB.start();
+
+        while (realSessionRegistry.getSession(clientIdB).isEmpty()) { Thread.sleep(50); }
+
+        mockMvc.perform(post("/internal/v1/webhook/dispatch")
+                        .header("X-C-APP_KEY", appKey)
+                        .header("X-MSG-ID", "p2p-exact-1")
+                        .content("data")).andExpect(status().isOk());
+
+        EventFrame received = queueB.poll(5, TimeUnit.SECONDS);
+        assertThat(received).isNotNull();
+        assertThat(received.targetClientId()).isEqualTo(clientIdB);
+
+        sdkB.stop();
     }
 }

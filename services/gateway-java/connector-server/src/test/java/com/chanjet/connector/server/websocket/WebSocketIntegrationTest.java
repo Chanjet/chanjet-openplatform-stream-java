@@ -30,9 +30,9 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class WebSocketIntegrationTest {
@@ -55,7 +55,6 @@ class WebSocketIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // 模拟握手鉴权成功
         when(nonceStore.verifyAndConsume(anyString(), anyString())).thenReturn(true);
         when(authService.verifySign(anyString(), anyString(), anyString())).thenReturn(true);
     }
@@ -100,7 +99,7 @@ class WebSocketIntegrationTest {
 
         Thread.sleep(200);
         
-        EventFrame frame = new EventFrame("event", "msg-1", "trace-1", appKey, Collections.emptyMap(), "hello", System.currentTimeMillis());
+        EventFrame frame = new EventFrame("event", "msg-1", "trace-1", appKey, clientId, Collections.emptyMap(), "hello", System.currentTimeMillis());
         boolean pushed = connectionManager.push(clientId, frame);
 
         assertThat(pushed).isTrue();

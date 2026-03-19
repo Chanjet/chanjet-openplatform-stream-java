@@ -73,6 +73,6 @@ class MessageDispatcherTest {
     }
 
     private EventFrame createFrame(String appKey) {
-        return new EventFrame("event", "msg-1", "t-1", appKey, Collections.emptyMap(), "payload", 1000L);
+        return new EventFrame("event", "msg-1", "t-1", appKey, null, Collections.emptyMap(), "payload", 1000L);
     }
 }

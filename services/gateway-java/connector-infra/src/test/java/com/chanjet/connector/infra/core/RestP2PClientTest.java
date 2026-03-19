@@ -19,7 +19,6 @@ class RestP2PClientTest {
 
     @BeforeEach
     void setUp(WireMockRuntimeInfo wmRuntimeInfo) {
-        // 测试时，我们不需要设置 baseUrl，由 forward 方法动态拼接
         RestClient restClient = RestClient.builder()
                 .requestFactory(new HttpComponentsClientHttpRequestFactory())
                 .build();
@@ -28,9 +27,8 @@ class RestP2PClientTest {
 
     @Test
     void shouldForwardEventFrameToRemoteNode(WireMockRuntimeInfo wmRuntimeInfo) {
-        // 获取 WireMock 的实际运行地址 (e.g. localhost:54321)
         String targetNode = "localhost:" + wmRuntimeInfo.getHttpPort();
-        EventFrame frame = new EventFrame("event", "msg-1", "trace-1", "app-1", Collections.emptyMap(), "p2p-data", 1000L);
+        EventFrame frame = new EventFrame("event", "msg-1", "trace-1", "app-1", "client-1", Collections.emptyMap(), "p2p-data", 1000L);
 
         stubFor(post(urlEqualTo("/internal/v1/p2p/push"))
                 .willReturn(ok()));
@@ -39,6 +37,6 @@ class RestP2PClientTest {
 
         verify(postRequestedFor(urlEqualTo("/internal/v1/p2p/push"))
                 .withRequestBody(containing("\"msg_id\":\"msg-1\""))
-                .withRequestBody(containing("\"payload\":\"p2p-data\"")));
+                .withRequestBody(containing("\"target_client_id\":\"client-1\"")));
     }
 }
