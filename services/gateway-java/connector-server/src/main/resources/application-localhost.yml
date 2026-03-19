@@ -26,5 +26,5 @@ spring:
         namespace: C6356-inte
         group: OPEN
         enabled: true
-        access-key: LTAI5tEwgVWjAmAyGcL2ByQQ
-        secret-key: ENC(chanjet||kfpt.inte||vault:v1:lxo0vvTA4SDI2e1O3D3To+A/aTPeKnuFQTaqpuJc7xCcbqte9J/1Vz3uugttdIb8bcf6H3/gTuZWSg==)
+        access-key: ${NACOS_ACCESS_KEY}
+        secret-key: ${NACOS_SECRET_KEY}
