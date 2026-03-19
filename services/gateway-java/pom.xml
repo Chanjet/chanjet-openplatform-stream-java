@@ -18,6 +18,7 @@
         <module>connector-api</module>
         <module>connector-core</module>
         <module>connector-infra</module>
+        <module>connector-server</module>
     </modules>
 
     <properties>
