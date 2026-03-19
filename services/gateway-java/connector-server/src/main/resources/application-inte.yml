@@ -16,5 +16,9 @@ spring:
   cloud:
     nacos:
       discovery:
-        server-addr: nacos-inte.chanjet.com:8848
-        namespace: inte-namespace-uuid
+        server-addr: http://mse-a5fe1032-nacos-ans.mse.aliyuncs.com:8848
+        namespace: C6356-inte
+        group: OPEN
+        enabled: true
+        access-key: LTAI5tEwgVWjAmAyGcL2ByQQ # gitleaks:allow
+        secret-key: ENC(chanjet||kfpt.inte||vault:v1:lxo0vvTA4SDI2e1O3D3To+A/aTPeKnuFQTaqpuJc7xCcbqte9J/1Vz3uugttdIb8bcf6H3/gTuZWSg==)
