@@ -2,33 +2,31 @@
 
 ## 1. 领域组件架构图 (Component Diagram)
 
-该图展示了逻辑层、传输层与基础设施层之间的依赖方向。核心原则是：**所有业务逻辑（Core）仅依赖抽象接口（API），具体实现（Infra）反向依赖 API。**
-
 ```mermaid
 component {
   package "connector-server (接入层)" as server {
     [WebhookController]
-    [WebSocketHandler]
-    [SessionRegistry]
+    [DefaultWsHandler]
+    [WsSessionRegistry]
   }
 
   package "connector-core (领域逻辑层)" as core {
     [MessageDispatcher]
-    [RouteService]
-    [PushStateManager]
-    [ResilienceLogic]
+    [ToleranceManager]
+    [InMemResilienceManager]
   }
 
   package "connector-api (契约层)" as api {
     interface "IRouteStore"
-    interface "IAuthService"
-    interface "IPushControl"
+    interface "IP2PClient"
+    interface "IConnectionManager"
+    [ConnectorProperties]
   }
 
   package "connector-infra (基础设施层)" as infra {
     [RedisRouteStore]
-    [CjtCoreClient]
-    [LocalNonceCache]
+    [RemoteCjtCoreAdapter]
+    [RestP2PClient]
   }
 
   server ..> core : 触发业务逻辑
@@ -43,79 +41,74 @@ component {
 ## 2. 核心领域职责与 Package 边界
 
 ### 2.1 `connector-api` (契约领域)
-**职责**：定义整个系统的“标准化接口”，不包含任何业务逻辑。
-- `com.chanjet.connector.api.store`: 
-    - `IRouteStore`: 定义如何增删改查路由（NodeIP -> ClientID）。
-    - `INonceStore`: 定义 Nonce 的生成与核销。
-- `com.chanjet.connector.api.auth`: 
-    - `IAuthService`: 定义与 Core 协作的签名验证接口。
-- `com.chanjet.connector.api.push`:
-    - `IPushControl`: 定义如何向 Core 申请开启/挂起 Webhook 推送。
+- `com.chanjet.connector.api.store`: 存储契约（Route, Nonce, FailStore）。
+- `com.chanjet.connector.api.connection`: 通讯契约（`IP2PClient`, `IConnectionManager`）。
+- `com.chanjet.connector.api.config`: 核心配置模型（`ConnectorProperties`）。
 
 ### 2.2 `connector-core` (逻辑领域)
-**职责**：处理系统的核心决策逻辑。
-- `com.chanjet.connector.core.router`: 
-    - **职责**：决策消息该发给哪个节点或哪个 Session。它持有 `IRouteStore` 的引用。
-    - **边界**：它不知道 Redis 的存在，也不知道 WebSocket 的底层细节。
+- `com.chanjet.connector.core.dispatcher`: 
+    - **职责**: 消息分发决策。实现 **本地优先单播** 与 **P2P 转发重试** 逻辑。
 - `com.chanjet.connector.core.state`:
-    - **职责**：实现 30 分钟容忍期逻辑。维护 AppKey 的“在线/重试中/已挂起”状态。
-    - **边界**：仅负责逻辑判定，具体发送指令通过 `IPushControl` 接口。
+    - **职责**: 容忍期状态机（`ToleranceManager`）。维护 AppKey 的在线自愈状态。
 - `com.chanjet.connector.core.resilience`:
-    - **职责**：熔断器、令牌桶限流。防止网关节点被洪峰冲垮。
+    - **职责**: 并发限流与熔断逻辑。
 
-### 2.3 `connector-server` (传输领域)
-**职责**：适配外部协议（HTTP/WS），管理物理连接。
+### 2.3 `connector-server` (接入领域)
 - `com.chanjet.connector.server.websocket`:
-    - **职责**：实现 `WebSocketHandler`，管理物理 Session（`WsSession`）。
-    - **边界**：它是 `core` 的“手脚”，负责真正把字节流发出去。
+    - **职责**: WebSocket 会话管理（Registry）与协议升级处理。
 - `com.chanjet.connector.server.controller`:
-    - **职责**：暴露 REST 接口。接收 Webhook 报文并将其包装成 `EventFrame` 给 `core`。
-- `com.chanjet.connector.server.adapter`:
-    - **职责**：将 Spring 的 `WebSocketSession` 适配为 `core` 能理解的 `Connection` 对象。
-
-### 2.4 `connector-infra` (实现领域)
-**职责**：与具体的中间件和外部服务打交道。
-- `com.chanjet.connector.infra.redis`: 具体的 Redis Cluster 命令实现。
-- `com.chanjet.connector.infra.cjtcore`: 使用 `RestClient` 调用畅捷通 Core API 的具体实现。
+    - **职责**: REST 入口（Webhook Dispatch 与 Challenge 颁发）。
+- `com.chanjet.connector.server.config`:
+    - **职责**: 运行时 NodeId 解析（`NodeIdResolver`）与 Spring Bean 组装。
 
 ---
 
-## 3. 核心交互时序图 (Webhook Flow)
+## 3. 核心交互时序图 (Resilient Webhook Flow)
 
-展示跨节点转发时，各组件如何协作。
+展示本地优先及失败重试的协作时序。
 
 ```mermaid
 sequenceDiagram
-    participant Core as 畅捷通 Core
-    participant Ctrl as WebhookController (Node A)
-    participant Disp as MessageDispatcher (Core Layer)
-    participant Store as IRouteStore (Redis Impl)
-    participant P2P as P2PClient (Infra Layer)
-    participant WS as WebSocketHandler (Node B)
-    participant ISV as ISV Client
+    participant Web as Core Webhook
+    participant NodeA as Gateway Node A
+    participant Redis as Redis (Route)
+    participant NodeB as Gateway Node B (Success)
+    participant Client as ISV WebSocket Client
 
-    Core->>Ctrl: POST Webhook (AppKey: 123)
-    Ctrl->>Disp: dispatch(EventFrame)
-    Disp->>Store: getNodes(AppKey: 123)
-    Store-->>Disp: Result: [Node B]
-
-    Note right of Disp: 发现目标在远程节点
-    Disp->>P2P: forwardToNode(Node B, Frame)
-    P2P->>WS: (Internal HTTP) deliver(ClientID, Frame)
+    Web->>NodeA: POST Webhook
     
-    WS->>ISV: WS Push (JSON Payload)
-    ISV-->>WS: WS ACK (code: 200)
+    Note over NodeA: 1. 本地优先检查
+    NodeA->>NodeA: 检索本地 ConnectionManager
     
-    WS-->>P2P: 200 OK (Internal Response)
-    P2P-->>Disp: Success
-    Disp-->>Ctrl: Success
-    Ctrl-->>Core: HTTP 200 OK
+    alt 本地命中
+        NodeA->>Client: 直接推送
+    else 本地缺失
+        Note over NodeA: 2. 集群路由查询
+        NodeA->>Redis: getNodes(AppKey)
+        Redis-->>NodeA: [Node B, Node C]
+        
+        Note over NodeA: 3. P2P 重试单播
+        NodeA->>NodeB: P2P Forward (Attempt 1)
+        
+        alt 转发成功
+            NodeB->>Client: 本地广播推送
+            Client-->>NodeB: ACK
+            NodeB-->>NodeA: 200 OK
+        else Node B 故障/超时
+            NodeA->>NodeA: 尝试路由池中下一个节点
+        end
+    end
+    
+    NodeA-->>Web: HTTP 200 OK
 ```
 
 ---
 
-## 4. 关键设计约束
+## 4. 设计约束
 
-1.  **无环依赖**：禁止出现 `core` 依赖 `server` 的情况。如果 `core` 需要给 `server` 发指令（如强制断开连接），应通过事件总线或 API 定义的 `IConnectionManager` 接口。
-2.  **线程模型**：在 `server` 接入层，所有的 Controller 和 WebSocket Handler 均运行在 Java 21 **Virtual Threads** 上。这意味着在 `core` 逻辑中可以放心使用阻塞式的接口调用（如同步查询 Redis），而无需使用回调。
-3.  **异常透传**：`infra` 层的中间件异常（如 Redis 连接断开）必须包装为 `connector-common` 中定义的领域异常（如 `StoreUnavailableException`），以便 `core` 层进行熔断处理。
+1.  **NodeId 动态性**: `nodeId` 严禁在代码中写死，必须由 `NodeIdResolver` 在启动时动态生成（IP:Port 格式），以适配 K8s 环境。
+2.  **配置刷新**: `ConnectorProperties` 必须支持 `@RefreshScope`，以确保 `internal-tokens` 在 Nacos 变更后实时生效。
+3.  **线程模型**: 系统强制运行在 **Java 21 Virtual Threads**。禁止在 IO 密集型逻辑（如分发循环）中使用 `synchronized`，优先使用 `ReentrantLock` 以避免载体线程锚定。
+
+---
+**更新日期**: 2026-03-19

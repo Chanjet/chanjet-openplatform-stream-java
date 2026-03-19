@@ -2,80 +2,46 @@
 
 ## 1. Redis 键设计 (Redis Schema)
 
-网关集群通过 Redis Cluster 共享路由信息及鉴权状态。
+网关集群通过 Redis 共享路由信息及鉴权状态。所有 Key 统一使用 `cjt:gw:` 前缀。
 
 ### 1.1 路由表 (Route Table)
-- **Key**: `route:{AppKey}`
+- **Key**: `cjt:gw:route:{AppKey}`
 - **Type**: `Set`
-- **Value**: `{node_ip}:{client_id}`
-- **TTL**: 60s (由 WsManager 每 20s 自动续期)
-- **用途**: 判断目标连接所在的物理节点。
+- **Value**: `{nodeId}:{clientId}`
+- **示例**: `10.1.168.98:8080:p2p-test-client`
+- **TTL**: 60s (由服务端心跳自动续期)
+- **用途**: 支撑 P2P 跨节点消息转发与寻址。
 
 ### 1.2 鉴权挑战 (Nonce)
-- **Key**: `nonce:{uuid}`
+- **Key**: `cjt:gw:nonce:{UUID}`
 - **Type**: `String`
 - **Value**: `{AppKey}`
 - **TTL**: 30s
 - **用途**: 握手协议中的挑战令牌，单次有效。
 
-### 1.3 首次失败计时器 (Fail Start)
-- **Key**: `fail_start:{AppKey}`
+### 1.3 首次失败计时器 (Fail Store)
+- **Key**: `cjt:gw:fail_start:{AppKey}`
 - **Type**: `String`
 - **Value**: `{Timestamp}`
 - **TTL**: 1h
-- **用途**: 记录客户端全量离线后的首条消息到达时间，用于判断 30 分钟容忍期。
-
-### 1.4 消息幂等 (Deduplication)
-- **Key**: `dedup:{X-MSG-ID}`
-- **Type**: `String`
-- **Value**: `1`
-- **TTL**: 10m
-- **用途**: 网关层可选去重，防止 Core 重复投递（如网络抖动）。
-
-### 1.5 鉴权失败计数器 (Auth Failure Counter)
-- **Key**: `auth_fail:{IP}`
-- **Type**: `String`
-- **Value**: `Count`
-- **TTL**: 5m
-- **用途**: 防暴力破解。5 分钟内失败 5 次封禁 IP。
+- **用途**: 记录客户端全量离线后的首条消息到达时间，驱动 30 分钟容忍期自愈逻辑。
 
 ## 2. 状态机设计 (State Machine)
 
-针对每个 AppKey，其在网关系统中的推送状态如下：
+针对每个 AppKey，其在系统中的推送状态由 `ToleranceManager` 维护：
 
-### 2.1 状态迁移图
+### 2.1 状态迁移说明
+- **Online**: Redis 路由表不为空。网关执行分发。
+- **InTolerance (30min)**: 路由为空且 Webhook 到达。网关返回 503，触发计时。
+- **Suspended**: 超过 30 分钟无连接。网关通知 Core 停止向 Webhook 地址发送消息（挂载到离线池）。
+- **Recovery**: 只要有任一客户端重连，立即通知 Core 恢复推送并补发积压消息。
 
-```mermaid
-stateDiagram-v2
-    [*] --> Online: 任一客户端成功连接
-    Online --> Waiting: 所有客户端断开 & Webhook 到达
-    
-    state Waiting {
-        [*] --> InTolerance: 检查 fail_start < 30min
-        InTolerance --> InTolerance: Webhook 持续到达 (返回 503)
-        InTolerance --> Suspended: 超过 30min (调用 DisablePush)
-    }
+## 3. 并发限流模型 (Resilience)
 
-    Waiting --> Online: 任一客户端重连 (调用 EnablePush)
-    Suspended --> Online: 任一客户端重连 (调用 EnablePush)
-    Online --> [*]: 应用禁用/销毁
-```
+采用基于 **令牌桶 (Token Bucket)** 算法的内存级限流：
 
-### 2.2 状态判定规则
+- **单节点最大并发**: 默认 5000。超过则返回 `503 NODE_OVERLOAD`。
+- **单应用最大并发**: 默认 100。超过则返回 `429 TENANT_LIMITED`。
 
-| 状态 | 条件 | 网关对 Webhook 的响应 |
-| --- | --- | --- |
-| **Online** | Redis `route:{AppKey}` 有效 | 200 OK (转发并等待 ACK) |
-| **Waiting** | 路由为空，且 `Now - fail_start < 30min` | 503 Service Unavailable |
-| **Suspended** | 路由为空，且 `Now - fail_start >= 30min` | 503 (且已通知 Core 停止推送) |
-
-## 3. 内存背压保护 (Backpressure)
-
-网关节点需维护本地内存级计数器：
-
-- **单机最大挂起请求数**: `node_concurrent_requests` (默认 5000)。
-- **单租户最大并发数**: `app_concurrent_requests` (默认 100)。
-
-**溢出策略**：
-- 节点级溢出：返回 HTTP 503 (系统过载)。
-- 租户级溢出：返回 HTTP 429 (Too Many Requests)。
+---
+**更新日期**: 2026-03-19
