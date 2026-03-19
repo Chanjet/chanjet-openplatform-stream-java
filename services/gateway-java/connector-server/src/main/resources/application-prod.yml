@@ -1,0 +1,32 @@
+# 生产环境 (Production)
+connector:
+  node-id: ${spring.cloud.client.ip-address}:8080
+
+services:
+  auth:
+    id: cjt-auth-service
+  subscription:
+    id: cjt-subscription-manager
+
+spring:
+  data:
+    redis:
+      cluster:
+        nodes: 10.0.1.1:6379,10.0.1.2:6379,10.0.1.3:6379,10.0.1.4:6379
+      password: ${REDIS_PASSWORD} # 生产环境强制使用环境变量注入密码
+      lettuce:
+        pool:
+          max-active: 500 # 生产环境调大连接池
+          max-idle: 100
+          max-wait: 2000ms
+  cloud:
+    nacos:
+      discovery:
+        server-addr: nacos-prod.chanjet.com:8848
+        namespace: prod-namespace-uuid
+
+logging:
+  level:
+    com.chanjet.connector: INFO # 生产环境仅保留 INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n" # 结构化日志

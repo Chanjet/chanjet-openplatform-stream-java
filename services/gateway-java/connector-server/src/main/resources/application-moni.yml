@@ -1,0 +1,24 @@
+# 模拟/演练环境 (Simulation / Pre-Prod)
+connector:
+  node-id: ${spring.cloud.client.ip-address}:8080
+
+services:
+  auth:
+    id: cjt-auth-service-moni
+  subscription:
+    id: cjt-sub-manager-moni
+
+spring:
+  data:
+    redis:
+      cluster:
+        nodes: redis-moni-01:6379,redis-moni-02:6379,redis-moni-03:6379
+  cloud:
+    nacos:
+      discovery:
+        server-addr: nacos-moni.chanjet.com:8848
+        namespace: moni-namespace-uuid
+
+logging:
+  level:
+    com.chanjet.connector: DEBUG # 模拟环境开启 Debug 日志方便排查

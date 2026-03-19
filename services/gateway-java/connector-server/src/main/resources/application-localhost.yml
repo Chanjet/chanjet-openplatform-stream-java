@@ -1,0 +1,19 @@
+# 本地开发环境 (Local Development)
+connector:
+  node-id: 127.0.0.1:8080
+
+services:
+  auth:
+    id: "" # 本地可置空，使用 Mock 或直连地址
+  subscription:
+    id: ""
+
+spring:
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+  cloud:
+    nacos:
+      discovery:
+        enabled: false # 本地开发通常不强制依赖 Nacos

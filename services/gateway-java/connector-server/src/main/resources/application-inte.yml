@@ -1,0 +1,20 @@
+# 集成测试环境 (Integration Test)
+connector:
+  node-id: ${spring.cloud.client.ip-address}:8080
+
+services:
+  auth:
+    id: cjt-auth-service-inte
+  subscription:
+    id: cjt-sub-manager-inte
+
+spring:
+  data:
+    redis:
+      cluster:
+        nodes: redis-inte-01:6379,redis-inte-02:6379
+  cloud:
+    nacos:
+      discovery:
+        server-addr: nacos-inte.chanjet.com:8848
+        namespace: inte-namespace-uuid
