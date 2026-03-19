@@ -2,6 +2,7 @@ package com.chanjet.connector.core.dispatcher;
 
 import com.chanjet.connector.api.connection.IConnectionManager;
 import com.chanjet.connector.api.connection.IP2PClient;
+import com.chanjet.connector.api.exception.NoOnlineClientException;
 import com.chanjet.connector.api.resilience.IResilienceManager;
 import com.chanjet.connector.api.store.ILoadBalancer;
 import com.chanjet.connector.api.store.IRouteStore;
@@ -42,10 +43,9 @@ public class MessageDispatcher {
     }
 
     public void dispatch(EventFrame frame) {
-        // 1. 背压与限流保护
         AcquisitionResult result = resilienceManager.tryAcquire(frame.appKey());
         if (result != AcquisitionResult.ALLOWED) {
-            // TODO: 在入口 Controller 中根据 result 返回对应 HTTP 状态码
+            // TODO: 后续可在 Controller 层处理限流异常映射
             return;
         }
 
@@ -53,7 +53,6 @@ public class MessageDispatcher {
         try {
             success = doDispatch(frame);
         } finally {
-            // 2. 释放许可并反馈结果
             resilienceManager.release(frame.appKey(), success);
         }
     }
@@ -63,13 +62,13 @@ public class MessageDispatcher {
         
         if (routes == null || routes.isEmpty()) {
             toleranceManager.handleFailure(frame.appKey(), System.currentTimeMillis());
-            return false;
+            throw new NoOnlineClientException(frame.appKey());
         }
 
         Optional<String> selectedRoute = loadBalancer.select(routes);
         if (selectedRoute.isEmpty()) {
             toleranceManager.handleFailure(frame.appKey(), System.currentTimeMillis());
-            return false;
+            throw new NoOnlineClientException(frame.appKey());
         }
 
         String route = selectedRoute.get();
@@ -83,7 +82,7 @@ public class MessageDispatcher {
             return connectionManager.push(clientId, frame);
         } else {
             p2pClient.forward(targetNodeId, frame);
-            return true; // 假设转发发起即为逻辑成功，具体的转发失败由 P2P 层处理
+            return true;
         }
     }
 }
