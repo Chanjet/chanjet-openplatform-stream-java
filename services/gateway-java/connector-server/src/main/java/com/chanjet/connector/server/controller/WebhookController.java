@@ -56,15 +56,20 @@ public class WebhookController {
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody EventFrame frame) {
         
-        // 校验令牌是否在合法列表中
+        // 校验令牌
         if (!properties.isValidToken(token)) {
+            org.slf4j.LoggerFactory.getLogger(WebhookController.class)
+                .error("P2P Auth Failed. Received: [{}], Expected one of: {}", token, properties.getInternalTokens());
             throw new InvalidInternalTokenException();
         }
 
-        String targetId = (frame.targetClientId() != null) ? 
-                frame.targetClientId() : 
-                (frame.appKey() + "@local");
-        
-        connectionManager.push(targetId, frame);
+        // 如果指定了具体 ClientId 则精确推送，否则对该 AppKey 进行本地广播
+        if (frame.targetClientId() != null) {
+            connectionManager.push(frame.targetClientId(), frame);
+        } else {
+            // 查找本地所有匹配 AppKey 的连接并推送
+            connectionManager.getClientsByAppKey(frame.appKey())
+                .forEach(clientId -> connectionManager.push(clientId, frame));
+        }
     }
 }

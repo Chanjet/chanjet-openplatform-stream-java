@@ -60,4 +60,12 @@ public class LocalConnectionManager implements IConnectionManager {
             } catch (IOException ignored) {}
         });
     }
+
+    @Override
+    public java.util.List<String> getClientsByAppKey(String appKey) {
+        return sessionRegistry.getAllSessions().entrySet().stream()
+                .filter(entry -> appKey.equals(entry.getValue().getAttributes().get("appKey")))
+                .map(java.util.Map.Entry::getKey)
+                .toList();
+    }
 }

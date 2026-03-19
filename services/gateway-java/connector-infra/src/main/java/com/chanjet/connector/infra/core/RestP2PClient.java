@@ -21,7 +21,16 @@ public class RestP2PClient implements IP2PClient {
 
     @Override
     public void forward(String targetNodeId, EventFrame frame) {
-        String url = String.format("http://%s/internal/v1/p2p/push", targetNodeId);
+        // 防御性检查：确保 targetNodeId 包含端口，防止默认解析到 80
+        String host = targetNodeId;
+        if (!host.startsWith("http")) {
+            host = "http://" + host;
+        }
+        
+        String url = host + "/internal/v1/p2p/push";
+        
+        org.slf4j.LoggerFactory.getLogger(RestP2PClient.class)
+            .info("Initiating P2P Forward: [{}] -> [{}]", frame.msgId(), url);
 
         restClient.post()
                 .uri(url)

@@ -8,7 +8,9 @@ spring:
     active: localhost # 默认激活本地环境
 
 connector:
-  internal-token: ${GATEWAY_INTERNAL_TOKEN:cjt-default-token} # 内部 P2P 通讯令牌
+  internal-tokens: 
+    - cjt-default-internal-token
+  internal-token: cjt-default-internal-token # 向后兼容
 
 management:
   server:

@@ -44,6 +44,10 @@ public class WsSessionRegistry {
         return Optional.ofNullable(sessions.get(clientId));
     }
 
+    public Map<String, WebSocketSession> getAllSessions() {
+        return java.util.Collections.unmodifiableMap(sessions);
+    }
+
     /**
      * 每 10 秒发送一次应用级 Ping。
      */

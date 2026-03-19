@@ -12,6 +12,7 @@ import com.chanjet.connector.infra.core.RestP2PClient;
 import com.chanjet.connector.infra.redis.RedisFailStore;
 import com.chanjet.connector.infra.redis.RedisNonceStore;
 import com.chanjet.connector.infra.redis.RedisRouteStore;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,24 +41,38 @@ public class InfraConfig {
         return new RedisFailStore(redisTemplate);
     }
 
+    /**
+     * 用于微服务调用的负载均衡 Builder。
+     */
     @Bean
     @org.springframework.cloud.client.loadbalancer.LoadBalanced
-    public RestClient.Builder restClientBuilder() {
+    @Qualifier("loadBalancedRestClientBuilder")
+    public RestClient.Builder loadBalancedRestClientBuilder() {
+        return RestClient.builder();
+    }
+
+    /**
+     * 用于 P2P 直连调用的普通 Builder。
+     */
+    @Bean
+    @Qualifier("directRestClientBuilder")
+    public RestClient.Builder directRestClientBuilder() {
         return RestClient.builder();
     }
 
     @Bean
     @Primary
     public RemoteCjtCoreAdapter remoteCjtCoreAdapter(
-            RestClient.Builder restClientBuilder,
+            @Qualifier("loadBalancedRestClientBuilder") RestClient.Builder restClientBuilder,
             @Value("${services.auth.id}") String authServiceId,
             @Value("${services.subscription.id}") String subServiceId) {
         return new RemoteCjtCoreAdapter(restClientBuilder.build(), authServiceId, subServiceId);
     }
 
     @Bean
-    public IP2PClient p2pClient(RestClient.Builder restClientBuilder, ConnectorProperties properties) {
-        // 传入 properties 以便获取 Primary Token
-        return new RestP2PClient(restClientBuilder.build(), properties);
+    public IP2PClient p2pClient(ConnectorProperties properties) {
+        // 彻底隔离：手动创建 Builder 以避开 Spring Cloud 的全局拦截器
+        RestClient directClient = RestClient.builder().build();
+        return new RestP2PClient(directClient, properties);
     }
 }
