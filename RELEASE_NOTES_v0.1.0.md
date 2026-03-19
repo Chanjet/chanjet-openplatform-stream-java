@@ -21,43 +21,76 @@
 - 确保 Redis (单机或集群) 可用。
 - 确保 Nacos 注册中心已启动并完成服务注册。
 
-### 3.2 核心应用配置 (`application.yml`)
+### 3.2 注册中心与微服务配置 (`application.yml`)
+
+#### 场景 A：使用 Nacos (推荐)
 ```yaml
 spring:
-  threads:
-    virtual:
-      enabled: true  # 必须开启，以支持高并发阻塞 I/O
-
-connector:
-  node-id: ${spring.cloud.client.ip-address}:${server.port} # 节点在集群中的唯一标识
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 127.0.0.1:8848
+        namespace: public
 
 services:
   auth:
-    id: cjt-auth-service        # 提供签名验证能力的微服务名
+    id: cjt-auth-service        # 自动通过 Nacos 发现服务
   subscription:
-    id: cjt-subscription-manager # 提供推送状态控制能力的微服务名
+    id: cjt-subscription-manager
 ```
 
-### 3.3 Redis 存储配置
-网关使用 Redis 存储路由表、Nonce 和失败计时器。支持以下配置模式：
+#### 场景 B：不使用 Nacos (本地静态路由降级)
+若内网环境无 Nacos，可关闭服务发现并手动指定物理地址：
+```yaml
+spring:
+  cloud:
+    discovery:
+      enabled: false
 
-**单机模式示例：**
+services:
+  auth:
+    id: "" # 置空则不使用 ServiceId 路由
+  subscription:
+    id: ""
+
+# 配合环境变量或启动参数直接指定 BaseUrl (需自定义 RestClient 配置)
+```
+
+### 3.3 Redis 存储详细配置
+网关支持多种 Redis 拓扑结构：
+
+**1. 单机或主从模式：**
 ```yaml
 spring.data.redis:
   host: 127.0.0.1
   port: 6379
   password: your-password
-  lettuce:
-    pool:
-      max-active: 100 # 建议根据并发量调大连接池
 ```
 
-**集群模式示例：**
+**2. 哨兵模式 (Sentinel)：**
+```yaml
+spring.data.redis:
+  sentinel:
+    master: mymaster
+    nodes: 10.0.0.1:26379,10.0.0.2:26379
+```
+
+**3. 集群模式 (Cluster)：**
 ```yaml
 spring.data.redis:
   cluster:
     nodes: 10.0.0.1:6379,10.0.0.2:6379,10.0.0.3:6379
-  password: your-password
+```
+
+**4. Lettuce 连接池调优 (高并发建议)：**
+```yaml
+spring.data.redis:
+  lettuce:
+    pool:
+      max-active: 200
+      max-idle: 50
+      min-idle: 10
+      max-wait: 1000ms
 ```
 
 **关键 Key 说明：**
