@@ -33,6 +33,14 @@ build-java:
 		echo "Skipping: services/gateway-java/pom.xml not found."; \
 	fi
 
+build-sdk:
+	@echo "Building Java SDK..."
+	@if [ -f sdk/java/pom.xml ]; then \
+		cd sdk/java && mvn clean install; \
+	else \
+		echo "Skipping: sdk/java/pom.xml not found."; \
+	fi
+
 test:
 	@echo "Running all tests..."
 	@# TODO: Add cross-language test execution
