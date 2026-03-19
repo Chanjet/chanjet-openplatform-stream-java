@@ -10,6 +10,7 @@ import com.chanjet.connector.core.dispatcher.MessageDispatcher;
 import com.chanjet.connector.core.loadbalance.RandomLoadBalancer;
 import com.chanjet.connector.core.resilience.InMemResilienceManager;
 import com.chanjet.connector.core.state.ToleranceManager;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,6 +19,12 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class AppConfig {
+
+    @Bean
+    @RefreshScope // 支持动态刷新
+    public ConnectorProperties connectorProperties() {
+        return new ConnectorProperties();
+    }
 
     @Bean
     public ILoadBalancer loadBalancer() {
@@ -38,8 +45,7 @@ public class AppConfig {
             ILoadBalancer loadBalancer,
             ToleranceManager toleranceManager,
             IResilienceManager resilienceManager) {
-        // 从 ConnectorProperties 统一获取 nodeId
-        return new MessageDispatcher(properties.nodeId(), routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager);
+        return new MessageDispatcher(properties.getNodeId(), routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager);
     }
 
     @Bean
