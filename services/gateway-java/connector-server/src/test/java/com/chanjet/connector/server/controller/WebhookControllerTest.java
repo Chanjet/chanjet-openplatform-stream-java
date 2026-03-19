@@ -23,6 +23,9 @@ class WebhookControllerTest {
     @MockBean
     private MessageDispatcher messageDispatcher;
 
+    @MockBean
+    private com.chanjet.connector.api.connection.IConnectionManager connectionManager;
+
     @Test
     void shouldReturn200WhenDispatchSucceeds() throws Exception {
         mockMvc.perform(post("/internal/v1/webhook/dispatch")

@@ -48,7 +48,7 @@ public class InfraConfig {
     }
 
     @Bean
-    public IP2PClient p2pClient() {
-        return (node, frame) -> {}; 
+    public IP2PClient p2pClient(RestClient.Builder restClientBuilder) {
+        return new com.chanjet.connector.infra.core.RestP2PClient(restClientBuilder.build());
     }
 }
