@@ -70,4 +70,7 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+    <build>
+        <finalName>connector-sdk-java</finalName>
+    </build>
 </project>
