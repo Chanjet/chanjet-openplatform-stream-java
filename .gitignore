@@ -29,3 +29,4 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+services/gateway-java/connector-server/src/main/resources/application-local-private.yml
