@@ -7,9 +7,11 @@ import com.chanjet.connector.common.protocol.EventFrame;
  */
 public interface IP2PClient {
     /**
-     * 转发消息至指定节点。
+     * 将数据帧转发至指定网关节点。
      * @param targetNodeId 目标节点 ID (ip:port)
-     * @param frame 数据帧
+     * @param frame 待转发的数据帧
+     * @return 转发是否成功（目标节点成功接收并响应 200）
      */
-    void forward(String targetNodeId, EventFrame frame);
-}
+    boolean forward(String targetNodeId, EventFrame frame);
+    }
+

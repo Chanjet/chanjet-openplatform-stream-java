@@ -3,6 +3,8 @@ package com.chanjet.connector.infra.core;
 import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.common.protocol.EventFrame;
 import com.chanjet.connector.api.config.ConnectorProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
@@ -11,6 +13,7 @@ import org.springframework.web.client.RestClient;
  */
 public class RestP2PClient implements IP2PClient {
 
+    private static final Logger log = LoggerFactory.getLogger(RestP2PClient.class);
     private final RestClient restClient;
     private final ConnectorProperties properties;
 
@@ -20,8 +23,7 @@ public class RestP2PClient implements IP2PClient {
     }
 
     @Override
-    public void forward(String targetNodeId, EventFrame frame) {
-        // 防御性检查：确保 targetNodeId 包含端口，防止默认解析到 80
+    public boolean forward(String targetNodeId, EventFrame frame) {
         String host = targetNodeId;
         if (!host.startsWith("http")) {
             host = "http://" + host;
@@ -29,15 +31,25 @@ public class RestP2PClient implements IP2PClient {
         
         String url = host + "/internal/v1/p2p/push";
         
-        org.slf4j.LoggerFactory.getLogger(RestP2PClient.class)
-            .info("Initiating P2P Forward: [{}] -> [{}]", frame.msgId(), url);
+        // 获取当前跳数（从 Headers 获取，默认 0）
+        String hopCountStr = frame.headers().getOrDefault("X-GW-Hop-Count", "0");
+        int hopCount = Integer.parseInt(hopCountStr);
 
-        restClient.post()
-                .uri(url)
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("X-Internal-Token", properties.getPrimaryToken()) // 使用主令牌
-                .body(frame)
-                .retrieve()
-                .toBodilessEntity();
+        log.info("Initiating P2P Forward: [{}] -> [{}] (Hop: {})", frame.msgId(), url, hopCount);
+
+        try {
+            restClient.post()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-Internal-Token", properties.getPrimaryToken())
+                    .header("X-GW-Hop-Count", String.valueOf(hopCount + 1)) // 递增跳数
+                    .body(frame)
+                    .retrieve()
+                    .toBodilessEntity();
+            return true;
+        } catch (Exception e) {
+            log.warn("P2P Forward failed to {}: {}", targetNodeId, e.getMessage());
+            return false;
+        }
     }
 }
