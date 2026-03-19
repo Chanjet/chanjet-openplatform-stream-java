@@ -2,14 +2,13 @@ package com.chanjet.connector.server.websocket;
 
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.core.state.ToleranceManager;
+import com.chanjet.connector.server.config.NodeIdResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  * WebSocket 连接处理器，集成领域层逻辑。
@@ -24,11 +23,11 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     private final IRouteStore routeStore;
     private final ToleranceManager toleranceManager;
 
-    public DefaultWsHandler(@Value("${connector.node-id:127.0.0.1:8080}") String nodeId,
+    public DefaultWsHandler(NodeIdResolver nodeIdResolver,
                             WsSessionRegistry sessionRegistry,
                             IRouteStore routeStore,
                             ToleranceManager toleranceManager) {
-        this.nodeId = nodeId;
+        this.nodeId = nodeIdResolver.getResolvedNodeId();
         this.sessionRegistry = sessionRegistry;
         this.routeStore = routeStore;
         this.toleranceManager = toleranceManager;
@@ -75,19 +74,10 @@ public class DefaultWsHandler extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession session, org.springframework.web.socket.TextMessage message) {
-        String clientId = getQueryParam(session, "client_id");
+        String clientId = (String) session.getAttributes().get("clientId");
         if (clientId != null) {
             sessionRegistry.updateActiveTime(clientId);
         }
-        // TODO: 处理业务 ACK 逻辑
-    }
-
-    private String getQueryParam(WebSocketSession session, String name) {
-        if (session.getUri() == null) return null;
-        return UriComponentsBuilder.fromUri(session.getUri())
-                .build()
-                .getQueryParams()
-                .getFirst(name);
     }
 
     private void closeSilently(WebSocketSession session) {

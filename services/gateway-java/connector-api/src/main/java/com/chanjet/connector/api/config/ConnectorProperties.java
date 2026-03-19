@@ -7,11 +7,15 @@ import java.util.List;
  * 网关核心配置项，支持动态刷新。
  */
 public class ConnectorProperties {
+    /** 内部 P2P 通讯令牌列表 */
     private List<String> internalTokens = new ArrayList<>();
+    /** 
+     * 节点物理标识 (ip:port)。
+     * 选填：若不配置，系统将根据运行时环境自动探测并生成。
+     */
     private String nodeId;
 
     public ConnectorProperties() {
-        // 初始化时包含系统级默认令牌
         this.internalTokens.add("cjt-default-internal-token");
     }
 
@@ -50,7 +54,6 @@ public class ConnectorProperties {
 
     public boolean isValidToken(String token) {
         if (token == null) return false;
-        // 允许硬编码的兜底令牌，确保本地开发环境下 P2P 永远可用
         if ("cjt-default-internal-token".equals(token)) return true;
         return internalTokens != null && internalTokens.contains(token);
     }

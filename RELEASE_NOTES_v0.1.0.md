@@ -35,7 +35,7 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `server.port` | 业务服务监听端口 | Integer | 8080 | 否 | 用于 Webhook 和 WS 建连 |
 | `management.server.port` | 管理端点监听端口 | Integer | 8081 | 否 | 用于健康检查，建议与业务隔离 |
-| `connector.node-id` | 当前节点唯一标识 | String | 无 | **是** | 格式 `ip:port`，用于 P2P 寻址 |
+| `connector.node-id` | 当前节点唯一标识 | String | 自动生成 | 否 | 格式 `ip:port`，K8s 下建议留空以使用自动发现 |
 | `connector.internal-tokens` | 内部 P2P 认证令牌列表 | List | 无 | **是** | 第一个元素作为发送主令牌 |
 | `services.auth.id` | 鉴权微服务名称 | String | 无 | 否 | Nacos 注册名。为空则进入 Mock 模式 |
 | `services.subscription.id` | 订阅管理微服务名称 | String | 无 | 否 | 用于同步推送开启/挂起状态 |

@@ -21,7 +21,7 @@ import org.springframework.context.annotation.Configuration;
 public class AppConfig {
 
     @Bean
-    @RefreshScope // 支持动态刷新
+    @RefreshScope
     public ConnectorProperties connectorProperties() {
         return new ConnectorProperties();
     }
@@ -38,14 +38,15 @@ public class AppConfig {
 
     @Bean
     public MessageDispatcher messageDispatcher(
-            ConnectorProperties properties,
+            NodeIdResolver nodeIdResolver,
             IRouteStore routeStore,
             IConnectionManager connectionManager,
             IP2PClient p2pClient,
             ILoadBalancer loadBalancer,
             ToleranceManager toleranceManager,
             IResilienceManager resilienceManager) {
-        return new MessageDispatcher(properties.getNodeId(), routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager);
+        
+        return new MessageDispatcher(nodeIdResolver.getResolvedNodeId(), routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager);
     }
 
     @Bean
