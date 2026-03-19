@@ -64,8 +64,17 @@ Core 通过此接口向网关投递 Webhook。
 
 ## 4. 依赖 Core 的外部验证接口 (Auth Proxy)
 
-网关调用 Core 提供的验证接口：
+网关调用 Core 提供的验证接口，以实现 No-Secret 鉴权：
 
-- `POST /internal/v1/auth/verify-preauth` (HMAC 前缀校验)
-- `POST /internal/v1/auth/verify-sign` (完整签名校验)
-- `PATCH /internal/v1/subscriptions/{app_key}/push-status` (推送状态切换)
+### 4.1 Nonce 申请预校验
+- **Endpoint**: `POST /internal/v1/auth/verify-preauth`
+- **Body**: `{"app_key": "...", "pre_auth_prefix": "..."}`
+- **Response**: `{"valid": boolean}`
+
+### 4.2 握手签名验证
+- **Endpoint**: `POST /internal/v1/auth/verify-sign`
+- **Body**: `{"app_key": "...", "nonce": "...", "sign": "..."}`
+- **Response**: `{"valid": boolean}`
+
+### 4.3 推送状态切换
+- **Endpoint**: `PATCH /internal/v1/subscriptions/{app_key}/push-status`

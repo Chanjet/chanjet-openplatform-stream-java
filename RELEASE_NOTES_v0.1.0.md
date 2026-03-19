@@ -58,7 +58,24 @@ spring.data.redis:
 
 ---
 
-## 4. ISV Java SDK 使用说明 (SDK Usage)
+## 4. 安全与鉴权指引 (Security & Auth)
+
+网关采用 **No-Secret (零信任)** 架构，ISV 的 `AppSecret` 严禁离开其本地受控环境。
+
+### 4.1 鉴权两阶段
+1. **阶段一：Nonce 申请 (PreAuth)**
+   - ISV 需在 Header 中携带 `X-CJT-PreAuth`。
+   - **算法**: `HMAC_SHA256(app_key, AppSecret)` 的前 16 位小写十六进制。
+   - **目的**: 验证应用合法性并防止 DDoS。
+
+2. **阶段二：WebSocket 握手 (Sign)**
+   - ISV 需在连接 URL 中携带 `nonce` 和 `sign`。
+   - **算法**: `HMAC_SHA256(app_key + "&" + nonce, AppSecret)` 的完整小写十六进制。
+   - **目的**: 确认连接请求持有者拥有对应应用的控制权。
+
+---
+
+## 5. ISV Java SDK 使用说明 (SDK Usage)
 
 ### 4.1 引入依赖
 ```xml
