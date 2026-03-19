@@ -2,7 +2,9 @@
 
 PROJECT_NAME := open-streaming-connector
 VERSION := 0.1.0
-MAVEN_SETTINGS := .mvn/settings.xml
+# 使用绝对路径确保子目录调用有效
+ROOT_DIR := $(shell pwd)
+MAVEN_SETTINGS := $(ROOT_DIR)/.mvn/settings.xml
 MVN := mvn -s $(MAVEN_SETTINGS)
 
 .PHONY: help init build-java build-sdk clean test proto
@@ -20,7 +22,7 @@ help:
 
 init:
 	@echo "Initializing Monorepo for $(PROJECT_NAME)..."
-	@mkdir -p proto/internal proto/gateway services/gateway-java sdk/java sdk/python infra/docker infra/k8s scripts
+	@mkdir -p proto/internal proto/gateway services/gateway-java sdk/java sdk/python scripts .mvn
 	@echo "Done."
 
 proto:
