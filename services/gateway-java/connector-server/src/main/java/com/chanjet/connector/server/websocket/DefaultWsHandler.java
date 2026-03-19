@@ -36,8 +36,9 @@ public class DefaultWsHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        String clientId = getQueryParam(session, "client_id");
-        String appKey = getQueryParam(session, "app_key");
+        log.info("Handshake Attributes: {}", session.getAttributes());
+        String clientId = (String) session.getAttributes().get("clientId");
+        String appKey = (String) session.getAttributes().get("appKey");
 
         if (clientId != null && appKey != null) {
             // 1. 注册本地会话
@@ -58,8 +59,8 @@ public class DefaultWsHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        String clientId = getQueryParam(session, "client_id");
-        String appKey = getQueryParam(session, "app_key");
+        String clientId = (String) session.getAttributes().get("clientId");
+        String appKey = (String) session.getAttributes().get("appKey");
 
         if (clientId != null && appKey != null) {
             // 1. 注销本地会话

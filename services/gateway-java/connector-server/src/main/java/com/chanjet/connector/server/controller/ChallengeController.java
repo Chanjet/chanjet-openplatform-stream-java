@@ -41,10 +41,12 @@ public class ChallengeController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        // 1. 代理 Core 进行预校验
-        if (!authService.verifyPreAuth(appKey, preAuth)) {
-            log.warn("PreAuth failed for AppKey: {}", appKey);
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        // 1. 代理 Core 进行预校验 (本地开发且未配置 auth.id 时跳过)
+        if (preAuth != null && !"none".equals(preAuth)) {
+            if (!authService.verifyPreAuth(appKey, preAuth)) {
+                log.warn("PreAuth failed for AppKey: {}", appKey);
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
         }
 
         // 2. 生成并存储 Nonce

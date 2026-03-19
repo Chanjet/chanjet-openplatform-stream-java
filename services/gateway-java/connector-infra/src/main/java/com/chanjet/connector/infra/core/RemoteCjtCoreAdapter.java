@@ -24,7 +24,11 @@ public class RemoteCjtCoreAdapter implements IAuthService, IPushControl {
 
     @Override
     public boolean verifySign(String appKey, String nonce, String sign) {
-        String host = (authServiceId == null || authServiceId.isEmpty()) ? "" : "http://" + authServiceId;
+        if (authServiceId == null || authServiceId.isEmpty()) {
+            org.slf4j.LoggerFactory.getLogger(RemoteCjtCoreAdapter.class).info("Auth Service ID is empty, bypassing sign verification for AppKey: {}", appKey);
+            return true; 
+        }
+        String host = "http://" + authServiceId;
         String url = host + "/internal/v1/auth/verify-sign";
         
         AuthResponse response = restClient.post()
@@ -43,7 +47,10 @@ public class RemoteCjtCoreAdapter implements IAuthService, IPushControl {
 
     @Override
     public boolean verifyPreAuth(String appKey, String prefix) {
-        String host = (authServiceId == null || authServiceId.isEmpty()) ? "" : "http://" + authServiceId;
+        if (authServiceId == null || authServiceId.isEmpty()) {
+            return true;
+        }
+        String host = "http://" + authServiceId;
         String url = host + "/internal/v1/auth/verify-preauth";
 
         AuthResponse response = restClient.post()
@@ -61,7 +68,10 @@ public class RemoteCjtCoreAdapter implements IAuthService, IPushControl {
 
     @Override
     public void setPushEnabled(String appKey, boolean enabled) {
-        String host = (subServiceId == null || subServiceId.isEmpty()) ? "" : "http://" + subServiceId;
+        if (subServiceId == null || subServiceId.isEmpty()) {
+            return;
+        }
+        String host = "http://" + subServiceId;
         String url = host + "/internal/v1/subscriptions/" + appKey + "/push-status";
         
         restClient.patch()

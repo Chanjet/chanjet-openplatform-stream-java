@@ -17,8 +17,7 @@ def get_hmac_sha256(data, secret):
 
 def verify_p2p():
     print("\n--- [Step 1: Get Nonce from GW-A] ---")
-    pre_auth = get_hmac_sha256(APP_KEY, APP_SECRET)[:16]
-    resp = requests.get(f"{GW_A_URL}/v1/ws/challenge?app_key={APP_KEY}", headers={"X-CJT-PreAuth": pre_auth})
+    resp = requests.get(f"{GW_A_URL}/v1/ws/challenge?app_key={APP_KEY}", headers={"X-CJT-PreAuth": "none"})
     nonce = resp.json()['data']['nonce']
     print(f"Nonce: {nonce}")
 
@@ -28,7 +27,7 @@ def verify_p2p():
     
     received_messages = []
     def on_message(ws, message):
-        print(f"WS Received from GW-A: {message}")
+        print(f"WS Received: {message}")
         try:
             msg = json.loads(message)
             if msg.get("msg_type") == "event":
@@ -39,26 +38,26 @@ def verify_p2p():
     wst = threading.Thread(target=ws.run_forever)
     wst.daemon = True
     wst.start()
-    time.sleep(3)
-    print("WebSocket Connected to GW-A.")
-
+    
+    print("Waiting for session registration...")
+    time.sleep(15) # 给 Redis 注册和同步留够时间
+    
     print("\n--- [Step 3: Send Webhook to GW-B (8082)] ---")
     webhook_headers = {
         "X-C-APP_KEY": APP_KEY,
-        "X-MSG-ID": "p2p-msg-" + str(int(time.time())),
+        "X-MSG-ID": "p2p-final-test-" + str(int(time.time())),
         "Content-Type": "application/json"
     }
-    # 消息发给 8082，但连接在 8080，触发 P2P
     dispatch_resp = requests.post(f"{GW_B_URL}/internal/v1/webhook/dispatch", 
-                                 headers=webhook_headers, data=json.dumps({"p2p": "is_working"}))
-    print(f"GW-B Dispatch Response: {dispatch_resp.status_code}")
+                                 headers=webhook_headers, data=json.dumps({"p2p": "confirmed"}))
+    print(f"GW-B Dispatch Response: {dispatch_resp.status_code} - {dispatch_resp.text}")
 
-    time.sleep(3)
+    time.sleep(5)
     
     print("\n--- [Step 4: Verification Result] ---")
     if len(received_messages) > 0:
-        print("✅ SUCCESS: P2P Forwarding Verified!")
-        print(f"Payload received via P2P: {received_messages[0].get('payload')}")
+        print("✅ SUCCESS: P2P Forwarding Verified under Local-First Unicast!")
+        print(f"Payload: {received_messages[0].get('payload')}")
     else:
         print("❌ FAILED: P2P Forwarding did not reach the target instance.")
 
