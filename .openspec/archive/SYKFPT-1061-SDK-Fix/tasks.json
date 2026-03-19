@@ -1,0 +1,14 @@
+[
+  {
+    "number": 1,
+    "category": "修复：消息包装结构",
+    "task": "修正 MessageDispatcher 解密逻辑 (TDD)",
+    "steps": [
+      { "step": "更新 MessageDispatcherTest，使用 {'encryptMsg': '...'} 结构模拟加密推送", "completed": false },
+      { "step": "修改 MessageDispatcher.dispatch 方法，支持从 encryptMsg 字段提取密文", "completed": false },
+      { "step": "移除对 X-CJT-Encryption 头的强依赖，默认尝试解密 encryptMsg", "completed": false },
+      { "step": "运行测试验证修正后的分发逻辑", "completed": false }
+    ],
+    "passes": false
+  }
+]

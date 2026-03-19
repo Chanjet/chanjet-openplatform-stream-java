@@ -48,6 +48,7 @@ public class GatewayClient {
     private volatile boolean connected = false;
     private volatile boolean running = false;
     private EventHandler eventHandler;
+    private MessageDispatcher messageDispatcher;
     private int attempt = 0;
 
     private GatewayClient(Builder builder) {
@@ -75,6 +76,14 @@ public class GatewayClient {
 
     public void onEvent(EventHandler handler) {
         this.eventHandler = handler;
+    }
+
+    /**
+     * 配置业务消息分发器。
+     * 配置后，SDK 将自动执行解密、验签并分发到具体的业务 Handler。
+     */
+    public void useDispatcher(MessageDispatcher dispatcher) {
+        this.messageDispatcher = dispatcher;
     }
 
     public synchronized void start() {
@@ -207,11 +216,16 @@ public class GatewayClient {
                 String msgType = root.path("msg_type").asText();
 
                 if ("event".equals(msgType)) {
-                    if (eventHandler != null) {
-                        EventFrame frame = objectMapper.treeToValue(root, EventFrame.class);
-                        boolean success = eventHandler.handle(frame);
-                        sendAck(frame.msgId(), success);
+                    EventFrame frame = objectMapper.treeToValue(root, EventFrame.class);
+                    boolean success = false;
+                    
+                    if (messageDispatcher != null) {
+                        success = messageDispatcher.dispatch(frame, appSecret);
+                    } else if (eventHandler != null) {
+                        success = eventHandler.handle(frame);
                     }
+                    
+                    sendAck(frame.msgId(), success);
                 } else if ("ping".equals(msgType)) {
                     webSocket.sendText("{\"msg_type\":\"pong\"}", true);
                 }

@@ -78,3 +78,25 @@ Core 通过此接口向网关投递 Webhook。
 
 ### 4.3 推送状态切换
 - **Endpoint**: `PATCH /internal/v1/subscriptions/{app_key}/push-status`
+
+## 5. SDK 业务接口规范 (Java SDK 增强)
+
+### 5.1 消息透明解密 (Requirement: 消息透明解密)
+当 `GatewayClient` 配置了 `appSecret` 时，SDK SHALL 能够对 `EventFrame.payload` 中 `encryptMsg` 字段包裹的内容执行解密。
+- **Wrapper Structure**: `{"encryptMsg": "BASE64_ENCRYPTED_DATA"}`
+- **Key**: `appSecret.substring(0, 16)`
+- **IV**: `appSecret.substring(16, 32)` (若长度不足 32 则取前 16 位)
+- **Algorithm**: `AES/CBC/PKCS5Padding`
+
+### 5.2 消息自动分发 (Requirement: 消息自动分发)
+SDK SHALL 提供 `MessageDispatcher`，允许 ISV 按消息类型注册 POJO 类型及处理器。
+- **Silent Ignore**: 收到未注册类型的消息时，SDK SHALL 打印警告日志并自动返回成功 (200 ACK)，以停止网关重试。
+- **Composite Key Support**: 对于好系列消息（`msgType: APP_NOTICE`），支持基于 `APP_NOTICE:boName[:transactionTypeEnum]` 的复合键分发。
+
+## 6. SDK 演示项目规范 (Java Demo)
+
+### 6.1 Java SDK Demo (Requirement: Java SDK Demo)
+项目 SHALL 提供官方的 `sdk/java-demo` 模块，用于演示 SDK 最佳实践，包括如何配置 `MessageDispatcher` 以及处理如 `manufactureOrderMsg`, `hsyProductMsg` (复合键), `appTicketMsg` 和 `entAuthCodeMsg` 等核心业务消息。
+
+### 6.2 业务模型 POJO 资产 (Requirement: 业务模型 POJO 资产)
+Demo 项目 SHALL 提供常用的畅捷通业务模型（继承自 `BaseMessage`）作为参考资产，以便 ISV 快速定义和扩展自定义业务消息。
