@@ -13,10 +13,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.time.Duration;
+import java.util.Random;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 畅捷通 Stream Gateway 客户端 SDK 主入口。
+ * 支持智能重连策略：区分故障退避与排队待命。
  */
 public class GatewayClient {
 
@@ -25,26 +30,41 @@ public class GatewayClient {
     private final String appKey;
     private final String appSecret;
     private final String gatewayUrl;
-    private final HttpClient httpClient;
+    private final String clientId;
+    private final IHttpProvider httpProvider;
     private final IConnectionProvider connectionProvider;
     private final ObjectMapper objectMapper = new ObjectMapper()
             .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
             .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "gateway-client-scheduler");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private final Random random = new Random();
     private WebSocket webSocket;
     private volatile boolean connected = false;
+    private volatile boolean running = false;
     private EventHandler eventHandler;
+    private int attempt = 0;
 
     private GatewayClient(Builder builder) {
         this.appKey = builder.appKey;
         this.appSecret = builder.appSecret;
         this.gatewayUrl = builder.gatewayUrl;
-        this.httpClient = HttpClient.newBuilder()
+        this.clientId = (builder.clientId != null) ? builder.clientId : (appKey + "@" + getHostname());
+        
+        HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
         
+        this.httpProvider = (builder.httpProvider != null) ? builder.httpProvider : 
+            (req) -> client.send(req, HttpResponse.BodyHandlers.ofString());
+
         this.connectionProvider = (builder.connectionProvider != null) ? builder.connectionProvider : 
-            (uri, listener) -> httpClient.newWebSocketBuilder()
+            (uri, listener) -> client.newWebSocketBuilder()
                     .connectTimeout(Duration.ofSeconds(10))
                     .buildAsync(uri, listener);
     }
@@ -57,51 +77,104 @@ public class GatewayClient {
         this.eventHandler = handler;
     }
 
-    public void start() {
-        try {
-            String nonce = fetchNonce();
-            String sign = SignUtils.hmacSha256(appKey + "&" + nonce, appSecret);
-            String connectUrl = gatewayUrl.replace("http://", "ws://").replace("https://", "wss://")
-                    + "/connect?app_key=" + appKey + "&nonce=" + nonce + "&sign=" + sign + "&client_id=" + appKey + "@local";
-
-            this.webSocket = connectionProvider.connect(URI.create(connectUrl), new InternalWebSocketListener()).join();
-            this.connected = true;
-            log.info("Successfully connected to Gateway.");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to start GatewayClient: " + e.getMessage(), e);
-        }
+    public synchronized void start() {
+        if (running) return;
+        this.running = true;
+        connectAsync();
     }
 
-    public void stop() {
+    public synchronized void stop() {
+        this.running = false;
         if (webSocket != null) {
             webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "SDK Stop");
         }
         this.connected = false;
+        scheduler.shutdown();
     }
 
     public boolean isConnected() {
         return connected;
     }
 
-    public String fetchNonce() {
+    private void connectAsync() {
+        if (!running) return;
+
+        scheduler.execute(() -> {
+            try {
+                log.info("Attempting to connect to Gateway (Attempt: {})...", attempt + 1);
+                
+                String nonce = fetchNonce();
+                if (nonce == null) return;
+
+                String sign = SignUtils.hmacSha256(appKey + "&" + nonce, appSecret);
+                
+                String connectUrl = gatewayUrl.replace("http://", "ws://").replace("https://", "wss://")
+                        + "/connect?app_key=" + appKey 
+                        + "&nonce=" + nonce 
+                        + "&sign=" + sign 
+                        + "&client_id=" + clientId;
+
+                this.webSocket = connectionProvider.connect(URI.create(connectUrl), new InternalWebSocketListener()).join();
+                this.connected = true;
+                this.attempt = 0; 
+                log.info("Successfully connected to Gateway.");
+            } catch (Exception e) {
+                log.error("Failed to connect: {}", e.getMessage());
+                handleReconnect(503); 
+            }
+        });
+    }
+
+    private String fetchNonce() {
         try {
             String url = gatewayUrl.replace("ws://", "http://").replace("wss://", "https://") 
                     + "/v1/ws/challenge?app_key=" + appKey;
-            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             
-            if (response.statusCode() != 200) {
-                throw new RuntimeException("Failed to fetch nonce: HTTP " + response.statusCode());
+            String signPrefix = SignUtils.hmacSha256(appKey, appSecret).substring(0, 16);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("X-CJT-PreAuth", signPrefix)
+                    .GET()
+                    .build();
+            
+            HttpResponse<String> response = httpProvider.send(request);
+            
+            if (response.statusCode() == 200) {
+                JsonNode root = objectMapper.readTree(response.body());
+                return root.path("data").path("nonce").asText();
+            } else {
+                log.warn("Fetch nonce failed with status: {}", response.statusCode());
+                handleReconnect(response.statusCode());
+                return null;
             }
-
-            JsonNode root = objectMapper.readTree(response.body());
-            return root.path("data").path("nonce").asText();
         } catch (Exception e) {
-            throw new RuntimeException("Error fetching nonce: " + e.getMessage(), e);
+            log.error("Error fetching nonce: {}", e.getMessage());
+            handleReconnect(503);
+            return null;
         }
     }
 
+    private void handleReconnect(int statusCode) {
+        if (!running) return;
+
+        long delay;
+        if (statusCode == 503 || statusCode == 429) {
+            delay = 5000 + random.nextInt(10000);
+            log.info("Gateway is busy (HTTP {}), entering STANDBY mode. Next attempt in {}ms", statusCode, delay);
+        } else if (statusCode == 401 || statusCode == 403) {
+            log.error("Authentication failed (HTTP {}). Permanent failure, stopping.", statusCode);
+            this.running = false;
+            return;
+        } else {
+            delay = Math.min(60000, 1000L * (long) Math.pow(2, attempt++));
+            log.info("Connection failed (HTTP {}), entering BACKOFF mode. Next attempt in {}ms", statusCode, delay);
+        }
+
+        scheduler.schedule(this::connectAsync, delay, TimeUnit.MILLISECONDS);
+    }
+
     private void sendAck(String msgId, boolean success) {
+        if (webSocket == null || !connected) return;
         try {
             AckFrame ack = new AckFrame(msgId, success ? 200 : 500, success ? "success" : "failed", System.currentTimeMillis());
             String json = objectMapper.writeValueAsString(ack);
@@ -111,9 +184,18 @@ public class GatewayClient {
         }
     }
 
+    private String getHostname() {
+        try {
+            return java.net.InetAddress.getLocalHost().getHostName();
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
     private class InternalWebSocketListener implements WebSocket.Listener {
         @Override
         public void onOpen(WebSocket webSocket) {
+            log.info("WebSocket Session opened.");
             WebSocket.Listener.super.onOpen(webSocket);
         }
 
@@ -131,7 +213,6 @@ public class GatewayClient {
                         sendAck(frame.msgId(), success);
                     }
                 } else if ("ping".equals(msgType)) {
-                    // 自动回传 Pong
                     webSocket.sendText("{\"msg_type\":\"pong\"}", true);
                 }
             } catch (Exception e) {
@@ -142,13 +223,21 @@ public class GatewayClient {
 
         @Override
         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+            log.warn("WebSocket closed: {} - {}", statusCode, reason);
             connected = false;
+            if (running) {
+                handleReconnect(statusCode == 1008 ? 403 : 503); 
+            }
             return WebSocket.Listener.super.onClose(webSocket, statusCode, reason);
         }
 
         @Override
         public void onError(WebSocket webSocket, Throwable error) {
+            log.error("WebSocket error: {}", error.getMessage());
             connected = false;
+            if (running) {
+                handleReconnect(503);
+            }
         }
     }
 
@@ -156,11 +245,15 @@ public class GatewayClient {
         private String appKey;
         private String appSecret;
         private String gatewayUrl;
+        private String clientId;
+        private IHttpProvider httpProvider;
         private IConnectionProvider connectionProvider;
 
         public Builder appKey(String appKey) { this.appKey = appKey; return this; }
         public Builder appSecret(String appSecret) { this.appSecret = appSecret; return this; }
         public Builder gatewayUrl(String gatewayUrl) { this.gatewayUrl = gatewayUrl; return this; }
+        public Builder clientId(String clientId) { this.clientId = clientId; return this; }
+        public Builder httpProvider(IHttpProvider provider) { this.httpProvider = provider; return this; }
         public Builder connectionProvider(IConnectionProvider provider) {
             this.connectionProvider = provider;
             return this;

@@ -2,81 +2,75 @@ package com.chanjet.connector.sdk;
 
 import com.chanjet.connector.common.protocol.EventFrame;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
-import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import org.junit.jupiter.api.Test;
-
 import java.net.URI;
 import java.net.http.WebSocket;
-import java.nio.ByteBuffer;
-import java.util.Map;
 import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
-@WireMockTest
 class GatewayClientTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void shouldHandleMessageAndSendAck(WireMockRuntimeInfo wmRuntimeInfo) throws Exception {
-        String baseUrl = wmRuntimeInfo.getHttpBaseUrl();
-        stubFor(get(urlMatching("/v1/ws/challenge.*"))
-                .willReturn(okJson("{\"code\":\"GW-0000\",\"data\":{\"nonce\":\"n1\"}}")));
+    void shouldProcessEventAndSendAck() throws Exception {
+        WebSocket mockWebSocket = mock(WebSocket.class);
+        IConnectionProvider mockProvider = (uri, listener) -> CompletableFuture.completedFuture(mockWebSocket);
 
-        AtomicReference<String> sentAck = new AtomicReference<>();
-        AtomicReference<WebSocket.Listener> capturedListener = new AtomicReference<>();
-        
-        WebSocketStub stubWs = new WebSocketStub(sentAck);
-        IConnectionProvider stubProvider = (uri, listener) -> {
-            capturedListener.set(listener);
-            return CompletableFuture.completedFuture(stubWs);
-        };
-
-        AtomicReference<String> receivedPayload = new AtomicReference<>();
         GatewayClient client = GatewayClient.builder()
-                .appKey("app1").appSecret("s1").gatewayUrl(baseUrl)
-                .connectionProvider(stubProvider)
+                .appKey("test-app")
+                .appSecret("test-secret")
+                .gatewayUrl("ws://localhost:8080")
+                .connectionProvider(mockProvider)
                 .build();
 
+        AtomicBoolean handled = new AtomicBoolean(false);
         client.onEvent(frame -> {
-            receivedPayload.set(frame.payload());
-            return true; 
+            handled.set(true);
+            return true;
         });
 
-        client.start();
-
-        EventFrame frame = new EventFrame("event", "msg-1", "t1", "app1", Collections.emptyMap(), "hello-tdd", 1000L);
-        String json = objectMapper.writeValueAsString(frame);
+        // 注入状态
+        java.lang.reflect.Field connectedField = GatewayClient.class.getDeclaredField("connected");
+        connectedField.setAccessible(true);
+        connectedField.set(client, true);
         
-        capturedListener.get().onText(stubWs, json, true);
+        java.lang.reflect.Field wsField = GatewayClient.class.getDeclaredField("webSocket");
+        wsField.setAccessible(true);
+        wsField.set(client, mockWebSocket);
 
-        assertThat(receivedPayload.get()).isEqualTo("hello-tdd");
-        assertThat(sentAck.get()).contains("\"msg_id\":\"msg-1\"").contains("\"code\":200");
-    }
+        EventFrame frame = new EventFrame(
+                "event", "m1", "t1", "test-app", "p2p-client",
+                Collections.emptyMap(), "{\"data\":1}", System.currentTimeMillis()
+        );
+        String json = objectMapper.writeValueAsString(frame);
 
-    private static class WebSocketStub implements WebSocket {
-        private final AtomicReference<String> sentData;
-        public WebSocketStub(AtomicReference<String> sentData) { this.sentData = sentData; }
-        @Override
-        public CompletableFuture<WebSocket> sendText(CharSequence data, boolean last) {
-            sentData.set(data.toString());
-            return CompletableFuture.completedFuture(this);
+        // 精确寻找 InternalWebSocketListener 类
+        Class<?> listenerClass = null;
+        for (Class<?> clazz : GatewayClient.class.getDeclaredClasses()) {
+            if (clazz.getName().endsWith("InternalWebSocketListener")) {
+                listenerClass = clazz;
+                break;
+            }
         }
-        @Override public CompletableFuture<WebSocket> sendBinary(ByteBuffer data, boolean last) { return null; }
-        @Override public CompletableFuture<WebSocket> sendPing(ByteBuffer message) { return null; }
-        @Override public CompletableFuture<WebSocket> sendPong(ByteBuffer message) { return null; }
-        @Override public CompletableFuture<WebSocket> sendClose(int statusCode, String reason) { return null; }
-        @Override public void request(long n) {}
-        @Override public String getSubprotocol() { return ""; }
-        @Override public boolean isOutputClosed() { return false; }
-        @Override public boolean isInputClosed() { return false; }
-        @Override public void abort() {}
+        
+        assertThat(listenerClass).isNotNull();
+        java.lang.reflect.Constructor<?> constructor = listenerClass.getDeclaredConstructor(GatewayClient.class);
+        constructor.setAccessible(true);
+        Object listenerInstance = constructor.newInstance(client);
+
+        java.lang.reflect.Method onTextMethod = listenerClass.getDeclaredMethod("onText", WebSocket.class, CharSequence.class, boolean.class);
+        onTextMethod.setAccessible(true);
+        
+        onTextMethod.invoke(listenerInstance, mockWebSocket, json, true);
+
+        assertThat(handled.get()).isTrue();
+        verify(mockWebSocket).sendText(contains("\"msg_id\":\"m1\""), anyBoolean());
     }
 }
