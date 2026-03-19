@@ -9,6 +9,7 @@ import java.util.Map;
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public record EventFrame(
+    String msgType, // "event"
     String msgId,
     String traceId,
     String appKey,

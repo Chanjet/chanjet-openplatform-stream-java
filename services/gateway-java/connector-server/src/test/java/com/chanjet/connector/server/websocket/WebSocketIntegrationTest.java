@@ -91,7 +91,7 @@ class WebSocketIntegrationTest {
 
         Thread.sleep(200);
         
-        EventFrame frame = new EventFrame("msg-1", "trace-1", "test-app", Map.of(), "hello", System.currentTimeMillis());
+        EventFrame frame = new EventFrame("event", "msg-1", "trace-1", "test-app", Map.of(), "hello", System.currentTimeMillis());
         boolean pushed = connectionManager.push(clientId, frame);
 
         assertThat(pushed).isTrue();

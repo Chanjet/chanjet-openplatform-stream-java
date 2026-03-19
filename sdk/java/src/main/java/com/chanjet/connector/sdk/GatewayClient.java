@@ -27,7 +27,9 @@ public class GatewayClient {
     private final String gatewayUrl;
     private final HttpClient httpClient;
     private final IConnectionProvider connectionProvider;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     
     private WebSocket webSocket;
     private volatile boolean connected = false;
@@ -119,17 +121,18 @@ public class GatewayClient {
         public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
             String text = data.toString();
             try {
-                // 1. 判断消息类型
                 JsonNode root = objectMapper.readTree(text);
-                
-                // 2. 只有 event 类型才触发回调
-                if (eventHandler != null) {
-                    EventFrame frame = objectMapper.treeToValue(root, EventFrame.class);
-                    if (frame.msgId() != null) {
-                        // 3. 执行回调并自动 ACK
+                String msgType = root.path("msg_type").asText();
+
+                if ("event".equals(msgType)) {
+                    if (eventHandler != null) {
+                        EventFrame frame = objectMapper.treeToValue(root, EventFrame.class);
                         boolean success = eventHandler.handle(frame);
                         sendAck(frame.msgId(), success);
                     }
+                } else if ("ping".equals(msgType)) {
+                    // 自动回传 Pong
+                    webSocket.sendText("{\"msg_type\":\"pong\"}", true);
                 }
             } catch (Exception e) {
                 log.error("Error processing text frame: {}", e.getMessage());

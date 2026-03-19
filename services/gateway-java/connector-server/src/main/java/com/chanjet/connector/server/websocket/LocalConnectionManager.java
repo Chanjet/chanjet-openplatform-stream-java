@@ -31,7 +31,17 @@ public class LocalConnectionManager implements IConnectionManager {
         return sessionRegistry.getSession(clientId)
                 .map(session -> {
                     try {
-                        String json = objectMapper.writeValueAsString(frame);
+                        // 确保下发的消息带有 msg_type 标识
+                        EventFrame fullFrame = new EventFrame(
+                                "event",
+                                frame.msgId(),
+                                frame.traceId(),
+                                frame.appKey(),
+                                frame.headers(),
+                                frame.payload(),
+                                frame.timestamp()
+                        );
+                        String json = objectMapper.writeValueAsString(fullFrame);
                         session.sendMessage(new TextMessage(json));
                         return true;
                     } catch (IOException e) {

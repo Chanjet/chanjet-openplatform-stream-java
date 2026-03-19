@@ -29,10 +29,11 @@ public class WebhookController {
             @RequestBody String body) {
 
         EventFrame frame = new EventFrame(
+                "event",
                 msgId,
                 traceId != null ? traceId : msgId,
                 appKey,
-                Map.of(), // 可根据需要提取更多 Headers 存入 map
+                Map.of(),
                 body,
                 System.currentTimeMillis()
         );
