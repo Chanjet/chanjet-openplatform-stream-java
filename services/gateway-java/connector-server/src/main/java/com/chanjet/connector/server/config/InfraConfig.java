@@ -1,5 +1,6 @@
 package com.chanjet.connector.server.config;
 
+import com.chanjet.connector.api.config.ConnectorProperties;
 import com.chanjet.connector.api.auth.IAuthService;
 import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.push.IPushControl;
@@ -7,6 +8,7 @@ import com.chanjet.connector.api.store.IFailStore;
 import com.chanjet.connector.api.store.INonceStore;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.infra.core.RemoteCjtCoreAdapter;
+import com.chanjet.connector.infra.core.RestP2PClient;
 import com.chanjet.connector.infra.redis.RedisFailStore;
 import com.chanjet.connector.infra.redis.RedisNonceStore;
 import com.chanjet.connector.infra.redis.RedisRouteStore;
@@ -54,7 +56,8 @@ public class InfraConfig {
     }
 
     @Bean
-    public IP2PClient p2pClient(RestClient.Builder restClientBuilder) {
-        return new com.chanjet.connector.infra.core.RestP2PClient(restClientBuilder.build());
+    public IP2PClient p2pClient(RestClient.Builder restClientBuilder, ConnectorProperties properties) {
+        // 传入 properties 以便获取 Primary Token
+        return new RestP2PClient(restClientBuilder.build(), properties);
     }
 }

@@ -1,8 +1,10 @@
 package com.chanjet.connector.server.controller;
 
 import com.chanjet.connector.api.connection.IConnectionManager;
+import com.chanjet.connector.api.exception.InvalidInternalTokenException;
 import com.chanjet.connector.common.protocol.EventFrame;
 import com.chanjet.connector.core.dispatcher.MessageDispatcher;
+import com.chanjet.connector.api.config.ConnectorProperties;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -18,10 +20,14 @@ public class WebhookController {
 
     private final MessageDispatcher messageDispatcher;
     private final IConnectionManager connectionManager;
+    private final ConnectorProperties properties;
 
-    public WebhookController(MessageDispatcher messageDispatcher, IConnectionManager connectionManager) {
+    public WebhookController(MessageDispatcher messageDispatcher, 
+                             IConnectionManager connectionManager,
+                             ConnectorProperties properties) {
         this.messageDispatcher = messageDispatcher;
         this.connectionManager = connectionManager;
+        this.properties = properties;
     }
 
     @PostMapping("/internal/v1/webhook/dispatch")
@@ -46,8 +52,15 @@ public class WebhookController {
     }
 
     @PostMapping("/internal/v1/p2p/push")
-    public void receiveP2P(@RequestBody EventFrame frame) {
-        // 优先使用 P2P 报文中的 targetClientId 进行本地精准推送
+    public void receiveP2P(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody EventFrame frame) {
+        
+        // 校验令牌是否在合法列表中
+        if (!properties.isValidToken(token)) {
+            throw new InvalidInternalTokenException();
+        }
+
         String targetId = (frame.targetClientId() != null) ? 
                 frame.targetClientId() : 
                 (frame.appKey() + "@local");

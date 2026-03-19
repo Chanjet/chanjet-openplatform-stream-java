@@ -1,5 +1,6 @@
 package com.chanjet.connector.infra.core;
 
+import com.chanjet.connector.api.config.ConnectorProperties;
 import com.chanjet.connector.common.protocol.EventFrame;
 import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
@@ -9,6 +10,7 @@ import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 import java.util.Collections;
+import java.util.List;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
@@ -22,7 +24,9 @@ class RestP2PClientTest {
         RestClient restClient = RestClient.builder()
                 .requestFactory(new HttpComponentsClientHttpRequestFactory())
                 .build();
-        p2pClient = new RestP2PClient(restClient);
+        // 模拟配置：主令牌为 token-1
+        ConnectorProperties props = new ConnectorProperties(List.of("token-1"), "node-1");
+        p2pClient = new RestP2PClient(restClient, props);
     }
 
     @Test
@@ -36,7 +40,7 @@ class RestP2PClientTest {
         p2pClient.forward(targetNode, frame);
 
         verify(postRequestedFor(urlEqualTo("/internal/v1/p2p/push"))
-                .withRequestBody(containing("\"msg_id\":\"msg-1\""))
-                .withRequestBody(containing("\"target_client_id\":\"client-1\"")));
+                .withHeader("X-Internal-Token", equalTo("token-1"))
+                .withRequestBody(containing("\"msg_id\":\"msg-1\"")));
     }
 }

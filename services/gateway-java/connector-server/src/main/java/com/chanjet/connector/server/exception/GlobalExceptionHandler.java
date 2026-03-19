@@ -38,6 +38,12 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", "no_online_client", "message", e.getMessage()));
     }
 
+    @ExceptionHandler(com.chanjet.connector.api.exception.InvalidInternalTokenException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidToken(com.chanjet.connector.api.exception.InvalidInternalTokenException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of("error", "unauthorized", "message", e.getMessage()));
+    }
+
     /**
      * 处理通用的领域逻辑异常或其他未知异常 (500)。
      */
