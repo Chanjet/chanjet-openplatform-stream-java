@@ -2,7 +2,7 @@
 
 PROJECT_NAME := open-streaming-connector
 VERSION := 0.1.0
-MAVEN_SETTINGS := scripts/chanjet_settings.xml
+MAVEN_SETTINGS := .mvn/settings.xml
 MVN := mvn -s $(MAVEN_SETTINGS)
 
 .PHONY: help init build-java build-sdk clean test proto
