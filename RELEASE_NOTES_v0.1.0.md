@@ -8,7 +8,7 @@
 ## 2. 技术栈 (Tech Stack)
 - **Runtime**: JDK 21 (强制要求，基于虚拟线程优化)
 - **Framework**: Spring Boot 3.2.4+ / Spring Framework 6.1+
-- **Storage**: Redis Cluster (用于分布式路由与 Nonce 管理)
+- **Storage**: Redis (用于分布式路由与 Nonce 管理)
 - **Registry**: Nacos (微服务发现与配置)
 - **SDK**: Java 21 HttpClient-based
 
@@ -17,11 +17,11 @@
 ## 3. 部署配置指南 (Deployment Guide)
 
 ### 3.1 环境要求
-- 推荐使用 **GraalVM JDK 21** 以获得最佳性能。
-- 确保 Redis 集群可用。
-- 确保 Nacos 注册中心已启动。
+- 推荐使用 **GraalVM JDK 21** 以获得最佳并发性能。
+- 确保 Redis (单机或集群) 可用。
+- 确保 Nacos 注册中心已启动并完成服务注册。
 
-### 3.2 核心配置 (`application.yml`)
+### 3.2 核心应用配置 (`application.yml`)
 ```yaml
 spring:
   threads:
@@ -36,20 +36,42 @@ services:
     id: cjt-auth-service        # 提供签名验证能力的微服务名
   subscription:
     id: cjt-subscription-manager # 提供推送状态控制能力的微服务名
-
-# Redis 配置 (标准的 Spring Data Redis 配置)
-spring.data.redis:
-  cluster:
-    nodes: 127.0.0.1:6379,127.0.0.1:6380
 ```
 
-### 3.3 部署运行
+### 3.3 Redis 存储配置
+网关使用 Redis 存储路由表、Nonce 和失败计时器。支持以下配置模式：
+
+**单机模式示例：**
+```yaml
+spring.data.redis:
+  host: 127.0.0.1
+  port: 6379
+  password: your-password
+  lettuce:
+    pool:
+      max-active: 100 # 建议根据并发量调大连接池
+```
+
+**集群模式示例：**
+```yaml
+spring.data.redis:
+  cluster:
+    nodes: 10.0.0.1:6379,10.0.0.2:6379,10.0.0.3:6379
+  password: your-password
+```
+
+**关键 Key 说明：**
+- `cjt:gw:route:{appKey}` (Set): 存储节点物理寻址。
+- `cjt:gw:nonce:{uuid}` (String): 握手挑战码。
+- `cjt:gw:fail_start:{appKey}` (String): 容忍期计时器。
+
+### 3.4 部署运行
 ```bash
-# 编译
+# 1. 编译全量模块
 mvn clean install -DskipTests
 
-# 运行网关节点
-java -jar connector-server/target/connector-server-0.1.0-SNAPSHOT.jar
+# 2. 运行网关节点
+java -jar services/gateway-java/connector-server/target/connector-server-0.1.0-SNAPSHOT.jar
 ```
 
 ---
@@ -77,11 +99,10 @@ GatewayClient client = GatewayClient.builder()
 // 2. 注册业务处理器
 client.onEvent(frame -> {
     System.out.println("收到消息: " + frame.payload());
-    // 返回 true 后，SDK 会自动发回 200 ACK 给网关，网关随后响应 Core
-    return true; 
+    return true; // 返回 true 自动发回 200 ACK
 });
 
-// 3. 启动连接 (内部会自动处理 Nonce 挑战与签名计算)
+// 3. 启动连接
 client.start();
 ```
 
@@ -96,7 +117,7 @@ cd services/gateway-java/connector-server
 mvn test -Dtest=TckIntegrationTest
 ```
 
-### 5.2 核心设计规范
+### 5.2 核心特性概览
 - **精准寻址**: 补丁 `SYKFPT-1061-Patch-P2P` 确保了多连接场景下的消息定向。
 - **背压保护**: 默认单节点并发上限 5000，单租户并发上限 100。
 - **自愈机制**: 30 分钟容忍期后自动进入推送挂起状态。
