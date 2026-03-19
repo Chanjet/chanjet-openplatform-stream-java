@@ -12,10 +12,7 @@ public class ConnectorProperties {
     /** 当前节点物理标识 */
     private String nodeId;
 
-    public ConnectorProperties() {
-        // 默认值：确保本地测试在不配置时也能通过
-        this.internalTokens.add("cjt-default-internal-token");
-    }
+    public ConnectorProperties() {}
 
     /** 全参构造函数，用于测试适配 */
     public ConnectorProperties(List<String> internalTokens, String nodeId) {
@@ -42,16 +39,17 @@ public class ConnectorProperties {
     /** 获取发送端使用的主令牌（列表首位） */
     public String getPrimaryToken() {
         if (internalTokens == null || internalTokens.isEmpty()) {
-            return "cjt-default-internal-token"; // 发送端也使用默认值
+            return "";
         }
         return internalTokens.get(0);
     }
 
     /** 校验请求令牌是否合法 */
     public boolean isValidToken(String token) {
-        if (token == null) return false;
-        // 如果外部传了默认值，或者匹配了列表中的任意一个
-        return "cjt-default-internal-token".equals(token) || 
-               (internalTokens != null && internalTokens.contains(token));
+        if (token == null || internalTokens == null) {
+            return false;
+        }
+        // 严格匹配配置列表
+        return internalTokens.contains(token);
     }
 }

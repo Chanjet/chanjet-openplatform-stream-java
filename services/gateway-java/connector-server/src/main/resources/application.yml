@@ -10,7 +10,6 @@ spring:
 connector:
   internal-tokens: 
     - cjt-default-internal-token
-  internal-token: cjt-default-internal-token # 向后兼容
 
 management:
   server:
