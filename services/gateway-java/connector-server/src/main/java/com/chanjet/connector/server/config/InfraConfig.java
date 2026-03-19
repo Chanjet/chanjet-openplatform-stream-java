@@ -39,6 +39,12 @@ public class InfraConfig {
     }
 
     @Bean
+    @org.springframework.cloud.client.loadbalancer.LoadBalanced
+    public RestClient.Builder restClientBuilder() {
+        return RestClient.builder();
+    }
+
+    @Bean
     @Primary
     public RemoteCjtCoreAdapter remoteCjtCoreAdapter(
             RestClient.Builder restClientBuilder,
