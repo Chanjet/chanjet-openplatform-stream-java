@@ -11,6 +11,8 @@ connector:
   internal-token: ${GATEWAY_INTERNAL_TOKEN:cjt-default-token} # 内部 P2P 通讯令牌
 
 management:
+  server:
+    port: 8081 # 独立管理端口，实现管理流与业务流隔离
   endpoints:
     web:
       exposure:
