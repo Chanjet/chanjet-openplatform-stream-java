@@ -43,7 +43,20 @@ public class RemoteCjtCoreAdapter implements IAuthService, IPushControl {
 
     @Override
     public boolean verifyPreAuth(String appKey, String prefix) {
-        return true;
+        String host = (authServiceId == null || authServiceId.isEmpty()) ? "" : "http://" + authServiceId;
+        String url = host + "/internal/v1/auth/verify-preauth";
+
+        AuthResponse response = restClient.post()
+                .uri(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of(
+                        "app_key", appKey,
+                        "pre_auth_prefix", prefix
+                ))
+                .retrieve()
+                .body(AuthResponse.class);
+
+        return response != null && response.valid();
     }
 
     @Override

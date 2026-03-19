@@ -6,9 +6,21 @@
 
 ## 1. 鉴权服务改造 (Auth Service)
 
-**目标**：支持网关代理验证 ISV 的 WebSocket 握手签名。
+**目标**：支持网关代理验证 ISV 的 WebSocket 握手签名及 Nonce 申请权限。
 
-### 1.1 签名验证接口 (Verify Sign)
+### 1.1 申请 Nonce 预校验 (Verify PreAuth)
+- **接口路径**: `POST /internal/v1/auth/verify-preauth`
+- **请求体 (JSON)**:
+  ```json
+  {
+    "app_key": "string",
+    "pre_auth_prefix": "string" // ISV 提供的 HMAC 前缀
+  }
+  ```
+- **响应体 (JSON)**: `{"valid": boolean}`
+- **用途**: 用于网关在颁发 Nonce 前进行的轻量级身份确认，防止匿名攻击。
+
+### 1.2 签名验证接口 (Verify Sign)
 - **接口路径**: `POST /internal/v1/auth/verify-sign`
 - **请求方**: Stream Gateway
 - **请求体 (JSON)**:
