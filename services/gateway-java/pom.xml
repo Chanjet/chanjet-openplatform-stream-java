@@ -4,13 +4,15 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.chanjet.connector</groupId>
-    <artifactId>gateway-java</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
-    <packaging>pom</packaging>
+    <parent>
+        <groupId>com.chanjet.connector</groupId>
+        <artifactId>connector-bom</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>connector-bom/pom.xml</relativePath>
+    </parent>
 
-    <name>Gateway Java Parent</name>
-    <description>Parent POM for all Java services in Open Streaming Connector</description>
+    <artifactId>gateway-java</artifactId>
+    <packaging>pom</packaging>
 
     <modules>
         <module>connector-bom</module>
@@ -21,41 +23,38 @@
         <module>connector-server</module>
     </modules>
 
-    <properties>
-        <java.version>21</java.version>
-        <maven.compiler.source>${java.version}</maven.compiler.source>
-        <maven.compiler.target>${java.version}</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <connector-bom.version>0.1.0-SNAPSHOT</connector-bom.version>
-    </properties>
-
-    <dependencyManagement>
-        <dependencies>
-            <!-- Import Project's own BOM -->
-            <dependency>
-                <groupId>com.chanjet.connector</groupId>
-                <artifactId>connector-bom</artifactId>
-                <version>${connector-bom.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
     <build>
         <plugins>
-            <!-- Java 21 Compiler Plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <source>21</source>
+                    <target>21</target>
                     <compilerArgs>
-                        <!-- Enable virtual threads support via standard JVM args if needed -->
+                        <arg>-parameters</arg>
                     </compilerArgs>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.11</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

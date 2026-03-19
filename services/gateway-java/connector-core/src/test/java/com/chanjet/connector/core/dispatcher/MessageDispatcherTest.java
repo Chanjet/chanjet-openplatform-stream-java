@@ -8,71 +8,81 @@ import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.common.protocol.AcquisitionResult;
 import com.chanjet.connector.common.protocol.EventFrame;
 import com.chanjet.connector.core.state.ToleranceManager;
-import com.chanjet.connector.core.state.PushStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
 class MessageDispatcherTest {
 
-    private static final String THIS_NODE = "127.0.0.1:8080";
     private MessageDispatcher dispatcher;
-
-    @Mock private IRouteStore routeStore;
-    @Mock private IConnectionManager connectionManager;
-    @Mock private IP2PClient p2pClient;
-    @Mock private ILoadBalancer loadBalancer;
-    @Mock private ToleranceManager toleranceManager;
-    @Mock private IResilienceManager resilienceManager;
+    private IRouteStore routeStore;
+    private IConnectionManager connectionManager;
+    private IP2PClient p2pClient;
+    private ILoadBalancer loadBalancer;
+    private ToleranceManager toleranceManager;
+    private IResilienceManager resilienceManager;
 
     @BeforeEach
     void setUp() {
-        dispatcher = new MessageDispatcher(THIS_NODE, routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager);
+        routeStore = mock(IRouteStore.class);
+        connectionManager = mock(IConnectionManager.class);
+        p2pClient = mock(IP2PClient.class);
+        loadBalancer = mock(ILoadBalancer.class);
+        toleranceManager = mock(ToleranceManager.class);
+        resilienceManager = mock(IResilienceManager.class);
+
+        when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
+
+        dispatcher = new MessageDispatcher(
+                "node-1",
+                routeStore,
+                connectionManager,
+                p2pClient,
+                loadBalancer,
+                toleranceManager,
+                resilienceManager
+        );
     }
 
     @Test
-    void shouldPushToLocalSessionWhenLoadBalancerSelectsLocalRoute() {
+    void shouldPushLocallyWhenClientIsPresentOnCurrentNode() {
         String appKey = "test-app";
-        String clientId = "client-local";
-        String localRoute = THIS_NODE + ":" + clientId;
-        EventFrame frame = createFrame(appKey);
+        EventFrame frame = new EventFrame("event", "m1", "t1", appKey, null, Map.of(), "data", 1000L);
 
-        when(resilienceManager.tryAcquire(appKey)).thenReturn(AcquisitionResult.ALLOWED);
-        when(routeStore.getNodes(appKey)).thenReturn(Set.of(localRoute));
-        when(loadBalancer.select(any())).thenReturn(Optional.of(localRoute));
-        when(connectionManager.push(eq(clientId), any())).thenReturn(true);
+        // 模拟本地存在连接
+        when(connectionManager.getClientsByAppKey(appKey)).thenReturn(List.of("client-local"));
 
         dispatcher.dispatch(frame);
 
-        verify(connectionManager).push(eq(clientId), any());
+        // 验证：直接进行本地推送，不查询 Redis
+        verify(connectionManager).push(eq("client-local"), any());
+        verify(routeStore, never()).getNodes(anyString());
     }
 
     @Test
-    void shouldInvokeToleranceManagerWhenNoRoutesFound() {
-        String appKey = "offline-app";
-        EventFrame frame = createFrame(appKey);
+    void shouldForwardToRemoteNodeWhenLocalIsMissing() {
+        String appKey = "test-app";
+        EventFrame frame = new EventFrame("event", "m1", "t1", appKey, null, Map.of(), "data", 1000L);
 
-        when(resilienceManager.tryAcquire(appKey)).thenReturn(AcquisitionResult.ALLOWED);
-        when(routeStore.getNodes(appKey)).thenReturn(Collections.emptySet());
-        when(toleranceManager.handleFailure(eq(appKey), anyLong())).thenReturn(PushStatus.WAITING);
+        // 1. 本地无连接
+        when(connectionManager.getClientsByAppKey(appKey)).thenReturn(Collections.emptyList());
+        
+        // 2. Redis 中有远程路由
+        when(routeStore.getNodes(appKey)).thenReturn(Set.of("node-2:c2"));
+        when(loadBalancer.select(anySet())).thenReturn(Optional.of("node-2:c2"));
+        when(p2pClient.forward(anyString(), any())).thenReturn(true);
 
-        try { dispatcher.dispatch(frame); } catch (Exception ignored) {}
+        dispatcher.dispatch(frame);
 
-        verify(toleranceManager).handleFailure(eq(appKey), anyLong());
-    }
-
-    private EventFrame createFrame(String appKey) {
-        return new EventFrame("event", "msg-1", "t-1", appKey, null, Collections.emptyMap(), "payload", 1000L);
+        // 验证：发起了 P2P 转发
+        verify(p2pClient).forward(eq("node-2"), any());
     }
 }
