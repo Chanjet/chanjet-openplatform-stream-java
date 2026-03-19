@@ -2,61 +2,48 @@
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](RELEASE_NOTES_v0.1.0.md)
 [![JDK](https://img.shields.io/badge/JDK-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.4-green.svg)](https://spring.io/projects/spring-boot)
+[![Performance](https://img.shields.io/badge/Loom-Ready-brightgreen.svg)](https://openjdk.org/jeps/444)
 
-畅捷通 Stream Gateway 是一个高性能的 **Webhook-to-WebSocket** 透明同步桥接器。
-
-## 🌟 核心价值
-- **免公网 IP**: ISV 仅需发起 WebSocket 连接即可接收业务事件。
-- **零信任架构**: 网关不持有 AppSecret，全链路签名验证代理至核心服务。
-- **高性能**: 基于 Java 21 **Virtual Threads (Project Loom)** 实现，支撑海量并发连接。
-- **高可用**: 支持多节点集群部署，具备毫秒级 P2P 寻址与自愈能力。
+畅捷通 Stream Gateway 是一个专为 ISV 设计的高性能 **Webhook-to-WebSocket** 透明同步桥接器。
 
 ---
 
-## 🚀 快速开始
+## 🏗️ 核心架构
+- **零信任 (No-Secret)**: 网关不持有 ISV 应用私钥，鉴权代理至核心服务。
+- **并发引擎 (Virtual Threads)**: 基于 Java 21 虚拟线程，单节点支持海量长连接。
+- **分布式寻址 (P2P Mesh)**: 内置跨节点消息中转，支持大规模集群部署。
 
-### 1. 环境准备
-- **JDK 21** (推荐 GraalVM)
-- **Redis** (单机或集群)
-- **Nacos MSE** (注册中心)
+---
 
-### 2. 构建项目
-使用根目录 Makefile 一键构建：
+## 🎯 业务支持场景
+| 场景 | 解决方案 | 优势 |
+| :--- | :--- | :--- |
+| **内网环境接收事件** | Webhook 转 WebSocket 推送 | 免公网固定 IP，免 SSL 证书 |
+| **集群多活部署** | 本地优先 + P2P 智能分发 | 降低延迟，保障消息触达率 |
+| **高频流量冲击** | 双层令牌桶限流 + 熔断保护 | 保护 ISV 客户端不被流量淹没 |
+| **全链路安全性** | 预校验 + 时效性 Nonce 签名 | 杜绝匿名攻击与重放攻击 |
+
+---
+
+## 🛠️ 快速起步
+
+### 1. 构建
 ```bash
 make build-java
-make build-sdk
-```
-构建产物位于：
-- 服务端: `services/gateway-java/connector-server/target/connector-server.jar`
-- SDK: `sdk/java/target/connector-sdk-java.jar`
-
-### 3. 本地启动
-```bash
-java -jar services/gateway-java/connector-server/target/connector-server.jar --spring.profiles.active=localhost
 ```
 
----
+### 2. 核心配置 (最小集)
+```yaml
+connector:
+  node-id: 127.0.0.1:8080
+  internal-tokens: ["your-p2p-token"]
+spring.data.redis.host: localhost
+```
 
-## 📦 模块说明
-- **`proto/`**: 跨语言 IDL 定义 (Protobuf)。
-- **`services/gateway-java/`**: Java 服务端实现。
-    - `connector-api`: SPI 接口契约。
-    - `connector-core`: 分发、状态机、限流逻辑。
-    - `connector-server`: WebSocket/HTTP 接入层。
-- **`sdk/java/`**: ISV 官方 Java 接入 SDK。
-
----
-
-## 🛡️ 安全与鉴权
-详细算法请参考：[安全与鉴权指引](RELEASE_NOTES_v0.1.0.md#4-安全与鉴权指引-security--auth)
-
----
-
-## 🛠️ 质量保证
-项目遵循 **TDD (测试驱动开发)** 规范。
-- **单元测试**: `mvn test`
-- **全链路验收 (TCK)**: `mvn test -Dtest=TckIntegrationTest`
+### 3. 文档指引
+- [详细配置字典指南](RELEASE_NOTES_v0.1.0.md#3-配置参考指南-configuration-reference)
+- [安全签名算法说明](docs/prd/v0.1.0/websocket-auth-deliverables.md)
+- [核心回归测试报告](docs/design/Regression_Test_Cases.md)
 
 ---
 © 2026 畅捷通架构组
