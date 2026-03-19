@@ -26,10 +26,18 @@
         <mockito.version>5.7.0</mockito.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version>
         <wiremock.version>3.3.1</wiremock.version>
+        <chanjet-encrypt.version>2025.0.4.M1-SNAPSHOT</chanjet-encrypt.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Chanjet Custom -->
+            <dependency>
+                <groupId>com.chanjet</groupId>
+                <artifactId>properties-encrypt</artifactId>
+                <version>${chanjet-encrypt.version}</version>
+            </dependency>
+            
             <!-- Spring Cloud -->
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
