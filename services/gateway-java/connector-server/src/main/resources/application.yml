@@ -10,6 +10,15 @@ spring:
 connector:
   internal-token: ${GATEWAY_INTERNAL_TOKEN:cjt-default-token} # 内部 P2P 通讯令牌
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+
 server:
   port: 8080
   tomcat:
