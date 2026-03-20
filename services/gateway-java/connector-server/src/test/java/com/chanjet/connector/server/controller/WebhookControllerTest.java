@@ -1,5 +1,6 @@
 package com.chanjet.connector.server.controller;
 
+import com.chanjet.connector.api.client.IInternalHttpClient;
 import com.chanjet.connector.core.dispatcher.MessageDispatcher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +26,12 @@ class WebhookControllerTest {
 
     @MockBean
     private com.chanjet.connector.api.connection.IConnectionManager connectionManager;
+
+    @MockBean
+    private IInternalHttpClient httpClient;
+
+    @MockBean
+    private com.chanjet.connector.api.config.ConnectorProperties connectorProperties;
 
     @Test
     void shouldReturn200WhenDispatchSucceeds() throws Exception {

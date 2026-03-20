@@ -3,17 +3,20 @@ package com.chanjet.connector.sdk;
 import com.chanjet.connector.common.protocol.EventFrame;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import java.net.URI;
 import java.net.http.WebSocket;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+@Timeout(value = 10, unit = TimeUnit.SECONDS)
 class GatewayClientTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();

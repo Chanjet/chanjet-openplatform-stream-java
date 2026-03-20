@@ -7,23 +7,33 @@ import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-@Testcontainers
+import java.time.Duration;
+
 @SpringBootTest(classes = BaseRedisIntegrationTest.RedisIntegrationTestConfig.class)
 public abstract class BaseRedisIntegrationTest {
 
-    @Container
-    protected static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7.2-alpine"))
-            .withExposedPorts(6379);
+    protected static final GenericContainer<?> REDIS;
+
+    static {
+        REDIS = new GenericContainer<>(DockerImageName.parse("redis:7.2-alpine"))
+                .withExposedPorts(6379)
+                .withStartupTimeout(Duration.ofSeconds(60));
+        REDIS.start();
+        
+        // 确保容器在 JVM 退出时停止
+        Runtime.getRuntime().addShutdownHook(new Thread(REDIS::stop));
+    }
 
     @TestConfiguration
     public static class RedisIntegrationTestConfig {
         @Bean
         public RedisConnectionFactory redisConnectionFactory() {
-            return new LettuceConnectionFactory(REDIS.getHost(), REDIS.getMappedPort(6379));
+            LettuceConnectionFactory factory = new LettuceConnectionFactory(REDIS.getHost(), REDIS.getMappedPort(6379));
+            // 禁用重连尝试，避免测试结束后的异常干扰
+            factory.setValidateConnection(false);
+            return factory;
         }
 
         @Bean

@@ -2,13 +2,16 @@ package com.chanjet.connector.infra.redis;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Timeout(value = 2, unit = TimeUnit.MINUTES)
 class RedisFailStoreTest extends BaseRedisIntegrationTest {
 
     @Autowired

@@ -1,6 +1,7 @@
 package com.chanjet.connector.server;
 
 import com.chanjet.connector.api.auth.IAuthService;
+import com.chanjet.connector.api.client.IInternalHttpClient;
 import com.chanjet.connector.api.store.INonceStore;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.api.store.ILoadBalancer;
@@ -22,7 +23,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
@@ -65,6 +65,7 @@ class TckIntegrationTest {
     @MockBean private com.chanjet.connector.api.push.IPushControl pushControl;
     @MockBean private com.chanjet.connector.api.store.IFailStore failStore;
     @MockBean private com.chanjet.connector.api.connection.IP2PClient p2pClient;
+    @MockBean private IInternalHttpClient httpClient; // 隔离 RestClient
 
     @Test
     void tck01_shouldCompleteEndToEndMessageLoop() throws Exception {
@@ -75,6 +76,7 @@ class TckIntegrationTest {
         when(nonceStore.createNonce(appKey)).thenReturn(nonce);
         when(nonceStore.verifyAndConsume(nonce, appKey)).thenReturn(true);
         when(authService.verifySign(anyString(), anyString(), anyString())).thenReturn(true);
+        when(authService.verifyPreAuth(anyString(), anyString())).thenReturn(true);
         when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
         
         String routeValue = nodeId + ":" + clientId;
@@ -86,6 +88,7 @@ class TckIntegrationTest {
                 .appKey(appKey)
                 .appSecret("tck-secret")
                 .gatewayUrl("http://localhost:" + port)
+                .clientId(clientId)
                 .build();
         
         sdkClient.onEvent(frame -> {
@@ -126,6 +129,7 @@ class TckIntegrationTest {
         when(nonceStore.createNonce(appKey)).thenReturn("n-any");
         when(nonceStore.verifyAndConsume(anyString(), anyString())).thenReturn(true);
         when(authService.verifySign(anyString(), anyString(), anyString())).thenReturn(true);
+        when(authService.verifyPreAuth(anyString(), anyString())).thenReturn(true);
         when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
         
         String routeB = nodeId + ":" + clientIdB;
@@ -134,7 +138,7 @@ class TckIntegrationTest {
 
         BlockingQueue<EventFrame> queueB = new LinkedBlockingQueue<>();
         GatewayClient sdkB = GatewayClient.builder()
-                .appKey(appKey).appSecret("s").gatewayUrl("http://localhost:" + port).build();
+                .appKey(appKey).appSecret("s").gatewayUrl("http://localhost:" + port).clientId(clientIdB).build();
         sdkB.onEvent(frame -> { queueB.add(frame); return true; });
         sdkB.start();
 

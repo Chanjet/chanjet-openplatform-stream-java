@@ -10,18 +10,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+    "spring.autoconfigure.exclude=org.springframework.cloud.client.loadbalancer.LoadBalancerAutoConfiguration,org.springframework.boot.autoconfigure.web.client.RestClientAutoConfiguration"
+})
 class SystemIntegrationTest {
 
     @Autowired
     private ApplicationContext context;
 
     @MockBean private StringRedisTemplate redisTemplate;
-    @MockBean private RestClient.Builder restClientBuilder;
 
     @Test
     void shouldLoadAllRequiredBeans() {

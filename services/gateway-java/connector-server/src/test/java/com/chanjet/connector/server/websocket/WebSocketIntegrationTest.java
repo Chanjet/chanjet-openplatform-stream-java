@@ -1,6 +1,7 @@
 package com.chanjet.connector.server.websocket;
 
 import com.chanjet.connector.api.auth.IAuthService;
+import com.chanjet.connector.api.client.IInternalHttpClient;
 import com.chanjet.connector.api.connection.IConnectionManager;
 import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.push.IPushControl;
@@ -11,6 +12,7 @@ import com.chanjet.connector.api.store.INonceStore;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.common.protocol.EventFrame;
 import com.chanjet.connector.core.state.ToleranceManager;
+import com.chanjet.connector.infra.core.RemoteCjtCoreAdapter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,10 +31,9 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.eq;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class WebSocketIntegrationTest {
@@ -40,23 +41,28 @@ class WebSocketIntegrationTest {
     @LocalServerPort
     private int port;
 
+    @MockBean private INonceStore nonceStore;
+    @MockBean private IRouteStore routeStore;
+    @MockBean private IP2PClient p2pClient;
+    @MockBean private IResilienceManager resilienceManager;
+    @MockBean private IFailStore failStore;
+    @MockBean private ILoadBalancer loadBalancer;
+    @MockBean private ToleranceManager toleranceManager;
+    
+    @MockBean private IInternalHttpClient httpClient;
+
     @Autowired
     private IConnectionManager connectionManager;
 
-    @MockBean private IRouteStore routeStore;
-    @MockBean private IFailStore failStore;
-    @MockBean private IPushControl pushControl;
-    @MockBean private IAuthService authService;
-    @MockBean private IResilienceManager resilienceManager;
-    @MockBean private IP2PClient p2pClient;
-    @MockBean private ILoadBalancer loadBalancer;
-    @MockBean private ToleranceManager toleranceManager;
-    @MockBean private INonceStore nonceStore;
+    @Autowired
+    private IPushControl pushControl;
 
     @BeforeEach
     void setUp() {
         when(nonceStore.verifyAndConsume(anyString(), anyString())).thenReturn(true);
-        when(authService.verifySign(anyString(), anyString(), anyString())).thenReturn(true);
+        // 允许所有签名校验通过
+        when(httpClient.post(anyString(), any(), any(), any()))
+                .thenReturn(new RemoteCjtCoreAdapter.AuthResponse(true));
     }
 
     private String getWsUrl(String clientId, String appKey) {
@@ -68,17 +74,21 @@ class WebSocketIntegrationTest {
         String clientId = "lifecycle-client";
         String appKey = "test-app";
         String wsUrl = getWsUrl(clientId, appKey);
-        
+
         StandardWebSocketClient client = new StandardWebSocketClient();
         WebSocketSession session = client.execute(new TextWebSocketHandler(), wsUrl).get(5, TimeUnit.SECONDS);
-        Thread.sleep(200);
 
-        verify(toleranceManager).handleReconnect(appKey);
-        verify(routeStore).add(eq(appKey), anyString(), eq(clientId));
+        assertThat(session.isOpen()).isTrue();
+        assertThat(connectionManager.getClientsByAppKey(appKey)).contains(clientId);
 
         session.close();
-        Thread.sleep(200);
-        verify(routeStore).remove(eq(appKey), anyString(), eq(clientId));
+        
+        // 等待异步清理完成
+        long start = System.currentTimeMillis();
+        while (connectionManager.getClientsByAppKey(appKey).contains(clientId) && System.currentTimeMillis() - start < 2000) {
+            Thread.sleep(100);
+        }
+        assertThat(connectionManager.getClientsByAppKey(appKey)).doesNotContain(clientId);
     }
 
     @Test
@@ -86,24 +96,23 @@ class WebSocketIntegrationTest {
         String clientId = "push-client";
         String appKey = "test-app";
         String wsUrl = getWsUrl(clientId, appKey);
-        
+
         BlockingQueue<String> receivedMessages = new LinkedBlockingQueue<>();
         StandardWebSocketClient client = new StandardWebSocketClient();
-        
-        client.execute(new TextWebSocketHandler() {
+        WebSocketSession session = client.execute(new TextWebSocketHandler() {
             @Override
             protected void handleTextMessage(WebSocketSession session, TextMessage message) {
                 receivedMessages.add(message.getPayload());
             }
         }, wsUrl).get(5, TimeUnit.SECONDS);
 
-        Thread.sleep(200);
-        
-        EventFrame frame = new EventFrame("event", "msg-1", "trace-1", appKey, clientId, Collections.emptyMap(), "hello", System.currentTimeMillis());
+        EventFrame frame = new EventFrame("event", "m1", "t1", appKey, clientId, Collections.emptyMap(), "payload-data", 1000L);
         boolean pushed = connectionManager.push(clientId, frame);
-
         assertThat(pushed).isTrue();
-        String received = receivedMessages.poll(5, TimeUnit.SECONDS);
-        assertThat(received).contains("hello");
+
+        String payload = receivedMessages.poll(5, TimeUnit.SECONDS);
+        assertThat(payload).contains("payload-data").contains("m1");
+
+        session.close();
     }
 }

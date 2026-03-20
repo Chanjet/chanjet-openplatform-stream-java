@@ -194,6 +194,11 @@ public class GatewayClient {
     }
 
     private String getHostname() {
+        // 优先从环境变量读取，避免 InetAddress.getLocalHost() 可能存在的阻塞
+        String host = System.getenv("HOSTNAME");
+        if (host == null) host = System.getenv("COMPUTERNAME");
+        if (host != null) return host;
+
         try {
             return java.net.InetAddress.getLocalHost().getHostName();
         } catch (Exception e) {

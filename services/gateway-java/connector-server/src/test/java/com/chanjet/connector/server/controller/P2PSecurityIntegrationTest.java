@@ -1,6 +1,7 @@
 package com.chanjet.connector.server.controller;
 
 import com.chanjet.connector.api.auth.IAuthService;
+import com.chanjet.connector.api.client.IInternalHttpClient;
 import com.chanjet.connector.api.connection.IConnectionManager;
 import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.resilience.IResilienceManager;
@@ -37,13 +38,12 @@ class P2PSecurityIntegrationTest {
     @MockBean private IP2PClient p2pClient;
     @MockBean private IFailStore failStore;
     @MockBean private ILoadBalancer loadBalancer;
+    @MockBean private IInternalHttpClient httpClient;
     
-    // 使用 MockBean 替代真实的 Properties Bean
     @MockBean private ConnectorProperties properties;
 
     @BeforeEach
     void setUp() {
-        // 配置 Mock 行为
         when(properties.isValidToken("token-new")).thenReturn(true);
         when(properties.isValidToken("token-old")).thenReturn(true);
         when(properties.isValidToken("wrong-token")).thenReturn(false);
