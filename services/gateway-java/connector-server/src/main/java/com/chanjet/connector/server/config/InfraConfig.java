@@ -14,6 +14,7 @@ import com.chanjet.connector.infra.redis.RedisNonceStore;
 import com.chanjet.connector.infra.redis.RedisRouteStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -42,10 +43,15 @@ public class InfraConfig {
     }
 
     @Bean
+    @LoadBalanced
+    public RestClient.Builder restClientBuilder() {
+        return RestClient.builder();
+    }
+
+    @Bean
     @ConditionalOnMissingBean(IInternalHttpClient.class)
-    public IInternalHttpClient internalHttpClient() {
-        // 生产环境：手动创建 RestClient，避开 Spring 自动扫描 Builder 带来的冲突
-        return new DefaultInternalHttpClient(RestClient.create());
+    public IInternalHttpClient internalHttpClient(RestClient.Builder builder) {
+        return new DefaultInternalHttpClient(builder.build());
     }
 
     @Bean
