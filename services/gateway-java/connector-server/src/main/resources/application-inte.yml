@@ -6,7 +6,7 @@ services:
   auth:
     id: authorization-service
   subscription:
-    id: cjt-sub-manager-inte
+    id: developer
 
 spring:
   data:
