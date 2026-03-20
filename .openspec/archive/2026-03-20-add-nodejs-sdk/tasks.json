@@ -1,0 +1,57 @@
+[
+  {
+    "number": 1,
+    "category": "阶段 1：工程初始化",
+    "task": "初始化 Node.js SDK 项目结构",
+    "steps": [
+      { "step": "创建 sdk/nodejs 目录并初始化 package.json", "completed": false },
+      { "step": "安装核心依赖 ws 以及开发依赖 jest, typescript, ts-jest", "completed": false },
+      { "step": "配置 tsconfig.json 和 jest.config.js", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "阶段 2：核心协议与模型",
+    "task": "实现基础模型与加密工具",
+    "steps": [
+      { "step": "实现 crypto-utils.ts：支持 HMAC-SHA256 签名和 AES-256-CBC 解密", "completed": false },
+      { "step": "定义基础协议接口：EventFrame, AckFrame", "completed": false },
+      { "step": "定义业务消息模型：BaseMessage 及其派生类 (AppTicket, AuthCode 等)", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 3,
+    "category": "阶段 3：核心客户端",
+    "task": "实现 GatewayClient",
+    "steps": [
+      { "step": "实现 Nonce 获取逻辑与 Pre-Auth 头部注入", "completed": false },
+      { "step": "实现 WebSocket 建立与握手签名验证", "completed": false },
+      { "step": "实现指数退避重连逻辑 (Exponential Backoff with Jitter)", "completed": false },
+      { "step": "实现 Ping/Pong 心跳维护逻辑", "completed": false },
+      { "step": "实现消息确认 (ACK) 发送逻辑", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 4,
+    "category": "阶段 4：业务分发",
+    "task": "实现 MessageDispatcher",
+    "steps": [
+      { "step": "实现处理器注册表，支持按消息类型注册 Handler", "completed": false },
+      { "step": "实现分发逻辑：支持解密、类型映射及 APP_NOTICE 特殊路由", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 5,
+    "category": "阶段 5：验证与文档",
+    "task": "完成测试与使用示例文档",
+    "steps": [
+      { "step": "编写单元测试覆盖核心连接与分发逻辑", "completed": false },
+      { "step": "编写 README.md 及接入示例代码", "completed": false }
+    ],
+    "passes": false
+  }
+]

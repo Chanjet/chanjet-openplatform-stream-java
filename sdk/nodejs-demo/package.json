@@ -1,0 +1,8 @@
+{
+  "name": "nodejs-sdk-demo",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@chanjet/connector-sdk": "file:../nodejs"
+  }
+}

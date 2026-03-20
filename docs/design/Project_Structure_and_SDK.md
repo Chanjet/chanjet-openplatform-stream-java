@@ -17,7 +17,8 @@
 | `connector-core` | 领域实现层 (大脑) | Resilience4j 思想, 状态机 |
 | `connector-infra` | 基础设施落地层 | Redis, Spring Cloud, HttpClient |
 | `connector-server` | 接入与组装层 (壳) | Spring Boot, WebSocket |
-| `connector-sdk-java` | ISV 客户端工具包 | Java 21 HttpClient |
+| `connector-sdk-java` | Java 客户端工具包 | Java 21 HttpClient |
+| `connector-sdk-nodejs` | Node.js 客户端工具包 | Node.js, ws, TypeScript |
 
 ---
 
