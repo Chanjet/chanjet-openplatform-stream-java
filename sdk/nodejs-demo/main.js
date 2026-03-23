@@ -1,7 +1,7 @@
 import { GatewayClient, MessageDispatcher } from '@chanjet/connector-sdk';
 
-const APP_KEY = '3qMYSkA5';
-const APP_SECRET = 'your_app_secret_placeholder'; // For local test without real auth, this can be anything
+const APP_KEY = 'XxG8gJUT';
+const APP_SECRET = 'your_app_secret_placeholder';
 const GATEWAY_URL = 'http://localhost:8080';
 
 // 1. 初始化客户端

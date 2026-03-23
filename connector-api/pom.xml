@@ -6,8 +6,9 @@
 
     <parent>
         <groupId>com.chanjet.connector</groupId>
-        <artifactId>gateway-java</artifactId>
+        <artifactId>connector-bom</artifactId>
         <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../connector-bom/pom.xml</relativePath>
     </parent>
 
     <artifactId>connector-api</artifactId>
