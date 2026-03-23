@@ -10,16 +10,6 @@ services:
 
 
 spring:
-  data:
-    redis:
-      cluster:
-        nodes: 10.0.1.1:6379,10.0.1.2:6379,10.0.1.3:6379,10.0.1.4:6379
-      password: ${REDIS_PASSWORD} # 生产环境强制使用环境变量注入密码
-      lettuce:
-        pool:
-          max-active: 500 # 生产环境调大连接池
-          max-idle: 100
-          max-wait: 2000ms
   cloud:
     nacos:
       discovery:
