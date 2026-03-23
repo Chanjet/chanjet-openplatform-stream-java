@@ -13,6 +13,7 @@
     <groupId>com.chanjet.deploy</groupId>
     <artifactId>connector-server</artifactId>
     <packaging>pom</packaging>
+    <name>Connector Server Deploy</name>
 
     <modules>
         <module>connector-bom</module>
