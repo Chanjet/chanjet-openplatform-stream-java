@@ -1,12 +1,13 @@
 # 生产环境 (Production)
 connector:
-  node-id: ${spring.cloud.client.ip-address}:8080
+  node-id: ${spring.cloud.client.ip-address}:${server.port}
 
 services:
   auth:
-    id: cjt-auth-service
+    id: authorization-service
   subscription:
-    id: cjt-subscription-manager
+    id: developer
+
 
 spring:
   data:

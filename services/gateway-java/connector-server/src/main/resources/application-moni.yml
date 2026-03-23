@@ -1,12 +1,13 @@
 # 模拟/演练环境 (Simulation / Pre-Prod)
 connector:
-  node-id: ${spring.cloud.client.ip-address}:8080
+  node-id: ${spring.cloud.client.ip-address}:${server.port}
 
 services:
   auth:
-    id: cjt-auth-service-moni
+    id: authorization-service
   subscription:
-    id: cjt-sub-manager-moni
+    id: developer
+
 
 spring:
   data:

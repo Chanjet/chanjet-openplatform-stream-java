@@ -2,32 +2,24 @@
 <configuration scan="true" scanPeriod="60 seconds">
 
     <!-- 从 Spring Boot 配置文件中读取属性，若无则使用默认值 -->
-    <springProperty scope="context" name="SRVNAME" source="spring.application.name" defaultValue="streaming-gateway"/>
+    <springProperty scope="context" name="CID" source="spring.application.cid" defaultValue="C0000"/>
+
     <!-- 默认路径 -->
-    <property name="LOG_HOME" value="target/logs" />
+    <property name="LOG_HOME" value="/var/log/${CID}" />
 
     <!-- 本地/开发环境 -->
     <springProfile name="localhost,dev">
-        <property name="LOG_HOME" value="target/logs" />
+        <property name="LOG_HOME" value="target/logs/${CID}" />
     </springProfile>
 
-    <!-- 生产环境 -->
-    <springProfile name="prod">
-        <property name="LOG_HOME" value="/var/log/chanjet/${SRVNAME}" />
-    </springProfile>
 
-    <!-- 测试/集成环境 -->
-    <springProfile name="inte,moni">
-        <property name="LOG_HOME" value="/data/logs/${SRVNAME}" />
-    </springProfile>
-    
     <!-- 日志格式定义 -->
     <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId:-}] %-5level %logger{36}.%M\(%F:%L\) - %msg%n" />
-
+    <property name="SRVNAME" value="app" />
     <!-- 1. 控制台输出 -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) %magenta([%thread]) %cyan(%logger{36}.%M\(%F:%L\)) - %msg%n</pattern>
+            <pattern>${LOG_PATTERN}</pattern>
             <charset>UTF-8</charset>
         </encoder>
     </appender>

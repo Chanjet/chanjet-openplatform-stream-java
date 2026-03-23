@@ -1,6 +1,6 @@
 # 集成测试环境 (Integration Test)
 connector:
-  node-id: ${spring.cloud.client.ip-address}:8080
+  node-id: ${spring.cloud.client.ip-address}:${server.port}
 
 services:
   auth:

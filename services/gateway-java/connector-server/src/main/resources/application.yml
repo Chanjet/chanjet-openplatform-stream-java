@@ -1,5 +1,6 @@
 spring:
   application:
+    cid: C4048
     name: open-streaming-gateway
   threads:
     virtual:
