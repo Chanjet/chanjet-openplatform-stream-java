@@ -14,6 +14,11 @@ connector:
 management:
   server:
     port: 8081 # 独立管理端口，实现管理流与业务流隔离
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
   endpoints:
     web:
       exposure:
@@ -21,6 +26,8 @@ management:
   endpoint:
     health:
       show-details: always
+      probes:
+        enabled: true
 
 server:
   port: 8080
