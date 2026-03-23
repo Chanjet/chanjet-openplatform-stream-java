@@ -81,6 +81,10 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     }
 
     private void closeSilently(WebSocketSession session) {
-        try { session.close(); } catch (Exception ignored) {}
+        try {
+            session.close();
+        } catch (Exception e) {
+            log.debug("Error during silent session close: {}", e.getMessage());
+        }
     }
 }
