@@ -42,7 +42,11 @@ public class RemoteCjtCoreAdapter implements IAuthService, IPushControl {
     public void setPushEnabled(String appKey, boolean enabled) {
         if (subServiceId == null || subServiceId.isEmpty()) return;
         String url = "http://" + subServiceId + "/internal/v1/subscriptions/" + appKey + "/push-status";
-        httpClient.patch(url, Map.of("enabled", enabled), Map.of());
+        try {
+            httpClient.patch(url, Map.of("enabled", enabled), Map.of());
+        } catch (Exception e) {
+            log.warn("Failed to update push status for {}: {}. Continuing connection.", appKey, e.getMessage());
+        }
     }
 
     public record AuthResponse(boolean valid) {}
