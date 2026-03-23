@@ -4,9 +4,9 @@ connector:
 
 services:
   auth:
-    id: authorization-service
+    id: ""
   subscription:
-    id: developer
+    id: ""
 
 spring:
   data:
