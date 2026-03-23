@@ -4,27 +4,58 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.chanjet.connector</groupId>
-    <artifactId>open-streaming-connector</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <parent>
+        <groupId>com.chanjet.connector</groupId>
+        <artifactId>connector-bom</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>connector-bom/pom.xml</relativePath>
+    </parent>
+
+    <artifactId>gateway-java</artifactId>
     <packaging>pom</packaging>
 
-    <name>Open Streaming Connector (Root)</name>
-    <description>Monorepo aggregation for gateway and SDKs</description>
-
     <modules>
-        <module>services/gateway-java</module>
-        <module>services/gateway-java/connector-server</module>
-<!--        <module>services/gateway-java/connector-core</module>-->
-<!--        <module>services/gateway-java/connector-infra</module>-->
-<!--        <module>services/gateway-java/connector-common</module>-->
-<!--        <module>services/gateway-java/connector-api</module>-->
+        <module>connector-bom</module>
+        <module>connector-common</module>
+        <module>connector-api</module>
+        <module>connector-core</module>
+        <module>connector-infra</module>
+        <module>connector-server</module>
     </modules>
 
-    <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    </properties>
-
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                    <compilerArgs>
+                        <arg>-parameters</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.11</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>
