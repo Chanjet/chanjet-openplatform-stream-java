@@ -15,10 +15,26 @@ spring:
         nodes: redis-inte-01:6379,redis-inte-02:6379
   cloud:
     nacos:
+      access-key: LTAI5tEwgVWjAmAyGcL2ByQQ # gitleaks:allow
+      secret-key: ENC(chanjet||kfpt.inte||vault:v1:lxo0vvTA4SDI2e1O3D3To+A/aTPeKnuFQTaqpuJc7xCcbqte9J/1Vz3uugttdIb8bcf6H3/gTuZWSg==)
+      server-addr: http://mse-a5fe1032-nacos-ans.mse.aliyuncs.com:8848
+      namespace: C6356-inte
       discovery:
-        server-addr: http://mse-a5fe1032-nacos-ans.mse.aliyuncs.com:8848
-        namespace: C6356-inte
+        server-addr: ${spring.cloud.nacos.server-addr}
+        namespace: ${spring.cloud.nacos.namespace}
         group: OPEN
         enabled: true
-        access-key: LTAI5tEwgVWjAmAyGcL2ByQQ # gitleaks:allow
-        secret-key: ENC(chanjet||kfpt.inte||vault:v1:lxo0vvTA4SDI2e1O3D3To+A/aTPeKnuFQTaqpuJc7xCcbqte9J/1Vz3uugttdIb8bcf6H3/gTuZWSg==)
+        access-key: ${spring.cloud.nacos.access-key} # gitleaks:allow
+        secret-key: ${spring.cloud.nacos.secret-key}
+      config:
+        server-addr: ${spring.cloud.nacos.server-addr}
+        access-key: ${spring.cloud.nacos.access-key} # gitleaks:allow
+        secret-key: ${spring.cloud.nacos.secret-key}
+        namespace: ${spring.cloud.nacos.namespace}
+        refresh-enabled: true
+        group: C4048
+        #多配置文件支持[数值]，数值越大代表权重越大
+        file-extension: yml
+  config:
+    import:
+      - optional:nacos:application-inte.yaml

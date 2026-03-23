@@ -28,3 +28,5 @@ spring:
         enabled: true
         access-key: LTAI5tEwgVWjAmAyGcL2ByQQ # gitleaks:allow
         secret-key: ENC(chanjet||kfpt.inte||vault:v1:lxo0vvTA4SDI2e1O3D3To+A/aTPeKnuFQTaqpuJc7xCcbqte9J/1Vz3uugttdIb8bcf6H3/gTuZWSg==)
+      config:
+        enabled: false
