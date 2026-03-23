@@ -22,6 +22,7 @@
         <module>connector-api</module>
         <module>connector-core</module>
         <module>connector-infra</module>
+        <module>connector-java-sdk</module>
         <module>connector-server</module>
     </modules>
 
