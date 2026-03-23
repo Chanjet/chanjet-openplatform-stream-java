@@ -9,15 +9,10 @@ open-streaming-connector/
 ├── docs/                          # [共享] 业务需求与技术设计文档
 ├── proto/                         # [核心契约] 跨语言协议定义 (Protobuf)
 │   └── model/                     # 共享帧格式 (.proto)
-├── connector-bom/                 # [Java 核心] Maven BOM 管理
-├── connector-common/              # [Java 核心] 公用工具与常量
-├── connector-api/                 # [Java 核心] SPI 与核心接口定义
-├── connector-core/                # [Java 核心] 协议引擎与核心业务逻辑
-├── connector-infra/               # [Java 核心] 基础设施实现 (Redis/MQ)
-├── connector-server/              # [Java 核心] 接入层与应用入口 (WebSocket/Webhook)
+├── services/                      # [服务端实现] 
+│   └── gateway-java/              # Java 21 (Virtual Threads) 实现的核心网关
 ├── sdk/                           # [多语言 SDK] 供 ISV 接入
 │   ├── java/                      # Java SDK (已完成)
-│   ├── nodejs/                    # Node.js SDK (已完成)
 │   └── python/                    # Python SDK (规划中)
 ├── infra/                         # [基础设施] 部署模板
 ├── scripts/                       # [辅助工具] 验证脚本与工具
@@ -33,14 +28,11 @@ open-streaming-connector/
 **职责**：存放所有跨端通讯的 IDL 文件。
 - **作用**: 确保 SDK 与服务端对 `EventFrame` 的二进制/JSON 序列化理解一致。
 
-### 2.2 `connector-*` (Java 核心实现)
+### 2.2 `services/gateway-java/` (逻辑中心)
 **职责**：网关的完整实现。
-- **高性能**: 利用 Java 21 虚拟线程特性，单进程即可承载数万连接。
-- **模块化**: 
-    - `connector-api`: SPI 契约，解耦实现。
-    - `connector-core`: 领域模型与协议分发引擎。
-    - `connector-infra`: 外部集成（如集群、存储、加密）。
-    - `connector-server`: 业务接入入口，提供 WebSocket 与 Webhook 服务。
+- **高性能**: 利用 Java 21 虚拟线程特性，单进程即可承载数万连接，降低了引入 Rust/Go 优化的迫切性。
+- **模块化**: 内部划分为 API, Core, Infra, Server 四个层级，支持未来的局部替换。
+
 ### 2.3 `sdk/` (跨语言客户端)
 **职责**：提供给 ISV 的开发包。
 - **一致性**: 所有语言 SDK 必须遵循相同的指数退避重连算法和安全签名逻辑。

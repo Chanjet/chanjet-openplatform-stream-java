@@ -15,14 +15,14 @@ help:
 	@echo "Targets:"
 	@echo "  init        Initialize development environment"
 	@echo "  proto       Generate code from protobuf definitions"
-	@echo "  build-java  Build Java services using chanjet settings"
+	@echo "  build-java  Build Java service (gateway-java) using chanjet settings"
 	@echo "  build-sdk   Build Java SDK using chanjet settings"
 	@echo "  test        Run all tests"
 	@echo "  clean       Clean all build artifacts"
 
 init:
 	@echo "Initializing Monorepo for $(PROJECT_NAME)..."
-	@mkdir -p proto/internal proto/gateway sdk/java sdk/python scripts .mvn
+	@mkdir -p proto/internal proto/gateway services/gateway-java sdk/java sdk/python scripts .mvn
 	@echo "Done."
 
 proto:
@@ -32,10 +32,10 @@ proto:
 
 build-java:
 	@echo "Building Java services using $(MAVEN_SETTINGS)..."
-	@if [ -f pom.xml ]; then \
-		$(MVN) clean install -DskipTests; \
+	@if [ -f services/gateway-java/pom.xml ]; then \
+		cd services/gateway-java && $(MVN) clean install -DskipTests; \
 	else \
-		echo "Skipping: pom.xml not found."; \
+		echo "Skipping: services/gateway-java/pom.xml not found."; \
 	fi
 
 build-sdk:
@@ -48,12 +48,17 @@ build-sdk:
 
 test:
 	@echo "Running all tests..."
-	@$(MVN) test
+	@cd services/gateway-java && $(MVN) test
 	@cd sdk/java && $(MVN) test
 	@echo "Done."
 
 clean:
 	@echo "Cleaning artifacts..."
-	@$(MVN) clean
 	@rm -rf target/
+	@if [ -d services/gateway-java ]; then \
+		find services/gateway-java -name "target" -type d -exec rm -rf {} +; \
+	fi
+	@if [ -d sdk/java ]; then \
+		find sdk/java -name "target" -type d -exec rm -rf {} +; \
+	fi
 	@echo "Done."
