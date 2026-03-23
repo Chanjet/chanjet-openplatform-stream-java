@@ -7,6 +7,7 @@ services:
     id: authorization-service
   subscription:
     id: developer
+spring:
   cloud:
     nacos:
       discovery:
