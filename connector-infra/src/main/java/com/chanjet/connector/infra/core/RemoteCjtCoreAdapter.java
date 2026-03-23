@@ -3,6 +3,8 @@ package com.chanjet.connector.infra.core;
 import com.chanjet.connector.api.auth.IAuthService;
 import com.chanjet.connector.api.client.IInternalHttpClient;
 import com.chanjet.connector.api.push.IPushControl;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.Map;
 
 /**
@@ -10,6 +12,7 @@ import java.util.Map;
  */
 public class RemoteCjtCoreAdapter implements IAuthService, IPushControl {
 
+    private static final Logger log = LoggerFactory.getLogger(RemoteCjtCoreAdapter.class);
     private final IInternalHttpClient httpClient;
     private final String authServiceId;
     private final String subServiceId;
