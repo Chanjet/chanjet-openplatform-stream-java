@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="60 seconds">
+
+    <!-- 从 Spring Boot 配置文件中读取属性，若无则使用默认值 -->
+    <springProperty scope="context" name="SRVNAME" source="spring.application.name" defaultValue="streaming-gateway"/>
+    <!-- 默认路径 -->
+    <property name="LOG_HOME" value="target/logs" />
+
+    <!-- 本地/开发环境 -->
+    <springProfile name="localhost,dev">
+        <property name="LOG_HOME" value="target/logs" />
+    </springProfile>
+
+    <!-- 生产环境 -->
+    <springProfile name="prod">
+        <property name="LOG_HOME" value="/var/log/chanjet/${SRVNAME}" />
+    </springProfile>
+
+    <!-- 测试/集成环境 -->
+    <springProfile name="inte,moni">
+        <property name="LOG_HOME" value="/data/logs/${SRVNAME}" />
+    </springProfile>
+    
+    <!-- 日志格式定义 -->
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId:-}] %-5level %logger{36}.%M\(%F:%L\) - %msg%n" />
+
+    <!-- 1. 控制台输出 -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) %magenta([%thread]) %cyan(%logger{36}.%M\(%F:%L\)) - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 2. 全量日志文件 (Rolling File) -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/${SRVNAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/history/${SRVNAME}-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>10GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 3. 错误日志文件 (只记录 ERROR) -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/${SRVNAME}-error.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/history/${SRVNAME}-error-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>60</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+    </appender>
+
+    <!-- 异步写入以提升性能 -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <discardingThreshold>0</discardingThreshold>
+        <queueSize>512</queueSize>
+        <appender-ref ref="FILE" />
+    </appender>
+
+    <!-- 运行环境配置 -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+        <appender-ref ref="ASYNC_FILE" />
+        <appender-ref ref="ERROR_FILE" />
+    </root>
+
+    <!-- 特定包的日志级别控制 -->
+    <logger name="com.chanjet.streaming" level="DEBUG" />
+    <logger name="org.springframework" level="INFO" />
+
+</configuration>
