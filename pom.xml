@@ -14,6 +14,11 @@
 
     <modules>
         <module>services/gateway-java</module>
+        <module>services/gateway-java/connector-server</module>
+<!--        <module>services/gateway-java/connector-core</module>-->
+<!--        <module>services/gateway-java/connector-infra</module>-->
+<!--        <module>services/gateway-java/connector-common</module>-->
+<!--        <module>services/gateway-java/connector-api</module>-->
     </modules>
 
     <properties>
