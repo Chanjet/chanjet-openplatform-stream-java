@@ -27,18 +27,28 @@ public class RemoteCjtCoreAdapter implements IAuthService, IPushControl {
     public boolean verifySign(String appKey, String nonce, String sign) {
         if (authServiceId == null || authServiceId.isEmpty()) return true;
         String url = "http://" + authServiceId + "/internal/v1/auth/verify-sign";
-        AuthResponse response = httpClient.post(url, Map.of("app_key", appKey, "nonce", nonce, "sign", sign), 
-                AuthResponse.class, Map.of());
-        return response != null && response.valid();
+        try {
+            AuthResponse response = httpClient.post(url, Map.of("app_key", appKey, "nonce", nonce, "sign", sign), 
+                    AuthResponse.class, Map.of());
+            return response != null && response.valid();
+        } catch (Exception e) {
+            log.error("Failed to verify sign for {} at {}: {}. Falling back to ALLOW (Degradation).", appKey, url, e.getMessage());
+            return true; // 降级策略：服务不可用时暂时允许连接，或根据安全策略修改
+        }
     }
 
     @Override
     public boolean verifyPreAuth(String appKey, String prefix) {
         if (authServiceId == null || authServiceId.isEmpty()) return true;
         String url = "http://" + authServiceId + "/internal/v1/auth/verify-preauth";
-        AuthResponse response = httpClient.post(url, Map.of("app_key", appKey, "pre_auth_prefix", prefix), 
-                AuthResponse.class, Map.of());
-        return response != null && response.valid();
+        try {
+            AuthResponse response = httpClient.post(url, Map.of("app_key", appKey, "pre_auth_prefix", prefix), 
+                    AuthResponse.class, Map.of());
+            return response != null && response.valid();
+        } catch (Exception e) {
+            log.warn("Failed to verify preauth for {} at {}: {}. Falling back to ALLOW.", appKey, url, e.getMessage());
+            return true;
+        }
     }
 
     @Override
