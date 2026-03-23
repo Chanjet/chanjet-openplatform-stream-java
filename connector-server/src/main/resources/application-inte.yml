@@ -7,12 +7,6 @@ services:
     id: authorization-service
   subscription:
     id: developer
-
-spring:
-  data:
-    redis:
-      cluster:
-        nodes: redis-inte-01:6379,redis-inte-02:6379
   cloud:
     nacos:
       access-key: LTAI5tEwgVWjAmAyGcL2ByQQ # gitleaks:allow
@@ -37,4 +31,4 @@ spring:
         file-extension: yml
   config:
     import:
-      - optional:nacos:application-inte.yaml
+      - optional:nacos:application-inte.yml
