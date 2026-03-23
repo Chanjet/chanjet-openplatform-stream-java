@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.chanjet.deploy</groupId>
-        <artifactId>connector-server</artifactId>
+        <groupId>com.chanjet.connector</groupId>
+        <artifactId>gateway-java</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
-    <groupId>com.chanjet.connector</groupId>
+
     <artifactId>connector-core</artifactId>
 
     <name>Connector Core</name>

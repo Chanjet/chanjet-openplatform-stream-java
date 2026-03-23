@@ -10,6 +10,10 @@ services:
 
 
 spring:
+  data:
+    redis:
+      cluster:
+        nodes: redis-moni-01:6379,redis-moni-02:6379,redis-moni-03:6379
   cloud:
     nacos:
       discovery:
