@@ -121,7 +121,7 @@
                             <target>
                                 <echo message="Copying assembly to parent target directory"/>
                                 <copy file="${project.basedir}/target/${project.artifactId}.tar.gz"
-                                      tofile="${project.basedir}/../../../target/${project.artifactId}.tar.gz"
+                                      tofile="${project.basedir}/../target/${project.artifactId}.tar.gz"
                                       failonerror="false"/>
                             </target>
                         </configuration>
