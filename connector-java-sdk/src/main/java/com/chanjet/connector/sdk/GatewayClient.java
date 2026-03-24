@@ -58,11 +58,11 @@ public class GatewayClient {
         this.encryptKey = (builder.encryptKey != null) ? builder.encryptKey : builder.appSecret;
         this.gatewayUrl = builder.gatewayUrl;
         
-        // 自动生成唯一 ClientId: appKey@hostname#pid#uuid
+        // 自动生成唯一 ClientId: appKey@hostname_pid_uuid
         String hostname = getHostname();
         long pid = ProcessHandle.current().pid();
         String uniqueId = java.util.UUID.randomUUID().toString().substring(0, 8);
-        this.clientId = String.format("%s@%s#%d#%s", appKey, hostname, pid, uniqueId);
+        this.clientId = String.format("%s@%s_%d_%s", appKey, hostname, pid, uniqueId);
         
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))

@@ -10,9 +10,29 @@ services:
 spring:
   cloud:
     nacos:
+      access-key: ENC(chanjet||kfpt.prod||vault:v1:RwlYoM1/wRMtFFzDb7gm6yA4DjXe2jvQ/+Z0RYBdANAP9L0zJSm4nMh03ExwQdB70U1S/w==)
+      secret-key: ENC(chanjet||kfpt.prod||vault:v1:zeD2TTTcogq8E1dFUJDr2UM4t8ehX1mpo0wC+1zQ2860vcI6Ph9OVRPgX6AH2Oy3Vi+hTNtLAO8FIQ==)
+      server-addr: http://mse-a5fe1032-nacos-ans.mse.aliyuncs.com:8848
+      namespace: C6356-prod
       discovery:
-        server-addr: nacos-moni.chanjet.com:8848
-        namespace: moni-namespace-uuid
+        server-addr: ${spring.cloud.nacos.server-addr}
+        namespace: ${spring.cloud.nacos.namespace}
+        group: OPEN
+        enabled: true
+        access-key: ${spring.cloud.nacos.access-key} # gitleaks:allow
+        secret-key: ${spring.cloud.nacos.secret-key}
+      config:
+        server-addr: ${spring.cloud.nacos.server-addr}
+        access-key: ${spring.cloud.nacos.access-key} # gitleaks:allow
+        secret-key: ${spring.cloud.nacos.secret-key}
+        namespace: ${spring.cloud.nacos.namespace}
+        refresh-enabled: true
+        group: C4048
+        #多配置文件支持[数值]，数值越大代表权重越大
+        file-extension: yml
+  config:
+    import:
+      - optional:nacos:application-moni.yml
 
 logging:
   level:

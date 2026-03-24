@@ -41,11 +41,11 @@ export class GatewayClient {
         this.encryptKey = options.encryptKey || options.appSecret;
         this.gatewayUrl = options.gatewayUrl;
         
-        // 自动生成唯一 ClientId: appKey@hostname#pid#random
+        // 自动生成唯一 ClientId: appKey@hostname_pid_random
         const hostname = os.hostname();
         const pid = process.pid;
         const random = Math.random().toString(36).substring(2, 8);
-        this.clientId = `${this.appKey}@${hostname}#${pid}#${random}`;
+        this.clientId = `${this.appKey}@${hostname}_${pid}_${random}`;
     }
 
     onEvent(handler: EventHandler) {
