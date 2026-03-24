@@ -34,15 +34,17 @@ export class MessageDispatcher {
 
     /**
      * 执行分发逻辑。
+     * @param frame 事件帧
+     * @param decryptKey 独立的解密密钥
      */
-    async dispatch(frame: EventFrame, appSecret: string): Promise<boolean> {
+    async dispatch(frame: EventFrame, decryptKey: string): Promise<boolean> {
         try {
             let payload = frame.payload;
             let root = JSON.parse(payload);
 
             // 1. 自动解密
             if (root.encryptMsg) {
-                const decrypted = CryptoUtils.aesDecrypt(root.encryptMsg, appSecret);
+                const decrypted = CryptoUtils.aesDecrypt(root.encryptMsg, decryptKey);
                 root = JSON.parse(decrypted);
             }
 

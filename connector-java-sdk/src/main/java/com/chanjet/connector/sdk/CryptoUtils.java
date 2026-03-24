@@ -8,30 +8,26 @@ import java.util.Base64;
 
 /**
  * 畅捷通开放平台加解密工具类。
- * 遵循 AES-128-CBC 规范。
+ * 遵循 AES-128-ECB 规范。
  */
 public class CryptoUtils {
 
     /**
      * AES 解密逻辑。
-     * Key: appSecret 前 16 位
-     * IV: appSecret 后 16 位 (如果是 32 位 Secret)
+     * @param encryptedBase64 待解密的 Base64 字符串
+     * @param decryptKey 独立的解密密钥
      */
-    public static String aesDecrypt(String encryptedBase64, String appSecret) {
+    public static String aesDecrypt(String encryptedBase64, String decryptKey) {
         try {
-            if (appSecret == null || appSecret.length() < 16) {
-                throw new IllegalArgumentException("Invalid appSecret for AES decryption");
+            if (decryptKey == null || decryptKey.isEmpty()) {
+                throw new IllegalArgumentException("Invalid decryptKey for AES decryption");
             }
             
-            String key = appSecret.substring(0, 16);
-            String iv = (appSecret.length() >= 32) ? appSecret.substring(16, 32) : appSecret.substring(0, 16);
-
-            byte[] encryptedBytes = Base64.getDecoder().decode(encryptedBase64);
-            Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-            SecretKeySpec keySpec = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "AES");
-            IvParameterSpec ivSpec = new IvParameterSpec(iv.getBytes(StandardCharsets.UTF_8));
+            byte[] encryptedBytes = java.util.Base64.getDecoder().decode(encryptedBase64);
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            SecretKeySpec keySpec = new SecretKeySpec(decryptKey.getBytes(StandardCharsets.UTF_8), "AES");
             
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
+            cipher.init(Cipher.DECRYPT_MODE, keySpec);
             byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
             
             return new String(decryptedBytes, StandardCharsets.UTF_8);

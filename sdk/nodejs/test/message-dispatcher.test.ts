@@ -35,9 +35,8 @@ describe('MessageDispatcher', () => {
 
         const businessMsg = JSON.stringify({ msgType: 'SECURE_TYPE', secret_data: 'shhh' });
         
-        const key = secret.substring(0, 16);
-        const iv = secret.substring(16, 32);
-        const cipher = crypto.createCipheriv('aes-128-cbc', Buffer.from(key), Buffer.from(iv));
+        const encryptKey = '1234567890123456';
+        const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(encryptKey), null);
         let encrypted = cipher.update(businessMsg, 'utf8', 'base64');
         encrypted += cipher.final('base64');
 
@@ -50,7 +49,7 @@ describe('MessageDispatcher', () => {
             timestamp: Date.now()
         };
 
-        const result = await dispatcher.dispatch(frame, secret);
+        const result = await dispatcher.dispatch(frame, encryptKey);
         expect(result).toBe(true);
         expect(handler).toHaveBeenCalled();
     });

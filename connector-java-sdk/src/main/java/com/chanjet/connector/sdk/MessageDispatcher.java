@@ -100,10 +100,10 @@ public class MessageDispatcher {
     /**
      * 执行分发逻辑。
      * @param frame 原始推送帧
-     * @param appSecret 用于解密的密钥
+     * @param decryptKey 独立的解密密钥
      * @return 处理结果
      */
-    public boolean dispatch(EventFrame frame, String appSecret) {
+    public boolean dispatch(EventFrame frame, String decryptKey) {
         try {
             String payload = frame.payload();
 
@@ -113,7 +113,7 @@ public class MessageDispatcher {
             // 2. 提取并解密包装层 (encryptMsg)
             if (root.has("encryptMsg")) {
                 String encryptedData = root.get("encryptMsg").asText();
-                payload = CryptoUtils.aesDecrypt(encryptedData, appSecret);
+                payload = CryptoUtils.aesDecrypt(encryptedData, decryptKey);
                 root = objectMapper.readTree(payload); // 重新解析解密后的业务明文
             }
 

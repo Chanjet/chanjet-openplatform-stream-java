@@ -15,19 +15,16 @@ export class CryptoUtils {
     }
 
     /**
-     * AES 解密逻辑 (遵循 AES-128-CBC 规范)。
-     * Key: appSecret 前 16 位
-     * IV: appSecret 后 16 位 (如果是 32 位 Secret)
+     * AES 解密逻辑 (遵循 AES-128-ECB 规范)。
+     * @param encryptedBase64 待解密的 Base64 字符串
+     * @param decryptKey 独立的解密密钥
      */
-    static aesDecrypt(encryptedBase64: string, appSecret: string): string {
-        if (!appSecret || appSecret.length < 16) {
-            throw new Error('Invalid appSecret for AES decryption');
+    static aesDecrypt(encryptedBase64: string, decryptKey: string): string {
+        if (!decryptKey || decryptKey.length === 0) {
+            throw new Error('Invalid decryptKey for AES decryption');
         }
 
-        const key = appSecret.substring(0, 16);
-        const iv = (appSecret.length >= 32) ? appSecret.substring(16, 32) : appSecret.substring(0, 16);
-
-        const decipher = crypto.createDecipheriv('aes-128-cbc', Buffer.from(key), Buffer.from(iv));
+        const decipher = crypto.createDecipheriv('aes-128-ecb', Buffer.from(decryptKey), null);
         let decrypted = decipher.update(encryptedBase64, 'base64', 'utf8');
         decrypted += decipher.final('utf8');
 

@@ -2,10 +2,12 @@ import WebSocket from 'ws';
 import os from 'os';
 import { CryptoUtils } from './crypto-utils.js';
 import { EventFrame, AckFrame } from './protocol.js';
+import { MessageDispatcher } from './message-dispatcher.js';
 
 export interface GatewayClientOptions {
     appKey: string;
     appSecret: string;
+    encryptKey?: string;
     gatewayUrl: string;
     clientId?: string;
     reconnectOptions?: {
@@ -22,6 +24,7 @@ export type EventHandler = (event: EventFrame) => Promise<boolean> | boolean;
 export class GatewayClient {
     private readonly appKey: string;
     private readonly appSecret: string;
+    private readonly encryptKey: string;
     private readonly gatewayUrl: string;
     private readonly clientId: string;
     
@@ -30,17 +33,26 @@ export class GatewayClient {
     private connected = false;
     private attempt = 0;
     private eventHandler: EventHandler | null = null;
+    private messageDispatcher: MessageDispatcher | null = null;
     private reconnectTimer: NodeJS.Timeout | null = null;
 
     constructor(options: GatewayClientOptions) {
         this.appKey = options.appKey;
         this.appSecret = options.appSecret;
+        this.encryptKey = options.encryptKey || options.appSecret;
         this.gatewayUrl = options.gatewayUrl;
         this.clientId = options.clientId || `${this.appKey}@${os.hostname()}`;
     }
 
     onEvent(handler: EventHandler) {
         this.eventHandler = handler;
+    }
+
+    /**
+     * 配置业务消息分发器。
+     */
+    useDispatcher(dispatcher: MessageDispatcher) {
+        this.messageDispatcher = dispatcher;
     }
 
     async start() {
@@ -96,9 +108,13 @@ export class GatewayClient {
                     if (msgType === 'event') {
                         const frame = root as EventFrame;
                         let success = false;
-                        if (this.eventHandler) {
+                        
+                        if (this.messageDispatcher) {
+                            success = await this.messageDispatcher.dispatch(frame, this.encryptKey);
+                        } else if (this.eventHandler) {
                             success = await this.eventHandler(frame);
                         }
+                        
                         this.sendAck(frame.msg_id, success);
                     } else if (msgType === 'ping') {
                         this.ws?.send(JSON.stringify({ msg_type: 'pong' }));

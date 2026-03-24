@@ -29,6 +29,7 @@ public class GatewayClient {
 
     private final String appKey;
     private final String appSecret;
+    private final String encryptKey;
     private final String gatewayUrl;
     private final String clientId;
     private final IHttpProvider httpProvider;
@@ -54,6 +55,7 @@ public class GatewayClient {
     private GatewayClient(Builder builder) {
         this.appKey = builder.appKey;
         this.appSecret = builder.appSecret;
+        this.encryptKey = (builder.encryptKey != null) ? builder.encryptKey : builder.appSecret;
         this.gatewayUrl = builder.gatewayUrl;
         this.clientId = (builder.clientId != null) ? builder.clientId : (appKey + "@" + getHostname());
         
@@ -225,7 +227,7 @@ public class GatewayClient {
                     boolean success = false;
                     
                     if (messageDispatcher != null) {
-                        success = messageDispatcher.dispatch(frame, appSecret);
+                        success = messageDispatcher.dispatch(frame, encryptKey);
                     } else if (eventHandler != null) {
                         success = eventHandler.handle(frame);
                     }
@@ -263,6 +265,7 @@ public class GatewayClient {
     public static class Builder {
         private String appKey;
         private String appSecret;
+        private String encryptKey;
         private String gatewayUrl;
         private String clientId;
         private IHttpProvider httpProvider;
@@ -270,6 +273,7 @@ public class GatewayClient {
 
         public Builder appKey(String appKey) { this.appKey = appKey; return this; }
         public Builder appSecret(String appSecret) { this.appSecret = appSecret; return this; }
+        public Builder encryptKey(String encryptKey) { this.encryptKey = encryptKey; return this; }
         public Builder gatewayUrl(String gatewayUrl) { this.gatewayUrl = gatewayUrl; return this; }
         public Builder clientId(String clientId) { this.clientId = clientId; return this; }
         public Builder httpProvider(IHttpProvider provider) { this.httpProvider = provider; return this; }

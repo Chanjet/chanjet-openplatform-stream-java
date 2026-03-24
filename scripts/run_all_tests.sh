@@ -67,8 +67,7 @@ ENC_PAYLOAD=$(node -e '
 const crypto = require("crypto");
 const secret = "your_app_secret_placeholder";
 const key = secret.substring(0, 16);
-const iv = secret.substring(0, 16);
-const cipher = crypto.createCipheriv("aes-128-cbc", key, iv);
+const cipher = crypto.createCipheriv("aes-128-ecb", Buffer.from(key), null);
 let enc = cipher.update(JSON.stringify({msgType: "APP_TICKET", appTicket: "ticket-integration-success"}), "utf8", "base64");
 enc += cipher.final("base64");
 console.log(JSON.stringify({encryptMsg: enc}));

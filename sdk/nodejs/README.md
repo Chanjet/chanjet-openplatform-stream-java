@@ -39,7 +39,7 @@ client.start();
 
 - **智能连接管理**：自动处理 Nonce 获取、HMAC 签名握手。
 - **自动重连**：内置指数退避（Exponential Backoff）与随机抖动（Jitter），自动处理 503 排队状态。
-- **自动化解密**：`MessageDispatcher` 自动执行 AES-128-CBC 业务负载解密。
+- **自动化解密**：`MessageDispatcher` 自动执行 AES-128-ECB 业务负载解密。
 - **语义化路由**：支持基于 `boName` 和 `transactionType` 的精确消息分发。
 
 ## 许可证

@@ -13,14 +13,12 @@ describe('CryptoUtils', () => {
     });
 
     test('aesDecrypt should decrypt valid payload', () => {
-        // Key: 1234567890123456, IV: 7890123456789012
-        const key = secret.substring(0, 16);
-        const iv = secret.substring(16, 32);
-        const cipher = crypto.createCipheriv('aes-128-cbc', Buffer.from(key), Buffer.from(iv));
+        const encryptKey = '1234567890123456';
+        const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(encryptKey), null);
         let enc = cipher.update('{"hello":"world"}', 'utf8', 'base64');
         enc += cipher.final('base64');
 
-        const decrypted = CryptoUtils.aesDecrypt(enc, secret);
+        const decrypted = CryptoUtils.aesDecrypt(enc, encryptKey);
         expect(JSON.parse(decrypted)).toEqual({ hello: 'world' });
     });
 });

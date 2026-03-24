@@ -85,8 +85,7 @@ Core 通过此接口向网关投递 Webhook。
 当 `GatewayClient` 配置了 `appSecret` 时，SDK SHALL 能够对 `EventFrame.payload` 中 `encryptMsg` 字段包裹的内容执行解密。
 - **Wrapper Structure**: `{"encryptMsg": "BASE64_ENCRYPTED_DATA"}`
 - **Key**: `appSecret.substring(0, 16)`
-- **IV**: `appSecret.substring(16, 32)` (若长度不足 32 则取前 16 位)
-- **Algorithm**: `AES/CBC/PKCS5Padding`
+- **Algorithm**: `AES/ECB/PKCS5Padding`
 
 ### 5.2 消息自动分发 (Requirement: 消息自动分发)
 SDK SHALL 提供 `MessageDispatcher`，允许 ISV 按消息类型注册 POJO 类型及处理器。
