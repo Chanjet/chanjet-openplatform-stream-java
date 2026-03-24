@@ -5,7 +5,6 @@ const APP_KEY = process.env.APP_KEY;
 const APP_SECRET = process.env.APP_SECRET;
 const ENCRYPT_KEY = process.env.ENCRYPT_KEY;
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:8080';
-const CLIENT_ID = process.env.CLIENT_ID || 'nodejs-demo-client';
 
 if (!APP_KEY || !APP_SECRET || !ENCRYPT_KEY) {
     console.error('❌ [Error] 缺少必要配置：请确保 .env 文件已正确配置 APP_KEY, APP_SECRET, ENCRYPT_KEY');
@@ -63,8 +62,7 @@ const client = new GatewayClient({
     appKey: APP_KEY,
     appSecret: APP_SECRET,
     encryptKey: ENCRYPT_KEY,
-    gatewayUrl: GATEWAY_URL,
-    clientId: CLIENT_ID
+    gatewayUrl: GATEWAY_URL
 });
 
 client.useDispatcher(dispatcher);

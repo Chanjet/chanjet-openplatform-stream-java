@@ -9,7 +9,6 @@ export interface GatewayClientOptions {
     appSecret: string;
     encryptKey?: string;
     gatewayUrl: string;
-    clientId?: string;
     reconnectOptions?: {
         maxDelay?: number;
         initialDelay?: number;
@@ -41,7 +40,12 @@ export class GatewayClient {
         this.appSecret = options.appSecret;
         this.encryptKey = options.encryptKey || options.appSecret;
         this.gatewayUrl = options.gatewayUrl;
-        this.clientId = options.clientId || `${this.appKey}@${os.hostname()}`;
+        
+        // 自动生成唯一 ClientId: appKey@hostname#pid#random
+        const hostname = os.hostname();
+        const pid = process.pid;
+        const random = Math.random().toString(36).substring(2, 8);
+        this.clientId = `${this.appKey}@${hostname}#${pid}#${random}`;
     }
 
     onEvent(handler: EventHandler) {

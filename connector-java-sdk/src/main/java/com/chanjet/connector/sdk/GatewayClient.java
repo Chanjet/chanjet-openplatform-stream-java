@@ -57,7 +57,12 @@ public class GatewayClient {
         this.appSecret = builder.appSecret;
         this.encryptKey = (builder.encryptKey != null) ? builder.encryptKey : builder.appSecret;
         this.gatewayUrl = builder.gatewayUrl;
-        this.clientId = (builder.clientId != null) ? builder.clientId : (appKey + "@" + getHostname());
+        
+        // 自动生成唯一 ClientId: appKey@hostname#pid#uuid
+        String hostname = getHostname();
+        long pid = ProcessHandle.current().pid();
+        String uniqueId = java.util.UUID.randomUUID().toString().substring(0, 8);
+        this.clientId = String.format("%s@%s#%d#%s", appKey, hostname, pid, uniqueId);
         
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -267,7 +272,6 @@ public class GatewayClient {
         private String appSecret;
         private String encryptKey;
         private String gatewayUrl;
-        private String clientId;
         private IHttpProvider httpProvider;
         private IConnectionProvider connectionProvider;
 
@@ -275,7 +279,6 @@ public class GatewayClient {
         public Builder appSecret(String appSecret) { this.appSecret = appSecret; return this; }
         public Builder encryptKey(String encryptKey) { this.encryptKey = encryptKey; return this; }
         public Builder gatewayUrl(String gatewayUrl) { this.gatewayUrl = gatewayUrl; return this; }
-        public Builder clientId(String clientId) { this.clientId = clientId; return this; }
         public Builder httpProvider(IHttpProvider provider) { this.httpProvider = provider; return this; }
         public Builder connectionProvider(IConnectionProvider provider) {
             this.connectionProvider = provider;
