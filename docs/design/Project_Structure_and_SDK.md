@@ -17,8 +17,8 @@
 | `connector-core` | 领域实现层 (大脑) | Resilience4j 思想, 状态机 |
 | `connector-infra` | 基础设施落地层 | Redis, Spring Cloud, HttpClient |
 | `connector-server` | 接入与组装层 (壳) | Spring Boot, WebSocket |
-| `connector-sdk-java` | Java 客户端工具包 | Java 21 HttpClient |
-| `connector-sdk-nodejs` | Node.js 客户端工具包 | Node.js, ws, TypeScript |
+| `connector-java-sdk` | Java 客户端工具包 | Java 21 HttpClient |
+| `sdk/nodejs` | Node.js 客户端工具包 | Node.js, ws, TypeScript |
 
 ---
 
@@ -27,7 +27,8 @@
 ```mermaid
 graph TD
     subgraph ISV_Environment
-        SDK[connector-sdk-java]
+        SDK_JAVA[connector-java-sdk]
+        SDK_NODE[sdk/nodejs]
     end
 
     subgraph Gateway_Service
@@ -38,7 +39,8 @@ graph TD
         Infra --> API[connector-api]
         
         API --> Common[connector-common]
-        SDK --> Common
+        SDK_JAVA --> Common
+        SDK_NODE --> Common
     end
 
     BOM[connector-bom] -.->|版本控制| Gateway_Service
@@ -72,5 +74,5 @@ graph TD
 ## 4. 模块准入红线 (Module Boundaries)
 
 1.  **禁止循环依赖**: 严禁 `core` 依赖 `infra`，反之亦然。
-2.  **SDK 纯净性**: `connector-sdk-java` 禁止引用除 `connector-common` 以外的任何内部模块，防止将服务端重量级依赖（如 Redis）带入 ISV 环境。
+2.  **SDK 纯净性**: `connector-java-sdk` 和 `sdk/nodejs` 禁止引用除 `connector-common` 以外的任何内部模块，防止将服务端重量级依赖（如 Redis）带入 ISV 环境。
 3.  **配置下沉**: 所有跨模块使用的配置类（如 `ConnectorProperties`）必须定义在 `connector-api` 中。

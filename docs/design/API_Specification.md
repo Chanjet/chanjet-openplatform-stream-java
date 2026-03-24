@@ -82,20 +82,22 @@ Core 通过此接口向网关投递 Webhook。
 ## 5. SDK 业务接口规范 (Java SDK 增强)
 
 ### 5.1 消息透明解密 (Requirement: 消息透明解密)
-当 `GatewayClient` 配置了 `appSecret` 时，SDK SHALL 能够对 `EventFrame.payload` 中 `encryptMsg` 字段包裹的内容执行解密。
+当 `GatewayClient` 配置了 `encryptKey` 时，SDK SHALL 能够对 `EventFrame.payload` 中 `encryptMsg` 字段包裹的内容执行解密。
 - **Wrapper Structure**: `{"encryptMsg": "BASE64_ENCRYPTED_DATA"}`
-- **Key**: `appSecret.substring(0, 16)`
+- **Key**: 使用配置的 `encryptKey`（独立的消息加密密钥）。
 - **Algorithm**: `AES/ECB/PKCS5Padding`
+- **Data Structure**: 解密后的明文 JSON 结构应符合业务模型定义。核心业务数据（如 `appTicket`, `tempAuthCode`, `orderNo`）通常嵌套在 `bizContent` 字段中。
 
 ### 5.2 消息自动分发 (Requirement: 消息自动分发)
-SDK SHALL 提供 `MessageDispatcher`，允许 ISV 按消息类型注册 POJO 类型及处理器。
+SDK SHALL 提供 `MessageDispatcher`，允许 ISV 按消息类型注册处理器。
+- **Automatic Unwrapping**: SDK 自动处理 `encryptMsg` 包装层，并将解密后的对象分发给对应的 Handler。
 - **Silent Ignore**: 收到未注册类型的消息时，SDK SHALL 打印警告日志并自动返回成功 (200 ACK)，以停止网关重试。
 - **Composite Key Support**: 对于好系列消息（`msgType: APP_NOTICE`），支持基于 `APP_NOTICE:boName[:transactionTypeEnum]` 的复合键分发。
 
-## 6. SDK 演示项目规范 (Java Demo)
+## 6. SDK 演示项目规范
 
-### 6.1 Java SDK Demo (Requirement: Java SDK Demo)
-项目 SHALL 提供官方的 `sdk/java-demo` 模块，用于演示 SDK 最佳实践，包括如何配置 `MessageDispatcher` 以及处理如 `manufactureOrderMsg`, `hsyProductMsg` (复合键), `appTicketMsg` 和 `entAuthCodeMsg` 等核心业务消息。
+### 6.1 SDK Demo (Requirement: SDK Demo)
+项目 SHALL 提供官方的 Demo 模块（如 `sdk/nodejs-demo`），用于演示 SDK 最佳实践，包括如何配置 `MessageDispatcher` 以及处理如 `APP_NOTICE` (复合键), `APP_TICKET`, `TEMP_AUTH_CODE` 和 `PAY_ORDER_SUCCESS` 等核心业务消息。
 
 ### 6.2 业务模型 POJO 资产 (Requirement: 业务模型 POJO 资产)
 Demo 项目 SHALL 提供常用的畅捷通业务模型（继承自 `BaseMessage`）作为参考资产，以便 ISV 快速定义和扩展自定义业务消息。

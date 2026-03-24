@@ -6,44 +6,48 @@
 
 ```text
 open-streaming-connector/
+open-streaming-connector/
 ├── docs/                          # [共享] 业务需求与技术设计文档
 ├── proto/                         # [核心契约] 跨语言协议定义 (Protobuf)
-│   └── model/                     # 共享帧格式 (.proto)
-├── services/                      # [服务端实现] 
-│   └── gateway-java/              # Java 21 (Virtual Threads) 实现的核心网关
-├── sdk/                           # [多语言 SDK] 供 ISV 接入
-│   ├── java/                      # Java SDK (已完成)
+├── connector-server/              # [服务端] 网关核心实现 (Spring Boot)
+├── connector-core/                # [服务端] 消息分发逻辑中心
+├── connector-api/                 # [服务端] SPI 接口契约
+├── connector-infra/               # [服务端] Redis 路由与 Nacos 集成实现
+├── connector-common/              # [共享] 跨模块协议 Record 帧定义
+├── connector-java-sdk/            # [SDK] 官方 Java SDK 接入包
+├── sdk/                           # [多语言 SDK 与 Demo]
+│   ├── nodejs/                    # Node.js SDK
+│   ├── nodejs-demo/               # Node.js 示例程序
+│   ├── java-demo/                 # Java 示例程序
 │   └── python/                    # Python SDK (规划中)
-├── infra/                         # [基础设施] 部署模板
-├── scripts/                       # [辅助工具] 验证脚本与工具
-├── .mvn/                          # 项目特定 Maven 配置 (含内网 settings)
+├── infra/                         # [基础设施] Docker 与 K8s 部署模板
+├── scripts/                       # [辅助工具] 自动化验证与稳定性测试脚本
 └── Makefile                       # [统一入口] 构建与测试指令
-```
 
 ---
 
 ## 2. 核心目录职责说明
 
 ### 2.1 `proto/` (契约驱动)
-**职责**：存放所有跨端通讯的 IDL 文件。
-- **作用**: 确保 SDK 与服务端对 `EventFrame` 的二进制/JSON 序列化理解一致。
+**职责**：存放所有跨端通讯的 IDL 文件，确保多语言 SDK 与服务端对 `EventFrame` 的序列化理解一致。
 
-### 2.2 `services/gateway-java/` (逻辑中心)
-**职责**：网关的完整实现。
-- **高性能**: 利用 Java 21 虚拟线程特性，单进程即可承载数万连接，降低了引入 Rust/Go 优化的迫切性。
-- **模块化**: 内部划分为 API, Core, Infra, Server 四个层级，支持未来的局部替换。
+### 2.2 `connector-*` (网关实现)
+**职责**：基于 Java 21 虚拟线程的高性能网关。
+- **connector-api**: 定义核心 SPI。
+- **connector-core**: 跨节点分发逻辑。
+- **connector-server**: 提供 Webhook 接收与 WebSocket 连接入口。
 
-### 2.3 `sdk/` (跨语言客户端)
-**职责**：提供给 ISV 的开发包。
-- **一致性**: 所有语言 SDK 必须遵循相同的指数退避重连算法和安全签名逻辑。
+### 2.3 `sdk/` 与 `connector-java-sdk` (接入层)
+**职责**：为不同技术栈的 ISV 提供高度一致的接入体验。
+- **一致性**: 所有语言 SDK 均遵循指数退避重连算法、AES-128-ECB 解密逻辑及独立 `encryptKey` 安全模型。
 
 ---
 
 ## 3. 多语言演进现状
 
-1.  **Java Baseline (v0.1.0)**: 已完成。基于虚拟线程的 Java 实现已达到极高的吞吐性能。
-2.  **SDK Expansion**: 接下来将重点补充 Python SDK，以满足不同 ISV 的技术栈需求。
-3.  **Containerization**: 相关的 Dockerfile 与 K8s 部署脚本已从 Makefile 剥离，转由专门的 DevOps 流程管理。
+1.  **Java & Node.js (v0.1.0)**: 已完成。提供了成熟的 Java 和 Node.js SDK。
+2.  **Stability Validation**: 通过 `scripts/stability_test_runner.sh` 完成了 2 小时级别的稳定性压测。
+3.  **Security Baseline**: 全面采用 AES-128-ECB 加密及独立消息秘钥。
 
 ---
 **更新日期**: 2026-03-19
