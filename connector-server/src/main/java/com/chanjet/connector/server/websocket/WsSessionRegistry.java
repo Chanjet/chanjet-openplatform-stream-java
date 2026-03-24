@@ -1,5 +1,6 @@
 package com.chanjet.connector.server.websocket;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,6 +26,11 @@ public class WsSessionRegistry {
     
     // 最后活跃时间：ClientId -> Timestamp
     private final Map<String, Long> lastActiveTimes = new ConcurrentHashMap<>();
+
+    public WsSessionRegistry(MeterRegistry meterRegistry) {
+        // 注册监控指标：连接总数
+        meterRegistry.gauge("connector.websocket.sessions", sessions, Map::size);
+    }
 
     public void register(String clientId, WebSocketSession session) {
         sessions.put(clientId, session);
