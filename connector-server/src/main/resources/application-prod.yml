@@ -12,7 +12,7 @@ spring:
     nacos:
       access-key: ENC(chanjet||kfpt.prod||vault:v1:RwlYoM1/wRMtFFzDb7gm6yA4DjXe2jvQ/+Z0RYBdANAP9L0zJSm4nMh03ExwQdB70U1S/w==)
       secret-key: ENC(chanjet||kfpt.prod||vault:v1:zeD2TTTcogq8E1dFUJDr2UM4t8ehX1mpo0wC+1zQ2860vcI6Ph9OVRPgX6AH2Oy3Vi+hTNtLAO8FIQ==)
-      server-addr: http://mse-a5fe1032-nacos-ans.mse.aliyuncs.com:8848
+      server-addr: http://mse-a2272ca2-nacos-ans.mse.aliyuncs.com:8848
       namespace: C6356-prod
       discovery:
         server-addr: ${spring.cloud.nacos.server-addr}
