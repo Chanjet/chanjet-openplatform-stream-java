@@ -25,6 +25,34 @@ export class MessageDispatcher {
     }
 
     /**
+     * 快捷注册：企业临时授权码。
+     */
+    onEntAuthCode(handler: MessageHandler<any>) {
+        this.register('TEMP_AUTH_CODE', handler);
+    }
+
+    /**
+     * 快捷注册：订单支付成功。
+     */
+    onOrderStatus(handler: MessageHandler<any>) {
+        this.register('PAY_ORDER_SUCCESS', handler);
+    }
+
+    /**
+     * 快捷注册：应用取消开通。
+     */
+    onAppCancelOpen(handler: MessageHandler<any>) {
+        this.register('APP_CANCEL_OPEN', handler);
+    }
+
+    /**
+     * 快捷注册：企业解除授权。
+     */
+    onEntUnauth(handler: MessageHandler<any>) {
+        this.register('APP_CANCEL_AUTHORIZATION', handler);
+    }
+
+    /**
      * 快捷注册：好系列业务通知。
      */
     onAppNotice(boName: string, handler: MessageHandler<AppNoticeMessage>, transactionType?: string) {

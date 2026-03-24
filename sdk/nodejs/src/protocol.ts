@@ -43,14 +43,72 @@ export interface BaseMessage {
  * 应用票据消息。
  */
 export interface AppTicketMessage extends BaseMessage {
-    appTicket: string;
+    bizContent: {
+        appTicket: string;
+    };
 }
 
 /**
- * 企业临时授权码消息。
+ * 企业临时授权码消息 (TEMP_AUTH_CODE)。
  */
 export interface EntAuthCodeMessage extends BaseMessage {
-    authCode: string;
+    bizContent: {
+        tempAuthCode: string;
+        state?: string;
+    };
+}
+
+/**
+ * 解除授权消息 (APP_CANCEL_AUTHORIZATION)。
+ */
+export interface EntUnauthMessage extends BaseMessage {
+    bizContent: {
+        appKey: string;
+        appId: string;
+        orgId: string;
+        userId: string;
+        completedTime: string | number;
+    };
+}
+
+/**
+ * 应用取消开通消息 (APP_CANCEL_OPEN)。
+ */
+export interface AppCancelOpenMessage extends BaseMessage {
+    bizContent: {
+        appKey: string;
+        appId: string;
+        orgId: string;
+        userId: string;
+        completedTime: string | number;
+    };
+}
+
+/**
+ * 订单支付成功消息 (PAY_ORDER_SUCCESS)。
+ */
+export interface OrderStatusMessage extends BaseMessage {
+    bizContent: {
+        orderNo: string;
+        orgId: string;
+        detail: {
+            orderNo: string;
+            orderTotal: number;
+            orderType: number;
+            payTotal: number;
+            paidTime: string;
+            createdTime: string;
+            userId: number | string;
+            orgId: number | string;
+            orderItems: Array<{
+                payPrice: number;
+                productId: number | string;
+                startDate: string;
+                endDate: string;
+                amountInfo: string;
+            }>;
+        };
+    };
 }
 
 /**

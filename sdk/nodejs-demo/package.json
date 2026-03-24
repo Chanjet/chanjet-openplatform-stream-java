@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
-    "@chanjet/connector-sdk": "file:../nodejs"
+    "@chanjet/connector-sdk": "file:../nodejs",
+    "dotenv": "^17.3.1"
   }
 }

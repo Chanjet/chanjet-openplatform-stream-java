@@ -31,7 +31,7 @@ public class WebhookController {
     }
 
     @PostMapping("/internal/v1/webhook/dispatch")
-    public void dispatch(
+    public Map<String, String> dispatch(
             @RequestHeader("X-C-APP_KEY") String appKey,
             @RequestHeader("X-MSG-ID") String msgId,
             @RequestHeader(value = "X-Trace-Id", required = false) String traceId,
@@ -49,6 +49,7 @@ public class WebhookController {
         );
 
         messageDispatcher.dispatch(frame);
+        return Map.of("result", "success");
     }
 
     @PostMapping("/internal/v1/p2p/push")
