@@ -23,19 +23,14 @@ dispatcher.register('TEST_DATA', (msg) => {
 
 dispatcher.onAppTicket((msg) => {
     if (msg.bizContent && msg.bizContent.appTicket) {
-        console.log(`🎫 [Demo] 收到应用票据 (AppTicket) [msgId: ${msg.id}]:`, msg.bizContent.appTicket);
-    } else {
-        console.warn('⚠️ [Demo] 收到 APP_TICKET 消息，但未在 bizContent 中找到 appTicket 字段。', JSON.stringify(msg));
+        console.log(`🎫 [Demo] 收到应用票据 [msgId: ${msg.id}]:`, msg.bizContent.appTicket);
     }
     return true;
 });
 
 dispatcher.onEntAuthCode((msg) => {
     if (msg.bizContent && msg.bizContent.tempAuthCode) {
-        console.log('🔑 [Demo] 收到临时授权码 (tempAuthCode):', msg.bizContent.tempAuthCode);
-        console.log('🏳️  [Demo] 携带的 State:', msg.bizContent.state || 'none');
-    } else {
-        console.warn('⚠️ [Demo] 收到 TEMP_AUTH_CODE 消息，但未在 bizContent 中找到 tempAuthCode。', JSON.stringify(msg));
+        console.log(`🔑 [Demo] 收到临时授权码 [msgId: ${msg.id}]:`, msg.bizContent.tempAuthCode);
     }
     return true;
 });
@@ -44,32 +39,21 @@ dispatcher.onOrderStatus((msg) => {
     if (msg.bizContent) {
         const orderNo = msg.bizContent.orderNo;
         const payTotal = msg.bizContent.detail ? msg.bizContent.detail.payTotal : 'unknown';
-        console.log(`💰 [Demo] 收到订单支付成功消息: 订单号=${orderNo}, 实付金额=${payTotal}`);
-        if (msg.bizContent.detail && msg.bizContent.detail.orderItems) {
-            console.log(`📦 包含商品数: ${msg.bizContent.detail.orderItems.length}`);
-        }
-    } else {
-        console.warn('⚠️ [Demo] 收到 PAY_ORDER_SUCCESS 消息，但 bizContent 为空。', JSON.stringify(msg));
+        console.log(`💰 [Demo] 收到订单支付成功 [msgId: ${msg.id}]: 订单号=${orderNo}, 实付金额=${payTotal}`);
     }
     return true;
 });
 
 dispatcher.onAppCancelOpen((msg) => {
     if (msg.bizContent) {
-        const { appId, orgId, completedTime } = msg.bizContent;
-        console.log(`❌ [Demo] 收到应用取消开通消息: AppId=${appId}, OrgId=${orgId}, 完成时间=${completedTime}`);
-    } else {
-        console.warn('⚠️ [Demo] 收到 APP_CANCEL_OPEN 消息，但 bizContent 为空。', JSON.stringify(msg));
+        console.log(`❌ [Demo] 收到应用取消开通消息: AppId=${msg.bizContent.appId}`);
     }
     return true;
 });
 
 dispatcher.onEntUnauth((msg) => {
     if (msg.bizContent) {
-        const { appId, orgId, completedTime } = msg.bizContent;
-        console.log(`🚫 [Demo] 收到解除授权消息 (APP_CANCEL_AUTHORIZATION): AppId=${appId}, OrgId=${orgId}, 完成时间=${completedTime}`);
-    } else {
-        console.warn('⚠️ [Demo] 收到 APP_CANCEL_AUTHORIZATION 消息，但 bizContent 为空。', JSON.stringify(msg));
+        console.log(`🚫 [Demo] 收到解除授权消息: AppId=${msg.bizContent.appKey}`);
     }
     return true;
 });

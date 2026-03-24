@@ -102,6 +102,7 @@ export class MessageDispatcher {
 
             const message: BaseMessage = {
                 ...root,
+                msgId: root.id || root.msgId, // 兼容性自动填充
                 headers: frame.headers
             };
 

@@ -26,6 +26,7 @@ export interface AckFrame {
  * 业务推送消息基类。
  */
 export interface BaseMessage {
+    id?: string;
     msgId?: string;
     msgType?: string;
     appKey?: string;
