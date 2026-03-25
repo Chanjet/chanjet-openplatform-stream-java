@@ -7,58 +7,43 @@ ROOT_DIR := $(shell pwd)
 MAVEN_SETTINGS := $(ROOT_DIR)/.mvn/settings.xml
 MVN := mvn -s $(MAVEN_SETTINGS)
 
-.PHONY: help init build-java build-sdk clean test proto
+.PHONY: help init build-all clean test test-java test-nodejs test-go proto
 
 help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  init        Initialize development environment"
-	@echo "  proto       Generate code from protobuf definitions"
-	@echo "  build-java  Build Java service (gateway-java) using chanjet settings"
-	@echo "  build-sdk   Build Java SDK using chanjet settings"
-	@echo "  test        Run all tests"
-	@echo "  clean       Clean all build artifacts"
+	@echo "  build-all    Build all services and SDKs"
+	@echo "  test         Run all tests (Java, Node.js, Go)"
+	@echo "  test-java    Run Java unit tests"
+	@echo "  test-nodejs  Run Node.js unit tests"
+	@echo "  test-go      Run Go unit tests"
+	@echo "  clean        Clean all build artifacts"
 
-init:
-	@echo "Initializing Monorepo for $(PROJECT_NAME)..."
-	@mkdir -p proto/internal proto/gateway services/gateway-java sdk/java sdk/python scripts .mvn
+build-all:
+	@echo "Building all modules..."
+	@$(MVN) clean install -DskipTests
+	@cd sdk/nodejs && npm install && npm run build
+	@cd sdk/go && go build ./...
 	@echo "Done."
 
-proto:
-	@echo "Generating code from proto files..."
-	@# TODO: Integrate with protoc when .proto files are ready
-	@echo "No .proto files found yet."
+test: test-java test-nodejs test-go
 
-build-java:
-	@echo "Building Java services using $(MAVEN_SETTINGS)..."
-	@if [ -f services/gateway-java/pom.xml ]; then \
-		cd services/gateway-java && $(MVN) clean install -DskipTests; \
-	else \
-		echo "Skipping: services/gateway-java/pom.xml not found."; \
-	fi
+test-java:
+	@echo "Running Java tests..."
+	@$(MVN) test
 
-build-sdk:
-	@echo "Building Java SDK using $(MAVEN_SETTINGS)..."
-	@if [ -f sdk/java/pom.xml ]; then \
-		cd sdk/java && $(MVN) clean install -DskipTests; \
-	else \
-		echo "Skipping: sdk/java/pom.xml not found."; \
-	fi
+test-nodejs:
+	@echo "Running Node.js tests..."
+	@cd sdk/nodejs && npm test
 
-test:
-	@echo "Running all tests..."
-	@cd services/gateway-java && $(MVN) test
-	@cd sdk/java && $(MVN) test
-	@echo "Done."
+test-go:
+	@echo "Running Go tests..."
+	@cd sdk/go && go test ./...
 
 clean:
 	@echo "Cleaning artifacts..."
-	@rm -rf target/
-	@if [ -d services/gateway-java ]; then \
-		find services/gateway-java -name "target" -type d -exec rm -rf {} +; \
-	fi
-	@if [ -d sdk/java ]; then \
-		find sdk/java -name "target" -type d -exec rm -rf {} +; \
-	fi
+	@$(MVN) clean
+	@rm -rf sdk/nodejs/dist sdk/nodejs/node_modules
+	@rm -f sdk/go/go.sum
 	@echo "Done."

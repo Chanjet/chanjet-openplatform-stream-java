@@ -16,6 +16,8 @@ open-streaming-connector/
 ├── connector-common/              # [共享] 跨模块协议 Record 帧定义
 ├── connector-java-sdk/            # [SDK] 官方 Java SDK 接入包
 ├── sdk/                           # [多语言 SDK 与 Demo]
+│   ├── go/                        # Go SDK
+│   ├── go-demo/                   # Go 示例程序
 │   ├── nodejs/                    # Node.js SDK
 │   ├── nodejs-demo/               # Node.js 示例程序
 │   ├── java-demo/                 # Java 示例程序
@@ -45,7 +47,7 @@ open-streaming-connector/
 
 ## 3. 多语言演进现状
 
-1.  **Java & Node.js (v0.1.0)**: 已完成。提供了成熟的 Java 和 Node.js SDK。
+1.  **Java, Node.js & Go (v0.1.0)**: 已完成。提供了成熟的 Java, Node.js 和 Go SDK。
 2.  **Stability Validation**: 通过 `scripts/stability_test_runner.sh` 完成了 2 小时级别的稳定性压测。
 3.  **Security Baseline**: 全面采用 AES-128-ECB 加密及独立消息秘钥。
 

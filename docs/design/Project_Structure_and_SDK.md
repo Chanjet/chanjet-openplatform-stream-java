@@ -19,6 +19,7 @@
 | `connector-server` | 接入与组装层 (壳) | Spring Boot, WebSocket |
 | `connector-java-sdk` | Java 客户端工具包 | Java 21 HttpClient |
 | `sdk/nodejs` | Node.js 客户端工具包 | Node.js, ws, TypeScript |
+| `sdk/go` | Go 客户端工具包 | Go, Gorilla WebSocket |
 
 ---
 
@@ -29,6 +30,7 @@ graph TD
     subgraph ISV_Environment
         SDK_JAVA[connector-java-sdk]
         SDK_NODE[sdk/nodejs]
+        SDK_GO[sdk/go]
     end
 
     subgraph Gateway_Service
@@ -41,6 +43,7 @@ graph TD
         API --> Common[connector-common]
         SDK_JAVA --> Common
         SDK_NODE --> Common
+        SDK_GO --> Common
     end
 
     BOM[connector-bom] -.->|版本控制| Gateway_Service
