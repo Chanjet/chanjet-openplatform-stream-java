@@ -9,15 +9,29 @@ import (
 
 	"com.chanjet/connector-sdk-go/pkg/protocol"
 	"com.chanjet/connector-sdk-go/pkg/sdk"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	// 实际应从环境变量或配置读取
+	// 加载 .env 文件
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
+
+	appKey := os.Getenv("APP_KEY")
+	appSecret := os.Getenv("APP_SECRET")
+	encryptKey := os.Getenv("ENCRYPT_KEY")
+	gatewayURL := os.Getenv("GATEWAY_URL")
+
+	if appKey == "" || appSecret == "" {
+		log.Fatal("❌ [Error] 缺少必要配置：请确保 .env 文件已正确配置 APP_KEY, APP_SECRET")
+	}
+
 	options := sdk.ClientOptions{
-		AppKey:     "your_app_key",
-		AppSecret:  "your_app_secret",
-		EncryptKey: "1234567890123456",
-		GatewayURL: "https://stream-open-chanapp.inte.chanjet.com",
+		AppKey:     appKey,
+		AppSecret:  appSecret,
+		EncryptKey: encryptKey,
+		GatewayURL: gatewayURL,
 	}
 
 	// 1. 初始化分发器
