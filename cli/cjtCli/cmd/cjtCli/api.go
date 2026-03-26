@@ -22,73 +22,78 @@ var (
 )
 
 var apiCmd = &cobra.Command{
-	Use:   "api <METHOD> <PATH>",
-	Short: "Invoke a Chanjet Openplatform API with automatic authentication",
-	Args:  cobra.ExactArgs(2),
+	Use:   "api [METHOD] [PATH]",
+	Short: "Invoke a Chanjet Openplatform API or manage API specifications",
 	Run: func(cmd *cobra.Command, args []string) {
-		method := strings.ToUpper(args[0])
-		path := args[1]
-		conf := cfgMgr.Get()
-
-		// 0. Dry-Run Check (PRD v0.1.1)
-		if apiDryRun {
-			res := map[string]interface{}{
-				"method":  method,
-				"path":    path,
-				"status":  "validated",
-				"message": "[Dry-Run] Schema validation passed (Local only).",
-			}
-			telemetry.FormatOutput(res, nil, telemetry.OutputFormat(format))
+		// If called with exactly 2 args, treat as a direct API call
+		if len(args) == 2 {
+			method := strings.ToUpper(args[0])
+			path := args[1]
+			executeApiCall(method, path)
 			return
 		}
-
-		// 1. Get Token
-		token, err := authCli.GetAppAccessToken(profile, conf)
-		if err != nil {
-			telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
-			return
-		}
-
-		// 2. Build Request
-		url := conf.OpenApiURL + path
-		var bodyReader io.Reader
-		if len(apiData) > 0 {
-			bodyReader = bytes.NewBuffer([]byte(strings.Join(apiData, "")))
-		}
-
-		req, err := http.NewRequest(method, url, bodyReader)
-		if err != nil {
-			telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
-			return
-		}
-
-		req.Header.Set("Authorization", "Bearer "+token.Value)
-		req.Header.Set("Content-Type", "application/json")
-
-		// 3. Execute
-		tel.Audit().Info("Executing API call", telemetry.ZapString("method", method), telemetry.ZapString("path", path))
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
-			return
-		}
-		defer resp.Body.Close()
-
-		respBody, _ := io.ReadAll(resp.Body)
-		
-		// 4. Output
-		var result interface{}
-		if err := json.Unmarshal(respBody, &result); err != nil {
-			// If not JSON, return as raw string
-			result = string(respBody)
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			telemetry.FormatOutput(result, fmt.Errorf("API error: %d", resp.StatusCode), telemetry.OutputFormat(format))
-		} else {
-			telemetry.FormatOutput(result, nil, telemetry.OutputFormat(format))
-		}
+		// Otherwise, show help
+		cmd.Help()
 	},
+}
+
+func executeApiCall(method, path string) {
+	conf := cfgMgr.Get()
+	// 0. Dry-Run Check
+	if apiDryRun {
+		res := map[string]interface{}{
+			"method":  method,
+			"path":    path,
+			"status":  "validated",
+			"message": "[Dry-Run] Schema validation passed (Local only).",
+		}
+		telemetry.FormatOutput(res, nil, telemetry.OutputFormat(format))
+		return
+	}
+
+	// 1. Get Token
+	token, err := authCli.GetAppAccessToken(profile, conf)
+	if err != nil {
+		telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
+		return
+	}
+
+	// 2. Build Request
+	url := conf.OpenApiURL + path
+	var bodyReader io.Reader
+	if len(apiData) > 0 {
+		bodyReader = bytes.NewBuffer([]byte(strings.Join(apiData, "")))
+	}
+
+	req, err := http.NewRequest(method, url, bodyReader)
+	if err != nil {
+		telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token.Value)
+	req.Header.Set("Content-Type", "application/json")
+
+	// 3. Execute
+	tel.Audit().Info("Executing API call", telemetry.ZapString("method", method), telemetry.ZapString("path", path))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var result interface{}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		result = string(respBody)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		telemetry.FormatOutput(result, fmt.Errorf("API error: %d", resp.StatusCode), telemetry.OutputFormat(format))
+	} else {
+		telemetry.FormatOutput(result, nil, telemetry.OutputFormat(format))
+	}
 }
 
 var apiListCmd = &cobra.Command{
@@ -209,6 +214,14 @@ var apiSpecCmd = &cobra.Command{
 				fmt.Println(strings.Repeat("=", 60))
 				fmt.Printf("Summary:     %s\n", operation["summary"])
 				fmt.Printf("Description: %s\n", operation["description"])
+
+				// CLI Usage Example
+				fmt.Println("\nCLI USAGE EXAMPLE:")
+				exampleCmd := fmt.Sprintf("cjtCli api %s %s", strings.ToUpper(method), path)
+				if strings.ToUpper(method) == "POST" || strings.ToUpper(method) == "PUT" {
+					exampleCmd += " -d '{\"key\": \"value\"}'"
+				}
+				fmt.Printf("  %s\n", exampleCmd)
 
 				// Parameters
 				if params, ok := operation["parameters"].([]interface{}); ok && len(params) > 0 {
