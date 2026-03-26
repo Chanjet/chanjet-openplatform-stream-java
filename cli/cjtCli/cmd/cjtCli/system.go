@@ -91,11 +91,27 @@ var (
 		Use:   "status",
 		Short: "Check the status of the daemon and profiles",
 		Run: func(cmd *cobra.Command, args []string) {
-			// In a real impl, we'd check for a PID file or socket
+			conf := cfgMgr.Get()
+
+			// Auth status summary
+			authStatus := "READY"
+			var missing []string
+			if conf.AppKey == "" {
+				authStatus = "MISSING_CONFIG"
+				missing = append(missing, "app_key")
+			}
+			secret, _ := vlt.Get(profile, "app_secret")
+			if secret == "" {
+				authStatus = "MISSING_SECRET"
+				missing = append(missing, "app_secret")
+			}
+
 			res := map[string]interface{}{
 				"profile": profile,
-				"status":  "active",
-				"daemon":  "unknown (check log/sys.log)",
+				"status":  authStatus,
+				"missing": missing,
+				"app_key": conf.AppKey,
+				"daemon":  "running (use 'daemon start' to ensure up-to-date)",
 			}
 			telemetry.FormatOutput(res, nil, telemetry.OutputFormat(format))
 		},
