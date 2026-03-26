@@ -18,6 +18,7 @@ import (
 var (
 	apiData        []string
 	apiSearchQuery string
+	apiSearchTopN  int
 	apiDryRun      bool
 )
 
@@ -127,14 +128,27 @@ var apiListCmd = &cobra.Command{
 			}
 
 			queryVector := embedder.Embed(apiSearchQuery)
-			results := engine.Search(queryVector, apiSearchQuery, 5)
+			results := engine.Search(queryVector, apiSearchQuery, apiSearchTopN)
 
 			if format == "text" {
-				fmt.Printf("Search results for: \"%s\"\n", apiSearchQuery)
-				fmt.Printf("%-10s %-40s %s\n", "SCORE", "API ID", "SUMMARY")
-				fmt.Println(strings.Repeat("-", 80))
-				for _, r := range results {
-					fmt.Printf("%-10.4f %-40s %s\n", r.Score, r.ID, r.Summary)
+				fmt.Printf("\n🔍 \033[1;32mSearch results for: \"%s\" (Top %d)\033[0m\n", apiSearchQuery, apiSearchTopN)
+				fmt.Println(strings.Repeat("=", 80))
+				
+				for i, r := range results {
+					// 匹配度计算与颜色 (>=0.8 绿色, >=0.5 黄色, 其余灰色)
+					color := "\033[32m" // Green
+					if r.Score < 0.5 {
+						color = "\033[90m" // Gray
+					} else if r.Score < 0.8 {
+						color = "\033[33m" // Yellow
+					}
+					
+					scoreLabel := fmt.Sprintf("%.4f", r.Score)
+
+					fmt.Printf("%d. [\033[1m%s%s\033[0m] \033[1m%s %s\033[0m\n", i+1, color, scoreLabel, r.ID, "")
+					fmt.Printf("   \033[36mSummary:\033[0m %s\n", r.Summary)
+					fmt.Printf("   \033[36mDescription:\033[0m %s\n", r.Description)
+					fmt.Println()
 				}
 				return
 			}
@@ -269,7 +283,19 @@ func init() {
 	apiCmd.Flags().StringSliceVarP(&apiData, "data", "d", []string{}, "HTTP request body (can be specified multiple times)")
 	apiCmd.Flags().BoolVar(&apiDryRun, "dry-run", false, "Validate the API call based on Schema without sending the request")
 	apiListCmd.Flags().StringVarP(&apiSearchQuery, "search", "s", "", "Search APIs semantically based on your intent")
+	apiListCmd.Flags().IntVarP(&apiSearchTopN, "top", "n", 5, "Number of top results to return")
 	apiCmd.AddCommand(apiListCmd)
 	apiCmd.AddCommand(apiSpecCmd)
 	rootCmd.AddCommand(apiCmd)
+}
+
+func truncateString(s string, l int) string {
+	runes := []rune(s)
+	if len(runes) <= l {
+		return s
+	}
+	if l <= 3 {
+		return string(runes[:l])
+	}
+	return string(runes[:l-3]) + "..."
 }

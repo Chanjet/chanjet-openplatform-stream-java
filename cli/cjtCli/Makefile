@@ -16,24 +16,32 @@ LDFLAGS_TEST = -X $(CONFIG_PKG).DefaultOpenApiURL=$(TEST_OPENAPI) -X $(CONFIG_PK
 
 # Tokenizers 底层静态库路径 (跨平台 CGO 链接依赖)
 LIB_DIR = $(PWD)/pkg/search/assets/lib
+# macOS 专用静态库目录 (libtokenizers.a)
+MACOS_LIB_DIR = $(PWD)/lib
+# macOS arm64 库目录 (libonnxruntime.dylib)
+MACOS_ARM64_DIR = $(LIB_DIR)/darwin-arm64
 
 # 默认构建 (生产环境 - 依赖当前系统默认 CGO 环境)
 build:
-	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS_PROD)" -o cjtCli main.go
+	@echo "🔨 Building production binary (CGO Enabled)..."
+	CGO_ENABLED=1 CGO_LDFLAGS="-L$(MACOS_LIB_DIR) -L$(MACOS_ARM64_DIR)" \
+	go build -ldflags "$(LDFLAGS_PROD)" -o cjtCli main.go
 
 # 测试环境构建 (CGO 启用且带有本地链接路径)
 build-test:
-	CGO_ENABLED=1 CGO_LDFLAGS="-L$(LIB_DIR)/darwin-arm64 -L$(PWD)/lib" go build -ldflags "$(LDFLAGS_TEST)" -o cjtCli-test main.go
+	@echo "🧪 Building test binary (CGO Enabled)..."
+	CGO_ENABLED=1 CGO_LDFLAGS="-L$(MACOS_LIB_DIR) -L$(MACOS_ARM64_DIR)" \
+	go build -ldflags "$(LDFLAGS_TEST)" -o cjtCli-test main.go
 
 # --------- 跨平台一键编译组 (生成的二进制统一输出至 build/) ---------
 
 mkdir-build:
-	mkdir -p build
+	@mkdir -p build
 
 build-mac: mkdir-build
 	@echo "🍎 Building macOS (arm64)..."
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 \
-	CGO_LDFLAGS="-L$(LIB_DIR)/darwin-arm64" \
+	CGO_LDFLAGS="-L$(MACOS_LIB_DIR) -L$(MACOS_ARM64_DIR)" \
 	go build -ldflags "$(LDFLAGS_PROD)" -o build/cjtCli-darwin-arm64 main.go
 
 build-windows: mkdir-build

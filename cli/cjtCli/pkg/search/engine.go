@@ -12,16 +12,18 @@ import (
 
 // Document 代表一个向量化的接口元数据
 type Document struct {
-	ID       string    `json:"id"`       // e.g. "GET /v1/orders"
-	Metadata string    `json:"metadata"` // 原始文本摘要
-	Vector   []float32 `json:"vector"`   // 高维浮点向量
+	ID          string    `json:"id"`          // e.g. "GET /v1/orders"
+	Metadata    string    `json:"metadata"`    // 原始文本摘要 (Summary)
+	Description string    `json:"description"` // 详细描述 (Description)
+	Vector      []float32 `json:"vector"`      // 高维浮点向量
 }
 
 // Result 搜索结果
 type Result struct {
-	ID      string  `json:"id"`
-	Summary string  `json:"summary"`
-	Score   float64 `json:"score"`
+	ID          string  `json:"id"`
+	Summary     string  `json:"summary"`
+	Description string  `json:"description"`
+	Score       float64 `json:"score"`
 }
 
 type Engine struct {
@@ -56,13 +58,14 @@ func (e *Engine) Search(queryVector []float32, queryText string, limit int) []Re
 	for _, doc := range e.Docs {
 		score := CosineSimilarity(queryVector, doc.Vector)
 		metadataLower := strings.ToLower(doc.Metadata)
+		descLower := strings.ToLower(doc.Description)
 		idLower := strings.ToLower(doc.ID)
 
 		// 补丁逻辑 (N-Gram Hybrid Search): 基于语义碎片命中率加分
 		if len(nGrams) > 0 {
 			hitCount := 0
 			for _, gram := range nGrams {
-				if strings.Contains(metadataLower, gram) || strings.Contains(idLower, gram) {
+				if strings.Contains(metadataLower, gram) || strings.Contains(idLower, gram) || strings.Contains(descLower, gram) {
 					hitCount++
 				}
 			}
@@ -75,9 +78,10 @@ func (e *Engine) Search(queryVector []float32, queryText string, limit int) []Re
 
 		if score > 0.3 { // 相似度阈值
 			results = append(results, Result{
-				ID:      doc.ID,
-				Summary: doc.Metadata,
-				Score:   float64(score),
+				ID:          doc.ID,
+				Summary:     doc.Metadata,
+				Description: doc.Description,
+				Score:       float64(score),
 			})
 		}
 	}
@@ -128,24 +132,29 @@ func RebuildIndexFromSpec(specData interface{}, indexPath string, embedder func(
 	for path, methods := range paths {
 		for method, detail := range methods.(map[string]interface{}) {
 			summary := ""
+			description := ""
 			if d, ok := detail.(map[string]interface{}); ok {
 				if s, ok := d["summary"].(string); ok {
 					summary = s
 				}
+				if ds, ok := d["description"].(string); ok {
+					description = ds
+				}
 			}
-			text := strings.TrimSpace(summary + " " + path)
-			
+			// 向量化文本包含：摘要 + 描述 + 路径，确保搜索描述内容也能命中
+			text := strings.TrimSpace(summary + " " + description + " " + path)
+
 			// 调用推理机生成向量
 			vector := embedder(text)
 
 			docs = append(docs, Document{
-				ID:       fmt.Sprintf("%s %s", strings.ToUpper(method), path),
-				Metadata: summary,
-				Vector:   vector,
+				ID:          fmt.Sprintf("%s %s", strings.ToUpper(method), path),
+				Metadata:    summary,
+				Description: description,
+				Vector:      vector,
 			})
 		}
 	}
-
 	engine := NewEngine(docs)
 	raw, err := json.Marshal(engine)
 	if err != nil {

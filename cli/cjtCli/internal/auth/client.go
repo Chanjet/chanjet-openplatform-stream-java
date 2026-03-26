@@ -205,110 +205,188 @@ func (c *authClient) fetchAndCacheSpec(profile string, cfg *config.Config, cache
 	// === 100+ 真实的业务 Mock 矩阵 (深度语义搜索验证版) ===
 	paths := make(map[string]interface{})
 
-	// 辅助函数：快速填充路径
-	add := func(p string, method string, summary string) {
+	// 辅助函数：快速填充路径 (增强版，支持参数与描述)
+	add := func(p string, method string, summary string, desc string, params []map[string]interface{}, reqBody map[string]interface{}) {
 		if _, ok := paths[p]; !ok {
 			paths[p] = make(map[string]interface{})
 		}
-		paths[p].(map[string]interface{})[method] = map[string]interface{}{"summary": summary}
+		op := map[string]interface{}{
+			"summary":     summary,
+			"description": desc,
+			"responses": map[string]interface{}{
+				"200": map[string]interface{}{"description": "成功"},
+				"400": map[string]interface{}{"description": "请求参数错误"},
+				"401": map[string]interface{}{"description": "鉴权失败"},
+			},
+		}
+		if params != nil {
+			op["parameters"] = params
+		}
+		if reqBody != nil {
+			op["requestBody"] = reqBody
+		}
+		paths[p].(map[string]interface{})[method] = op
 	}
 
 	// 1. 用户与身份安全 (User & Security)
-	add("/v1/auth/login", "post", "用户通过手机号与验证码登录系统")
-	add("/v1/auth/mfa/bind", "post", "绑定 Google Authenticator 二步验证器")
-	add("/v1/auth/password/reset", "put", "通过旧密码或密保问题重置账户密码")
-	add("/v1/user/profile", "get", "获取当前登录用户的个人偏好与系统配置")
-	add("/v1/user/dept/sync", "post", "从钉钉/企业微信同步组织架构与员工关系")
-	add("/v1/auth/role/assign", "post", "为新入职员工分配预设的功能权限角色")
-	add("/v1/auth/audit/logs", "get", "查询敏感操作审计日志以满足合规性审查")
-	add("/v1/auth/session/kill", "delete", "强行下线指定的异常登录会话")
-	add("/v1/user/tags", "put", "为用户贴上业务属性标签用于精细化分层")
-	add("/v1/auth/token/refresh", "post", "使用 RefreshToken 换取新的访问令牌")
-	for i := 1; i <= 10; i++ {
-		add(fmt.Sprintf("/v1/user/ext/%d", i), "get", fmt.Sprintf("获取用户扩展字段 %d 的自定义配置", i))
-	}
+	add("/v1/user/profile", "get", "获取当前登录用户的个人偏好与系统配置", "返回包含用户头像、所属部门及常用功能在内的完整画像数据。", 
+		[]map[string]interface{}{
+			{"name": "fields", "in": "query", "required": false, "description": "指定返回字段，逗号分隔", "schema": map[string]string{"type": "string"}},
+		}, nil)
+	
+	add("/v1/auth/role/assign", "post", "为新入职员工分配预设的功能权限角色", "通过角色 ID 批量为用户授权，支持跨部门分配。", nil, 
+		map[string]interface{}{
+			"content": map[string]interface{}{
+				"application/json": map[string]interface{}{
+					"schema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"userId":  map[string]string{"type": "string", "description": "员工唯一标识"},
+							"roleIds": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						},
+						"required": []string{"userId", "roleIds"},
+					},
+				},
+			},
+		})
 
 	// 2. 供应链与库存 (Supply Chain & Inventory)
-	add("/v1/inventory/query", "get", "实时查询全渠道商品的物理库存与可用余量")
-	add("/v1/inventory/adjust", "post", "提交库存盘盈盘亏调整单以修正账实差异")
-	add("/v1/inventory/transfer", "post", "发起跨仓库或跨校区的物资调拨申请")
-	add("/v1/inventory/warning", "get", "获取已低于安全库存阈值的商品补货预警列表")
-	add("/v1/inventory/batch/trace", "get", "根据批次号追踪食品或医药类商品的来源去向")
-	add("/v1/inventory/lock", "post", "针对未支付订单暂时锁定库存以防超卖")
-	add("/v1/inventory/unlock", "post", "订单取消后释放预占库存回流至可用池")
-	add("/v1/inventory/serial/check", "get", "校验电子产品唯一序列号(SN)是否在库")
-	add("/v1/inventory/cost/calc", "post", "按加权平均法重新计算月末结存成本")
-	add("/v1/inventory/expire/list", "get", "罗列即将超过保质期的临期商品清单")
-	for i := 1; i <= 10; i++ {
-		add(fmt.Sprintf("/v1/warehouse/zone/%d", i), "get", fmt.Sprintf("查询仓库第 %d 库区的温湿度监控状态", i))
-	}
+	add("/v1/inventory/query", "get", "实时查询全渠道商品的物理库存与可用余量", "支持按仓库、库位或商品编码精确/模糊查询。", 
+		[]map[string]interface{}{
+			{"name": "skuCode", "in": "query", "required": true, "description": "商品条码/编码", "schema": map[string]string{"type": "string"}},
+			{"name": "warehouseId", "in": "query", "required": false, "description": "仓库 ID", "schema": map[string]string{"type": "string"}},
+		}, nil)
+
+	add("/v1/inventory/adjust", "post", "提交库存盘盈盘亏调整单", "手动修正账面库存与实物库存的差异，自动生成库存流水。", nil, 
+		map[string]interface{}{
+			"content": map[string]interface{}{
+				"application/json": map[string]interface{}{
+					"schema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"skuCode":   map[string]string{"type": "string"},
+							"adjustQty": map[string]string{"type": "number", "description": "调整数量 (正数为盘盈, 负数为盘亏)"},
+							"reason":    map[string]string{"type": "string"},
+						},
+						"required": []string{"skuCode", "adjustQty"},
+					},
+				},
+			},
+		})
 
 	// 3. 销售与订单中心 (Sales & Order)
-	add("/v1/orders/create", "post", "接收前端商城提交的原始销售订单")
-	add("/v1/orders/detail", "get", "获取包含商品、优惠、物流在内的订单详情")
-	add("/v1/orders/split", "post", "针对超重或多仓发货需求对订单执行物理拆分")
-	add("/v1/orders/price/verify", "post", "计算多种促销活动叠加后的最终成交价格")
-	add("/v1/orders/logistics/update", "put", "回填快递单号并触发下游物流状态订阅")
-	add("/v1/orders/refund/apply", "post", "处理 ISV 提交的售后退款或退货申请")
-	add("/v1/orders/subscription/renew", "post", "对订阅制服务执行到期自动扣费与续期")
-	add("/v1/orders/commission/calc", "get", "计算分销员在指定订单中的业绩提成比例")
-	add("/v1/orders/cancel", "delete", "用户自主取消处于待支付状态的死单")
-	add("/v1/orders/history", "get", "查询历史成交记录并支持按时间范围导出")
-	for i := 1; i <= 10; i++ {
-		add(fmt.Sprintf("/v1/promo/coupon/%d", i), "post", fmt.Sprintf("激活第 %d 类满减优惠券", i))
-	}
+	add("/v1/orders/detail", "get", "获取订单详情", "获取包含商品明细、促销抵扣、物流状态在内的订单全视图。", 
+		[]map[string]interface{}{
+			{"name": "orderId", "in": "path", "required": true, "description": "订单号", "schema": map[string]string{"type": "string"}},
+		}, nil)
 
 	// 4. 财务、支付与结算 (Finance & Payment)
-	add("/v1/finance/balance", "get", "查询 ISV 在开放平台的实时可用资金余额")
-	add("/v1/payment/pay", "post", "拉起微信/支付宝/聚合支付收银台")
-	add("/v1/finance/reconcile", "get", "获取昨日银行流水并自动执行系统对账")
-	add("/v1/payment/batch-transfer", "post", "发起企业级员工薪资或佣金的批量转账代发")
-	add("/v1/finance/ledger/sync", "post", "将业务凭证同步至总账系统生成财务记账")
-	add("/v1/finance/tax/summary", "get", "基于销售额自动计算本季度应预缴的增值税额")
-	add("/v1/payment/refund/status", "get", "实时监控第三方支付平台的退款回调进度")
-	add("/v1/finance/asset/list", "get", "查询企业名下的固定资产折旧与明细清单")
-	add("/v1/finance/expense/report", "post", "员工提交差旅报销单据并挂载电子发票")
-	add("/v1/finance/exchange/rate", "get", "拉取中国银行实时汇率用于外币结算核算")
-	for i := 1; i <= 10; i++ {
-		add(fmt.Sprintf("/v1/bank/account/%d", i), "get", fmt.Sprintf("查询绑定的第 %d 号银行账户状态", i))
-	}
+	add("/v1/payment/batch-transfer", "post", "发起批量转账代发", "支持员工工资发放、分销佣金结算等场景。", nil, 
+		map[string]interface{}{
+			"content": map[string]interface{}{
+				"application/json": map[string]interface{}{
+					"schema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"batchNo": map[string]string{"type": "string", "description": "批次号"},
+							"items": map[string]interface{}{
+								"type": "array",
+								"items": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"payeeAccount": map[string]string{"type": "string"},
+										"amount":       map[string]string{"type": "number"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		})
 
 	// 5. 电子发票与财税 (Invoice & Tax)
-	add("/v1/invoice/issue/blue", "post", "为已成交订单开具增值税电子普通发票(蓝票)")
-	add("/v1/invoice/issue/red", "post", "针对退货订单发起红字发票冲红申请")
-	add("/v1/invoice/download", "get", "通过提取码获取发票的 OFD 或 PDF 原始文件")
-	add("/v1/invoice/verify", "post", "连接国税局接口校验外部发票真伪与状态")
-	add("/v1/invoice/category/map", "get", "获取税收分类编码映射表以防止开票报错")
-	add("/v1/invoice/queue/status", "get", "查看税控盘当前开票的并发排队等待长度")
-	add("/v1/tax/electronic-ledger", "get", "同步电子底账库中的进项发票待认证数据")
-	add("/v1/invoice/mail/send", "post", "将生成的电子发票自动发送至客户预留邮箱")
-	add("/v1/invoice/paper/print", "post", "远程指令驱动本地打印机开具纸质增值税发票")
-	add("/v1/tax/declare/confirm", "post", "确认本月财务报表数据并提交至电子税务局")
-	for i := 1; i <= 10; i++ {
-		add(fmt.Sprintf("/v1/tax/code/%d", i), "get", fmt.Sprintf("查询税收编码 %d 的对应税率说明", i))
+	add("/v1/invoice/issue/red", "post", "针对退货订单发起红字发票冲红申请", "自动关联原蓝票并生成对应金额的负数发票。", nil, 
+		map[string]interface{}{
+			"content": map[string]interface{}{
+				"application/json": map[string]interface{}{
+					"schema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"sourceInvoiceNo": map[string]string{"type": "string", "description": "原蓝票发票号码"},
+							"reasonCode":      map[string]string{"type": "string", "description": "红冲原因编码"},
+						},
+					},
+				},
+			},
+		})
+
+	// 6. 客户关系管理 (CRM & Customers)
+	add("/v1/crm/customer/register", "post", "录入潜在意向客户档案", "包含客户基本信息、来源渠道、跟进负责人等关键字段。", nil, 
+		map[string]interface{}{
+			"content": map[string]interface{}{
+				"application/json": map[string]interface{}{
+					"schema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name":       map[string]string{"type": "string", "description": "客户名称"},
+							"mobile":     map[string]string{"type": "string", "description": "联系方式"},
+							"sourceFrom": map[string]string{"type": "string", "description": "来源 (SEM/朋友介绍/展会)"},
+						},
+					},
+				},
+			},
+		})
+	add("/v1/crm/followup/record", "post", "新增客户跟进记录", "记录沟通时间、内容、客户意向等级及下次回访提醒。", nil, nil)
+	add("/v1/crm/contract/sign", "post", "提交电子合同签约申请", "支持在线签署销售合同，自动同步合同状态至财务系统。", nil, nil)
+
+	// 7. 生产制造与质量 (Manufacturing & Quality)
+	add("/v1/production/work-order/create", "post", "下达生产工单", "根据销售订单或备货需求生成生产指令，包含BOM明细与排期。", nil, nil)
+	add("/v1/production/progress/report", "post", "生产进度报工", "记录工序完成情况、良品数与废品数，支持计件工资计算。", nil, nil)
+	add("/v1/production/qc/inspect", "post", "提交产品质量抽检报告", "涵盖外观、性能、安全指标的检验结果记录。", nil, nil)
+
+	// 8. 人事与办公效率 (HR & Collaboration)
+	add("/v1/hr/attendance/summary", "get", "导出月度考勤汇总报表", "整合打卡、请假、出差数据，用于薪资核算。", nil, nil)
+	add("/v1/hr/workflow/leave/apply", "post", "提交请假审批流程", "支持病假、事假、调休等类型，自动流转至主管审批。", nil, nil)
+	add("/v1/hr/employee/onboard", "post", "执行新员工入职办理", "同步办理社保、公积金及办公账号的自动分配。", nil, nil)
+
+	// 9. 智能分析与 BI (Analytics & BI)
+	add("/v1/analytics/sales/rank", "get", "获取全渠道销售排行榜", "按商品、区域、业务员多维度进行业绩排行分析。", nil, nil)
+	add("/v1/analytics/inventory/warning", "get", "获取呆滞库存预警清单", "分析长期未发生变动的库存，辅助决策促销或清仓。", nil, nil)
+	add("/v1/analytics/profit/margin", "get", "计算实时毛利与经营效益", "综合成本、物流、促销抵扣后的真实利润分析。", nil, nil)
+
+	// 10. 仓储物流与履约 (Logistics & Fulfillment)
+	add("/v1/logistics/delivery/track", "get", "实时追踪包裹路由详情", "对接主流快递公司，获取最新的物流状态更新。", []map[string]interface{}{
+		{"name": "trackingNo", "in": "query", "required": true, "description": "快递单号"},
+	}, nil)
+	add("/v1/logistics/shipping/plan", "post", "智能排线与运输规划", "根据地理位置、车辆载重自动优化配送路径。", nil, nil)
+
+	// 补充：为了保持 100+ 接口的量级用于语义搜索测试，生成更具描述性的 Mock 数据
+	templates := []struct {
+		prefix string
+		summary string
+		desc string
+	}{
+		{"/v1/fin", "财务结算", "处理企业日常财务流水、往来账项与发票管理。"},
+		{"/v1/scm", "供应链管控", "优化采购流程、供应商协同与多仓调拨方案。"},
+		{"/v1/mkt", "营销推广", "策划优惠券发放、秒杀活动与会员忠诚度计划。"},
+		{"/v1/sys", "系统运维", "监控中间件健康度、日志审计与分布式链路追踪。"},
+		{"/v1/iot", "工业物联网", "对接产线传感器数据、设备预防性维护与预警。"},
 	}
 
-	// 6. 系统、可观测性与 Agent 治理 (Admin & Ops)
-	add("/v1/sys/health", "get", "全链路探测网关与下游微服务的存活状态")
-	add("/v1/sys/config/refresh", "post", "不重启服务的前提下动态热更新系统配置参数")
-	add("/v1/sys/logs/slow-sql", "get", "获取最近一小时执行耗时超过 500ms 的数据库查询")
-	add("/v1/sys/circuit-breaker", "put", "手动触发服务熔断以应对突发的海量洪峰流量")
-	add("/v1/sys/gray/route", "post", "配置灰度发布规则将指定比例流量导入新版本")
-	add("/v1/sys/cert/renew", "post", "自动更替即将过期的 HTTPS TLS 安全证书")
-	add("/v1/sys/metrics/prometheus", "get", "暴露符合 Prometheus 规范的监控指标数据点")
-	add("/v1/sys/agent/heartbeat", "post", "接收 AI Agent 执行引擎的心跳与状态上报")
-	add("/v1/sys/backup/trigger", "post", "立即触发本地令牌库与死信队列的冷备份")
-	add("/v1/sys/terminal/shutdown", "post", "执行优雅停机流程确保所有事务安全持久化")
-	for i := 1; i <= 10; i++ {
-		add(fmt.Sprintf("/v1/sys/node/%d/stat", i), "get", fmt.Sprintf("监控集群第 %d 个节点的 CPU 与内存负载", i))
+	for _, t := range templates {
+		for i := 1; i <= 20; i++ {
+			p := fmt.Sprintf("%s/api/%d", t.prefix, i)
+			add(p, "get", fmt.Sprintf("%s-自动生成接口-%d", t.summary, i), fmt.Sprintf("这是关于%s的第 %d 个语义增强 Mock 描述，用于验证向量索引召回准确率。", t.desc, i), nil, nil)
+		}
 	}
 
 	mockSpec := map[string]interface{}{
 		"openapi": "3.0.1",
 		"info": map[string]interface{}{
 			"title":       "Chanjet Openplatform Enterprise Mock API",
-			"version":     "1.1.0",
-			"description": "涵盖财务、供应链、身份安全等 100+ 个真实的生产级别业务接口，用于深度验证语义搜索。",
+			"version":     "1.2.0",
+			"description": "涵盖财务、供应链、身份安全、CRM、生产制造、人事办公、智能分析等 100+ 个真实的生产级别业务接口，用于深度验证语义搜索与 AI 调度。",
 		},
 		"paths": paths,
 	}
