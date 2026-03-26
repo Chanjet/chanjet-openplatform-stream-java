@@ -60,10 +60,16 @@ var rootCmd = &cobra.Command{
 		barrier = auth.NewBarrier()
 		authCli = auth.NewClient(tokenPool, barrier, tel)
 		
-		// Fill AppSecret from Vault if exists
+		// Fill AppSecret and other sensitive keys from Vault if exists
 		conf := cfgMgr.Get()
 		if secret, err := vlt.Get(profile, "app_secret"); err == nil {
 			conf.AppSecret = secret
+		}
+		if cert, err := vlt.Get(profile, "certificate"); err == nil {
+			conf.Certificate = cert
+		}
+		if ekey, err := vlt.Get(profile, "encrypt_key"); err == nil {
+			conf.EncryptKey = ekey
 		}
 
 		// Auth Integrity Check (Skip for init, system, and help commands)

@@ -35,8 +35,7 @@ var initCmd = &cobra.Command{
 		// 2. Update config and Vault
 		conf := cfgMgr.Get()
 		conf.AppKey = initAppKey
-		conf.Certificate = initCertificate
-		conf.EncryptKey = initEncryptKey
+		// conf.Certificate and conf.EncryptKey will be filled by Vault in root PreRun
 		conf.WebhookTarget = initWebhook
 		if initOpenApiURL != "" {
 			conf.OpenApiURL = initOpenApiURL
@@ -48,6 +47,16 @@ var initCmd = &cobra.Command{
 		if err := vlt.Set(profile, "app_secret", initAppSecret); err != nil {
 			telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
 			return
+		}
+		if err := vlt.Set(profile, "certificate", initCertificate); err != nil {
+			telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
+			return
+		}
+		if initEncryptKey != "" {
+			if err := vlt.Set(profile, "encrypt_key", initEncryptKey); err != nil {
+				telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
+				return
+			}
 		}
 
 		// 3. Save config
