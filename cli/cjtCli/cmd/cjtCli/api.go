@@ -76,15 +76,20 @@ func executeApiCall(method, path string) {
 	req.Header.Set("Content-Type", "application/json")
 
 	// 3. Execute
-	tel.Audit().Info("Executing API call", telemetry.ZapString("method", method), telemetry.ZapString("path", path))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		tel.Audit().Error("API call failed", telemetry.ZapString("method", method), telemetry.ZapString("path", path), telemetry.ZapError(err))
 		telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
 		return
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
+	tel.Audit().Info("API call completed", 
+		telemetry.ZapString("method", method), 
+		telemetry.ZapString("path", path), 
+		telemetry.ZapInt("status", resp.StatusCode))
+
 	var result interface{}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		result = string(respBody)

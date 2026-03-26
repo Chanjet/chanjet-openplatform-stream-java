@@ -151,11 +151,11 @@ var logViewCmd = &cobra.Command{
 
 		if format == "text" {
 			fmt.Printf("\n📄 \033[1mViewing Log: %s (%d lines)\033[0m\n", logPath, len(lines))
-			fmt.Println(strings.Repeat("=", 80))
+			fmt.Println(strings.Repeat("=", 100))
 
 			if logDomain == "audit" {
-				fmt.Printf("\033[1m%-25s %-10s %-40s\033[0m\n", "TIME", "METHOD", "PATH")
-				fmt.Println(strings.Repeat("-", 80))
+				fmt.Printf("\033[1m%-25s %-10s %-8s %-40s\033[0m\n", "TIME", "METHOD", "STATUS", "PATH")
+				fmt.Println(strings.Repeat("-", 100))
 			}
 
 			for _, line := range lines {
@@ -169,20 +169,33 @@ var logViewCmd = &cobra.Command{
 					ts := entry["ts"].(string)
 					method := entry["method"].(string)
 					path := entry["path"].(string)
+					status := "-"
+					if s, ok := entry["status"].(float64); ok {
+						status = fmt.Sprintf("%d", int(s))
+					}
 					
 					// 转换 ISO 时间为更易读格式
 					if len(ts) > 19 {
 						ts = ts[5:19] // MM-DD HH:MM:SS
 					}
 
-					color := "\033[32m" // Green for GET
+					mColor := "\033[32m" // Green for GET
 					if method == "POST" || method == "PUT" {
-						color = "\033[33m" // Yellow
+						mColor = "\033[33m" // Yellow
 					} else if method == "DELETE" {
-						color = "\033[31m" // Red
+						mColor = "\033[31m" // Red
 					}
 
-					fmt.Printf("%-25s %s%-10s\033[0m %s\n", ts, color, method, path)
+					sColor := "\033[32m" // Green for 2xx
+					if status != "-" {
+						sVal := 0
+						fmt.Sscanf(status, "%d", &sVal)
+						if sVal < 200 || sVal >= 300 {
+							sColor = "\033[31m" // Red for error
+						}
+					}
+
+					fmt.Printf("%-25s %s%-10s\033[0m %s%-8s\033[0m %s\n", ts, mColor, method, sColor, status, path)
 				} else {
 					// 其他日志输出
 					lvl := entry["level"].(string)

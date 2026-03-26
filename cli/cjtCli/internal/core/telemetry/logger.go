@@ -90,6 +90,14 @@ func Err(err error) zap.Field {
 	return zap.Error(err)
 }
 
+func ZapError(err error) zap.Field {
+	return zap.Error(err)
+}
+
 func ZapString(key, val string) zap.Field {
 	return zap.String(key, val)
+}
+
+func ZapInt(key string, val int) zap.Field {
+	return zap.Int(key, val)
 }
