@@ -29,6 +29,7 @@ type Config struct {
 	AppKey        string  `mapstructure:"app_key" json:"app_key" yaml:"app_key"`
 	AppSecret     string  `mapstructure:"-" json:"-" yaml:"-"` // Not stored in yaml/json config
 	Certificate   string  `mapstructure:"certificate" json:"certificate" yaml:"certificate"`
+	EncryptKey    string  `mapstructure:"encrypt_key" json:"encrypt_key" yaml:"encrypt_key"`
 	AppMode       AppMode `mapstructure:"app_mode" json:"app_mode" yaml:"app_mode"`
 	LogLevel      string  `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
 	OpenApiURL    string  `mapstructure:"openapi_url" json:"openapi_url" yaml:"openapi_url"`
@@ -76,6 +77,7 @@ func (m *viperManager) Delete(profile string) error {
 func (m *viperManager) Save(profile string) error {
 	m.v.Set("app_key", m.config.AppKey)
 	m.v.Set("certificate", m.config.Certificate)
+	m.v.Set("encrypt_key", m.config.EncryptKey)
 	m.v.Set("app_mode", m.config.AppMode)
 	m.v.Set("log_level", m.config.LogLevel)
 	m.v.Set("openapi_url", m.config.OpenApiURL)

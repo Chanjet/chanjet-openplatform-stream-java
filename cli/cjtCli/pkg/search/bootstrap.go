@@ -38,22 +38,32 @@ func EnsureEnvironmentReady() (string, string, string, error) {
 		libName = "libonnxruntime.so"
 	}
 	
-	// 这里假设我们在 assets/lib 下按平台存放了文件
-	// 例如 assets/lib/darwin-arm64/libonnxruntime.dylib
+	// 架构特定的库路径
 	libPath := filepath.Join(libDir, runtime.GOOS+"-"+runtime.GOARCH, libName)
-	
-	// 如果特定架构的库不存在，尝试降级到通用 lib 目录
 	if _, err := os.Stat(libPath); os.IsNotExist(err) {
 		libPath = filepath.Join(libDir, libName)
 	}
 
+	// 校验资产文件大小是否合法 (假定最小有效模型 > 1KB, tokenizer > 1KB)
 	modelPath := filepath.Join(modelDir, "model_quantized.onnx")
 	tokenizerPath := filepath.Join(modelDir, "tokenizer.json")
+
+	if !isAssetValid(libPath, 1024*1024) || !isAssetValid(modelPath, 1024) || !isAssetValid(tokenizerPath, 1024) {
+		return "", "", "", fmt.Errorf("AI 资产不完整或已损坏 (File size check failed)")
+	}
 
 	// 3. 关键：将运行时路径注入 ONNX 库
 	ort.SetSharedLibraryPath(libPath)
 
 	return libPath, modelPath, tokenizerPath, nil
+}
+
+func isAssetValid(path string, minSize int64) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.Size() >= minSize
 }
 
 func downloadFile(filepath string, url string) error {

@@ -89,7 +89,8 @@ func isGuarded(cmd *cobra.Command) bool {
 		"init":   true,
 		"system": true,
 		"help":   true,
-		"auth":   true, // Allow auth subcommands to handle their own state (e.g., status/reset)
+		"auth":   true,   // Allow auth subcommands to handle their own state (e.g., status/reset)
+		"daemon": true,   // Allow daemon to start without token (to receive AppTicket)
 	}
 
 	for c := cmd; c != nil; c = c.Parent() {

@@ -37,3 +37,7 @@ cli/cjtCli/pkg/search/assets/lib/
 cli/cjtCli/pkg/search/assets/models/
 !cli/cjtCli/pkg/search/assets/lib/**/.gitkeep
 !cli/cjtCli/pkg/search/assets/models/**/.gitkeep
+
+# Compiled Binaries
+cli/cjtCli/cjtCli
+cli/cjtCli/cjtCli-test

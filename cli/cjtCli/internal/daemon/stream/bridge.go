@@ -39,10 +39,15 @@ func NewBridge(tel *telemetry.Telemetry, pool auth.TokenPool, forwarder proxy.Fo
 }
 
 func (b *sdkBridge) Start(profile string, cfg *config.Config) {
+	encryptKey := cfg.EncryptKey
+	if encryptKey == "" {
+		encryptKey = cfg.Certificate
+	}
+
 	options := sdk.ClientOptions{
 		AppKey:     cfg.AppKey,
 		AppSecret:  cfg.AppSecret,
-		EncryptKey: cfg.Certificate,
+		EncryptKey: encryptKey,
 		GatewayURL: cfg.StreamURL,
 	}
 

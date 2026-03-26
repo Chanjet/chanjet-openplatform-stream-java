@@ -21,9 +21,9 @@ LIB_DIR = $(PWD)/pkg/search/assets/lib
 build:
 	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS_PROD)" -o cjtCli main.go
 
-# 测试环境构建
+# 测试环境构建 (CGO 启用且带有本地链接路径)
 build-test:
-	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS_TEST)" -o cjtCli-test main.go
+	CGO_ENABLED=1 CGO_LDFLAGS="-L$(LIB_DIR)/darwin-arm64 -L$(PWD)/lib" go build -ldflags "$(LDFLAGS_TEST)" -o cjtCli-test main.go
 
 # --------- 跨平台一键编译组 (生成的二进制统一输出至 build/) ---------
 

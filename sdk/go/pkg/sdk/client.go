@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"math/rand"
@@ -114,10 +115,18 @@ func (c *GatewayClient) connectLoop(ctx context.Context) {
 			}
 
 			sign := crypto.HmacSha256(c.options.AppKey+"&"+nonce, c.options.AppSecret)
-			wsURL := strings.Replace(c.options.GatewayURL, "http", "ws", 1) + 
-				fmt.Sprintf("/connect?app_key=%s&nonce=%s&sign=%s&client_id=%s", 
+			
+			wsURL := c.options.GatewayURL
+			if strings.HasPrefix(wsURL, "http://") {
+				wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
+			} else if strings.HasPrefix(wsURL, "https://") {
+				wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+			}
+			
+			wsURL += fmt.Sprintf("/connect?app_key=%s&nonce=%s&sign=%s&client_id=%s", 
 					c.options.AppKey, nonce, sign, c.clientID)
 
+			log.Printf("[GatewayClient] Dialing WebSocket: %s", wsURL)
 			conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 			if err != nil {
 				statusCode := 503
@@ -141,21 +150,32 @@ func (c *GatewayClient) connectLoop(ctx context.Context) {
 }
 
 func (c *GatewayClient) fetchNonce() (string, error) {
-	url := strings.Replace(c.options.GatewayURL, "ws", "http", 1) + 
-		"/v1/ws/challenge?app_key=" + c.options.AppKey
+	baseURL := c.options.GatewayURL
+	if strings.HasPrefix(baseURL, "ws://") {
+		baseURL = strings.Replace(baseURL, "ws://", "http://", 1)
+	} else if strings.HasPrefix(baseURL, "wss://") {
+		baseURL = strings.Replace(baseURL, "wss://", "https://", 1)
+	}
+
+	url := baseURL + "/v1/ws/challenge?app_key=" + c.options.AppKey
 	
 	signPrefix := crypto.HmacSha256(c.options.AppKey, c.options.AppSecret)[:16]
 	
+	log.Printf("[GatewayClient] Fetching nonce from: %s", url)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("X-CJT-PreAuth", signPrefix)
+	req.Header.Set("User-Agent", "cjtCli-Go-SDK/0.1.0")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Printf("[GatewayClient] Nonce request error (Transport level): %v", err)
 		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		respData, _ := io.ReadAll(resp.Body)
+		log.Printf("[GatewayClient] Nonce request failed (HTTP %d): %s", resp.StatusCode, string(respData))
 		return "", fmt.Errorf("http status %d", resp.StatusCode)
 	}
 
@@ -165,8 +185,10 @@ func (c *GatewayClient) fetchNonce() (string, error) {
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		log.Printf("[GatewayClient] Nonce decode error: %v", err)
 		return "", err
 	}
+	log.Printf("[GatewayClient] Nonce received: %s", result.Data.Nonce)
 	return result.Data.Nonce, nil
 }
 
