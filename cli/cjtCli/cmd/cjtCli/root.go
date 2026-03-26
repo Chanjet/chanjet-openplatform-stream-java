@@ -65,7 +65,39 @@ var rootCmd = &cobra.Command{
 		if secret, err := vlt.Get(profile, "app_secret"); err == nil {
 			conf.AppSecret = secret
 		}
+
+		// Auth Integrity Check (Skip for init, system, and help commands)
+		if isGuarded(cmd) {
+			_, err := authCli.GetAppAccessToken(profile, conf)
+			if err != nil {
+				res := map[string]interface{}{
+					"profile": profile,
+					"status":  "UNAUTHORIZED",
+					"error":   fmt.Sprintf("Profile is not properly initialized or credentials expired: %v", err),
+					"hint":    "Please run 'cjtCli init' to configure your credentials.",
+				}
+				telemetry.FormatOutput(res, nil, telemetry.OutputFormat(format))
+				os.Exit(1)
+			}
+		}
 	},
+}
+
+func isGuarded(cmd *cobra.Command) bool {
+	// Skip for specific base commands
+	skipCommands := map[string]bool{
+		"init":   true,
+		"system": true,
+		"help":   true,
+		"auth":   true, // Allow auth subcommands to handle their own state (e.g., status/reset)
+	}
+
+	for c := cmd; c != nil; c = c.Parent() {
+		if skipCommands[c.Name()] {
+			return false
+		}
+	}
+	return true
 }
 
 func Execute() {
