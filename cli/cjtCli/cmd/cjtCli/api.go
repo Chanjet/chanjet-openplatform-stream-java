@@ -224,23 +224,45 @@ var apiSpecCmd = &cobra.Command{
 			}
 
 			if format == "text" {
-				fmt.Printf("\n📖 API DOCUMENTATION: %s %s\n", strings.ToUpper(method), path)
-				fmt.Println(strings.Repeat("=", 60))
-				fmt.Printf("Summary:     %s\n", operation["summary"])
-				fmt.Printf("Description: %s\n", operation["description"])
+				fmt.Printf("\n📖 \033[1mAPI DOCUMENTATION: %s %s\033[0m\n", strings.ToUpper(method), path)
+				fmt.Println(strings.Repeat("=", 80))
+				fmt.Printf("\033[36mSummary:\033[0m     %s\n", operation["summary"])
+				fmt.Printf("\033[36mDescription:\033[0m %s\n", operation["description"])
 
-				// CLI Usage Example
-				fmt.Println("\nCLI USAGE EXAMPLE:")
-				exampleCmd := fmt.Sprintf("cjtCli api %s %s", strings.ToUpper(method), path)
+				// CLI Usage Example: Smart detection of required parameters
+				fmt.Println("\n\033[32mCLI USAGE EXAMPLE:\033[0m")
+				
+				queryParams := []string{}
+				if params, ok := operation["parameters"].([]interface{}); ok {
+					for _, p := range params {
+						param := p.(map[string]interface{})
+						if param["in"] == "query" && param["required"] == true {
+							queryParams = append(queryParams, fmt.Sprintf("%s={%s}", param["name"], param["name"]))
+						}
+					}
+				}
+
+				targetPath := path
+				if len(queryParams) > 0 {
+					targetPath += "?" + strings.Join(queryParams, "&")
+				}
+
+				exampleCmd := fmt.Sprintf("cjtCli api %s \"%s\"", strings.ToUpper(method), targetPath)
 				if strings.ToUpper(method) == "POST" || strings.ToUpper(method) == "PUT" {
-					exampleCmd += " -d '{\"key\": \"value\"}'"
+					if reqBody, ok := operation["requestBody"].(map[string]interface{}); ok {
+						// 尝试从 RequestBody 结构中提取示例 Key
+						exampleCmd += " -d '{\"field\": \"value\"}'"
+						_ = reqBody // reserved for future deep extraction
+					} else {
+						exampleCmd += " -d '{\"key\": \"value\"}'"
+					}
 				}
 				fmt.Printf("  %s\n", exampleCmd)
 
 				// Parameters
 				if params, ok := operation["parameters"].([]interface{}); ok && len(params) > 0 {
-					fmt.Println("\nPARAMETERS:")
-					fmt.Printf("%-15s %-10s %-10s %s\n", "NAME", "IN", "REQUIRED", "DESCRIPTION")
+					fmt.Println("\n\033[36mPARAMETERS:\033[0m")
+					fmt.Printf("\033[1m%-15s %-10s %-10s %s\033[0m\n", "NAME", "IN", "REQUIRED", "DESCRIPTION")
 					for _, p := range params {
 						param := p.(map[string]interface{})
 						fmt.Printf("%-15s %-10s %-10v %s\n", param["name"], param["in"], param["required"], param["description"])
