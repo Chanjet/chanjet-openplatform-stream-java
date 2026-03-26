@@ -28,8 +28,14 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "cjtCli",
-	Short: "Chanjet Openplatform Stream Connector CLI",
-	Long:  `A high-reliability CLI tool for Chanjet Openplatform Stream Connector.`,
+	Short: "畅捷通开放平台 Stream Connector 命令行工具 (CLI)",
+	Long: `畅捷通开放平台官方 CLI 治理工具。
+
+核心能力 (Core Capabilities):
+- 🔍 语义搜索 (api list --search): 基于 NLP 实现企业级 API 的智能检索与意向发现。
+- 🛡️ 自动鉴权 (auth/init): 自动化托管 AppTicket 与 AccessToken 周期，无需手动刷新。
+- 📦 接口调试 (api execute): 支持声明式 API 调用，自动注入安全头并实时审计。
+- 🛠️ 系统治理 (system/log): 全面的日志追踪、状态监控与 Vault 安全存储管理。`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Initialize Telemetry
 		var err error
@@ -119,7 +125,7 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&profile, "profile", "default", "Configuration profile name")
-	rootCmd.PersistentFlags().StringVar(&format, "format", "text", "Output format (text, json, yaml)")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level (debug, info, warn, error)")
+	rootCmd.PersistentFlags().StringVar(&profile, "profile", "default", "配置环境名称 (default/inte/prod)")
+	rootCmd.PersistentFlags().StringVar(&format, "format", "text", "输出格式 (text, json, yaml)")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "日志输出级别 (debug, info, warn, error)")
 }

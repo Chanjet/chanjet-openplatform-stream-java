@@ -50,12 +50,12 @@ var (
 
 	logCmd = &cobra.Command{
 		Use:   "log",
-		Short: "Manage and view logs",
+		Short: "管理与查看 CLI 运行日志及审计记录",
 	}
 
 	logListCmd = &cobra.Command{
 		Use:   "list",
-		Short: "List log files",
+		Short: "列出本地缓存的所有日志文件",
 		Run: func(cmd *cobra.Command, args []string) {
 			home, _ := os.UserHomeDir()
 			logDir := filepath.Join(home, ".cjtCli", "log")
@@ -133,7 +133,7 @@ var (
 
 var logViewCmd = &cobra.Command{
 	Use:   "view",
-	Short: "View logs in real-time with formatting",
+	Short: "实时查看日志内容并支持结构化美化 (支持审计日志/系统日志)",
 	Run: func(cmd *cobra.Command, args []string) {
 		home, _ := os.UserHomeDir()
 		logPath := filepath.Join(home, ".cjtCli", "log", logDomain+".log")
@@ -219,8 +219,8 @@ var logViewCmd = &cobra.Command{
 }
 
 func init() {
-	logViewCmd.Flags().StringVarP(&logDomain, "domain", "d", "audit", "Log domain (audit, sys, stream, dlq)")
-	logViewCmd.Flags().IntVarP(&logLines, "lines", "n", 20, "Number of last lines to show")
+	logViewCmd.Flags().StringVarP(&logDomain, "domain", "d", "audit", "日志域 (audit/sys/stream/dlq)")
+	logViewCmd.Flags().IntVarP(&logLines, "lines", "n", 20, "展示最后 N 行日志内容")
 	logCmd.AddCommand(logListCmd)
 	logCmd.AddCommand(logViewCmd)
 	rootCmd.AddCommand(resetCmd)

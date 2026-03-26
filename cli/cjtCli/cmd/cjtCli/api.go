@@ -24,7 +24,7 @@ var (
 
 var apiCmd = &cobra.Command{
 	Use:   "api [METHOD] [PATH]",
-	Short: "Invoke a Chanjet Openplatform API or manage API specifications",
+	Short: "调用开放平台 API 或管理接口规范",
 	Run: func(cmd *cobra.Command, args []string) {
 		// If called with exactly 2 args, treat as a direct API call
 		if len(args) == 2 {
@@ -104,7 +104,7 @@ func executeApiCall(method, path string) {
 
 var apiListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List available APIs from Chanjet Openplatform",
+	Short: "列出并搜索开放平台可用的业务接口 (支持语义搜索)",
 	Run: func(cmd *cobra.Command, args []string) {
 		conf := cfgMgr.Get()
 
@@ -199,7 +199,7 @@ var apiListCmd = &cobra.Command{
 
 var apiSpecCmd = &cobra.Command{
 	Use:   "spec [METHOD] [PATH]",
-	Short: "Get OpenAPI 3.0 specification or detailed documentation for a specific API",
+	Short: "获取指定 API 的 OpenAPI 3.0 规范或详细离线文档",
 	Run: func(cmd *cobra.Command, args []string) {
 		conf := cfgMgr.Get()
 		res, err := authCli.GetOpenApiSpec(profile, conf)
@@ -307,10 +307,10 @@ var apiSpecCmd = &cobra.Command{
 }
 
 func init() {
-	apiCmd.Flags().StringSliceVarP(&apiData, "data", "d", []string{}, "HTTP request body (can be specified multiple times)")
-	apiCmd.Flags().BoolVar(&apiDryRun, "dry-run", false, "Validate the API call based on Schema without sending the request")
-	apiListCmd.Flags().StringVarP(&apiSearchQuery, "search", "s", "", "Search APIs semantically based on your intent")
-	apiListCmd.Flags().IntVarP(&apiSearchTopN, "top", "n", 5, "Number of top results to return")
+	apiCmd.Flags().StringSliceVarP(&apiData, "data", "d", []string{}, "HTTP 请求体数据 (可多次指定以拼接 JSON)")
+	apiCmd.Flags().BoolVar(&apiDryRun, "dry-run", false, "基于 Schema 校验请求但不发送真实网络调用")
+	apiListCmd.Flags().StringVarP(&apiSearchQuery, "search", "s", "", "基于您的意图语义搜索 API 接口")
+	apiListCmd.Flags().IntVarP(&apiSearchTopN, "top", "n", 5, "返回语义搜索结果的 Top-N 数量")
 	apiCmd.AddCommand(apiListCmd)
 	apiCmd.AddCommand(apiSpecCmd)
 	rootCmd.AddCommand(apiCmd)
