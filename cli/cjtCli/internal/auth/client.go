@@ -16,6 +16,8 @@ import (
 type Client interface {
 	GetAppAccessToken(profile string, cfg *config.Config) (*Token, error)
 	TriggerPush(profile string, cfg *config.Config) error
+	// GetOpenApiSpec 获取完整的 OpenAPI 3.0 规范文件
+	GetOpenApiSpec(profile string, cfg *config.Config) (interface{}, error)
 }
 
 type authClient struct {
@@ -157,4 +159,9 @@ func (c *authClient) TriggerPush(profile string, cfg *config.Config) error {
 
 	c.tel.Sys().Info("AppTicket push triggered successfully", zap.String("profile", profile))
 	return nil
+}
+
+func (c *authClient) GetOpenApiSpec(profile string, cfg *config.Config) (interface{}, error) {
+	// TODO: 等待开放平台 PR 实现 GET /metadata/v1/openapi/spec?app_key={AppKey}
+	return nil, fmt.Errorf("interface 'GetOpenApiSpec' is pending platform implementation (PR v0.1.1)")
 }

@@ -74,7 +74,30 @@ var apiCmd = &cobra.Command{
 	},
 }
 
+var apiListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List available APIs from Chanjet Openplatform",
+	Run: func(cmd *cobra.Command, args []string) {
+		conf := cfgMgr.Get()
+		// api list 同样获取全量 Spec，但在展示时仅提取列表
+		res, err := authCli.GetOpenApiSpec(profile, conf)
+		telemetry.FormatOutput(res, err, telemetry.OutputFormat(format))
+	},
+}
+
+var apiSpecCmd = &cobra.Command{
+	Use:   "spec",
+	Short: "Get OpenAPI 3.0 specification for the current application",
+	Run: func(cmd *cobra.Command, args []string) {
+		conf := cfgMgr.Get()
+		res, err := authCli.GetOpenApiSpec(profile, conf)
+		telemetry.FormatOutput(res, err, telemetry.OutputFormat(format))
+	},
+}
+
 func init() {
 	apiCmd.Flags().StringSliceVarP(&apiData, "data", "d", []string{}, "HTTP request body (can be specified multiple times)")
+	apiCmd.AddCommand(apiListCmd)
+	apiCmd.AddCommand(apiSpecCmd)
 	rootCmd.AddCommand(apiCmd)
 }
