@@ -174,11 +174,80 @@ var apiListCmd = &cobra.Command{
 }
 
 var apiSpecCmd = &cobra.Command{
-	Use:   "spec",
-	Short: "Get OpenAPI 3.0 specification for the current application",
+	Use:   "spec [METHOD] [PATH]",
+	Short: "Get OpenAPI 3.0 specification or detailed documentation for a specific API",
 	Run: func(cmd *cobra.Command, args []string) {
 		conf := cfgMgr.Get()
 		res, err := authCli.GetOpenApiSpec(profile, conf)
+		if err != nil {
+			telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
+			return
+		}
+
+		// 1. If specific API requested: api spec GET /v1/user/profile
+		if len(args) >= 2 {
+			method := strings.ToLower(args[0])
+			path := args[1]
+
+			spec, ok := res.(map[string]interface{})
+			if !ok {
+				telemetry.FormatOutput(res, nil, telemetry.OutputFormat(format))
+				return
+			}
+
+			paths, _ := spec["paths"].(map[string]interface{})
+			pathItem, _ := paths[path].(map[string]interface{})
+			operation, _ := pathItem[method].(map[string]interface{})
+
+			if operation == nil {
+				telemetry.FormatOutput(nil, fmt.Errorf("API not found: %s %s", strings.ToUpper(method), path), telemetry.OutputFormat(format))
+				return
+			}
+
+			if format == "text" {
+				fmt.Printf("\n📖 API DOCUMENTATION: %s %s\n", strings.ToUpper(method), path)
+				fmt.Println(strings.Repeat("=", 60))
+				fmt.Printf("Summary:     %s\n", operation["summary"])
+				fmt.Printf("Description: %s\n", operation["description"])
+
+				// Parameters
+				if params, ok := operation["parameters"].([]interface{}); ok && len(params) > 0 {
+					fmt.Println("\nPARAMETERS:")
+					fmt.Printf("%-15s %-10s %-10s %s\n", "NAME", "IN", "REQUIRED", "DESCRIPTION")
+					for _, p := range params {
+						param := p.(map[string]interface{})
+						fmt.Printf("%-15s %-10s %-10v %s\n", param["name"], param["in"], param["required"], param["description"])
+					}
+				}
+
+				// Request Body
+				if reqBody, ok := operation["requestBody"].(map[string]interface{}); ok {
+					fmt.Println("\nREQUEST BODY:")
+					content, _ := reqBody["content"].(map[string]interface{})
+					for contentType, details := range content {
+						fmt.Printf("Content-Type: %s\n", contentType)
+						schema, _ := details.(map[string]interface{})["schema"]
+						schemaJSON, _ := json.MarshalIndent(schema, "", "  ")
+						fmt.Println(string(schemaJSON))
+					}
+				}
+
+				// Responses
+				if responses, ok := operation["responses"].(map[string]interface{}); ok {
+					fmt.Println("\nRESPONSES:")
+					for code, details := range responses {
+						desc := details.(map[string]interface{})["description"]
+						fmt.Printf("[%s] %s\n", code, desc)
+					}
+				}
+				fmt.Println(strings.Repeat("=", 60))
+				return
+			}
+			telemetry.FormatOutput(operation, nil, telemetry.OutputFormat(format))
+			return
+		}
+
+		// 2. Default: return full spec
 		telemetry.FormatOutput(res, err, telemetry.OutputFormat(format))
 	},
 }
