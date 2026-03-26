@@ -8,12 +8,12 @@ import (
 
 var authCmd = &cobra.Command{
 	Use:   "auth",
-	Short: "Manage authentication and credentials",
+	Short: "管理身份认证与凭据 (Token/Ticket)",
 }
 
 var authStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Check current authentication status",
+	Short: "检查当前环境的身份认证状态",
 	Run: func(cmd *cobra.Command, args []string) {
 		conf := cfgMgr.Get()
 		
@@ -48,7 +48,7 @@ var authStatusCmd = &cobra.Command{
 
 var authResetCmd = &cobra.Command{
 	Use:   "reset",
-	Short: "Reset all credentials and configuration for the current profile",
+	Short: "重置当前配置环境的所有凭据与安全设置",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Clear Vault
 		vlt.Delete(profile, "app_secret")

@@ -19,7 +19,7 @@ var (
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize application configuration and credentials",
+	Short: "初始化应用配置与安全凭据",
 	Run: func(cmd *cobra.Command, args []string) {
 		if initAppKey == "" || initAppSecret == "" || initCertificate == "" {
 			fmt.Println("Error: --app-key, --app-secret, and --certificate are required for init.")
@@ -75,12 +75,12 @@ var initCmd = &cobra.Command{
 }
 
 func init() {
-	initCmd.Flags().StringVar(&initAppKey, "app-key", "", "Application Key")
-	initCmd.Flags().StringVar(&initAppSecret, "app-secret", "", "Application Secret")
-	initCmd.Flags().StringVar(&initCertificate, "certificate", "", "Self-built Application Certificate")
-	initCmd.Flags().StringVar(&initEncryptKey, "encrypt-key", "", "Message Secret (AES Encrypt Key)")
-	initCmd.Flags().StringVar(&initWebhook, "webhook-target", "", "Local Webhook Target URL")
-	initCmd.Flags().StringVar(&initOpenApiURL, "openapi-url", "", "OpenAPI Base URL")
-	initCmd.Flags().StringVar(&initStreamURL, "stream-url", "", "Stream Gateway Base URL")
+	initCmd.Flags().StringVar(&initAppKey, "app-key", "", "开放平台 AppKey")
+	initCmd.Flags().StringVar(&initAppSecret, "app-secret", "", "开放平台 AppSecret (将被安全加密存储)")
+	initCmd.Flags().StringVar(&initCertificate, "certificate", "", "自建应用证书 (Certificate)")
+	initCmd.Flags().StringVar(&initEncryptKey, "encrypt-key", "", "消息加解密密钥 (AES Encrypt Key)")
+	initCmd.Flags().StringVar(&initWebhook, "webhook-target", "", "本地 Webhook 接收地址")
+	initCmd.Flags().StringVar(&initOpenApiURL, "openapi-url", "", "OpenAPI 基础 URL 覆盖")
+	initCmd.Flags().StringVar(&initStreamURL, "stream-url", "", "Stream Gateway 基础 URL 覆盖")
 	rootCmd.AddCommand(initCmd)
 }

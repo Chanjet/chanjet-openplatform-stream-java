@@ -21,12 +21,12 @@ var (
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
-	Short: "Manage the background daemon process",
+	Short: "管理 CLI 后台守护进程 (桥接、代理与转发)",
 }
 
 var daemonStartCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start the cjtCli daemon (Stream, Proxy, and Forwarder)",
+	Short: "启动 cjtCli 后台服务 (包括 Stream 桥接、反向代理与转发器)",
 	Run: func(cmd *cobra.Command, args []string) {
 		conf := cfgMgr.Get()
 
@@ -108,7 +108,7 @@ var daemonStartCmd = &cobra.Command{
 }
 
 func init() {
-	daemonStartCmd.Flags().IntVar(&proxyPort, "proxy-port", 8080, "Local loopback proxy port")
+	daemonStartCmd.Flags().IntVar(&proxyPort, "proxy-port", 8080, "本地回环代理端口 (用于 API 自动安全代理)")
 	daemonCmd.AddCommand(daemonStartCmd)
 	rootCmd.AddCommand(daemonCmd)
 }

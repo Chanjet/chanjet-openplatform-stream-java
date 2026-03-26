@@ -14,7 +14,7 @@ import (
 var (
 	resetCmd = &cobra.Command{
 		Use:   "reset",
-		Short: "Reset the current profile state",
+		Short: "重置当前环境的配置状态",
 		Run: func(cmd *cobra.Command, args []string) {
 			// Clear config
 			if err := cfgMgr.Delete(profile); err != nil {
@@ -35,7 +35,7 @@ var (
 
 	configCmd = &cobra.Command{
 		Use:   "config",
-		Short: "Inspect the current configuration",
+		Short: "查看当前环境的配置详情",
 		Run: func(cmd *cobra.Command, args []string) {
 			conf := cfgMgr.Get()
 			if format == "text" {
@@ -89,7 +89,7 @@ var (
 
 	statusCmd = &cobra.Command{
 		Use:   "status",
-		Short: "Check the status of the daemon and profiles",
+		Short: "检查守护进程及各环境配置的运行状态",
 		Run: func(cmd *cobra.Command, args []string) {
 			conf := cfgMgr.Get()
 
@@ -119,7 +119,7 @@ var (
 
 	checkUpdateCmd = &cobra.Command{
 		Use:   "check-update",
-		Short: "Check for CLI updates",
+		Short: "检查 CLI 工具是否有新版本可用",
 		Run: func(cmd *cobra.Command, args []string) {
 			// Implementation
 		},
