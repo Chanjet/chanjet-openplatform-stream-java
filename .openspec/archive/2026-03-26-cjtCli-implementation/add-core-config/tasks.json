@@ -1,0 +1,35 @@
+[
+  {
+    "number": 1,
+    "category": "Phase 1: Foundation",
+    "task": "Initialize project structure and dependencies",
+    "steps": [
+      { "step": "Install Viper, Cobra and other core dependencies in cli/cjtCli", "completed": false },
+      { "step": "Create basic folder structure: internal/core/config, cmd", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "Phase 2: Config Management Implementation",
+    "task": "Implement core/config with Viper",
+    "steps": [
+      { "step": "Define Config models (AppKey, EncryptCode, AppMode, LogLevel, etc.)", "completed": false },
+      { "step": "Implement Manager interface and Profile loading logic", "completed": false },
+      { "step": "Implement hot-reloading (Watch) for LogLevel changes", "completed": false },
+      { "step": "Ensure config location defaults to ~/.cjtCli/<profile>.yaml", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 3,
+    "category": "Phase 3: Testing & Validation",
+    "task": "Validate config implementation",
+    "steps": [
+      { "step": "Write unit tests for profile loading and switching", "completed": false },
+      { "step": "Write unit tests for config watching and reloading", "completed": false },
+      { "step": "Verify default path generation on different OS (darwin, linux, windows)", "completed": false }
+    ],
+    "passes": false
+  }
+]

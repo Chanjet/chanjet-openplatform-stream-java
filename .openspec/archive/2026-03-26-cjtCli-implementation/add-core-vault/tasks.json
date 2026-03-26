@@ -1,0 +1,45 @@
+[
+  {
+    "number": 1,
+    "category": "Phase 1: Foundation",
+    "task": "Initialize vault dependencies",
+    "steps": [
+      { "step": "Install go-keyring dependency in cli/cjtCli", "completed": false },
+      { "step": "Create internal/core/vault folder structure", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "Phase 2: AES-GCM-256 Fallback Implementation",
+    "task": "Implement AES-GCM-256 seal file logic",
+    "steps": [
+      { "step": "Implement AES-GCM-256 encryption/decryption utilities", "completed": false },
+      { "step": "Implement local file storage for encrypted secrets (~/.cjtCli/.seal)", "completed": false },
+      { "step": "Develop a master key derivation logic (e.g., using a combination of system info or env)", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 3,
+    "category": "Phase 3: Vault Manager Implementation",
+    "task": "Implement Vault interface with Keyring + Fallback",
+    "steps": [
+      { "step": "Define Vault interface (Set, Get, Delete)", "completed": false },
+      { "step": "Implement Keyring provider using go-keyring", "completed": false },
+      { "step": "Implement fallback logic when Keyring is unavailable or fails", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 4,
+    "category": "Phase 4: Testing & Validation",
+    "task": "Validate vault implementation",
+    "steps": [
+      { "step": "Write unit tests for AES-GCM utilities", "completed": false },
+      { "step": "Write unit tests for Vault fallback mechanism", "completed": false },
+      { "step": "Test integration with Keyring (mocked if necessary in CI)", "completed": false }
+    ],
+    "passes": false
+  }
+]

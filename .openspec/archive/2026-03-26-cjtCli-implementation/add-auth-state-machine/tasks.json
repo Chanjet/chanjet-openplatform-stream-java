@@ -1,0 +1,45 @@
+[
+  {
+    "number": 1,
+    "category": "Phase 1: Single-Flight Barrier",
+    "task": "Implement Single-Flight Synchronization",
+    "steps": [
+      { "step": "Install golang.org/x/sync dependency in cli/cjtCli", "completed": false },
+      { "step": "Implement Barrier in internal/auth/barrier.go", "completed": false },
+      { "step": "Test Barrier with concurrent simulated token refreshes", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "Phase 2: Token Management",
+    "task": "Implement TokenPool and Persistence",
+    "steps": [
+      { "step": "Define Token and Ticket models in internal/auth/models.go", "completed": false },
+      { "step": "Implement TokenPool with Vault-backed storage", "completed": false },
+      { "step": "Implement AppTicket refresh logic (Trigger Active Push from Chanjet)", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 3,
+    "category": "Phase 3: Auth Client & State Machine",
+    "task": "Implement AuthClient for App/User Auth",
+    "steps": [
+      { "step": "Implement Self-Built application auth flow (AppAccessToken)", "completed": false },
+      { "step": "Integrate Barrier into AuthClient's GetToken method", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 4,
+    "category": "Phase 4: Testing & Validation",
+    "task": "Validate auth implementation",
+    "steps": [
+      { "step": "Write unit tests for TokenPool persistence", "completed": false },
+      { "step": "Simulate thundering herd and verify only one refresh occurs", "completed": false },
+      { "step": "Test Ticket triggering logic (Mocked)", "completed": false }
+    ],
+    "passes": false
+  }
+]

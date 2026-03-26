@@ -1,0 +1,35 @@
+[
+  {
+    "number": 1,
+    "category": "Phase 1: WebSocket Dialing",
+    "task": "Implement Dialer with Reconnection",
+    "steps": [
+      { "step": "Install nhooyr.io/websocket and related dependencies in cli/cjtCli", "completed": false },
+      { "step": "Implement secure handshake logic (Nonce fetch + Sign calculation)", "completed": false },
+      { "step": "Implement Dialer in internal/daemon/stream/dialer.go with exponential backoff", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "Phase 2: Frame Handling",
+    "task": "Implement StreamHandler and Dispatching",
+    "steps": [
+      { "step": "Define Frame models (compatible with proto/model/frame.proto)", "completed": false },
+      { "step": "Implement message dispatcher for EventFrame and Ticket updates", "completed": false },
+      { "step": "Implement automatic PING/PONG and keep-alive", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 3,
+    "category": "Phase 3: Integration & Testing",
+    "task": "Validate daemon stream implementation",
+    "steps": [
+      { "step": "Write unit tests for handshake signature calculation", "completed": false },
+      { "step": "Write unit tests for backoff logic", "completed": false },
+      { "step": "Test connection stability with Mock WebSocket server", "completed": false }
+    ],
+    "passes": false
+  }
+]

@@ -1,0 +1,45 @@
+[
+  {
+    "number": 1,
+    "category": "Phase 1: Foundation",
+    "task": "Initialize telemetry dependencies",
+    "steps": [
+      { "step": "Install uber-go/zap and natefinch/lumberjack dependencies in cli/cjtCli", "completed": false },
+      { "step": "Create internal/core/telemetry folder structure", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "Phase 2: Domain-Separated Logging",
+    "task": "Implement Multi-Domain Logger",
+    "steps": [
+      { "step": "Define Log Domain models (System, Audit, Stream, DLQ)", "completed": false },
+      { "step": "Implement Logger factory with Zap and Lumberjack support", "completed": false },
+      { "step": "Configure log rotation (max size 500MB, etc.) in ~/.cjtCli/log/", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 3,
+    "category": "Phase 3: Structured Output & Panic Handling",
+    "task": "Implement Output Interceptor and Panic Recovery",
+    "steps": [
+      { "step": "Define Response structure for machine-friendly output", "completed": false },
+      { "step": "Implement JSON/YAML formatter for Cobra commands", "completed": false },
+      { "step": "Implement Global Panic Recover hook with JSON output", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 4,
+    "category": "Phase 4: Testing & Validation",
+    "task": "Validate telemetry implementation",
+    "steps": [
+      { "step": "Write unit tests for logger initialization and rotation", "completed": false },
+      { "step": "Write unit tests for JSON/YAML response formatting", "completed": false },
+      { "step": "Test panic recovery and its structured output", "completed": false }
+    ],
+    "passes": false
+  }
+]
