@@ -30,3 +30,10 @@ env/
 .DS_Store
 Thumbs.db
 services/gateway-java/connector-server/src/main/resources/application-local-private.yml
+
+# AI Assets
+cli/cjtCli/lib/*.a
+cli/cjtCli/pkg/search/assets/lib/
+cli/cjtCli/pkg/search/assets/models/
+!cli/cjtCli/pkg/search/assets/lib/**/.gitkeep
+!cli/cjtCli/pkg/search/assets/models/**/.gitkeep

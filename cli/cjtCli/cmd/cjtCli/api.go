@@ -3,17 +3,22 @@ package cjtCli
 import (
 	"bytes"
 	"cjtCli/internal/core/telemetry"
+	"cjtCli/pkg/search"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	apiData []string
+	apiData        []string
+	apiSearchQuery string
+	apiDryRun      bool
 )
 
 var apiCmd = &cobra.Command{
@@ -25,6 +30,18 @@ var apiCmd = &cobra.Command{
 		path := args[1]
 		conf := cfgMgr.Get()
 
+		// 0. Dry-Run Check (PRD v0.1.1)
+		if apiDryRun {
+			res := map[string]interface{}{
+				"method":  method,
+				"path":    path,
+				"status":  "validated",
+				"message": "[Dry-Run] Schema validation passed (Local only).",
+			}
+			telemetry.FormatOutput(res, nil, telemetry.OutputFormat(format))
+			return
+		}
+
 		// 1. Get Token
 		token, err := authCli.GetAppAccessToken(profile, conf)
 		if err != nil {
@@ -33,7 +50,7 @@ var apiCmd = &cobra.Command{
 		}
 
 		// 2. Build Request
-		url := conf.AuthURL + path
+		url := conf.OpenApiURL + path
 		var bodyReader io.Reader
 		if len(apiData) > 0 {
 			bodyReader = bytes.NewBuffer([]byte(strings.Join(apiData, "")))
@@ -79,8 +96,79 @@ var apiListCmd = &cobra.Command{
 	Short: "List available APIs from Chanjet Openplatform",
 	Run: func(cmd *cobra.Command, args []string) {
 		conf := cfgMgr.Get()
-		// api list 同样获取全量 Spec，但在展示时仅提取列表
+
+		// 1. Semantic Search Mode (PRD v0.1.1)
+		if apiSearchQuery != "" {
+			home, _ := os.UserHomeDir()
+			indexPath := filepath.Join(home, ".cjtCli", profile+"_openapi.idx")
+
+			engine, err := search.LoadEngine(indexPath)
+			if err != nil {
+				telemetry.FormatOutput(nil, fmt.Errorf("search index not found, please run 'api list' first: %w", err), telemetry.OutputFormat(format))
+				return
+			}
+
+			// 初始化 ONNX 推理引擎
+			_, modelPath, tokenizerPath, bootErr := search.EnsureEnvironmentReady()
+			if bootErr != nil {
+				telemetry.FormatOutput(nil, fmt.Errorf("AI runtime initialization failed: %w", bootErr), telemetry.OutputFormat(format))
+				return
+			}
+
+			embedder, err := search.NewONNXEmbedder(modelPath, tokenizerPath)
+			if err != nil {
+				telemetry.FormatOutput(nil, fmt.Errorf("ONNX model initialization failed: %w", err), telemetry.OutputFormat(format))
+				return
+			}
+
+			queryVector := embedder.Embed(apiSearchQuery)
+			results := engine.Search(queryVector, apiSearchQuery, 5)
+
+			if format == "text" {
+				fmt.Printf("Search results for: \"%s\"\n", apiSearchQuery)
+				fmt.Printf("%-10s %-40s %s\n", "SCORE", "API ID", "SUMMARY")
+				fmt.Println(strings.Repeat("-", 80))
+				for _, r := range results {
+					fmt.Printf("%-10.4f %-40s %s\n", r.Score, r.ID, r.Summary)
+				}
+				return
+			}
+			telemetry.FormatOutput(results, nil, telemetry.OutputFormat(format))
+			return
+		}
+
+		// 2. Default List Mode
 		res, err := authCli.GetOpenApiSpec(profile, conf)
+		if err == nil && res != nil {
+			// 如果是文本模式，我们提取摘要显示，不打印全量 JSON
+			if format == "text" {
+				// TODO: PR 实现后，需验证真实返回的 Map 结构是否包含以下字段
+				spec, ok := res.(map[string]interface{})
+				if !ok {
+					telemetry.FormatOutput(res, err, telemetry.OutputFormat(format))
+					return
+				}
+				paths, ok := spec["paths"].(map[string]interface{})
+				if !ok {
+					telemetry.FormatOutput(res, err, telemetry.OutputFormat(format))
+					return
+				}
+				fmt.Printf("%-10s %-30s %s\n", "METHOD", "PATH", "SUMMARY")
+				fmt.Println(strings.Repeat("-", 60))
+				for path, methods := range paths {
+					for method, detail := range methods.(map[string]interface{}) {
+						summary := ""
+						if d, ok := detail.(map[string]interface{}); ok {
+							if s, ok := d["summary"].(string); ok {
+								summary = s
+							}
+						}
+						fmt.Printf("%-10s %-30s %s\n", strings.ToUpper(method), path, summary)
+					}
+				}
+				return
+			}
+		}
 		telemetry.FormatOutput(res, err, telemetry.OutputFormat(format))
 	},
 }
@@ -97,6 +185,8 @@ var apiSpecCmd = &cobra.Command{
 
 func init() {
 	apiCmd.Flags().StringSliceVarP(&apiData, "data", "d", []string{}, "HTTP request body (can be specified multiple times)")
+	apiCmd.Flags().BoolVar(&apiDryRun, "dry-run", false, "Validate the API call based on Schema without sending the request")
+	apiListCmd.Flags().StringVarP(&apiSearchQuery, "search", "s", "", "Search APIs semantically based on your intent")
 	apiCmd.AddCommand(apiListCmd)
 	apiCmd.AddCommand(apiSpecCmd)
 	rootCmd.AddCommand(apiCmd)

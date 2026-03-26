@@ -17,16 +17,24 @@ const (
 	AppModeSelfBuilt AppMode = "self-built"
 )
 
+var (
+	// DefaultOpenApiURL 可以在编译时通过 -ldflags "-X ..." 注入
+	DefaultOpenApiURL = "https://openapi.chanjet.com"
+	// DefaultStreamURL 可以在编译时通过 -ldflags "-X ..." 注入
+	DefaultStreamURL = "https://stream-open.chanapp.chanjet.com"
+)
+
 // Config represents the core configuration model
 type Config struct {
 	AppKey        string  `mapstructure:"app_key" json:"app_key" yaml:"app_key"`
 	AppSecret     string  `mapstructure:"-" json:"-" yaml:"-"` // Not stored in yaml/json config
 	Certificate   string  `mapstructure:"certificate" json:"certificate" yaml:"certificate"`
 	AppMode       AppMode `mapstructure:"app_mode" json:"app_mode" yaml:"app_mode"`
-	LogLevel    string  `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
-	AuthURL       string  `mapstructure:"auth_url" json:"auth_url" yaml:"auth_url"`
+	LogLevel      string  `mapstructure:"log_level" json:"log_level" yaml:"log_level"`
+	OpenApiURL    string  `mapstructure:"openapi_url" json:"openapi_url" yaml:"openapi_url"`
+	StreamURL     string  `mapstructure:"stream_url" json:"stream_url" yaml:"stream_url"`
 	WebhookTarget string  `mapstructure:"webhook_target" json:"webhook_target" yaml:"webhook_target"`
-	}
+}
 
 
 // Manager defines the interface for configuration management
@@ -34,6 +42,7 @@ type Manager interface {
 	Get() *Config
 	Load(profile string) error
 	Save(profile string) error
+	Delete(profile string) error
 	CreateEmpty(profile string) error
 	Watch(onUpdate func(*Config))
 }
@@ -55,12 +64,22 @@ func (m *viperManager) Get() *Config {
 	return m.config
 }
 
+func (m *viperManager) Delete(profile string) error {
+	home, _ := os.UserHomeDir()
+	path := filepath.Join(home, ".cjtCli", profile+".yaml")
+	if _, err := os.Stat(path); err == nil {
+		return os.Remove(path)
+	}
+	return nil
+}
+
 func (m *viperManager) Save(profile string) error {
 	m.v.Set("app_key", m.config.AppKey)
 	m.v.Set("certificate", m.config.Certificate)
 	m.v.Set("app_mode", m.config.AppMode)
 	m.v.Set("log_level", m.config.LogLevel)
-	m.v.Set("auth_url", m.config.AuthURL)
+	m.v.Set("openapi_url", m.config.OpenApiURL)
+	m.v.Set("stream_url", m.config.StreamURL)
 	m.v.Set("webhook_target", m.config.WebhookTarget)
 
 	// Ensure config file path is set
@@ -108,7 +127,8 @@ func (m *viperManager) Load(profile string) error {
 	// Set defaults
 	m.v.SetDefault("app_mode", AppModeSelfBuilt)
 	m.v.SetDefault("log_level", "info")
-	m.v.SetDefault("auth_url", "https://open.chanjet.com")
+	m.v.SetDefault("openapi_url", DefaultOpenApiURL)
+	m.v.SetDefault("stream_url", DefaultStreamURL)
 
 	// Read config file
 	if err := m.v.ReadInConfig(); err != nil {
@@ -131,7 +151,8 @@ func (m *viperManager) Load(profile string) error {
 	m.v.BindEnv("certificate")
 	m.v.BindEnv("app_mode")
 	m.v.BindEnv("log_level")
-	m.v.BindEnv("auth_url")
+	m.v.BindEnv("openapi_url")
+	m.v.BindEnv("stream_url")
 
 	if err := m.v.Unmarshal(m.config); err != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", err)

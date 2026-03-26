@@ -3,12 +3,14 @@ package proxy
 import (
 	"cjtCli/internal/auth"
 	"cjtCli/internal/core/config"
+	"cjtCli/internal/core/security"
 	"cjtCli/internal/core/telemetry"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -21,23 +23,34 @@ type ProxyServer interface {
 type loopbackProxy struct {
 	tel    *telemetry.Telemetry
 	auth   auth.Client
+	fw     security.Firewall
 	server *http.Server
 }
 
-func NewProxyServer(tel *telemetry.Telemetry, auth auth.Client) ProxyServer {
+func NewProxyServer(tel *telemetry.Telemetry, auth auth.Client, fw security.Firewall) ProxyServer {
 	return &loopbackProxy{
 		tel:  tel,
 		auth: auth,
+		fw:   fw,
 	}
 }
 
 func (p *loopbackProxy) Start(profile string, cfg *config.Config, port int) error {
-	target, err := url.Parse(cfg.AuthURL)
+	target, err := url.Parse(cfg.OpenApiURL)
 	if err != nil {
 		return err
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	
+	// Configure TLS Firewall
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: p.fw.GetTLSConfig(),
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	}
 	
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {

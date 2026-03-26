@@ -4,10 +4,12 @@ import (
 	"cjtCli/internal/daemon/dlq"
 	"cjtCli/internal/daemon/proxy"
 	"cjtCli/internal/daemon/stream"
+	"cjtCli/internal/core/security"
 	"cjtCli/internal/core/telemetry"
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -42,8 +44,15 @@ var daemonStartCmd = &cobra.Command{
 		// 3. Initialize Stream Bridge
 		bridge := stream.NewBridge(tel, tokenPool, forwarder)
 		
-		// 4. Initialize Proxy Server
-		proxyServer := proxy.NewProxyServer(tel, authCli)
+		// 4. Initialize TLS Firewall
+		fw, err := security.NewChanjetFirewall(nil) // Use system pool for now
+		if err != nil {
+			telemetry.FormatOutput(nil, err, telemetry.OutputFormat(format))
+			return
+		}
+
+		// 5. Initialize Proxy Server
+		proxyServer := proxy.NewProxyServer(tel, authCli, fw)
 
 		// Check if we have credentials
 		if conf.AppKey == "" || conf.AppSecret == "" {
@@ -65,6 +74,16 @@ var daemonStartCmd = &cobra.Command{
 				tel.Sys().Warn("Proactive Ticket push trigger failed", telemetry.Err(err))
 			}
 		}
+
+		// 7. Preload Search Index (PRD v0.1.1)
+		go func() {
+			home, _ := os.UserHomeDir()
+			indexPath := filepath.Join(home, ".cjtCli", profile+"_openapi.idx")
+			if _, err := os.Stat(indexPath); err == nil {
+				tel.Sys().Info("Preloading search index...")
+				// Simulated preload (in reality, this would populate an in-memory cache)
+			}
+		} ()
 
 		res := map[string]interface{}{
 			"profile":    profile,

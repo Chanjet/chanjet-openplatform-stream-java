@@ -4,11 +4,13 @@ go 1.26.1
 
 require (
 	com.chanjet/connector-sdk-go v0.1.0
+	github.com/daulet/tokenizers v1.26.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
+	github.com/yalue/onnxruntime_go v1.27.0
 	github.com/zalando/go-keyring v0.2.8
 	go.uber.org/zap v1.27.1
 	golang.org/x/sync v0.20.0

@@ -34,11 +34,13 @@ var authStatusCmd = &cobra.Command{
 		}
 
 		res := map[string]interface{}{
-			"profile":  profile,
-			"status":   status,
-			"missing":  missing,
-			"app_key":  conf.AppKey,
-			"app_mode": conf.AppMode,
+			"profile":     profile,
+			"status":      status,
+			"missing":     missing,
+			"app_key":     conf.AppKey,
+			"app_mode":    conf.AppMode,
+			"openapi_url": conf.OpenApiURL,
+			"stream_url":  conf.StreamURL,
 		}
 		telemetry.FormatOutput(res, nil, telemetry.OutputFormat(format))
 	},

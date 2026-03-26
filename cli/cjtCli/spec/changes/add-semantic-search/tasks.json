@@ -1,0 +1,33 @@
+[
+  {
+    "number": 1,
+    "category": "Phase 1: Search Engine",
+    "task": "Implement TF-IDF Search Core",
+    "steps": [
+      { "step": "Implement tokenizer and TF-IDF calculation in pkg/search/tfidf.go", "completed": false },
+      { "step": "Implement Indexer to process OpenAPI Spec JSON into vector map", "completed": false },
+      { "step": "Implement Searcher to calculate cosine similarity", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "Phase 2: Integration",
+    "task": "Integrate Indexing with Cache Refresh",
+    "steps": [
+      { "step": "Update internal/auth/client.go to call pkg/search.UpdateIndex after cache write", "completed": false },
+      { "step": "Add 'api search' subcommand in cmd/cjtCli/api.go", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 3,
+    "category": "Phase 3: Validation",
+    "task": "Test Semantic Search",
+    "steps": [
+      { "step": "Write unit tests for similarity scoring", "completed": false },
+      { "step": "Verify 'api search' returns relevant results for fuzzy queries", "completed": false }
+    ],
+    "passes": false
+  }
+]

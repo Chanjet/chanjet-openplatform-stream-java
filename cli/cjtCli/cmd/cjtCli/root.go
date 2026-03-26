@@ -3,6 +3,7 @@ package cjtCli
 import (
 	"cjtCli/internal/auth"
 	"cjtCli/internal/core/config"
+	"cjtCli/internal/core/security"
 	"cjtCli/internal/core/telemetry"
 	"cjtCli/internal/core/vault"
 	"fmt"
@@ -47,7 +48,9 @@ var rootCmd = &cobra.Command{
 		// Initialize Vault
 		home, _ := os.UserHomeDir()
 		sealPath := filepath.Join(home, ".cjtCli", ".seal")
-		vlt, err = vault.NewVault("cjtCli", sealPath, "")
+		
+		fingerprint, _ := security.GetMachineFingerprint()
+		vlt, err = vault.NewVault("cjtCli", sealPath, fingerprint)
 		if err != nil {
 			tel.Sys().Error("Failed to initialize vault", telemetry.Err(err))
 		}

@@ -110,5 +110,5 @@ var dlqRetryCmd = &cobra.Command{
 func init() {
 	dlqCmd.AddCommand(dlqListCmd)
 	dlqCmd.AddCommand(dlqRetryCmd)
-	rootCmd.AddCommand(dlqCmd)
+	webhookCmd.AddCommand(dlqCmd)
 }
