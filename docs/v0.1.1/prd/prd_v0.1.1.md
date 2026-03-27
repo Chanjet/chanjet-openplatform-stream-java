@@ -29,37 +29,54 @@
 ### 3.1 生命周期与凭据挂载 (`init`, `reset`, `config`)
 - **首次建联引导 (`init`)**：
   - **前置建站确认**：优先提醒用户“是否已于开放平台后台创建自建应用？”。对于无头苍蝇的新手（选择“否”），直接在本地打印内含外链的 `创建与取参新手指南`。
-  - **应用模式定死与凭据挂载 (App Mode)**：待确认无误后，系统要求注入挂载参数。**当前 v0.1.1 版本仅支持唯一、默认的「自建应用 (self-built)」模式**。因此交互流程或 `--flag` 将围绕“自建应用”的认证生态要求单向注入 `appKey`、`encryptCode` 及自建证书等核心底座。架构层预留了诸如 `--app-mode=self-built` 作为隐式骨架缺省参数，完全是为了未来平台引入其它应用模式（如第三方服务商等截然不同的配置范式）而留存出可无损扩充的多态羽翼。
-  - **安全隔离**：由于绝不允许设计跨环境的一键迁移或导出功能，上述所有的主凭据注入与封存步骤仅支持人工或自动化部署脚本作仅限本机显式触发，严防越权挪用。
+  - **应用模式定死与凭据挂载 (App Mode)**：待确认无误后，系统要求注入挂载参数。**当前 v0.1.1 版本仅支持唯一、默认的「自建应用 (self-built)」模式**。需注入 `appKey`、`appSecret` 及自建证书。
+  - **安全加固 (Vault)**：敏感凭据（AppSecret、Certificate、EncryptKey）由内置 Vault 托管，并绑定机器指纹（Machine Fingerprint）进行本地加密存储，严防配置文件被直接拷贝冒用。
 - **状态归零 (`reset`)**：物理清除本地当前 `profile` 的令牌状态机及安全缓存区，强行切回空白状态。
-- **冷启动寻票保活 (Ticket Bootstrap)**：对于需要强依赖 `appTicket` 的链路，当系统服务（Daemon）启动或重启时，若发现本地尚未持有或持有的 `appTicket` 已过期，引擎**绝生死等**开放平台传统的周期性（如10分钟）自动投递。而是立即主动调用开放平台的“立刻触发发生”能力接口，强制胁迫平台秒级推送全新 Ticket。以此作为可用性底线：务必保证服务在宣称 `Ready` 后，内存中必然长期持有一张绝对处于有效期内的良票！
-- **配置清查 (`config`)**：类似 nano/vim 的内置微型终端阅览（仅限人类终端模式），对秘钥只提供部分脱敏透视，用于运维复检。
+- **冷启动寻票保活 (Ticket Bootstrap)**：对于需要强依赖 `appTicket` 的链路，当系统服务（Daemon）启动或重启时，若发现本地尚未持有或持有的 `appTicket` 已过期，引擎立即主动触发推送。
+- **配置清查 (`config`)**：查看当前 Profile 下的非敏感配置详情（如 URL、Webhook 目标、应用模式等）。
 
 ### 3.2 动态 API 调用体验 (`api`)
-为了摒弃 OpenAPI 中残缺不全的 `tags` 或 `operationId` 字段，抛弃虚假的语义动词分类，采用了最为霸道干练的 **`Method + Path`** 直觉执行范式（即 `{cli} api <METHOD> <PATH> [flags]`）。
+为了摒弃 OpenAPI 中残缺不全的 `tags` 或 `operationId` 字段，采用了 **`Method + Path`** 直觉执行范式（即 `{cjtc} api <METHOD> <PATH> [flags]`）。
 
-- **智能路径拼装与零鉴权透传**：
-  当挂载 `cli api get /v1/orders/888` 时，通过内置的 Trie-Tree 反向引擎查找 OpenAPI 模板树。寻获 `/v1/orders/{id}` 定义后，提取 `888` 作为入参，再辅以其它使用 `--flag` 打平附带的 Query/Header 参数，静默挂载大底层动态计算出的 Token/Sign 发起无感认证网络请求。
-- **防幻觉试运行机制 (Dry-Run)**：针对 Agent 胡乱捏造报错的痛点，支持附加 `--dry-run`；仅基于存储的 Schema 做本地入参边界阻断校验，而不发向真实网络。
+- **智能路径拼装与无感调用**：
+  提供 `api [METHOD] [PATH]` 模式。CLI 自动从 Vault 检索 Token 并注入 `Authorization` 头，支持通过 `-d` 指定 JSON 数据（可多次指定以拼接长 JSON）。
+- **文档查看与示例生成 (`spec`)**：
+  新增 `api spec [METHOD] [PATH]` 子命令。除展示接口摘要、参数列表与 Response Schema 外，还具备 **智能示例生成** 能力，根据接口定义自动生成可直接运行的 `cjtc api ...` 调用指令。
+- **防幻觉试运行机制 (Dry-Run)**：支持附加 `--dry-run`；仅基于存储的 Schema 做本地校验而不发起真实网络调用。
 - **内嵌语义检索 (Semantic Search/list)**：
-  除了常规提供的全量 `cli api list [--detail]` 外，作为核心容错**高阶护城河**，`list --search` 被指派了革命性的使命。在后台批量基于 OpenAPI 的 Method/Summary 生成了轻量级向量 `[*.idx]` 缓存后，在客户端无需引入重数据库（仅采用手搓纯 CPU 内存余弦相似度计算），即可支持类似于 `--search "我想对用户冻结余额"` 这样的高宽容度的口语化检索并一秒返回 Top-K 最高相关相似度命中的 5 个真实 API Path。
+  支持 `list --search`。基于本地嵌入（Embedding）索引实现。
+  - **参数控制**：通过 `--top` (或 `-n`) 控制返回结果数量，默认返回前 5 条最相关的 API。
+  - **资源占用**：采用轻量级向量检索，索引文件存放于 `~/.cjtc/{profile}_openapi.idx`。
 
-### 3.3 无服务网关边界的延展 (`webhook`, `proxy`)
+### 3.3 无服务网关边界的延展 (`webhook`, `proxy`, `daemon`)
+- **守护进程管理 (`daemon`)**：
+  - **后台运行**：支持 `daemon start -d` 以后台模式启动，并将 PID 记录于 `~/.cjtc/daemon.pid`。
+  - **优雅停机**：提供 `daemon stop` 命令，通过向进程发送 `SIGTERM` 信号实现优雅关机与资源释放。
+  - **本地代理**：默认监听 `127.0.0.1:8080`，提供免鉴权代理能力，自动为本地请求附加安全凭据。
 - **Connector Stream 流式消费 (`webhook`)**：
-  不依赖独立暴露公网域名，工具通过与底层的 **Connector Server** 构建流长链接（Stream）。监听收到平台分发的事件（非 appTicket 类敏感项）后，将其“借花献佛”透明组包转发至用户本地配置的小虚脱 Webhook 靶机。
-  - 当接收端离线宕机或 50x 报错时，触发指数退避（Exponential Backoff）。重试依然无效后，事件不抛弃不丢弃，悉数打平持久化进入本地的 **DLQ（Dead-Letter Queue / 死信机制）** 以供后续报警通知或按日消费。
-- **本地零鉴权同侪代理 (`proxy`)**：
-  允许工具作为后方的保护罩。监听一个绝对禁止投射到 `0.0.0.0`，只能局限在本地环回安全区域的 `127.0.0.1:端口号`。任何连带着局域网业务生态的旧服务只要向该虚拟端口发出普通且干净的 HTTP Restful 调用，引擎将劫持它作为跳板机：加密、认证附带一气呵成直接反向代理打给开放平台并在原路吐回。
+  - **死信队列 (DLQ)**：通过 `webhook dlq list` 查看因目标宕机而积压的消息，并通过 `webhook dlq retry <id>` 执行手动补偿重试。
 
 ### 3.4 可观测性治理体系 (`log`, `status`, `check-update`)
 - **日志的四层塔治理 (`log`)**：
-  采用如 `zap` 下沉日志内核并挂载 `lumberjack` 等 Rolling 框架自动通过配置 (`max-size=500MB`）防爆磁盘。日志必须且只能按以下四种严格的业务域物理切割分离存放在 `~/.{cliName}/log/`：
-  1. 系统驻留本身生命周期错误（系统运维日志）
-  2. 每一笔请求与代理操作流水表（访问审计流水）
-  3. 通过监听推过来的未经转存的开放平台底层事件（流式载荷存证）
-  4. 死信失败堆栈与告警（报警兜底追踪）
-- **多实例微健康探针 (`status`)**：探测常驻 Daemon 的各个 Profile 以及内存水位生存现状。
-- **在线升级指令 (`check-update` / Shutdown)**：不仅要有无缝检查更新的拉取接口感知能力，同时 CLI 作为 Daemon 时，自身需提供 Graceful Shutdown 机制（防止 Webhook 转一半直接被 `kill -9` 的掉包灾难）。
+  - **文件布局**：日志存储于 `~/.cjtc/log/{domain}.log`。
+  - **实时查看 (`view`)**：支持 `log view -d [domain] -n [lines]` 实时阅览，提供针对 `audit` 域的彩色结构化美化输出。
+- **深度诊断视图 (`status`)**：
+  - **全局概览**：默认（不指定 `--profile`）展示所有已初始化环境的 AUTH 状态与 DAEMON 运行状态。
+  - **详细诊断**：指定 `--profile` 时，输出详细的诊断报告，包括 AppTicket 持有情况、AccessToken 有效性、Daemon PID 及其监听端口。
+  - **纠偏建议 (Next Steps)**：根据诊断结果（如 `AWAITING_TICKET` 或 `NOT_RUNNING`）自动提供修正指令建议。
+
+---
+
+## 5. 本地文件系统拓扑 (Appendix)
+工具的核心数据收束于用户家目录下的 `.cjtc/` 文件夹：
+- `{profile}.yaml`: 环境基础配置。
+- `.seal`: Vault 安全存储索引。
+- `daemon.pid`: 运行中的后台进程标识。
+- `{profile}_openapi.json`: 本地缓存的 OpenAPI 规范。
+- `{profile}_openapi.idx`: 语义搜索向量索引。
+- `log/`: 包含 `audit.log`, `sys.log`, `stream.log`, `dlq.log`。
+- `dlq.db`: 死信队列持久化存储。
+
 
 ---
 
