@@ -4,3 +4,5 @@ pub mod auth;
 pub mod system;
 pub mod daemon;
 pub mod completion;
+pub mod dlq;
+pub mod log;

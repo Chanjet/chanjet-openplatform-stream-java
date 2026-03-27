@@ -97,6 +97,16 @@ pub enum Commands {
         #[command(subcommand)]
         action: ProfileCommands,
     },
+    /// 管理死信队列 (DLQ) 中的异常事件
+    Dlq {
+        #[command(subcommand)]
+        action: DlqCommands,
+    },
+    /// 查看并追踪 CLI 运行日志
+    Log {
+        #[command(subcommand)]
+        action: LogCommands,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -160,6 +170,36 @@ pub enum DaemonCommands {
     },
     /// 停止正在运行的 cjtc 守护进程
     Stop,
+}
+
+#[derive(clap::Subcommand)]
+pub enum DlqCommands {
+    /// 列举死信队列中的异常事件
+    List,
+    /// 重试特定的异常事件
+    Retry {
+        #[arg(help = "DLQ 记录 ID")]
+        id: String,
+    },
+    /// 清空所有 DLQ 记录
+    Purge,
+}
+
+#[derive(clap::Subcommand)]
+pub enum LogCommands {
+    /// 列出所有可用的日志 domain
+    List,
+    /// 在终端实时查看并追踪指定 domain 的日志
+    View {
+        #[arg(help = "日志域名 (sys, audit, stream, dlq)", default_value = "sys")]
+        domain: String,
+        /// 是否开启实时追踪模式 (等同于 tail -f)
+        #[arg(short, long)]
+        follow: bool,
+        /// 显示最后 N 行
+        #[arg(short, long, default_value_t = 10)]
+        lines: usize,
+    },
 }
 
 
@@ -298,6 +338,25 @@ async fn main() -> Result<()> {
             }
             ProfileCommands::Current => {
                 println!("{}", cfg_mgr.get_default_profile());
+            }
+        },
+        Commands::Dlq { action } => match action {
+            DlqCommands::List => {
+                cmd::dlq::list(&active_profile).await?;
+            }
+            DlqCommands::Retry { id } => {
+                cmd::dlq::retry(&active_profile, &config, id).await?;
+            }
+            DlqCommands::Purge => {
+                cmd::dlq::purge(&active_profile).await?;
+            }
+        },
+        Commands::Log { action } => match action {
+            LogCommands::List => {
+                cmd::log::list(&active_profile).await?;
+            }
+            LogCommands::View { domain, follow, lines } => {
+                cmd::log::view(&active_profile, domain, *follow, *lines).await?;
             }
         }
     }

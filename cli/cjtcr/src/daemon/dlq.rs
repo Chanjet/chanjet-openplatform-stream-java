@@ -76,4 +76,11 @@ impl DlqStore {
         }
         Ok(())
     }
+
+    pub fn get(&self, id: &str) -> Result<DLQEntry> {
+        let path = self.dir.join(format!("{}.json", id));
+        let data = fs::read_to_string(path)?;
+        let entry: DLQEntry = serde_json::from_str(&data)?;
+        Ok(entry)
+    }
 }
