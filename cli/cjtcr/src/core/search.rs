@@ -91,11 +91,8 @@ pub struct ONNXEmbedder {
 
 impl ONNXEmbedder {
     pub fn new() -> Result<Self> {
-        let home = directories::UserDirs::new()
-            .context("Could not find home directory")?
-            .home_dir()
-            .to_path_buf();
-        let model_dir = home.join(".cjtc").join("models");
+        let app_dir = crate::core::config::get_app_dir();
+        let model_dir = app_dir.join("models");
         fs::create_dir_all(&model_dir)?;
 
         let model_path = model_dir.join("model_quantized.onnx");

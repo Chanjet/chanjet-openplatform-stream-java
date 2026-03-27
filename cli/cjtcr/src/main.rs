@@ -118,11 +118,19 @@ pub enum ApiCommands {
         search: Option<String>,
         #[arg(short = 'n', long, default_value_t = 5, help = "返回语义搜索结果的 Top-N 数量")]
         top: usize,
+        #[arg(long, default_value_t = 1, help = "分页页码")]
+        page: usize,
+        #[arg(long, default_value_t = 20, help = "每页数量")]
+        page_size: usize,
+        #[arg(short, long, default_value = "text", help = "输出格式 (text, json, yaml)")]
+        format: String,
     },
     /// 获取指定 API 的 OpenAPI 3.0 规范或详细离线文档
     Spec {
         method: String,
         path: String,
+        #[arg(long, help = "显示原始 OpenAPI JSON 规约片段")]
+        raw: bool,
     },
 }
 
@@ -164,7 +172,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("warn,cjtcr=info"))
+                .unwrap_or_else(|_| EnvFilter::new("warn,cjtcr=info,connector_sdk=info"))
         )
         .init();
     
@@ -174,8 +182,8 @@ async fn main() -> Result<()> {
     let mut config = cfg_mgr.load(&active_profile)?;
     
     let fingerprint = security::get_machine_fingerprint()?;
-    let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
-    let seal_path = home.join(".cjtc").join(".seal");
+    let app_dir = crate::core::config::get_app_dir();
+    let seal_path = app_dir.join(".seal");
     
     let vault: std::sync::Arc<dyn Vault> = std::sync::Arc::new(MultiVault::new(seal_path, &fingerprint)?);
     
@@ -221,11 +229,11 @@ async fn main() -> Result<()> {
         Commands::Api { action, method, path, data } => {
             if let Some(act) = action {
                 match act {
-                    ApiCommands::List { search, top } => {
-                        cmd::api::list(&active_profile, &config, &auth_cli, search, *top).await?;
+                    ApiCommands::List { search, top, page, page_size, format } => {
+                        cmd::api::list(&active_profile, &config, &auth_cli, search, *top, *page, *page_size, format).await?;
                     }
-                    ApiCommands::Spec { method, path } => {
-                        println!("API spec not yet implemented: {} {}", method, path);
+                    ApiCommands::Spec { method, path, raw } => {
+                        cmd::api::spec(&active_profile, &config, &auth_cli, method, path, *raw).await?;
                     }
                 }
             } else if let (Some(m), Some(p)) = (method, path) {

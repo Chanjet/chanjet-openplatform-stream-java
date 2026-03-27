@@ -13,7 +13,7 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 .PHONY: build build-test test clean install
 
 build:
-	DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) cargo build --release
+	APP_DIR_NAME=.cjtc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) cargo build --release
 	mkdir -p $(OUTPUT_DIR)
 	cp target/release/cjtcr $(OUTPUT_DIR)/$(BINARY)
 	@# macOS 26+ requires code signing to avoid UE+ hang
@@ -21,7 +21,7 @@ build:
 	@echo "✅ Build complete: $(OUTPUT_DIR)/$(BINARY)"
 
 build-test:
-	DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) cargo build --release
+	APP_DIR_NAME=.cjtc-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) cargo build --release
 	mkdir -p $(OUTPUT_DIR)
 	cp target/release/cjtcr $(OUTPUT_DIR)/$(BINARY)-test
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/$(BINARY)-test 2>/dev/null || true

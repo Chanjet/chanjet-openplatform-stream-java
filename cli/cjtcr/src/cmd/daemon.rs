@@ -16,10 +16,20 @@ use crate::auth::models::Ticket;
 use chrono::Utc;
 
 pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: bool) -> Result<()> {
-    let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
-    let pid_file = home.join(".cjtc").join(format!("{}_daemon.pid", profile));
+    let app_dir = crate::core::config::get_app_dir();
+    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
     if !foreground {
+        // Ensure logs directory exists
+        let log_dir = app_dir.join("logs");
+        fs::create_dir_all(&log_dir)?;
+        let log_path = log_dir.join(format!("{}.log", profile));
+        
+        let log_file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)?;
+
         // Spawn daemon process in background
         let exe = env::current_exe()?;
         
@@ -32,8 +42,8 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             .arg(proxy_port.to_string())
             .arg("--foreground") // Prevent recursive spawn
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null()) // Detach output completely
+            .stdout(Stdio::from(log_file.try_clone()?))
+            .stderr(Stdio::from(log_file)) 
             .spawn()?;
 
         let pid = child.id();
@@ -41,7 +51,8 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
 
         println!("🚀 Stream Bridge daemon started successfully!");
         println!("📡 Process running in background (PID: {}).", pid);
-        println!("💡 Use `cjtc status` to check its health or `cjtc daemon stop` to terminate it.");
+        println!("📝 Logs: {}", log_path.display());
+        println!("💡 Use `tail -f {}` to monitor real-time activity.", log_path.display());
         
         return Ok(());
     }
@@ -59,7 +70,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     let client = GatewayClient::new(options);
 
     let fingerprint = security::get_machine_fingerprint()?;
-    let seal_path = home.join(".cjtc").join(".seal");
+    let seal_path = app_dir.join(".seal");
     let vault: Arc<dyn Vault> = Arc::new(MultiVault::new(seal_path, &fingerprint)?);
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
     let auth_cli = AuthClient::new(pool.as_ref());
@@ -126,12 +137,36 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     }
 
     client.start().await?;
+    println!("🚀 [Bridge] Stream started. Waiting for connection...");
     
+    // Brief delay to ensure WebSocket is connected before triggering push
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
     // Proactive check: if ticket missing, trigger push
-    if pool.get_app_ticket(profile).is_err() {
-        println!("📡 No valid AppTicket found, triggering platform push...");
-        if let Err(e) = auth_cli.trigger_push(profile, config).await {
-            eprintln!("⚠️ Failed to trigger platform push: {}", e);
+    match pool.get_app_ticket(profile) {
+        Ok(_ticket) => {
+            println!("🎫 [Bridge] Found existing AppTicket. Attempting proactive Token refresh...");
+            let inner_pool = pool.clone();
+            let inner_profile = profile.to_string();
+            let inner_config = config.clone();
+            tokio::spawn(async move {
+                let auth = AuthClient::new(inner_pool.as_ref());
+                match auth.get_app_access_token(&inner_profile, &inner_config).await {
+                    Ok(token) => println!("🔑 [Bridge] AccessToken verified/refreshed: {}...", &token.value[..10]),
+                    Err(e) => {
+                        eprintln!("⚠️ [Bridge] Proactive refresh with existing ticket failed: {}. Triggering fresh push...", e);
+                        if let Err(e) = auth.trigger_push(&inner_profile, &inner_config).await {
+                            eprintln!("❌ [Bridge] Failed to trigger platform push: {}", e);
+                        }
+                    }
+                }
+            });
+        }
+        Err(_) => {
+            println!("📡 [Bridge] No valid AppTicket found, triggering platform push...");
+            if let Err(e) = auth_cli.trigger_push(profile, config).await {
+                eprintln!("❌ [Bridge] Failed to trigger platform push: {}", e);
+            }
         }
     }
 
@@ -150,8 +185,8 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
 }
 
 pub async fn stop(profile: &str) -> Result<()> {
-    let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
-    let pid_file = home.join(".cjtc").join(format!("{}_daemon.pid", profile));
+    let app_dir = crate::core::config::get_app_dir();
+    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
     
     if pid_file.exists() {
         if let Ok(pid_str) = fs::read_to_string(&pid_file) {

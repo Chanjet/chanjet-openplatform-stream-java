@@ -89,7 +89,14 @@ pub async fn status(
     }
 
     match found_daemon_pid {
-        Some(pid) => println!("  📟 Daemon Process: [RUNNING] (PID: {})", pid),
+        Some(pid) => {
+            println!("  📟 Daemon Process: [RUNNING] (PID: {})", pid);
+            let app_dir = crate::core::config::get_app_dir();
+            let log_path = app_dir.join("logs").join(format!("{}.log", profile));
+            if log_path.exists() {
+                println!("     - Logs: {}", log_path.display());
+            }
+        },
         None => println!("  📟 Daemon Process: [OFFLINE] (未检测到活跃后台进程)"),
     }
     

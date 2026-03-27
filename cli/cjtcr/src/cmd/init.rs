@@ -62,8 +62,8 @@ pub async fn execute(
     let _ = crate::cmd::completion::install_completion();
 
     // Set as default profile if no default exists yet
-    let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
-    let current_profile_path = home.join(".cjtc").join("current_profile");
+    let app_dir = crate::core::config::get_app_dir();
+    let current_profile_path = app_dir.join("current_profile");
     if !current_profile_path.exists() {
         let _ = cfg_mgr.set_default_profile(profile);
         println!("✅ Set default profile to '{}'", profile);

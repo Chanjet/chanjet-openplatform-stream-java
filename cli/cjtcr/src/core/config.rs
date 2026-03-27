@@ -60,14 +60,24 @@ fn default_stream_url() -> String {
         .to_string()
 }
 
+pub fn get_app_dir_name() -> &'static str {
+    option_env!("APP_DIR_NAME").unwrap_or(".cjtc")
+}
+
+pub fn get_app_dir() -> PathBuf {
+    UserDirs::new()
+        .expect("Failed to get user home directory")
+        .home_dir()
+        .join(get_app_dir_name())
+}
+
 pub struct ConfigManager {
     base_dir: PathBuf,
 }
 
 impl ConfigManager {
     pub fn new() -> Result<Self> {
-        let user_dirs = UserDirs::new().context("Failed to get user directories")?;
-        let base_dir = user_dirs.home_dir().join(".cjtc");
+        let base_dir = get_app_dir();
         if !base_dir.exists() {
             fs::create_dir_all(&base_dir)?;
         }

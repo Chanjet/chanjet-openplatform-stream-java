@@ -22,11 +22,8 @@ pub struct DlqStore {
 
 impl DlqStore {
     pub fn new(profile: &str) -> Result<Self> {
-        let home = directories::UserDirs::new()
-            .ok_or_else(|| anyhow::anyhow!("Home directory not found"))?
-            .home_dir()
-            .to_path_buf();
-        let dir = home.join(".cjtc").join("dlq").join(profile);
+        let app_dir = crate::core::config::get_app_dir();
+        let dir = app_dir.join("dlq").join(profile);
         if !dir.exists() {
             fs::create_dir_all(&dir)?;
         }

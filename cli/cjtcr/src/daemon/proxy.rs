@@ -55,8 +55,8 @@ async fn handle_proxy(
         Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Fingerprint failed").into_response()
     };
 
-    let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
-    let seal_path = home.join(".cjtc").join(".seal");
+    let app_dir = crate::core::config::get_app_dir();
+    let seal_path = app_dir.join(".seal");
     let vault: Arc<dyn crate::core::vault::Vault> = match crate::core::vault::MultiVault::new(seal_path, &fingerprint) {
         Ok(v) => Arc::new(v),
         Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Vault unlock failed").into_response()

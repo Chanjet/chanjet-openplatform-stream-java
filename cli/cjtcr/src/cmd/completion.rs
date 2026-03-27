@@ -25,7 +25,8 @@ pub fn install_completion() -> Result<()> {
         return Ok(());
     };
 
-    let comp_dir = home.join(".cjtc").join("completions");
+    let app_dir = crate::core::config::get_app_dir();
+    let comp_dir = app_dir.join("completions");
     fs::create_dir_all(&comp_dir)?;
 
     let mut cmd = Cli::command();
