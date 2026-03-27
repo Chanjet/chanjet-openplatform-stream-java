@@ -71,8 +71,8 @@ async fn handle_proxy(
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Spec error: {}", e)).into_response()
     };
 
-    let req_path = req.uri().path();
-    if !crate::auth::client::is_path_in_whitelist(req_path, &spec) {
+    let req_path = req.uri().path().to_string();
+    if !crate::auth::client::is_path_in_whitelist(&req_path, &spec) {
         return (
                 axum::http::StatusCode::FORBIDDEN,
                 format!("Proxy Rejected: Target path {} is not in the OpenAPI whitelist.", req_path),
@@ -87,48 +87,25 @@ async fn handle_proxy(
         ).into_response()
     };
 
-    let method_str = req.method().as_str();
-    let op = crate::auth::client::get_operation(&spec, req_path, method_str);
+    let method_str = req.method().to_string();
 
     // 2. Extract Parts
     let (mut parts, body) = req.into_parts();
     
-    // Inject auth
-    if let Ok(auth_header) = format!("Bearer {}", token.value).parse() {
-        parts.headers.insert("Authorization", auth_header);
-    }
+    // Dynamic Header Injection based on Spec (Shared Logic)
+    let auth_headers = crate::auth::RequestDecorator::get_auth_headers(
+        &spec, 
+        &req_path, 
+        &method_str, 
+        &state.config.app_key, 
+        &state.config.app_secret, 
+        &token.value
+    );
 
-    if let Some(operation) = op {
-        if let Some(params) = operation.get("parameters").and_then(|p| p.as_array()) {
-            for param in params.iter() {
-                let name_str = param.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                let p_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
-                if p_in == "header" {
-                    match name_str {
-                        "appKey" => {
-                             if let Ok(hv) = axum::http::HeaderValue::from_str(&state.config.app_key) {
-                                if let Ok(hn) = axum::http::HeaderName::from_bytes(b"appKey") {
-                                    parts.headers.insert(hn, hv);
-                                }
-                             }
-                        }
-                        "appSecret" => {
-                             if let Ok(hv) = axum::http::HeaderValue::from_str(&state.config.app_secret) {
-                                if let Ok(hn) = axum::http::HeaderName::from_bytes(b"appSecret") {
-                                    parts.headers.insert(hn, hv);
-                                }
-                             }
-                        }
-                        "openToken" => {
-                             if let Ok(hv) = axum::http::HeaderValue::from_str(&token.value) {
-                                if let Ok(hn) = axum::http::HeaderName::from_bytes(b"openToken") {
-                                    parts.headers.insert(hn, hv);
-                                }
-                             }
-                        }
-                        _ => {}
-                    }
-                }
+    for (name, value) in auth_headers {
+        if let Ok(hv) = axum::http::HeaderValue::from_str(&value) {
+            if let Ok(hn) = axum::http::HeaderName::from_bytes(name.as_bytes()) {
+                parts.headers.insert(hn, hv);
             }
         }
     }

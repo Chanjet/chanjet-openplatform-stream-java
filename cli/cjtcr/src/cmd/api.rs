@@ -53,31 +53,20 @@ pub async fn call(
         .map_err(|_| anyhow!("Invalid HTTP method: {}", method))?;
 
     let mut req = client.request(req_method, &url)
-        .header("Authorization", format!("Bearer {}", token.value))
         .header("Content-Type", content_type);
 
-    // Dynamic Header Injection based on Spec
-    if let Some(operation) = crate::auth::client::get_operation(&spec, path_no_query, method) {
-        if let Some(params) = operation.get("parameters").and_then(|p| p.as_array()) {
-            for param in params.iter() {
-                let name = param.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                let p_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
-                if p_in == "header" {
-                    match name {
-                        "appKey" => {
-                            req = req.header("appKey", &cfg.app_key);
-                        }
-                        "appSecret" => {
-                            req = req.header("appSecret", &cfg.app_secret);
-                        }
-                        "openToken" => {
-                            req = req.header("openToken", &token.value);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+    // Dynamic Header Injection based on Spec (Shared Logic)
+    let auth_headers = crate::auth::RequestDecorator::get_auth_headers(
+        &spec, 
+        path_no_query, 
+        method, 
+        &cfg.app_key, 
+        &cfg.app_secret, 
+        &token.value
+    );
+
+    for (name, value) in auth_headers {
+        req = req.header(name, value);
     }
 
     if let Some(body_data) = data {
@@ -155,11 +144,12 @@ pub async fn list(
             "yaml" => println!("{}", serde_yaml::to_string(&paginated)?),
             _ => {
                 println!("\n🧠 Neural Search: \"{}\" (Page {}/{})", query, page, (matches.len() + page_size - 1) / page_size);
-                println!("{}", "-".repeat(80));
+                println!("{}", "-".repeat(100));
                 for (i, (score, doc)) in paginated.iter().enumerate() {
-                    println!("{}. [{}] ({:.2}) {}", start + i + 1, doc.id, score, doc.summary);
+                    println!("{}. [{}] ({:.2}) {} - {}", start + i + 1, doc.id, score, doc.summary, doc.description);
                 }
                 println!("\n✅ Verified: Zero-dependency ONNX embedding engine is active.");
+                println!("(TIP: Run 'api spec [METHOD] [PATH]' for full details)\n");
             }
         }
     } else {
@@ -169,10 +159,12 @@ pub async fn list(
             if let Some(methods_obj) = methods.as_object() {
                 for (method, op) in methods_obj {
                     let summary = op["summary"].as_str().unwrap_or("").to_string();
+                    let description = op["description"].as_str().unwrap_or("").to_string();
                     all_apis.push(serde_json::json!({
                         "method": method.to_uppercase(),
                         "path": path,
-                        "summary": summary
+                        "summary": summary,
+                        "description": description
                     }));
                 }
             }
@@ -191,15 +183,37 @@ pub async fn list(
             "yaml" => println!("{}", serde_yaml::to_string(&paginated)?),
             _ => {
                 println!("\n📖 Available APIs (Page {}/{}):", page, (all_apis.len() + page_size - 1) / page_size);
-                println!("{:<10} {:<30} {}", "METHOD", "PATH", "SUMMARY");
-                println!("{}", "-".repeat(80));
+                println!(" {:<11} {:<40} {}", "METHOD", "PATH", "INFO");
+                println!("{}", "—".repeat(110));
                 for api in paginated {
-                    println!("{:<10} {:<30} {}", 
-                        api["method"].as_str().unwrap_or(""), 
-                        api["path"].as_str().unwrap_or(""), 
-                        api["summary"].as_str().unwrap_or("")
+                    let method = api["method"].as_str().unwrap_or("");
+                    let path = api["path"].as_str().unwrap_or("");
+                    let summary = api["summary"].as_str().unwrap_or("");
+                    let description = api["description"].as_str().unwrap_or("");
+                    
+                    let info = if description.is_empty() || description == summary {
+                        summary.to_string()
+                    } else {
+                        format!("{} - {}", summary, description)
+                    };
+
+                    // Colorize Method (using ANSI codes)
+                    let colored_method = match method {
+                        "GET" => format!("\x1b[32m{:<8}\x1b[0m", method),    // Green
+                        "POST" => format!("\x1b[36m{:<8}\x1b[0m", method),   // Cyan
+                        "PUT" => format!("\x1b[33m{:<8}\x1b[0m", method),    // Yellow
+                        "DELETE" => format!("\x1b[31m{:<8}\x1b[0m", method), // Red
+                        _ => format!("{:<8}", method),
+                    };
+
+                    println!(" {} {:<40} {}", 
+                        colored_method,
+                        path,
+                        info
                     );
                 }
+                println!("{}", "—".repeat(110));
+                println!("(TIP: Run 'api spec [METHOD] [PATH]' for full details or '-s 关键词' for semantic search)\n");
             }
         }
     }
@@ -236,9 +250,12 @@ pub async fn spec(
                 name != "appKey" && name != "appSecret" && name != "openToken"
             });
         }
+        tracing::info!(target: "audit", method = %method, path = %matched_path, format = "raw", "view api spec");
         println!("{}", serde_json::to_string_pretty(&clean_op)?);
         return Ok(());
     }
+
+    tracing::info!(target: "audit", method = %method, path = %matched_path, format = "text", "view api spec");
 
     // 3. Print Header
     let summary = op["summary"].as_str().unwrap_or("No Summary");

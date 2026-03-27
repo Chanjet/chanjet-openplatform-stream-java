@@ -167,22 +167,29 @@ pub enum DaemonCommands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // 1. Initialize Core — suppress ort verbose logs
-    use tracing_subscriber::EnvFilter;
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("warn,cjtcr=info,connector_sdk=info"))
-        )
-        .init();
-    
+    // 1. Core Paths
+    let app_dir = crate::core::config::get_app_dir();
+    let log_dir = app_dir.join("log");
+
+    // 2. Load Config to get Log Settings
     let cfg_mgr = ConfigManager::new()?;
     let active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
     
-    let mut config = cfg_mgr.load(&active_profile)?;
-    
+    // Load config partially or use default if it fails
+    let mut config = cfg_mgr.load(&active_profile).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&active_profile));
+
+    // Override config log level if CLI provides one (default is "info", but we check if it was explicitly set)
+    // Actually, clap default_value means it's always "info". 
+    // We can check if it matches the default or if we want to always let CLI take precedence.
+    // Usually CLI should take precedence if user provides it.
+    config.log.level = cli.log_level.clone();
+
+    // 3. Initialize Telemetry (Structured & Rotated Logging)
+    let _guards = crate::core::telemetry::init_telemetry(log_dir, &config.log)?;
+    tracing::info!(target: "sys", "cjtcr starting (version {})", env!("CARGO_PKG_VERSION"));
+    tracing::info!(target: "sys", profile = %active_profile, "active profile loaded");
+
     let fingerprint = security::get_machine_fingerprint()?;
-    let app_dir = crate::core::config::get_app_dir();
     let seal_path = app_dir.join(".seal");
     
     let vault: std::sync::Arc<dyn Vault> = std::sync::Arc::new(MultiVault::new(seal_path, &fingerprint)?);

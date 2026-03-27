@@ -33,8 +33,8 @@ pub struct Config {
     #[serde(default)]
     pub app_mode: AppMode,
     
-    #[serde(default = "default_log_level")]
-    pub log_level: String,
+    #[serde(default)]
+    pub log: LogConfig,
     
     #[serde(default = "default_openapi_url")]
     pub openapi_url: String,
@@ -46,7 +46,36 @@ pub struct Config {
     pub webhook_target: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogConfig {
+    #[serde(default = "default_log_level")]
+    pub level: String,
+    
+    #[serde(default = "default_log_rotation")]
+    pub rotation: String, // daily, hourly, minutely, never
+    
+    #[serde(default = "default_log_max_size")]
+    pub max_size_mb: u64,
+    
+    #[serde(default = "default_log_max_files")]
+    pub max_files: usize,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            level: default_log_level(),
+            rotation: default_log_rotation(),
+            max_size_mb: default_log_max_size(),
+            max_files: default_log_max_files(),
+        }
+    }
+}
+
 fn default_log_level() -> String { "info".to_string() }
+fn default_log_rotation() -> String { "daily".to_string() }
+fn default_log_max_size() -> u64 { 500 }
+fn default_log_max_files() -> usize { 3 }
 
 fn default_openapi_url() -> String {
     option_env!("DEF_OPENAPI_URL")
@@ -128,7 +157,7 @@ impl Config {
             certificate: String::new(),
             encrypt_key: String::new(),
             app_mode: AppMode::SelfBuilt,
-            log_level: default_log_level(),
+            log: LogConfig::default(),
             openapi_url: default_openapi_url(),
             stream_url: default_stream_url(),
             webhook_target: String::new(),
