@@ -167,15 +167,26 @@ impl<'a> AuthClient<'a> {
     fn generate_mock_spec(&self) -> serde_json::Value {
         let mut paths = serde_json::Map::new();
 
-        let mut add = |path: &str, method: &str, summary: &str, desc: &str| {
+        let mut add = |path: &str, method: &str, summary: &str, desc: &str, req_header: bool| {
             let mut methods = paths
                 .get(path)
                 .and_then(|v| v.as_object())
                 .cloned()
                 .unwrap_or_default();
+            
+            let mut parameters = serde_json::json!([]);
+            if req_header {
+                parameters = serde_json::json!([
+                    {"name": "appKey", "in": "header", "required": true, "schema": {"type": "string"}},
+                    {"name": "appSecret", "in": "header", "required": true, "schema": {"type": "string"}},
+                    {"name": "openToken", "in": "header", "required": true, "schema": {"type": "string"}}
+                ]);
+            }
+
             let op = serde_json::json!({
                 "summary": summary,
                 "description": desc,
+                "parameters": parameters,
                 "responses": {
                     "200": {"description": "成功"},
                     "400": {"description": "请求参数错误"}
@@ -186,12 +197,15 @@ impl<'a> AuthClient<'a> {
         };
 
         // Key business APIs (With expanded keywords for better search hits)
-        add("/v1/user/profile", "get", "获取个人画像", "返回包含头像、部门及常用功能数据 (用户信息/权限)。");
-        add("/v1/inventory/query", "get", "查询全渠道库存", "支持仓库或商品编码查询可用余量 (库存/盘点/调拨)。");
-        add("/v1/orders/detail", "get", "获取订单详情", "包括商品、促销、物流状态 (订单/下单/退款)。");
-        add("/v1/payment/batch-transfer", "post", "批量转账代发", "支持工资发放、佣金结算 (算账/报账/查钱/打款)。");
-        add("/v1/crm/customer/register", "post", "录入客户档案", "记录客户名称、来源及跟进负责人 (客户/公海/CRM)。");
-        add("/v1/hr/attendance/summary", "get", "导出月度考勤报表", "整合打卡、请假、出差数据 (考勤/工资/绩效)。");
+        add("/v1/user/profile", "get", "获取个人画像", "返回包含头像、部门及常用功能数据 (用户信息/权限)。", false);
+        add("/v1/inventory/query", "get", "查询全渠道库存", "支持仓库或商品编码查询可用余量 (库存/盘点/调拨)。", true);
+        add("/v1/orders/detail", "get", "获取订单详情", "包括商品、促销、物流状态 (订单/下单/退款)。", false);
+        add("/v1/orders/{id}", "get", "获取单个订单", "查询指定ID订单", true);
+        add("/v1/orders/{orderId}/status", "put", "更新订单状态", "路径加操作节点测试", false);
+        add("/v1/users/{userId}/addresses/{addressId}", "get", "获取用户收货地址", "复杂路径变量测试", true);
+        add("/v1/payment/batch-transfer", "post", "批量转账代发", "支持工资发放、佣金结算 (算账/报账/查钱/打款)。", true);
+        add("/v1/crm/customer/register", "post", "录入客户档案", "记录客户名称、来源及跟进负责人 (客户/公海/CRM)。", false);
+        add("/v1/hr/attendance/summary", "get", "导出月度考勤报表", "整合打卡、请假、出差数据 (考勤/工资/绩效)。", false);
 
         let categories = vec![
             ("fin", "财务结算", "处理企业日常财务流水。"),
@@ -203,7 +217,7 @@ impl<'a> AuthClient<'a> {
         for (prefix, summary, desc) in categories {
             for i in 1..=20 {
                 let path = format!("/v1/{}/api/{}", prefix, i);
-                add(&path, "get", &format!("{}-Mock-{}", summary, i), desc);
+                add(&path, "get", &format!("{}-Mock-{}", summary, i), desc, i % 2 == 0);
             }
         }
 
@@ -217,4 +231,47 @@ impl<'a> AuthClient<'a> {
             "paths": paths
         })
     }
+}
+
+pub fn find_matching_spec_path(req_path: &str, spec: &serde_json::Value) -> Option<String> {
+    if let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) {
+        if paths.contains_key(req_path) {
+            return Some(req_path.to_string());
+        }
+        let req_segments: Vec<&str> = req_path.split('/').filter(|s| !s.is_empty()).collect();
+        for spec_path in paths.keys() {
+            let spec_segments: Vec<&str> = spec_path.split('/').filter(|s| !s.is_empty()).collect();
+            if req_segments.len() == spec_segments.len() {
+                let mut match_ok = true;
+                for (req_seg, spec_seg) in req_segments.iter().zip(spec_segments.iter()) {
+                    if spec_seg.starts_with('{') && spec_seg.ends_with('}') {
+                        continue; // matches path variable
+                    }
+                    if req_seg != spec_seg {
+                        match_ok = false;
+                        break;
+                    }
+                }
+                if match_ok {
+                    return Some(spec_path.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn get_operation(spec: &serde_json::Value, path: &str, method: &str) -> Option<serde_json::Value> {
+    if let Some(matched_path) = find_matching_spec_path(path, spec) {
+        spec.get("paths")?
+            .get(&matched_path)?
+            .get(method.to_lowercase())
+            .cloned()
+    } else {
+        None
+    }
+}
+
+pub fn is_path_in_whitelist(req_path: &str, spec: &serde_json::Value) -> bool {
+    find_matching_spec_path(req_path, spec).is_some()
 }

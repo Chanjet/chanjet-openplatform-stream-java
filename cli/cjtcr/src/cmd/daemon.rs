@@ -5,6 +5,10 @@ use tokio::signal;
 use std::process::{Command, Stdio};
 use std::env;
 use std::fs;
+use crate::daemon::dlq::DlqStore;
+use crate::daemon::forwarder::Forwarder;
+use crate::daemon::proxy::start_proxy;
+use std::sync::Arc;
 
 pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: bool) -> Result<()> {
     let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
@@ -49,9 +53,29 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
 
     let client = GatewayClient::new(options);
 
+    let p_profile = profile.to_string();
+    let p_config = config.clone();
+    tokio::spawn(async move {
+        if let Err(e) = start_proxy(&p_profile, &p_config, proxy_port).await {
+            eprintln!("❌ Local Proxy Server error: {}", e);
+        }
+    });
+
+    let dlq = Arc::new(DlqStore::new(profile)?);
+    let forwarder = Forwarder::new(dlq, &config.webhook_target);
+
     {
         let d = client.dispatcher();
         let mut dispatcher = d.lock().unwrap();
+
+        let fwd = forwarder.clone();
+        dispatcher.set_fallback_handler(Arc::new(move |msg| {
+            let fwd_clone = fwd.clone();
+            tokio::spawn(async move {
+                fwd_clone.forward(msg).await;
+            });
+            true
+        }));
 
         dispatcher.on_app_ticket(|msg| {
             println!("🎫 [Bridge] Received AppTicket: {}", msg.biz_content.app_ticket);

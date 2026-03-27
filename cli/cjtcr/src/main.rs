@@ -1,7 +1,7 @@
 mod core;
 mod auth;
-// mod search;
 mod cmd;
+mod daemon;
 
 use clap::Parser;
 use crate::core::config::ConfigManager;
@@ -147,7 +147,7 @@ pub enum DaemonCommands {
         proxy_port: u16,
         
         /// 在前台运行 (阻塞模式)
-        #[arg(short, long)]
+        #[arg(long)]
         foreground: bool,
     },
     /// 停止正在运行的 cjtc 守护进程

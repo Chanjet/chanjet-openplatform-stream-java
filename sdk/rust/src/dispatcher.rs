@@ -12,13 +12,19 @@ pub type MessageHandler = Arc<dyn Fn(Value) -> bool + Send + Sync>;
 
 pub struct MessageDispatcher {
     handlers: HashMap<String, MessageHandler>,
+    fallback_handler: Option<MessageHandler>,
 }
 
 impl MessageDispatcher {
     pub fn new() -> Self {
         Self {
             handlers: HashMap::new(),
+            fallback_handler: None,
         }
+    }
+
+    pub fn set_fallback_handler(&mut self, handler: MessageHandler) {
+        self.fallback_handler = Some(handler);
     }
 
     pub fn register(&mut self, msg_type: &str, handler: MessageHandler) {
@@ -116,6 +122,12 @@ impl MessageDispatcher {
                 obj.insert("headers".to_string(), headers_val);
             }
             Ok(handler(root))
+        } else if let Some(fallback) = &self.fallback_handler {
+            if let Some(obj) = root.as_object_mut() {
+                let headers_val = serde_json::to_value(&frame.headers)?;
+                obj.insert("headers".to_string(), headers_val);
+            }
+            Ok(fallback(root))
         } else {
             tracing::warn!("No handler for msgType: {}. Skipping.", msg_type);
             Ok(true)

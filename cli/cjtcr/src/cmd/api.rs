@@ -12,6 +12,13 @@ pub async fn call(
     path: &str,
     data: &Option<String>,
 ) -> Result<()> {
+    // PROTECT CLI: Whitelist Check
+    let spec = auth_cli.get_openapi_spec(profile, cfg).await?;
+    let path_no_query = path.split('?').next().unwrap_or(path);
+    if !crate::auth::client::is_path_in_whitelist(path_no_query, &spec) {
+        return Err(anyhow!("CLI Rejected: Target path {} is not in the OpenAPI whitelist.", path_no_query));
+    }
+
     // 1. Get Access Token
     let token = auth_cli.get_app_access_token(profile, cfg).await?;
 
@@ -26,11 +33,33 @@ pub async fn call(
     let req_method = Method::from_bytes(method.to_uppercase().as_bytes())
         .map_err(|_| anyhow!("Invalid HTTP method: {}", method))?;
 
-    println!("Executing {} {}...", req_method, url);
-
     let mut req = client.request(req_method, &url)
         .header("Authorization", format!("Bearer {}", token.value))
         .header("Content-Type", "application/json");
+
+    // Dynamic Header Injection based on Spec
+    if let Some(operation) = crate::auth::client::get_operation(&spec, path_no_query, method) {
+        if let Some(params) = operation.get("parameters").and_then(|p| p.as_array()) {
+            for param in params.iter() {
+                let name = param.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                let p_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
+                if p_in == "header" {
+                    match name {
+                        "appKey" => {
+                            req = req.header("appKey", &cfg.app_key);
+                        }
+                        "appSecret" => {
+                            req = req.header("appSecret", &cfg.app_secret);
+                        }
+                        "openToken" => {
+                            req = req.header("openToken", &token.value);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
 
     if let Some(body_data) = data {
         req = req.body(body_data.clone());

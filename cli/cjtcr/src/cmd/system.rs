@@ -12,13 +12,13 @@ pub async fn status(
 
     // 1. Config Check
     let cfg = cfg_mgr.load(profile)?;
-    if cfg.app_key.is_empty() {
-        println!("  ⚙️  Configuration: [MISSING] Profile not initialized or AppKey empty.");
-    } else {
+    if !cfg.app_key.is_empty() {
         println!("  ⚙️  Configuration: [OK] AppKey: {}", cfg.app_key);
-        println!("     - OpenAPI: {}", cfg.openapi_url);
-        println!("     - Stream:  {}", cfg.stream_url);
+    } else {
+        println!("  ⚙️  Configuration: [MISSING] Profile not initialized or AppKey empty.");
     }
+    println!("     - OpenAPI: {}", cfg.openapi_url);
+    println!("     - Stream:  {}", cfg.stream_url);
 
     // 2. Vault Security Check
     let mut missing_secrets = Vec::new();
@@ -30,6 +30,44 @@ pub async fn status(
         println!("  🛡️  Security (Vault): [OK] All core secrets are securely stored.");
     } else {
         println!("  🛡️  Security (Vault): [PARTIAL] Missing: {}", missing_secrets.join(", "));
+    }
+
+    // 2b. Token Status
+    use crate::auth::models::{Token, Ticket};
+    use chrono::Local;
+
+    if let Ok(token_raw) = vault.get(profile, "access_token") {
+        if let Ok(token) = serde_json::from_str::<Token>(&token_raw) {
+            let local_expiry = token.expires_at.with_timezone(&Local);
+            let real_expiry = token.real_expires_at().with_timezone(&Local);
+            
+            if token.is_expired() {
+                println!("  🔑 AccessToken: [EXPIRED] (Real: {})", real_expiry.format("%Y-%m-%d %H:%M:%S"));
+            } else {
+                let status_label = if token.real_expires_at() != token.expires_at {
+                    "[VALID (JWT)]"
+                } else {
+                    "[VALID]"
+                };
+                println!("  🔑 AccessToken: {} (Expires: {})", status_label, real_expiry.format("%Y-%m-%d %H:%M:%S"));
+                if real_expiry != local_expiry {
+                    println!("      ↳ Cached: {}", local_expiry.format("%Y-%m-%d %H:%M:%S"));
+                }
+            }
+        } else {
+            println!("  🔑 AccessToken: [NONE] (未获取到有效令牌)");
+        }
+    } else {
+        println!("  🔑 AccessToken: [NONE] (未获取到有效令牌)");
+    }
+
+    if let Ok(ticket_raw) = vault.get(profile, "app_ticket") {
+        if let Ok(ticket) = serde_json::from_str::<Ticket>(&ticket_raw) {
+            let local_created = ticket.created_at.with_timezone(&Local);
+            println!("  🎫 AppTicket:   [CACHED] (Received: {})", local_created.format("%Y-%m-%d %H:%M:%S"));
+        }
+    } else {
+        println!("  🎫 AppTicket:   [NONE] (等待 Daemon 接收推送)");
     }
 
     // 3. Daemon Check
