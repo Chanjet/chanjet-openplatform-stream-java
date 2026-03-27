@@ -8,6 +8,7 @@ use reqwest::Client;
 use std::net::SocketAddr;
 use crate::core::config::Config;
 use anyhow::Result;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct ProxyState {
@@ -56,12 +57,12 @@ async fn handle_proxy(
 
     let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
     let seal_path = home.join(".cjtc").join(".seal");
-    let vault = match crate::core::vault::MultiVault::new(seal_path, &fingerprint) {
-        Ok(v) => v,
+    let vault: Arc<dyn crate::core::vault::Vault> = match crate::core::vault::MultiVault::new(seal_path, &fingerprint) {
+        Ok(v) => Arc::new(v),
         Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Vault unlock failed").into_response()
     };
 
-    let pool = crate::auth::VaultTokenPool::new(&vault);
+    let pool = crate::auth::VaultTokenPool::new(vault.clone());
     let auth_cli = crate::auth::AuthClient::new(&pool);
     use crate::auth::client::Client as AuthTrait; // This import was inside the old match, moved here for scope.
 

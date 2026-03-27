@@ -4,20 +4,23 @@ use anyhow::Result;
 use std::sync::RwLock;
 use std::collections::HashMap;
 
+use std::sync::Arc;
+
 pub trait TokenPool: Send + Sync {
     fn get_app_ticket(&self, profile: &str) -> Result<Ticket>;
+    fn set_app_ticket(&self, profile: &str, ticket: &Ticket) -> Result<()>;
     fn get_access_token(&self, profile: &str) -> Result<Token>;
     fn set_access_token(&self, profile: &str, token: &Token) -> Result<()>;
 }
 
-pub struct VaultTokenPool<'a> {
-    v: &'a dyn Vault,
+pub struct VaultTokenPool {
+    v: Arc<dyn Vault>,
     tickets: RwLock<HashMap<String, Ticket>>,
     tokens: RwLock<HashMap<String, Token>>,
 }
 
-impl<'a> VaultTokenPool<'a> {
-    pub fn new(v: &'a dyn Vault) -> Self {
+impl VaultTokenPool {
+    pub fn new(v: Arc<dyn Vault>) -> Self {
         Self {
             v,
             tickets: RwLock::new(HashMap::new()),
@@ -26,7 +29,7 @@ impl<'a> VaultTokenPool<'a> {
     }
 }
 
-impl<'a> TokenPool for VaultTokenPool<'a> {
+impl TokenPool for VaultTokenPool {
     fn get_app_ticket(&self, profile: &str) -> Result<Ticket> {
         let tickets = self.tickets.read().unwrap();
         if let Some(t) = tickets.get(profile) {
@@ -40,6 +43,15 @@ impl<'a> TokenPool for VaultTokenPool<'a> {
         let mut tickets = self.tickets.write().unwrap();
         tickets.insert(profile.to_string(), t.clone());
         Ok(t)
+    }
+
+    fn set_app_ticket(&self, profile: &str, ticket: &Ticket) -> Result<()> {
+        let raw = serde_json::to_string(ticket)?;
+        self.v.set(profile, "app_ticket", &raw)?;
+
+        let mut tickets = self.tickets.write().unwrap();
+        tickets.insert(profile.to_string(), ticket.clone());
+        Ok(())
     }
 
     fn get_access_token(&self, profile: &str) -> Result<Token> {

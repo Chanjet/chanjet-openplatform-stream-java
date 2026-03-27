@@ -9,6 +9,11 @@ use crate::daemon::dlq::DlqStore;
 use crate::daemon::forwarder::Forwarder;
 use crate::daemon::proxy::start_proxy;
 use std::sync::Arc;
+use crate::core::vault::{MultiVault, Vault};
+use crate::core::security;
+use crate::auth::{VaultTokenPool, AuthClient, pool::TokenPool, client::Client as AuthTrait};
+use crate::auth::models::Ticket;
+use chrono::Utc;
 
 pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: bool) -> Result<()> {
     let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
@@ -53,10 +58,16 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
 
     let client = GatewayClient::new(options);
 
-    let p_profile = profile.to_string();
-    let p_config = config.clone();
+    let fingerprint = security::get_machine_fingerprint()?;
+    let seal_path = home.join(".cjtc").join(".seal");
+    let vault: Arc<dyn Vault> = Arc::new(MultiVault::new(seal_path, &fingerprint)?);
+    let pool = Arc::new(VaultTokenPool::new(vault.clone()));
+    let auth_cli = AuthClient::new(pool.as_ref());
+
+    let p_profile_proxy = profile.to_string();
+    let p_config_proxy = config.clone();
     tokio::spawn(async move {
-        if let Err(e) = start_proxy(&p_profile, &p_config, proxy_port).await {
+        if let Err(e) = start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port).await {
             eprintln!("❌ Local Proxy Server error: {}", e);
         }
     });
@@ -77,8 +88,34 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             true
         }));
 
-        dispatcher.on_app_ticket(|msg| {
+        let p_pool = pool.clone();
+        let p_profile = profile.to_string();
+        let p_config = config.clone();
+        
+        dispatcher.on_app_ticket(move |msg| {
             println!("🎫 [Bridge] Received AppTicket: {}", msg.biz_content.app_ticket);
+            
+            let ticket = Ticket {
+                value: msg.biz_content.app_ticket.clone(),
+                created_at: Utc::now(),
+            };
+            
+            if let Err(e) = p_pool.set_app_ticket(&p_profile, &ticket) {
+                eprintln!("❌ Failed to save ticket to vault: {}", e);
+            } else {
+                // If we get a ticket, immediately try to refresh the token
+                let inner_pool = p_pool.clone();
+                let inner_profile = p_profile.clone();
+                let inner_config = p_config.clone();
+                tokio::spawn(async move {
+                    let auth = AuthClient::new(inner_pool.as_ref());
+                    if let Err(e) = auth.get_app_access_token(&inner_profile, &inner_config).await {
+                        eprintln!("❌ Automatic token refresh failed: {}", e);
+                    } else {
+                        println!("🔑 [Bridge] AccessToken proactively refreshed.");
+                    }
+                });
+            }
             true
         });
 
@@ -89,6 +126,14 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     }
 
     client.start().await?;
+    
+    // Proactive check: if ticket missing, trigger push
+    if pool.get_app_ticket(profile).is_err() {
+        println!("📡 No valid AppTicket found, triggering platform push...");
+        if let Err(e) = auth_cli.trigger_push(profile, config).await {
+            eprintln!("⚠️ Failed to trigger platform push: {}", e);
+        }
+    }
 
     let pid = std::process::id();
     // Write PID for foreground mode too, so stop command works

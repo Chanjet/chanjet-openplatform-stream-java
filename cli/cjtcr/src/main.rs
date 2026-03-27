@@ -7,7 +7,7 @@ use clap::Parser;
 use crate::core::config::ConfigManager;
 use crate::core::vault::{MultiVault, Vault};
 use crate::core::security;
-use crate::auth::{VaultTokenPool, AuthClient};
+use crate::auth::{VaultTokenPool, AuthClient, pool::TokenPool};
 use anyhow::Result;
 
 #[derive(Parser)]
@@ -177,7 +177,7 @@ async fn main() -> Result<()> {
     let home = directories::UserDirs::new().unwrap().home_dir().to_path_buf();
     let seal_path = home.join(".cjtc").join(".seal");
     
-    let vault = MultiVault::new(seal_path, &fingerprint)?;
+    let vault: std::sync::Arc<dyn Vault> = std::sync::Arc::new(MultiVault::new(seal_path, &fingerprint)?);
     
     // Inject secrets from vault into config
     if let Ok(secret) = vault.get(&active_profile, "app_secret") {
@@ -191,7 +191,7 @@ async fn main() -> Result<()> {
     }
 
     // 2. Initialize Auth
-    let token_pool = VaultTokenPool::new(&vault);
+    let token_pool = VaultTokenPool::new(vault.clone());
     let auth_cli = AuthClient::new(&token_pool);
 
     // 3. Execute Command
@@ -208,7 +208,7 @@ async fn main() -> Result<()> {
             cmd::init::execute(
                 &active_profile, 
                 &cfg_mgr, 
-                &vault, 
+                vault.as_ref(), 
                 app_key, 
                 app_secret, 
                 certificate,
@@ -236,10 +236,10 @@ async fn main() -> Result<()> {
         },
         Commands::Auth { action } => match action {
             AuthCommands::Status => {
-                cmd::system::status(&active_profile, &cfg_mgr, &vault).await?;
+                cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref()).await?;
             }
             AuthCommands::Reset => {
-                cmd::system::reset(&active_profile, &cfg_mgr, &vault).await?;
+                cmd::system::reset(&active_profile, &cfg_mgr, vault.as_ref()).await?;
             }
             AuthCommands::Login => {
                 cmd::auth::login(&active_profile, &config, &auth_cli).await?;
@@ -257,13 +257,13 @@ async fn main() -> Result<()> {
             }
         },
         Commands::Status => {
-            cmd::system::status(&active_profile, &cfg_mgr, &vault).await?;
+            cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref()).await?;
         }
         Commands::Config => {
             cmd::system::config(&active_profile, &cfg_mgr).await?;
         }
         Commands::Reset => {
-            cmd::system::reset(&active_profile, &cfg_mgr, &vault).await?;
+            cmd::system::reset(&active_profile, &cfg_mgr, vault.as_ref()).await?;
         }
         Commands::Completion { shell, install } => {
             if *install {
