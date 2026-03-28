@@ -84,3 +84,35 @@ impl DlqStore {
         Ok(entry)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_dlq_lifecycle() -> Result<()> {
+        let tmp = tempdir()?;
+        let store = DlqStore { dir: tmp.path().to_path_buf() };
+
+        // 1. Save
+        store.save("msg1", "test", "{}", "{}", "some error")?;
+        
+        // 2. List
+        let entries = store.list()?;
+        assert_eq!(entries.len(), 1);
+        let id = &entries[0].id;
+        assert_eq!(entries[0].msg_id, "msg1");
+
+        // 3. Get
+        let entry = store.get(id)?;
+        assert_eq!(entry.error, "some error");
+
+        // 4. Delete
+        store.delete(id)?;
+        let entries_after = store.list()?;
+        assert_eq!(entries_after.len(), 0);
+
+        Ok(())
+    }
+}

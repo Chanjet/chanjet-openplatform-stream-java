@@ -7,7 +7,7 @@ use clap::Parser;
 use crate::core::config::ConfigManager;
 use crate::core::vault::{MultiVault, Vault};
 use crate::core::security;
-use crate::auth::{VaultTokenPool, AuthClient, pool::TokenPool};
+use crate::auth::{VaultTokenPool, AuthClient};
 use anyhow::Result;
 
 #[derive(Parser)]
@@ -40,7 +40,7 @@ pub enum Commands {
         app_key: Option<String>,
         #[arg(long, help = "开放平台 AppSecret (将被安全加密存储)")]
         app_secret: Option<String>,
-        #[arg(long, help = "自建应用证书 (Certificate)")]
+        #[arg(short = 'c', long, help = "自建应用证书 (Certificate)")]
         certificate: Option<String>,
         #[arg(long, help = "消息加解密密钥 (AES Encrypt Key)")]
         encrypt_key: Option<String>,

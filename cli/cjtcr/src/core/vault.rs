@@ -95,3 +95,37 @@ impl Vault for MultiVault {
             .context("Secret not found in vault")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_vault_lifecycle() -> Result<()> {
+        let tmp = tempdir()?;
+        let seal_path = tmp.path().join(".seal");
+        let vault = MultiVault::new(seal_path, "master_pwd")?;
+
+        // 1. Set
+        vault.set("default", "app_secret", "secret123")?;
+
+        // 2. Get
+        let val = vault.get("default", "app_secret")?;
+        assert_eq!(val, "secret123");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_aes_gcm_direct() -> Result<()> {
+        let vault = MultiVault::new(PathBuf::from("/tmp/nonexistent"), "pwd")?;
+        let plaintext = b"hello world";
+        
+        let encrypted = vault.encrypt_aes_gcm(plaintext)?;
+        let decrypted = vault.decrypt_aes_gcm(&encrypted)?;
+        
+        assert_eq!(plaintext.as_ref(), decrypted.as_slice());
+        Ok(())
+    }
+}

@@ -33,8 +33,7 @@ impl Token {
         let v: serde_json::Value = serde_json::from_slice(&payload_json).ok()?;
         let exp = v.get("exp")?.as_i64()?;
         
-        let ndt = chrono::NaiveDateTime::from_timestamp_opt(exp, 0)?;
-        Some(Utc.from_utc_datetime(&ndt))
+        DateTime::from_timestamp(exp, 0)
     }
 }
 

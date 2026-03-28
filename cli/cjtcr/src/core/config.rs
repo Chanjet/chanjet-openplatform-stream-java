@@ -106,7 +106,10 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     pub fn new() -> Result<Self> {
-        let base_dir = get_app_dir();
+        Self::new_with_dir(get_app_dir())
+    }
+
+    pub fn new_with_dir(base_dir: PathBuf) -> Result<Self> {
         if !base_dir.exists() {
             fs::create_dir_all(&base_dir)?;
         }
@@ -162,5 +165,36 @@ impl Config {
             stream_url: default_stream_url(),
             webhook_target: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_config_manager_lifecycle() -> Result<()> {
+        let tmp = tempdir()?;
+        let mgr = ConfigManager::new_with_dir(tmp.path().to_path_buf())?;
+
+        // 1. Load default
+        let mut cfg = mgr.load("test_profile")?;
+        assert_eq!(cfg.app_key, "");
+
+        // 2. Modify and Save
+        cfg.app_key = "key123".to_string();
+        mgr.save("test_profile", &cfg)?;
+
+        // 3. Re-load and verify
+        let cfg2 = mgr.load("test_profile")?;
+        assert_eq!(cfg2.app_key, "key123");
+
+        // 4. Default profile
+        assert_eq!(mgr.get_default_profile(), "default");
+        mgr.set_default_profile("prod")?;
+        assert_eq!(mgr.get_default_profile(), "prod");
+
+        Ok(())
     }
 }
