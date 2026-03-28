@@ -4,9 +4,13 @@ use crate::daemon::forwarder::Forwarder;
 use std::sync::Arc;
 use crate::core::config::Config;
 
-pub async fn list(profile: &str) -> Result<()> {
+pub async fn list(profile: &str, format: &str) -> Result<()> {
     let dlq_store = DlqStore::new(profile)?;
     let entries = dlq_store.list()?;
+
+    if format == "json" || format == "yaml" {
+        return crate::core::utils::render(&entries, format);
+    }
 
     if entries.is_empty() {
         println!("✅ DLQ is empty for profile '{}'", profile);

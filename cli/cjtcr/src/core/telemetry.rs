@@ -27,7 +27,8 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
     // 3. Setup Console Layer
     let console_layer = fmt::layer()
         .with_target(false)
-        .with_ansi(true);
+        .with_ansi(true)
+        .with_writer(std::io::stderr);
 
     // 4. Determine Rotation setting
     let rotation = if config.max_size_mb > 0 {

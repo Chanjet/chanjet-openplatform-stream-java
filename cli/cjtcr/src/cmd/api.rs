@@ -12,6 +12,7 @@ pub async fn call(
     method: &str,
     path: &str,
     data: &Option<String>,
+    format: &str,
 ) -> Result<()> {
     // PROTECT CLI: Whitelist Check
     let spec = auth_cli.get_openapi_spec(profile, cfg).await?;
@@ -76,12 +77,45 @@ pub async fn call(
     let resp = req.send().await?;
 
     let status = resp.status();
-    let body: Value = resp.json().await?;
+    let content_type = resp.headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("text/plain")
+        .to_string();
 
-    if status.is_success() {
-        println!("{}", serde_json::to_string_pretty(&body)?);
+    if content_type.contains("application/json") {
+        let body: Value = resp.json().await?;
+        if status.is_success() {
+            crate::core::utils::render(&body, format)?;
+        } else {
+            eprintln!("Error ({}):", status);
+            crate::core::utils::render(&body, format)?;
+        }
     } else {
-        eprintln!("Error ({}): {}", status, serde_json::to_string_pretty(&body)?);
+        // Handle non-JSON response (HTML, Text, etc.)
+        let body_text = resp.text().await?;
+        if status.is_success() {
+            if format == "json" || format == "yaml" {
+                crate::core::utils::render(&serde_json::json!({
+                    "status": status.as_u16(),
+                    "content_type": content_type,
+                    "body": body_text
+                }), format)?;
+            } else {
+                println!("Response ({} - {}):\n{}", status, content_type, body_text);
+            }
+        } else {
+            eprintln!("Error ({} - {}):", status, content_type);
+            if format == "json" || format == "yaml" {
+                crate::core::utils::render(&serde_json::json!({
+                    "status": status.as_u16(),
+                    "content_type": content_type,
+                    "body": body_text
+                }), format)?;
+            } else {
+                eprintln!("{}", body_text);
+            }
+        }
     }
 
     Ok(())

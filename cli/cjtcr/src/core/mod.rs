@@ -4,3 +4,4 @@ pub mod openapi;
 pub mod vault;
 pub mod search;
 pub mod telemetry;
+pub mod utils;

@@ -277,21 +277,22 @@ async fn main() -> Result<()> {
             if let Some(act) = action {
                 match act {
                     ApiCommands::List { search, top, page, page_size, format } => {
-                        cmd::api::list(&active_profile, &config, &auth_cli, search, *top, *page, *page_size, format).await?;
+                        let fmt = if format != "text" { format } else { &cli.format };
+                        cmd::api::list(&active_profile, &config, &auth_cli, search, *top, *page, *page_size, fmt).await?;
                     }
                     ApiCommands::Spec { method, path, raw } => {
                         cmd::api::spec(&active_profile, &config, &auth_cli, method, path, *raw).await?;
                     }
                 }
             } else if let (Some(m), Some(p)) = (method, path) {
-                cmd::api::call(&active_profile, &config, &auth_cli, m, p, data).await?;
+                cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, &cli.format).await?;
             } else {
                 println!("Usage: cjtc api [METHOD] [PATH] or use subcommands (list, spec)");
             }
         },
         Commands::Auth { action } => match action {
             AuthCommands::Status => {
-                cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref()).await?;
+                cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format).await?;
             }
             AuthCommands::Reset => {
                 cmd::system::reset(&active_profile, &cfg_mgr, vault.as_ref()).await?;
@@ -300,7 +301,7 @@ async fn main() -> Result<()> {
                 cmd::auth::login(&active_profile, &config, &auth_cli).await?;
             }
             AuthCommands::Token => {
-                cmd::auth::token(&active_profile, &config, &auth_cli).await?;
+                cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format).await?;
             }
         },
         Commands::Daemon { action } => match action {
@@ -312,10 +313,10 @@ async fn main() -> Result<()> {
             }
         },
         Commands::Status => {
-            cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref()).await?;
+            cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format).await?;
         }
         Commands::Config => {
-            cmd::system::config(&active_profile, &cfg_mgr).await?;
+            cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?;
         }
         Commands::Reset => {
             cmd::system::reset(&active_profile, &cfg_mgr, vault.as_ref()).await?;
@@ -342,7 +343,7 @@ async fn main() -> Result<()> {
         },
         Commands::Dlq { action } => match action {
             DlqCommands::List => {
-                cmd::dlq::list(&active_profile).await?;
+                cmd::dlq::list(&active_profile, &cli.format).await?;
             }
             DlqCommands::Retry { id } => {
                 cmd::dlq::retry(&active_profile, &config, id).await?;

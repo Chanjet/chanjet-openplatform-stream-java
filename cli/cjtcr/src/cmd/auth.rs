@@ -17,12 +17,22 @@ pub async fn token(
     _profile: &str,
     config: &Config,
     auth_cli: &dyn AuthClientTrait,
+    format: &str,
 ) -> Result<()> {
+    let detail = auth_cli.get_app_access_token(_profile, config).await;
+    
+    if format == "json" || format == "yaml" {
+        match detail {
+            Ok(t) => return crate::core::utils::render(&t, format),
+            Err(e) => return crate::core::utils::render(&serde_json::json!({"error": e.to_string()}), format),
+        }
+    }
+
     // Attempt to get token (from pool/vault first)
-    match auth_cli.get_app_access_token(_profile, config).await {
+    match detail {
         Ok(t) => {
             println!("Token status for profile '{}':", _profile);
-            println!("  Value:      {}...{}", &t.value[..std::cmp::min(10, t.value.len())], &t.value[t.value.len().saturating_sub(5)..]);
+            println!("  Value:      {}", crate::core::utils::mask_string(&t.value));
             println!("  Expires At: {}", t.expires_at);
             if t.is_expired() {
                 println!("  Status:     \x1b[31mExpired\x1b[0m");

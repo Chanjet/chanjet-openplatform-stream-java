@@ -3,9 +3,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
-    #[serde(rename = "access_token")]
+    #[serde(rename = "access_token", serialize_with = "mask_string")]
     pub value: String,
     pub expires_at: DateTime<Utc>,
+}
+
+fn mask_string<S>(val: &str, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(&crate::core::utils::mask_string(val))
 }
 
 impl Token {
@@ -39,7 +46,7 @@ impl Token {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ticket {
-    #[serde(rename = "app_ticket")]
+    #[serde(rename = "app_ticket", serialize_with = "mask_string")]
     pub value: String,
     pub created_at: DateTime<Utc>,
 }
