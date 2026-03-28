@@ -1,6 +1,6 @@
 use crate::core::config::Config;
 use crate::auth::client::Client as AuthClientTrait;
-use anyhow::{Result, anyhow, Context};
+use anyhow::{Result, anyhow};
 use reqwest::Method;
 use serde_json::Value;
 use serde_yaml;

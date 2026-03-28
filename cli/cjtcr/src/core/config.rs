@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use directories::UserDirs;
-use anyhow::{Result, Context};
+use anyhow::Result;
 use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

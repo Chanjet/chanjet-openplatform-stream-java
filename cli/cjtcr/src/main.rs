@@ -11,11 +11,11 @@ use crate::auth::{VaultTokenPool, AuthClient};
 use anyhow::Result;
 
 #[derive(Parser)]
-#[command(name = "cjtcr")]
+#[command(name = "cjtc")]
 #[command(version = "0.1.2")]
 #[command(
-    about = "畅捷通开放平台 Stream Connector 命令行工具 (CLI)",
-    long_about = "畅捷通开放平台官方 CLI 治理工具。\n\n核心能力 (Core Capabilities):\n- 🔍 语义搜索 (api list --search): 基于 NLP 实现企业级 API 的智能检索与意向发现。\n- 🛡️ 自动鉴权 (init): 自动化托管 AppTicket 与 AccessToken 周期，无需手动刷新。\n- 📦 接口调用 (api [METHOD] [PATH]): 支持声明式 API 调用，自动注入安全头并实时审计。\n- 🛠️ 运维治理 (log): 全面的日志追踪、状态监控与运行记录管理。"
+    about = "畅捷通 (Chanjet) 开放平台官方全功能命令行工具 (CLI)",
+    long_about = "畅捷通开放平台官方全流程治理工具。\n\n本系统旨在助力开发者深度对接 畅捷通好业财、好生意、T+Cloud、好会计 等企业级核心数字化产品。通过集成的 实时流式桥接 (Streaming Bridge)、零配置安全托管、以及基于语义的神经网络搜索引擎，实现业务系统与开放平台的无缝安全集成。\n\n核心能力 (Core Capabilities):\n- 🔍 语义搜索 (api list --search): 基于 NLP 实现企业级 API 的智能检索，精准锁定业务意向。\n- 🛡️ 凭据托管 (init): 自动化管理 AppTicket 与 AccessToken 生命周期，内置国密 3/4 与 AES-GCM 加密存储。\n- 📦 声明式调用 (api): 自动注入安全头并实时审计。支持多环境 Profile (default/inte/prod) 隔离执行。\n- 🛠️ 实时治理 (daemon/log): 全面的数据流转观测、异常死信重试 (DLQ) 与后台代理监控。"
 )]
 pub struct Cli {
     #[arg(short, long, global = true, help = "配置环境名称 (缺省则使用当前激活的 Profile)")]

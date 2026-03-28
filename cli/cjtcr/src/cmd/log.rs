@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::path::PathBuf;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::time::Duration;
 use std::fs::File;

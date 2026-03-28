@@ -1,4 +1,3 @@
-use anyhow::Result;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
