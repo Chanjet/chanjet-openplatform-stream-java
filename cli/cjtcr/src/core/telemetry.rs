@@ -64,7 +64,7 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
 
     let registry = add_domain_layer!(registry, "sys.log", |m| m.target().starts_with("sys") || m.target().starts_with("cjtcr"));
     let registry = add_domain_layer!(registry, "audit.log", |m| m.target() == "audit");
-    let registry = add_domain_layer!(registry, "stream.log", |m| m.target() == "stream");
+    let registry = add_domain_layer!(registry, "stream.log", |m| m.target() == "stream" || m.target().starts_with("connector_sdk"));
     let registry = add_domain_layer!(registry, "dlq.log", |m| m.target() == "dlq");
 
     registry.init();

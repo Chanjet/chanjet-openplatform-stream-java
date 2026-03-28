@@ -8,66 +8,165 @@
   "paths": {
     "/v1/inventory/query": {
       "get": {
-        "tags": ["SCM"],
+        "tags": [
+          "SCM"
+        ],
         "summary": "分页搜索库存",
         "description": "查询实时余量，支持仓库与型号过滤。",
         "parameters": [
-          { "name": "appKey", "in": "header", "description": "企业应用唯一标识", "required": true, "schema": { "type": "string", "example": "inte-v8x-992" } },
-          { "name": "openToken", "in": "header", "description": "身份访问令牌 (AccessToken)", "required": true, "schema": { "type": "string" } },
-          { "name": "warehouseCode", "in": "query", "description": "仓库编码", "required": false, "schema": { "type": "string" } },
-          { "name": "keywords", "in": "query", "description": "查询关键字", "required": false, "schema": { "type": "string" } },
-          { "name": "page", "in": "query", "description": "页码", "required": false, "schema": { "type": "string" } }
+          {
+            "name": "appKey",
+            "in": "header",
+            "description": "企业应用唯一标识",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "inte-v8x-992"
+            }
+          },
+          {
+            "name": "openToken",
+            "in": "header",
+            "description": "身份访问令牌 (AccessToken)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "warehouseCode",
+            "in": "query",
+            "description": "仓库编码",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keywords",
+            "in": "query",
+            "description": "查询关键字",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "页码",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/InventoryList" }
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryList"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/orders/{orderId}": {
       "get": {
-        "tags": ["Order"],
+        "tags": [
+          "Order"
+        ],
         "summary": "查询订单详情",
         "description": "根据订单流水号获取支付与物流信息。",
         "parameters": [
-          { "name": "appKey", "in": "header", "description": "企业应用唯一标识", "required": true, "schema": { "type": "string", "example": "inte-v8x-992" } },
-          { "name": "openToken", "in": "header", "description": "身份访问令牌 (AccessToken)", "required": true, "schema": { "type": "string" } },
-          { "name": "orderId", "in": "path", "description": "订单ID", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "appKey",
+            "in": "header",
+            "description": "企业应用唯一标识",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "inte-v8x-992"
+            }
+          },
+          {
+            "name": "openToken",
+            "in": "header",
+            "description": "身份访问令牌 (AccessToken)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "orderId",
+            "in": "path",
+            "description": "订单ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/OrderDetail" }
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDetail"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/orders/create": {
       "post": {
-        "tags": ["Order"],
+        "tags": [
+          "Order"
+        ],
         "summary": "提交新订单",
         "description": "创建销售单据，包含明细、客户与收货信息。",
         "parameters": [
-          { "name": "appKey", "in": "header", "description": "企业应用唯一标识", "required": true, "schema": { "type": "string", "example": "inte-v8x-992" } },
-          { "name": "openToken", "in": "header", "description": "身份访问令牌 (AccessToken)", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "appKey",
+            "in": "header",
+            "description": "企业应用唯一标识",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "inte-v8x-992"
+            }
+          },
+          {
+            "name": "openToken",
+            "in": "header",
+            "description": "身份访问令牌 (AccessToken)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateOrderRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
             }
           }
         },
@@ -76,28 +175,53 @@
             "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/CreateOrderResult" }
+                "schema": {
+                  "$ref": "#/components/schemas/CreateOrderResult"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/crm/customer/update": {
       "put": {
-        "tags": ["CRM"],
+        "tags": [
+          "CRM"
+        ],
         "summary": "更新客户资料",
         "description": "修改联系人、地址或风险等级。",
         "parameters": [
-          { "name": "appKey", "in": "header", "description": "企业应用唯一标识", "required": true, "schema": { "type": "string", "example": "inte-v8x-992" } },
-          { "name": "openToken", "in": "header", "description": "身份访问令牌 (AccessToken)", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "appKey",
+            "in": "header",
+            "description": "企业应用唯一标识",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "inte-v8x-992"
+            }
+          },
+          {
+            "name": "openToken",
+            "in": "header",
+            "description": "身份访问令牌 (AccessToken)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateCustomerRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomerRequest"
+              }
             }
           }
         },
@@ -106,28 +230,56 @@
             "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ResultWrapper" }
+                "schema": {
+                  "$ref": "#/components/schemas/ResultWrapper"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/payment/transfer": {
       "post": {
-        "tags": ["Financial"],
+        "tags": [
+          "Financial"
+        ],
         "summary": "单笔代发转账",
         "description": "实时打款，支持多银行渠道。",
         "parameters": [
-          { "name": "appKey", "in": "header", "description": "企业应用唯一标识", "required": true, "schema": { "type": "string", "example": "inte-v8x-992" } },
-          { "name": "openToken", "in": "header", "description": "身份访问令牌 (AccessToken)", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "appKey",
+            "in": "header",
+            "description": "企业应用唯一标识",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "inte-v8x-992"
+            }
+          },
+          {
+            "name": "openToken",
+            "in": "header",
+            "description": "身份访问令牌 (AccessToken)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/TransferRequest" }
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TransferRequest"
+                }
+              }
             }
           }
         },
@@ -136,46 +288,108 @@
             "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ResultWrapper" }
+                "schema": {
+                  "$ref": "#/components/schemas/ResultWrapper"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/hr/attendance/report": {
       "get": {
-        "tags": ["HR"],
+        "tags": [
+          "HR"
+        ],
         "summary": "导出考勤日报",
         "description": "按部门或日期范围拉取打卡汇总。",
         "parameters": [
-          { "name": "appKey", "in": "header", "description": "企业应用唯一标识", "required": true, "schema": { "type": "string", "example": "inte-v8x-992" } },
-          { "name": "openToken", "in": "header", "description": "身份访问令牌 (AccessToken)", "required": true, "schema": { "type": "string" } },
-          { "name": "deptId", "in": "query", "description": "部门ID", "required": true, "schema": { "type": "string" } },
-          { "name": "date", "in": "query", "description": "统计日期", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "appKey",
+            "in": "header",
+            "description": "企业应用唯一标识",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "inte-v8x-992"
+            }
+          },
+          {
+            "name": "openToken",
+            "in": "header",
+            "description": "身份访问令牌 (AccessToken)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deptId",
+            "in": "query",
+            "description": "部门ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "description": "统计日期",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ResultWrapper" }
+                "schema": {
+                  "$ref": "#/components/schemas/ResultWrapper"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/v1/payment/bank/verify": {
       "post": {
-        "tags": ["Financial"],
+        "tags": [
+          "Financial"
+        ],
         "summary": "银行卡实名认证",
         "description": "通过表单形式提交身份信息进行一致性校验。",
         "parameters": [
-          { "name": "appKey", "in": "header", "description": "企业应用唯一标识", "required": true, "schema": { "type": "string", "example": "inte-v8x-992" } },
-          { "name": "openToken", "in": "header", "description": "身份访问令牌 (AccessToken)", "required": true, "schema": { "type": "string" } }
+          {
+            "name": "appKey",
+            "in": "header",
+            "description": "企业应用唯一标识",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "inte-v8x-992"
+            }
+          },
+          {
+            "name": "openToken",
+            "in": "header",
+            "description": "身份访问令牌 (AccessToken)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "requestBody": {
           "required": true,
@@ -184,11 +398,25 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "bankCard": { "type": "string", "description": "银行卡号", "example": "6225..." },
-                  "realName": { "type": "string", "description": "持卡人姓名", "example": "张三" },
-                  "idCard": { "type": "string", "description": "身份证号" }
+                  "bankCard": {
+                    "type": "string",
+                    "description": "银行卡号",
+                    "example": "6225..."
+                  },
+                  "realName": {
+                    "type": "string",
+                    "description": "持卡人姓名",
+                    "example": "张三"
+                  },
+                  "idCard": {
+                    "type": "string",
+                    "description": "身份证号"
+                  }
                 },
-                "required": ["bankCard", "realName"]
+                "required": [
+                  "bankCard",
+                  "realName"
+                ]
               }
             }
           }
@@ -198,11 +426,80 @@
             "description": "Success",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ResultWrapper" }
+                "schema": {
+                  "$ref": "#/components/schemas/ResultWrapper"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/accounting/openapi/cc/book/findByEnterpriseId": {
+      "get": {
+        "tags": [
+          "Accounting"
+        ],
+        "summary": "查询账套列表",
+        "description": "返回当前企业下的账套列表",
+        "parameters": [
+          {
+            "name": "appKey",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "开放平台appKey"
+          },
+          {
+            "name": "appSecret",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "开放平台appSecret"
+          },
+          {
+            "name": "openToken",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "开放平台token"
+          },
+          {
+            "name": "queryType",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "查询类型 (如 BINDING_TO_THIRD_PLATFORM)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功返回账套列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BookList"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     }
@@ -213,24 +510,46 @@
         "type": "object",
         "description": "通用响应包装类",
         "properties": {
-          "code": { "type": "integer", "description": "业务错误码 (200为成功)", "example": 200 },
-          "message": { "type": "string", "description": "响应消息描述", "example": "Success" },
-          "requestId": { "type": "string", "description": "请求唯一追踪标识", "example": "req-99ab2c" }
+          "code": {
+            "type": "integer",
+            "description": "业务错误码 (200为成功)",
+            "example": 200
+          },
+          "message": {
+            "type": "string",
+            "description": "响应消息描述",
+            "example": "Success"
+          },
+          "requestId": {
+            "type": "string",
+            "description": "请求唯一追踪标识",
+            "example": "req-99ab2c"
+          }
         }
       },
       "InventoryList": {
         "type": "object",
         "description": "库存查询结果列表",
         "properties": {
-          "total": { "type": "integer", "description": "符合条件的记录总数", "example": 100 },
+          "total": {
+            "type": "integer",
+            "description": "符合条件的记录总数",
+            "example": 100
+          },
           "items": {
             "type": "array",
             "description": "库存明细数组",
             "items": {
               "type": "object",
               "properties": {
-                "sku": { "type": "string", "description": "商品唯一编码" },
-                "qty": { "type": "number", "description": "当前可用库存余量" }
+                "sku": {
+                  "type": "string",
+                  "description": "商品唯一编码"
+                },
+                "qty": {
+                  "type": "number",
+                  "description": "当前可用库存余量"
+                }
               }
             }
           }
@@ -239,18 +558,34 @@
       "CreateOrderRequest": {
         "type": "object",
         "description": "创建订单请求负载",
-        "required": ["customerCode", "items"],
+        "required": [
+          "customerCode",
+          "items"
+        ],
         "properties": {
-          "customerCode": { "type": "string", "description": "下单客户编码", "example": "C001" },
-          "remark": { "type": "string", "description": "订单备注信息" },
+          "customerCode": {
+            "type": "string",
+            "description": "下单客户编码",
+            "example": "C001"
+          },
+          "remark": {
+            "type": "string",
+            "description": "订单备注信息"
+          },
           "items": {
             "type": "array",
             "description": "订单商品明细",
             "items": {
               "type": "object",
               "properties": {
-                "sku": { "type": "string", "description": "商品SKU编码" },
-                "count": { "type": "integer", "description": "购买数量" }
+                "sku": {
+                  "type": "string",
+                  "description": "商品SKU编码"
+                },
+                "count": {
+                  "type": "integer",
+                  "description": "购买数量"
+                }
               }
             }
           }
@@ -260,36 +595,148 @@
         "type": "object",
         "description": "订单交易详情",
         "properties": {
-          "orderId": { "type": "string", "description": "平台唯一订单号", "example": "ORD-2026-X1" },
-          "status": { "type": "string", "description": "订单当前状态 (PENDING, PAID, SHIPPED)", "example": "SHIPPED" },
-          "price": { "type": "number", "description": "订单支付总金额", "example": 199.50 }
+          "orderId": {
+            "type": "string",
+            "description": "平台唯一订单号",
+            "example": "ORD-2026-X1"
+          },
+          "status": {
+            "type": "string",
+            "description": "订单当前状态 (PENDING, PAID, SHIPPED)",
+            "example": "SHIPPED"
+          },
+          "price": {
+            "type": "number",
+            "description": "订单支付总金额",
+            "example": 199.50
+          }
         }
       },
       "CreateOrderResult": {
         "type": "object",
         "description": "订单创建响应数据",
         "properties": {
-          "orderId": { "type": "string", "description": "新生成的订单ID", "example": "ORD-2026-X1" },
-          "expireTime": { "type": "string", "description": "订单支付超时时间", "example": "2026-03-27T16:00:00Z" }
+          "orderId": {
+            "type": "string",
+            "description": "新生成的订单ID",
+            "example": "ORD-2026-X1"
+          },
+          "expireTime": {
+            "type": "string",
+            "description": "订单支付超时时间",
+            "example": "2026-03-27T16:00:00Z"
+          }
         }
       },
       "UpdateCustomerRequest": {
         "type": "object",
         "description": "客户资料更新请求",
         "properties": {
-          "id": { "type": "string", "description": "客户系统内部ID" },
-          "mobile": { "type": "string", "description": "联系人手机号", "example": "13800138000" },
-          "address": { "type": "string", "description": "详细收货地址" }
+          "id": {
+            "type": "string",
+            "description": "客户系统内部ID"
+          },
+          "mobile": {
+            "type": "string",
+            "description": "联系人手机号",
+            "example": "13800138000"
+          },
+          "address": {
+            "type": "string",
+            "description": "详细收货地址"
+          }
         }
       },
       "TransferRequest": {
         "type": "object",
         "description": "转账业务请求负载",
-        "required": ["toAccount", "amount"],
+        "required": [
+          "toAccount",
+          "amount"
+        ],
         "properties": {
-          "toAccount": { "type": "string", "description": "收款人银行账号/电子账户", "example": "6225..." },
-          "amount": { "type": "number", "description": "转账金额 (保留两位小数)", "example": 1500.25 },
-          "channel": { "type": "string", "description": "支付通道 (网银/第三方支付)", "enum": ["ALIPAY", "CMB", "ICBC"] }
+          "toAccount": {
+            "type": "string",
+            "description": "收款人银行账号/电子账户",
+            "example": "6225..."
+          },
+          "amount": {
+            "type": "number",
+            "description": "转账金额 (保留两位小数)",
+            "example": 1500.25
+          },
+          "channel": {
+            "type": "string",
+            "description": "支付通道 (网银/第三方支付)",
+            "enum": [
+              "ALIPAY",
+              "CMB",
+              "ICBC"
+            ]
+          }
+        }
+      },
+      "BookList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/BookEntry"
+        }
+      },
+      "BookEntry": {
+        "type": "object",
+        "properties": {
+          "isDefault": {
+            "type": "boolean"
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/BookTenant"
+          }
+        }
+      },
+      "BookTenant": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "enterpriseId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "statusEnum": {
+            "type": "string"
+          },
+          "taxNo": {
+            "type": "string"
+          },
+          "bookSourceEnum": {
+            "type": "string"
+          },
+          "corpIndustryEnum": {
+            "type": "string"
+          },
+          "corpTypeEnum": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "isDeleted": {
+            "type": "boolean"
+          },
+          "openingPeriod": {
+            "type": "string"
+          },
+          "versionNo": {
+            "type": "integer"
+          }
         }
       }
     },
@@ -298,7 +745,9 @@
         "description": "Auth failure",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ResultWrapper" }
+            "schema": {
+              "$ref": "#/components/schemas/ResultWrapper"
+            }
           }
         }
       },
@@ -306,7 +755,9 @@
         "description": "Invalid input",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ResultWrapper" }
+            "schema": {
+              "$ref": "#/components/schemas/ResultWrapper"
+            }
           }
         }
       }

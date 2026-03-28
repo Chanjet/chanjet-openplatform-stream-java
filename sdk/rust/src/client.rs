@@ -177,7 +177,10 @@ impl GatewayClient {
             .await?;
 
         if !resp.status().is_success() {
-            return Err(anyhow!("Nonce request failed: {}", resp.status()));
+            let status = resp.status();
+            let body_text = resp.text().await.unwrap_or_else(|_| "Unknown".to_string());
+            tracing::error!("Nonce request failed (HTTP {}): {}", status, body_text);
+            return Err(anyhow!("Nonce request failed: {} - {}", status, body_text));
         }
 
         let body: serde_json::Value = resp.json().await?;

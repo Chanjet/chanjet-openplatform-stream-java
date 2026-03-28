@@ -300,7 +300,7 @@ async fn main() -> Result<()> {
                 cmd::auth::login(&active_profile, &config, &auth_cli).await?;
             }
             AuthCommands::Token => {
-                cmd::auth::token(&active_profile, &auth_cli).await?;
+                cmd::auth::token(&active_profile, &config, &auth_cli).await?;
             }
         },
         Commands::Daemon { action } => match action {
