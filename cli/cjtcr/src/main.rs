@@ -14,8 +14,8 @@ use anyhow::Result;
 #[command(name = "cjtc")]
 #[command(version = "0.1.2")]
 #[command(
-    about = "畅捷通 (Chanjet) 开放平台官方全功能命令行工具 (CLI)",
-    long_about = "畅捷通开放平台官方全流程治理工具。\n\n本系统旨在助力开发者深度对接 畅捷通好业财、好生意、T+Cloud、好会计 等企业级核心数字化产品。通过集成的 实时流式桥接 (Streaming Bridge)、零配置安全托管、以及基于语义的神经网络搜索引擎，实现业务系统与开放平台的无缝安全集成。\n\n核心能力 (Core Capabilities):\n- 🔍 语义搜索 (api list --search): 基于 NLP 实现企业级 API 的智能检索，精准锁定业务意向。\n- 🛡️ 凭据托管 (init): 自动化管理 AppTicket 与 AccessToken 生命周期，内置国密 3/4 与 AES-GCM 加密存储。\n- 📦 声明式调用 (api): 自动注入安全头并实时审计。支持多环境 Profile (default/inte/prod) 隔离执行。\n- 🛠️ 实时治理 (daemon/log): 全面的数据流转观测、异常死信重试 (DLQ) 与后台代理监控。"
+    about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
+    long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具 (Open Streaming Connector CLI)。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言（如“查询账套”）实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管 AES-GCM/国密加密的安全凭据存储 (Vault)，自动注入 X-CJT-Signature 签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。"
 )]
 pub struct Cli {
     #[arg(short, long, global = true, help = "配置环境名称 (缺省则使用当前激活的 Profile)")]
