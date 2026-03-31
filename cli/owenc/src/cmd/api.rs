@@ -16,6 +16,10 @@ pub async fn call(
 ) -> Result<()> {
     // PROTECT CLI: Whitelist Check
     let spec = auth_cli.get_openapi_spec(profile, cfg).await?;
+
+    // PRE-CHECK: Validate Parameters & Body against OpenAPI spec
+    crate::core::openapi::validate_request(&spec, method, path, data)?;
+
     let path_no_query = path.split('?').next().unwrap_or(path);
     if !crate::auth::client::is_path_in_whitelist(path_no_query, &spec) {
         return Err(anyhow!("CLI Rejected: Target path {} is not in the OpenAPI whitelist.", path_no_query));
