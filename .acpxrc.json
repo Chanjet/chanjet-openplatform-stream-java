@@ -1,7 +1,0 @@
-{
-  "agents": {
-    "openclaw": {
-      "command": "openclaw --log-level silent acp --url ws://127.0.0.1:28789"
-    }
-  }
-}
