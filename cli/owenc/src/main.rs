@@ -23,7 +23,7 @@ pub struct Cli {
     #[arg(short = 'o', long, default_value = "text", global = true, help = "输出格式 (text, json, yaml)")]
     pub format: String,
 
-    #[arg(long, default_value = "info", global = true, help = "日志输出级别 (debug, info, warn, error)")]
+    #[arg(long, default_value = "error", global = true, help = "日志输出级别 (debug, info, warn, error)")]
     pub log_level: String,
 
     #[command(subcommand)]
