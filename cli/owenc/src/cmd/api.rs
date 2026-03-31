@@ -97,7 +97,8 @@ pub async fn call(
             if let Ok(json_body) = serde_json::from_slice::<Value>(&body_bytes) {
                 let code = json_body.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
                 if code == 50107 {
-                    println!("🚨 [DEBUG] RAW 50107 Error: {}", json_body);
+                    let masked_body = crate::core::utils::mask_sensitive_json(&json_body.to_string());
+                    println!("🚨 [DEBUG] 50107 Error: {}", masked_body);
                     tracing::warn!(target: "sys", "Detected expired token (50107). Clearing cache and retrying...");
                     auth_cli.clear_token(profile).await?;
                     retry_count += 1;
@@ -152,7 +153,7 @@ async fn handle_response(
                     "body": body_text
                 }), format)?;
             } else {
-                println!("Response ({} - {}):\n{}", status, content_type, body_text);
+                println!("Response ({} - {}):\n{}", status, content_type, crate::core::utils::mask_sensitive_json(&body_text));
                 println!("\n🔍 TraceID: {}", trace_id);
             }
         } else {
@@ -165,7 +166,7 @@ async fn handle_response(
                     "body": body_text
                 }), format)?;
             } else {
-                eprintln!("{}", body_text);
+                eprintln!("{}", crate::core::utils::mask_sensitive_json(&body_text));
                 println!("\n🔍 TraceID: {}", trace_id);
             }
         }

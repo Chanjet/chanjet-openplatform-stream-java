@@ -16,7 +16,7 @@ impl Default for AppMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub app_key: String,
@@ -44,6 +44,22 @@ pub struct Config {
     
     #[serde(default)]
     pub webhook_target: String,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("app_key", &self.app_key)
+            .field("app_secret", &crate::core::utils::mask_string(&self.app_secret))
+            .field("certificate", &crate::core::utils::mask_string(&self.certificate))
+            .field("encrypt_key", &crate::core::utils::mask_string(&self.encrypt_key))
+            .field("app_mode", &self.app_mode)
+            .field("log", &self.log)
+            .field("openapi_url", &self.openapi_url)
+            .field("stream_url", &self.stream_url)
+            .field("webhook_target", &self.webhook_target)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

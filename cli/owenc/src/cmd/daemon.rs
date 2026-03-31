@@ -134,7 +134,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         });
 
         dispatcher.on_ent_auth_code(|msg| {
-            println!("🔑 [Bridge] Received TempAuthCode: {}", msg.biz_content.temp_auth_code);
+            println!("🔑 [Bridge] Received TempAuthCode: {}", crate::core::utils::mask_tail(&msg.biz_content.temp_auth_code, 4));
             true
         });
     }

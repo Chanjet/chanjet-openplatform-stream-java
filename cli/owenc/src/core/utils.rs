@@ -2,18 +2,20 @@ use serde::Serialize;
 use anyhow::Result;
 
 pub fn render<T: Serialize>(data: &T, format: &str) -> Result<()> {
-    match format {
+    let output = match format {
         "json" => {
-            println!("{}", serde_json::to_string_pretty(data)?);
+            serde_json::to_string_pretty(data)?
         }
         "yaml" => {
-            println!("{}", serde_yaml::to_string(data)?);
+            serde_yaml::to_string(data)?
         }
         _ => {
-            // Default to JSON for background processes if text is requested but not supported
-            println!("{}", serde_json::to_string_pretty(data)?);
+            serde_json::to_string_pretty(data)?
         }
-    }
+    };
+    
+    // Apply masking to the final output string
+    println!("{}", mask_sensitive_json(&output));
     Ok(())
 }
 
@@ -53,4 +55,26 @@ pub fn mask_sensitive_json(input: &str) -> String {
         }
     }
     output
+}
+pub fn mask_tail(val: &str, show_len: usize) -> String {
+    if val.len() <= show_len {
+        return val.to_string();
+    }
+    let masked_len = val.len() - show_len;
+    let mut result = "*".repeat(masked_len);
+    result.push_str(&val[masked_len..]);
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mask_tail() {
+        assert_eq!(mask_tail("ABCDEFGH", 4), "****EFGH");
+        assert_eq!(mask_tail("12345678", 4), "****5678");
+        assert_eq!(mask_tail("123", 4), "123");
+        assert_eq!(mask_tail("", 4), "");
+    }
 }

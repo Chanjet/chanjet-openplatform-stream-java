@@ -201,6 +201,9 @@ pub enum LogCommands {
 }
 
 
+#[cfg(test)]
+mod security_tests;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
