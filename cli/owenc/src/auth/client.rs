@@ -2,7 +2,7 @@ use crate::core::config::Config;
 use crate::auth::pool::TokenPool;
 use crate::auth::models::Token;
 use anyhow::{Result, anyhow, Context};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use chrono::{Utc, Duration};
 use reqwest::Client as HttpClient;
 

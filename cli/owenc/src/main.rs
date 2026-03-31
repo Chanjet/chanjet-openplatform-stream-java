@@ -7,7 +7,6 @@ use clap::Parser;
 use crate::core::config::ConfigManager;
 use crate::core::vault::{MultiVault, Vault};
 use crate::core::security;
-use crate::auth::{VaultTokenPool, AuthClient};
 use anyhow::Result;
 
 #[derive(Parser)]
@@ -220,7 +219,15 @@ pub enum LogCommands {
 mod security_tests;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(e) = run().await {
+        tracing::error!(target: "sys", error = %e, "CLI execution failed");
+        eprintln!("\n❌ Error: {}", e);
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // 1. Core Paths
@@ -234,10 +241,7 @@ async fn main() -> Result<()> {
     // Load config partially or use default if it fails
     let mut config = cfg_mgr.load(&active_profile).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&active_profile));
 
-    // Override config log level if CLI provides one (default is "info", but we check if it was explicitly set)
-    // Actually, clap default_value means it's always "info". 
-    // We can check if it matches the default or if we want to always let CLI take precedence.
-    // Usually CLI should take precedence if user provides it.
+    // Override config log level if CLI provides one
     config.log.level = cli.log_level.clone();
 
     // 3. Initialize Telemetry (Structured & Rotated Logging)
@@ -262,8 +266,8 @@ async fn main() -> Result<()> {
     }
 
     // 2. Initialize Auth
-    let token_pool = VaultTokenPool::new(vault.clone());
-    let auth_cli = AuthClient::new(&token_pool);
+    let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
+    let auth_cli = crate::auth::AuthClient::new(&token_pool);
 
     // 3. Execute Command
     match &cli.command {
@@ -403,5 +407,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-// Helper to handle trait vs struct for Vault

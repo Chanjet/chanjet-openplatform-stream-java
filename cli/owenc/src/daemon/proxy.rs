@@ -72,7 +72,10 @@ async fn handle_proxy(
     };
 
     let req_path = req.uri().path().to_string();
+    let method_str = req.method().to_string();
+
     if !crate::auth::client::is_path_in_whitelist(&req_path, &spec) {
+        tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, "Proxy Rejected: Path not in whitelist");
         return (
                 axum::http::StatusCode::FORBIDDEN,
                 format!("Proxy Rejected: Target path {} is not in the OpenAPI whitelist.", req_path),
@@ -81,13 +84,15 @@ async fn handle_proxy(
 
     let token = match auth_cli.get_app_access_token(&state.profile, &state.config).await {
         Ok(t) => t,
-        Err(e) => return (
-            axum::http::StatusCode::UNAUTHORIZED,
-            format!("Failed to get token: {}", crate::core::utils::mask_sensitive_json(&e.to_string())),
-        ).into_response()
+        Err(e) => {
+            let masked_err = crate::core::utils::mask_sensitive_json(&e.to_string());
+            tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, error = %masked_err, "Failed to get access token for proxy");
+            return (
+                axum::http::StatusCode::UNAUTHORIZED,
+                format!("Failed to get token: {}", masked_err),
+            ).into_response()
+        }
     };
-
-    let method_str = req.method().to_string();
 
     // 2. Extract Parts
     let (mut parts, body) = req.into_parts();
@@ -145,6 +150,8 @@ async fn handle_proxy(
     match res {
         Ok(r) => {
             let status = axum::http::StatusCode::from_u16(r.status().as_u16()).unwrap_or(axum::http::StatusCode::OK);
+            tracing::info!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, status = %status.as_u16(), "Request successfully proxied");
+            
             let mut builder = axum::response::Response::builder().status(status);
             for (k, v) in r.headers() {
                 if let Ok(name) = axum::http::HeaderName::from_bytes(k.as_str().as_bytes()) {
@@ -159,9 +166,12 @@ async fn handle_proxy(
                 "Failed to construct response"
             ).into_response())
         }
-        Err(e) => (
-            axum::http::StatusCode::BAD_GATEWAY,
-            format!("Proxy upstream error: {}", e),
-        ).into_response()
+        Err(e) => {
+            tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, error = %e, "Proxy upstream request failed");
+            (
+                axum::http::StatusCode::BAD_GATEWAY,
+                format!("Proxy upstream error: {}", e),
+            ).into_response()
+        }
     }
 }

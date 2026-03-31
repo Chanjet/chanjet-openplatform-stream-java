@@ -2,7 +2,6 @@ use anyhow::{Result, Context, anyhow};
 use std::path::PathBuf;
 use std::fs::{self, File};
 use fs2::FileExt;
-use std::io::{Read, Write};
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit},
     Aes256Gcm, Nonce,
@@ -58,19 +57,26 @@ impl MultiVault {
             return Ok(HashMap::new());
         }
 
-        let encrypted_data = fs::read(&self.seal_path)?;
+        let encrypted_data = fs::read(&self.seal_path).context("Failed to read vault file")?;
         if encrypted_data.is_empty() {
             return Ok(HashMap::new());
         }
 
-        let decrypted_data = self.decrypt_aes_gcm(&encrypted_data)?;
-        let data: HashMap<String, String> = serde_json::from_slice(&decrypted_data)?;
+        let decrypted_data = match self.decrypt_aes_gcm(&encrypted_data) {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::error!(target: "sys", error = %e, "Vault decryption failed. This usually means the master key (fingerprint) has changed or the file is corrupted.");
+                return Err(anyhow!("Vault decryption failed: {}", e));
+            }
+        };
+        
+        let data: HashMap<String, String> = serde_json::from_slice(&decrypted_data).context("Failed to parse vault JSON")?;
         Ok(data)
     }
 
     fn write_seal(&self, data: &HashMap<String, String>) -> Result<()> {
         let json_data = serde_json::to_vec(data)?;
-        let encrypted_data = self.encrypt_aes_gcm(&json_data)?;
+        let encrypted_data = self.encrypt_aes_gcm(&json_data).context("Vault encryption failed")?;
         
         if let Some(parent) = self.seal_path.parent() {
             fs::create_dir_all(parent)?;
