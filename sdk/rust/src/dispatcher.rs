@@ -82,19 +82,21 @@ impl MessageDispatcher {
     pub fn dispatch(&self, frame: &EventFrame, decrypt_key: &str) -> Result<bool> {
         let mut root: Value = serde_json::from_str(&frame.payload)
             .map_err(|e| anyhow!("Failed to parse payload: {}", e))?;
-// ... (rest of the code remains the same)
-
-        let mut _payload_json = frame.payload.clone();
 
         // 1. Auto Decrypt
         if let Some(encrypt_msg) = root.get("encryptMsg").and_then(|v| v.as_str()) {
-            _payload_json = crypto::aes_decrypt(encrypt_msg, decrypt_key)?;
-            root = serde_json::from_str(&_payload_json)?;
+            let decrypted_json = crypto::aes_decrypt(encrypt_msg, decrypt_key)?;
+            root = serde_json::from_str(&decrypted_json)?;
         }
 
+        self.dispatch_value(root, Some(&frame.headers))
+    }
+
+    pub fn dispatch_value(&self, mut root: Value, headers: Option<&HashMap<String, String>>) -> Result<bool> {
         // 2. Route
         let mut msg_type = root.get("msgType")
             .and_then(|v| v.as_str())
+            .or_else(|| root.get("msg_type").and_then(|v| v.as_str()))
             .unwrap_or("UNKNOWN")
             .to_string();
 
@@ -117,19 +119,23 @@ impl MessageDispatcher {
 
         if let Some(handler) = self.handlers.get(&msg_type) {
             // Pre-process: inject headers into JSON if possible
-            if let Some(obj) = root.as_object_mut() {
-                let headers_val = serde_json::to_value(&frame.headers)?;
-                obj.insert("headers".to_string(), headers_val);
+            if let Some(heads) = headers {
+                if let Some(obj) = root.as_object_mut() {
+                    let headers_val = serde_json::to_value(heads)?;
+                    obj.insert("headers".to_string(), headers_val);
+                }
             }
             Ok(handler(root))
         } else if let Some(fallback) = &self.fallback_handler {
-            if let Some(obj) = root.as_object_mut() {
-                let headers_val = serde_json::to_value(&frame.headers)?;
-                obj.insert("headers".to_string(), headers_val);
+            if let Some(heads) = headers {
+                if let Some(obj) = root.as_object_mut() {
+                    let headers_val = serde_json::to_value(heads)?;
+                    obj.insert("headers".to_string(), headers_val);
+                }
             }
             Ok(fallback(root))
         } else {
-            tracing::warn!("No handler for msgType: {}. Skipping.", msg_type);
+            tracing::warn!("No handler for msg_type: {}. Skipping.", msg_type);
             Ok(true)
         }
     }

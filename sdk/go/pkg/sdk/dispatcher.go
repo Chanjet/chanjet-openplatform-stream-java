@@ -47,7 +47,7 @@ func (d *MessageDispatcher) OnEntAuthCode(handler func(msg protocol.EntAuthCodeM
 	})
 }
 
-// Dispatch 执行分发
+// Dispatch 执行分发 (针对包装在 EventFrame 中的业务事件)
 func (d *MessageDispatcher) Dispatch(frame protocol.EventFrame, decryptKey string) (bool, error) {
 	var root map[string]interface{}
 	if err := json.Unmarshal([]byte(frame.Payload), &root); err != nil {
@@ -69,8 +69,16 @@ func (d *MessageDispatcher) Dispatch(frame protocol.EventFrame, decryptKey strin
 		}
 	}
 
+	return d.DispatchValue(root, payloadJSON, frame.Headers)
+}
+
+// DispatchValue 直接对解析后的 JSON 对象进行分发 (支持顶层系统消息)
+func (d *MessageDispatcher) DispatchValue(root map[string]interface{}, payloadJSON string, headers map[string]string) (bool, error) {
 	// 2. 路由计算
 	msgType, _ := root["msgType"].(string)
+	if msgType == "" {
+		msgType, _ = root["msg_type"].(string)
+	}
 	
 	// 处理 APP_NOTICE 复合键
 	if msgType == "APP_NOTICE" {
@@ -101,7 +109,7 @@ func (d *MessageDispatcher) Dispatch(frame protocol.EventFrame, decryptKey strin
 	}
 
 	// 3. 映射到具体结构体并调用处理器
-	msgObj, err := d.unmarshalToType(msgType, payloadJSON, frame.Headers)
+	msgObj, err := d.unmarshalToType(msgType, payloadJSON, headers)
 	if err != nil {
 		return false, err
 	}

@@ -133,15 +133,55 @@ impl GatewayClient {
         while let Some(msg) = read.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
-                    let root: serde_json::Value = serde_json::from_str(&text)?;
-                    let msg_type = root.get("msg_type").and_then(|v| v.as_str()).unwrap_or("");
+                    let root: serde_json::Value = match serde_json::from_str(&text) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::error!("Failed to parse incoming WebSocket message as JSON: {}. Raw: {}", e, text);
+                            continue;
+                        }
+                    };
+                    let msg_type = root.get("msg_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
                     if msg_type == "event" {
-                        let frame: EventFrame = serde_json::from_str(&text)?;
-                        let success = dispatcher.lock().unwrap().dispatch(&frame, &encrypt_key).unwrap_or(false);
+                        let frame: EventFrame = match serde_json::from_str(&text) {
+                            Ok(f) => f,
+                            Err(e) => {
+                                tracing::error!("Failed to parse EventFrame: {}. Raw: {}", e, text);
+                                continue;
+                            }
+                        };
+                        
+                        let success = {
+                            let dispatcher_lock = dispatcher.lock().unwrap();
+                            match dispatcher_lock.dispatch(&frame, &encrypt_key) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    tracing::error!("Error dispatching event {}: {}", frame.msg_id, e);
+                                    false
+                                }
+                            }
+                        };
                         Self::send_ack(&mut write, frame.msg_id, success).await?;
                     } else if msg_type == "ping" {
                         write.send(Message::Text("{\"msg_type\":\"pong\"}".to_string())).await?;
+                    } else if !msg_type.is_empty() {
+                        // Handle top-level system messages (e.g. APP_TICKET)
+                        let msg_id = root.get("msg_id").or_else(|| root.get("msgId")).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                        
+                        let success = {
+                            let dispatcher_lock = dispatcher.lock().unwrap();
+                            match dispatcher_lock.dispatch_value(root, None) {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    tracing::error!("Error dispatching raw message type {}: {}", msg_type, e);
+                                    false
+                                }
+                            }
+                        };
+
+                        if msg_id != "unknown" {
+                            Self::send_ack(&mut write, msg_id, success).await?;
+                        }
                     }
                 }
                 Ok(Message::Close(_)) => {

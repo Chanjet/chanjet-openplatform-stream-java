@@ -227,7 +227,7 @@ func (c *GatewayClient) readLoop(ctx context.Context, conn *websocket.Conn) {
 			continue
 		}
 
-		msgType := root["msg_type"].(string)
+		msgType, _ := root["msg_type"].(string)
 		if msgType == "event" {
 			var frame protocol.EventFrame
 			json.Unmarshal(message, &frame)
@@ -240,7 +240,24 @@ func (c *GatewayClient) readLoop(ctx context.Context, conn *websocket.Conn) {
 			}
 			c.sendAck(frame.MsgID, success)
 		} else if msgType == "ping" {
-			conn.WriteJSON(map[string]string{"msg_type": "pong"})
+			c.mu.Lock()
+			if c.conn != nil {
+				c.conn.WriteJSON(map[string]string{"msg_type": "pong"})
+			}
+			c.mu.Unlock()
+		} else if msgType != "" {
+			// Handle top-level system messages (e.g. APP_TICKET)
+			msgID, _ := root["msg_id"].(string)
+			if msgID == "" {
+				msgID, _ = root["msgId"].(string)
+			}
+			
+			if c.dispatcher != nil {
+				success, _ := c.dispatcher.DispatchValue(root, string(message), nil)
+				if msgID != "" {
+					c.sendAck(msgID, success)
+				}
+			}
 		}
 	}
 }
