@@ -187,6 +187,65 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     Ok(())
 }
 
+pub async fn restart(profile: &str, config: &Config, proxy_port: u16, all: bool, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+    use sysinfo::{System, SystemExt, ProcessExt, PidExt};
+    let mut s = System::new_all();
+    s.refresh_processes();
+    let current_pid = std::process::id();
+    
+    // Find processes to restart
+    let mut targets = Vec::new();
+    for (pid, process) in s.processes() {
+        let pid_u32 = pid.as_u32();
+        if pid_u32 == current_pid { continue; }
+        
+        let cmd = process.cmd();
+        let cmdline = cmd.join(" ");
+        if cmdline.contains("daemon") && cmdline.contains("start") && (process.name().contains("owenc") || process.name().contains("owenc")) {
+            // Extract profile and port from cmdline
+            let mut p_profile = "default".to_string();
+            let mut p_port = 8080;
+            
+            for i in 0..cmd.len() {
+                if cmd[i] == "--profile" && i + 1 < cmd.len() {
+                    p_profile = cmd[i+1].clone();
+                } else if cmd[i] == "--proxy-port" && i + 1 < cmd.len() {
+                    p_port = cmd[i+1].parse().unwrap_or(8080);
+                }
+            }
+            
+            if all || p_profile == profile {
+                targets.push((pid_u32, p_profile, p_port));
+            }
+        }
+    }
+
+    if targets.is_empty() {
+        if all {
+            println!("📂 No running daemons found to restart.");
+        } else {
+            println!("📂 Daemon for profile '{}' is not running. Starting it now...", profile);
+            start(profile, config, proxy_port, false).await?;
+        }
+        return Ok(());
+    }
+
+    for (pid, p_profile, p_port) in targets {
+        println!("🔄 Restarting daemon for profile '{}' (PID: {}, Port: {})...", p_profile, pid, p_port);
+        
+        // 1. Stop
+        let _ = stop(&p_profile).await;
+        
+        // 2. Load Config for that profile (in case it changed)
+        let p_config = cfg_mgr.load(&p_profile).unwrap_or_else(|_| Config::default_with_profile(&p_profile));
+        
+        // 3. Start
+        start(&p_profile, &p_config, p_port, false).await?;
+    }
+    
+    Ok(())
+}
+
 pub async fn stop(profile: &str) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));

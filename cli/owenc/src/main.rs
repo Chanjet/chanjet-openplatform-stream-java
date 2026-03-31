@@ -172,6 +172,15 @@ pub enum DaemonCommands {
     },
     /// 停止正在运行的 owenc 守护进程
     Stop,
+    /// 重启守护进程
+    Restart {
+        #[arg(long, default_value_t = 8080)]
+        proxy_port: u16,
+
+        /// 重启所有正在运行的守护进程
+        #[arg(short, long)]
+        all: bool,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -314,6 +323,9 @@ async fn main() -> Result<()> {
             }
             DaemonCommands::Stop => {
                 cmd::daemon::stop(&active_profile).await?;
+            }
+            DaemonCommands::Restart { proxy_port, all } => {
+                cmd::daemon::restart(&active_profile, &config, *proxy_port, *all, &cfg_mgr).await?;
             }
         },
         Commands::Status => {
