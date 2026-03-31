@@ -214,7 +214,7 @@ async fn main() -> Result<()> {
 
     // 1. Core Paths
     let app_dir = crate::core::config::get_app_dir();
-    let log_dir = app_dir.join("log");
+    let log_dir = app_dir.join("logs");
 
     // 2. Load Config to get Log Settings
     let cfg_mgr = ConfigManager::new()?;

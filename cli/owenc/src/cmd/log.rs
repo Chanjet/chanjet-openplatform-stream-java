@@ -5,7 +5,7 @@ use std::fs::File;
 
 pub async fn list(profile: &str) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
-    let log_dir = app_dir.join("log");
+    let log_dir = app_dir.join("logs");
 
     if !log_dir.exists() {
         println!("📂 No logs found.");
@@ -30,7 +30,7 @@ pub async fn list(profile: &str) -> Result<()> {
 
 pub async fn view(_profile: &str, domain: &str, follow: bool, lines: usize) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
-    let log_path = app_dir.join("log").join(format!("{}.log", domain));
+    let log_path = app_dir.join("logs").join(format!("{}.log", domain));
 
     if !log_path.exists() {
         println!("❌ Log file not found: {:?}", log_path);
