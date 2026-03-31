@@ -59,7 +59,7 @@ pub async fn execute(
     
     // Automatically attempt to install shell completion
     println!("⚙️ Configuring auto-completion...");
-    let _ = crate::cmd::completion::install_completion();
+    let _ = crate::cmd::completion::install_completion(None);
 
     // Set as default profile if no default exists yet
     let app_dir = crate::core::config::get_app_dir();

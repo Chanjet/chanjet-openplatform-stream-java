@@ -7,22 +7,26 @@ use std::path::PathBuf;
 
 use crate::Cli;
 
-pub fn install_completion() -> Result<()> {
+pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Result<()> {
     let home = directories::UserDirs::new()
         .context("Could not find home directory")?
         .home_dir()
         .to_path_buf();
 
-    let shell_path = env::var("SHELL").unwrap_or_default();
-    let shell = if shell_path.ends_with("zsh") {
-        clap_complete::Shell::Zsh
-    } else if shell_path.ends_with("bash") {
-        clap_complete::Shell::Bash
-    } else if shell_path.ends_with("fish") {
-        clap_complete::Shell::Fish
-    } else {
-        println!("⚠️ Unsupported or unknown shell ({}). Please manually configure completion.", shell_path);
-        return Ok(());
+    let shell = match requested_shell {
+        Some(s) => s,
+        None => {
+            let shell_path = env::var("SHELL").unwrap_or_default();
+            if shell_path.ends_with("zsh") {
+                clap_complete::Shell::Zsh
+            } else if shell_path.ends_with("bash") {
+                clap_complete::Shell::Bash
+            } else if shell_path.ends_with("fish") {
+                clap_complete::Shell::Fish
+            } else {
+                return Err(anyhow::anyhow!("Unsupported or unknown shell ({}). Please specify shell with 'owenc completion <SHELL> --install'", shell_path));
+            }
+        }
     };
 
     let app_dir = crate::core::config::get_app_dir();

@@ -339,7 +339,10 @@ async fn main() -> Result<()> {
         }
         Commands::Completion { shell, install } => {
             if *install {
-                let _ = crate::cmd::completion::install_completion();
+                match crate::cmd::completion::install_completion(*shell) {
+                    Ok(_) => println!("✅ Auto-completion successfully installed."),
+                    Err(e) => eprintln!("❌ Failed to install auto-completion: {}", e),
+                }
             } else if let Some(s) = shell {
                 use clap::CommandFactory;
                 let mut cmd = Cli::command();
