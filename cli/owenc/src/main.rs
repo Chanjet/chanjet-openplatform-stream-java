@@ -118,6 +118,8 @@ pub enum ProfileCommands {
     },
     /// 显示当前默认生效的 Profile
     Current,
+    /// 列出所有可用的 Profile
+    List,
 }
 
 #[derive(clap::Subcommand)]
@@ -358,6 +360,24 @@ async fn main() -> Result<()> {
             }
             ProfileCommands::Current => {
                 println!("{}", cfg_mgr.get_default_profile());
+            }
+            ProfileCommands::List => {
+                let profiles = cfg_mgr.list_profiles()?;
+                let current = cfg_mgr.get_default_profile();
+                
+                if cli.format == "json" || cli.format == "yaml" {
+                    crate::core::utils::render(&profiles, &cli.format)?;
+                } else {
+                    println!("\n📂 Available Profiles:");
+                    for p in profiles {
+                        if p == current {
+                            println!("  * \x1b[32m{:<20}\x1b[0m (current)", p);
+                        } else {
+                            println!("    {:<20}", p);
+                        }
+                    }
+                    println!();
+                }
             }
         },
         Commands::Dlq { action } => match action {

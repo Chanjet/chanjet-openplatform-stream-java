@@ -166,6 +166,31 @@ impl ConfigManager {
         fs::write(current_profile_path, profile.trim())?;
         Ok(())
     }
+
+    pub fn list_profiles(&self) -> Result<Vec<String>> {
+        let mut profiles = Vec::new();
+        if !self.base_dir.exists() {
+            return Ok(profiles);
+        }
+
+        for entry in fs::read_dir(&self.base_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "yaml" {
+                        if let Some(stem) = path.file_stem() {
+                            if let Some(name) = stem.to_str() {
+                                profiles.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        profiles.sort();
+        Ok(profiles)
+    }
 }
 
 impl Config {
