@@ -9,6 +9,7 @@ use reqwest::Client as HttpClient;
 #[async_trait::async_trait]
 pub trait Client {
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
+    async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
     async fn trigger_push(&self, profile: &str, cfg: &Config) -> Result<()>;
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value>;
     async fn clear_token(&self, profile: &str) -> Result<()>;
@@ -41,36 +42,8 @@ impl<'a> AuthClient<'a> {
             http: HttpClient::new(),
         }
     }
-}
 
-#[async_trait::async_trait]
-impl<'a> Client for AuthClient<'a> {
-    async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        // 1. Fast Path: Check pool (in-memory or vault-shared-read)
-        if let Ok(token) = self.pool.get_access_token(profile) {
-            if !token.is_expired() {
-                return Ok(token);
-            }
-        }
-
-        // 2. Slow Path: Acquire Global Lock
-        let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
-
-        // 3. Double Check: Re-read vault after acquiring lock
-        // We'll use a type-cast-safe way or just rely on the pool's internal vault sync
-        // To be safe, we'll force the pool to clear its local cache for this profile
-        if let Some(v_pool) = self.pool.as_any().downcast_ref::<crate::auth::VaultTokenPool>() {
-            v_pool.clear_cache(profile);
-        }
-
-        if let Ok(token) = self.pool.get_access_token(profile) {
-            if !token.is_expired() {
-                tracing::info!(target: "sys", profile = %profile, "Token was refreshed by another process while waiting for lock");
-                return Ok(token);
-            }
-        }
-
-        // 4. Perform network refresh
+    async fn perform_network_refresh(&self, profile: &str, cfg: &Config) -> Result<Token> {
         let ticket = self.pool.get_app_ticket(profile)
             .context("Missing app_ticket, please ensure daemon is running and app_ticket is received.")?;
 
@@ -127,10 +100,40 @@ impl<'a> Client for AuthClient<'a> {
             created_at: now,
         };
 
-        // 5. Save to pool (and vault)
+        // Save to pool (and vault)
         self.pool.set_access_token(profile, &new_token)?;
-
         Ok(new_token)
+    }
+}
+
+#[async_trait::async_trait]
+impl<'a> Client for AuthClient<'a> {
+    async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
+        // 1. Fast Path: Check pool
+        if let Ok(token) = self.pool.get_access_token(profile) {
+            if !token.is_expired() {
+                return Ok(token);
+            }
+        }
+
+        // 2. Slow Path: Acquire Global Lock
+        let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
+
+        // 3. Double Check
+        if let Ok(token) = self.pool.get_access_token(profile) {
+            if !token.is_expired() {
+                return Ok(token);
+            }
+        }
+
+        // 4. Perform network refresh
+        self.perform_network_refresh(profile, cfg).await
+    }
+
+    async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
+        // Force refresh skips cache but still uses the lock to avoid races
+        let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
+        self.perform_network_refresh(profile, cfg).await
     }
 
     async fn clear_token(&self, profile: &str) -> Result<()> {

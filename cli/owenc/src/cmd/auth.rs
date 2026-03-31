@@ -9,13 +9,23 @@ pub async fn login(
     force: bool,
 ) -> Result<()> {
     if force {
-        println!("🗑️  Force flag detected. Clearing local AccessToken cache...");
-        auth_cli.clear_token(_profile).await?;
+        println!("🔄 Force refresh requested. Attempting immediate Token refresh using existing Ticket...");
+        match auth_cli.refresh_app_access_token(_profile, cfg).await {
+            Ok(_) => {
+                println!("✅ Success! AccessToken has been refreshed and saved to Vault.");
+                return Ok(());
+            }
+            Err(e) => {
+                println!("⚠️  Immediate refresh failed (likely expired AppTicket): {}", e);
+                println!("📡 Falling back to platform push...");
+            }
+        }
     }
+
     println!("📡 Triggering AppTicket resend for profile '{}'...", _profile);
     auth_cli.trigger_push(_profile, cfg).await?;
-    println!("✅ Success. Platform will push a new AppTicket via Stream Bridge.");
-    println!("(TIP: Ensure 'owenc daemon start' is running to receive and auto-refresh)");
+    println!("✅ Push request sent. Platform will push a new AppTicket via Stream Bridge.");
+    println!("(TIP: Ensure 'owenc daemon start' is running to receive the push and auto-refresh)");
     Ok(())
 }
 

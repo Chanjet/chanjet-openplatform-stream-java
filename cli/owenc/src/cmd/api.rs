@@ -582,6 +582,9 @@ mod tests {
         async fn get_app_access_token(&self, _profile: &str, _cfg: &Config) -> Result<Token> {
             Ok(self.token.clone())
         }
+        async fn refresh_app_access_token(&self, _profile: &str, _cfg: &Config) -> Result<Token> {
+            Ok(self.token.clone())
+        }
         async fn trigger_push(&self, _profile: &str, _cfg: &Config) -> Result<()> {
             Ok(())
         }
