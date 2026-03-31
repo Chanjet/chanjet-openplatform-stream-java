@@ -6,13 +6,21 @@ pub struct Token {
     #[serde(rename = "access_token")]
     pub value: String,
     pub expires_at: DateTime<Utc>,
+    #[serde(default = "Utc::now")]
+    pub created_at: DateTime<Utc>,
 }
 
 impl Token {
     pub fn is_expired(&self) -> bool {
-        // 5-minute buffer
+        let now = Utc::now();
         let expiry = self.real_expires_at();
-        Utc::now() + Duration::minutes(5) > expiry
+        
+        // Safety buffer: 10% of total lifetime, but at least 5 minutes
+        let total_lifetime = expiry.signed_duration_since(self.created_at);
+        let buffer_secs = (total_lifetime.num_seconds() as f64 * 0.1).max(300.0) as i64;
+        let buffer = Duration::seconds(buffer_secs);
+
+        now + buffer > expiry
     }
 
     pub fn real_expires_at(&self) -> DateTime<Utc> {
@@ -50,6 +58,48 @@ mod tests {
     use chrono::TimeZone;
 
     #[test]
+    fn test_is_expired_with_10_percent_buffer() {
+        let now = Utc::now();
+        
+        // 1. Long lived token (24h)
+        // 10% is 2.4 hours. If we are 2 hours before real expiry, it should be expired.
+        let token_long = Token {
+            value: "mock".to_string(),
+            created_at: now - Duration::hours(10),
+            expires_at: now + Duration::hours(14), // Total 24h
+        };
+        // Now is 10h after created. Buffer is 2.4h.
+        // Expires in 14h. now + 2.4h < now + 14h? Yes, not expired yet.
+        assert!(!token_long.is_expired());
+
+        let token_expiring = Token {
+            value: "mock".to_string(),
+            created_at: now - Duration::hours(22),
+            expires_at: now + Duration::hours(2), // Total 24h
+        };
+        // Expires in 2h. Buffer is 2.4h. now + 2.4h > now + 2h. Should be expired.
+        assert!(token_expiring.is_expired());
+
+        // 2. Short lived token (10 min)
+        // 10% is 1 min. But min buffer is 5 min.
+        let token_short = Token {
+            value: "mock".to_string(),
+            created_at: now - Duration::minutes(2),
+            expires_at: now + Duration::minutes(8), // Total 10m
+        };
+        // Expires in 8 min. Buffer is 5 min. 
+        assert!(!token_short.is_expired());
+
+        let token_short_expiring = Token {
+            value: "mock".to_string(),
+            created_at: now - Duration::minutes(6),
+            expires_at: now + Duration::minutes(4), // Total 10m
+        };
+        // Expires in 4 min. Buffer is 5 min. 
+        assert!(token_short_expiring.is_expired());
+    }
+
+    #[test]
     fn test_extract_jwt_exp() {
         // Mock a JWT payload: {"exp": 1711526400} (2024-03-27 08:00:00 UTC)
         let payload = r#"{"exp": 1711526400}"#;
@@ -60,6 +110,7 @@ mod tests {
         let token = Token {
             value: mock_token_value,
             expires_at: Utc.timestamp_opt(0, 0).unwrap(), // arbitrary old date
+            created_at: Utc::now(),
         };
 
         let real_expiry = token.extract_jwt_exp().expect("Should extract exp");
@@ -80,6 +131,7 @@ mod tests {
         let token = Token {
             value: "original_token_value".to_string(),
             expires_at: Utc::now(),
+            created_at: Utc::now(),
         };
         let json = serde_json::to_string(&token).unwrap();
         assert!(json.contains("original_token_value"), "Serialization should not mask the value: {}", json);

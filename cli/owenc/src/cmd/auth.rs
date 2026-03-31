@@ -6,10 +6,16 @@ pub async fn login(
     _profile: &str,
     cfg: &Config,
     auth_cli: &dyn AuthClientTrait,
+    force: bool,
 ) -> Result<()> {
-    println!("Triggering AppTicket resend for profile...");
+    if force {
+        println!("🗑️  Force flag detected. Clearing local AccessToken cache...");
+        auth_cli.clear_token(_profile).await?;
+    }
+    println!("📡 Triggering AppTicket resend for profile '{}'...", _profile);
     auth_cli.trigger_push(_profile, cfg).await?;
-    println!("Success. Please check your daemon logs for the new AppTicket.");
+    println!("✅ Success. Platform will push a new AppTicket via Stream Bridge.");
+    println!("(TIP: Ensure 'owenc daemon start' is running to receive and auto-refresh)");
     Ok(())
 }
 

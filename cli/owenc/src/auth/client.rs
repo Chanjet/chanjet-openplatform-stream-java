@@ -120,9 +120,11 @@ impl<'a> Client for AuthClient<'a> {
 
         let val = token_resp.value.context("Platform returned success but value is empty")?;
         
+        let now = Utc::now();
         let new_token = Token {
             value: val.access_token,
-            expires_at: Utc::now() + Duration::seconds(val.expires_in),
+            expires_at: now + Duration::seconds(val.expires_in),
+            created_at: now,
         };
 
         // 5. Save to pool (and vault)
@@ -358,7 +360,7 @@ mod tests {
         // 2. Setup
         let vault: Arc<dyn Vault> = Arc::new(MockVault::new());
         let pool = VaultTokenPool::new(vault.clone());
-        pool.set_access_token("test", &Token { value: "test-token".into(), expires_at: Utc::now() + Duration::hours(1) })?;
+        pool.set_access_token("test", &Token { value: "test-token".into(), expires_at: Utc::now() + Duration::hours(1), created_at: Utc::now() })?;
         
         let client = AuthClient::new(&pool);
         let mut config = Config::default_with_profile("test");

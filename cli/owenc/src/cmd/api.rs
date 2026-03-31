@@ -641,6 +641,7 @@ mod tests {
         let mock_token = Token {
             value: "mock-token".to_string(),
             expires_at: Utc.timestamp_opt(Utc::now().timestamp() + 3600, 0).unwrap(),
+            created_at: Utc::now(),
         };
 
         let mock_auth = MockAuthClient {

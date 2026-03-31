@@ -149,8 +149,12 @@ pub enum AuthCommands {
     Status,
     /// 重置当前配置环境的所有凭据与安全设置
     Reset,
-    /// 触发 AppTicket 推送
-    Login,
+    /// 触发 AppTicket 推送与令牌刷新
+    Login {
+        /// 强制清除本地 AccessToken 缓存并重新触发网络刷新
+        #[arg(short, long)]
+        force: bool,
+    },
     /// 查看令牌
     Token,
 }
@@ -297,8 +301,8 @@ async fn main() -> Result<()> {
             AuthCommands::Reset => {
                 cmd::system::reset(&active_profile, &cfg_mgr, Some(vault.as_ref())).await?;
             }
-            AuthCommands::Login => {
-                cmd::auth::login(&active_profile, &config, &auth_cli).await?;
+            AuthCommands::Login { force } => {
+                cmd::auth::login(&active_profile, &config, &auth_cli, *force).await?;
             }
             AuthCommands::Token => {
                 cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format).await?;
