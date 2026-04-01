@@ -18,12 +18,14 @@ build:
 	mkdir -p $(OUTPUT_DIR)/macos-arm64
 	cp target/release/owenc $(OUTPUT_DIR)/macos-arm64/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-arm64/$(BINARY) 2>/dev/null || true
-	@echo "✅ Build complete: $(OUTPUT_DIR)/macos-arm64/$(BINARY)"
+	@md5 -q $(OUTPUT_DIR)/macos-arm64/$(BINARY) > $(OUTPUT_DIR)/macos-arm64/$(BINARY).md5
+	@echo "✅ Build complete: $(OUTPUT_DIR)/macos-arm64/$(BINARY) (MD5 generated)"
 
 build-test:
 	APP_DIR_NAME=.owenc-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) cargo build --release
 	mkdir -p $(OUTPUT_DIR)/test
 	cp target/release/owenc $(OUTPUT_DIR)/test/$(BINARY)-test
+	@md5 -q $(OUTPUT_DIR)/test/$(BINARY)-test > $(OUTPUT_DIR)/test/$(BINARY)-test.md5
 	@echo "🧪 Test build complete: $(OUTPUT_DIR)/test/$(BINARY)-test"
 
 build-mac-intel:
@@ -33,6 +35,7 @@ build-mac-intel:
 	mkdir -p $(OUTPUT_DIR)/macos-x64
 	cp target/x86_64-apple-darwin/release/owenc $(OUTPUT_DIR)/macos-x64/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x64/$(BINARY) 2>/dev/null || true
+	@md5 -q $(OUTPUT_DIR)/macos-x64/$(BINARY) > $(OUTPUT_DIR)/macos-x64/$(BINARY).md5
 	@echo "✅ Mac Intel Build complete: $(OUTPUT_DIR)/macos-x64/$(BINARY)"
 
 build-win64:
@@ -41,6 +44,7 @@ build-win64:
 	cargo build --release --target x86_64-pc-windows-gnu --no-default-features
 	mkdir -p $(OUTPUT_DIR)/windows-x64
 	cp target/x86_64-pc-windows-gnu/release/owenc.exe $(OUTPUT_DIR)/windows-x64/$(BINARY).exe
+	@md5 -q $(OUTPUT_DIR)/windows-x64/$(BINARY).exe > $(OUTPUT_DIR)/windows-x64/$(BINARY).exe.md5
 	@echo "✅ Windows Build complete: $(OUTPUT_DIR)/windows-x64/$(BINARY).exe"
 
 build-linux-x64:
@@ -50,6 +54,7 @@ build-linux-x64:
 	cargo zigbuild --release --target x86_64-unknown-linux-musl --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-x64
 	cp target/x86_64-unknown-linux-musl/release/owenc $(OUTPUT_DIR)/linux-x64/$(BINARY)
+	@md5 -q $(OUTPUT_DIR)/linux-x64/$(BINARY) > $(OUTPUT_DIR)/linux-x64/$(BINARY).md5
 	@echo "✅ Linux x64 Build complete: $(OUTPUT_DIR)/linux-x64/$(BINARY)"
 
 build-linux-arm64:
@@ -58,6 +63,7 @@ build-linux-arm64:
 	cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-arm64
 	cp target/aarch64-unknown-linux-musl/release/owenc $(OUTPUT_DIR)/linux-arm64/$(BINARY)
+	@md5 -q $(OUTPUT_DIR)/linux-arm64/$(BINARY) > $(OUTPUT_DIR)/linux-arm64/$(BINARY).md5
 	@echo "✅ Linux ARM64 Build complete: $(OUTPUT_DIR)/linux-arm64/$(BINARY)"
 
 package-mac: build
@@ -70,6 +76,7 @@ package-mac: build
 	         --install-location / \
 	         $(OUTPUT_DIR)/owenc-macos-arm64.pkg
 	rm -rf pkg_root
+	@md5 -q $(OUTPUT_DIR)/owenc-macos-arm64.pkg > $(OUTPUT_DIR)/owenc-macos-arm64.pkg.md5
 	@echo "✅ macOS ARM64 Installer created: $(OUTPUT_DIR)/owenc-macos-arm64.pkg"
 
 package-mac-x64: build-mac-intel
@@ -82,6 +89,7 @@ package-mac-x64: build-mac-intel
 	         --install-location / \
 	         $(OUTPUT_DIR)/owenc-macos-x64.pkg
 	rm -rf pkg_root
+	@md5 -q $(OUTPUT_DIR)/owenc-macos-x64.pkg > $(OUTPUT_DIR)/owenc-macos-x64.pkg.md5
 	@echo "✅ macOS x64 Installer created: $(OUTPUT_DIR)/owenc-macos-x64.pkg"
 
 package-win64: build-win64
@@ -89,6 +97,7 @@ package-win64: build-win64
 	cd $(OUTPUT_DIR)/windows-x64 && \
 	cp ../../bin/windows/install.ps1 . && \
 	zip -r ../owenc-windows-x64.zip owenc.exe install.ps1
+	@md5 -q $(OUTPUT_DIR)/owenc-windows-x64.zip > $(OUTPUT_DIR)/owenc-windows-x64.zip.md5
 	@echo "✅ Windows Package created: $(OUTPUT_DIR)/owenc-windows-x64.zip"
 
 package-linux-x64: build-linux-x64
@@ -96,6 +105,7 @@ package-linux-x64: build-linux-x64
 	cd $(OUTPUT_DIR)/linux-x64 && \
 	cp ../../bin/linux/install.sh . && \
 	tar -czf ../owenc-linux-x64.tar.gz owenc install.sh
+	@md5 -q $(OUTPUT_DIR)/owenc-linux-x64.tar.gz > $(OUTPUT_DIR)/owenc-linux-x64.tar.gz.md5
 	@echo "✅ Linux x64 Package created: $(OUTPUT_DIR)/owenc-linux-x64.tar.gz"
 
 package-linux-arm64: build-linux-arm64
@@ -103,6 +113,7 @@ package-linux-arm64: build-linux-arm64
 	cd $(OUTPUT_DIR)/linux-arm64 && \
 	cp ../../bin/linux/install.sh . && \
 	tar -czf ../owenc-linux-arm64.tar.gz owenc install.sh
+	@md5 -q $(OUTPUT_DIR)/owenc-linux-arm64.tar.gz > $(OUTPUT_DIR)/owenc-linux-arm64.tar.gz.md5
 	@echo "✅ Linux ARM64 Package created: $(OUTPUT_DIR)/owenc-linux-arm64.tar.gz"
 
 package-all: package-mac package-mac-x64 package-win64 package-linux-x64 package-linux-arm64
