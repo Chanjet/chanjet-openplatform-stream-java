@@ -10,7 +10,7 @@ use crate::core::security;
 use anyhow::Result;
 
 #[derive(Parser)]
-#[command(name = "owenc")]
+#[command(name = env!("CARGO_BIN_NAME_OVERRIDE"))]
 #[command(version = "0.1.2")]
 #[command(
     about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
