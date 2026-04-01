@@ -163,6 +163,7 @@ fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::S
         if let Ok(content) = fs::read_to_string(&rc_path) {
             if content.contains(&script_path.display().to_string()) {
                 println!("✅ Auto-completion already configured in {:?}", rc_path);
+                println!("💡 Run \x1b[32msource {:?}\x1b[0m to refresh your current session.", rc_path);
                 return;
             }
         }
@@ -171,7 +172,16 @@ fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::S
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&rc_path) {
         if file.write_all(source_cmd.as_bytes()).is_ok() {
             println!("✅ Auto-completion successfully injected into {:?}", rc_path);
-            println!("💡 Please restart your terminal or run: source {:?}", rc_path);
+            println!("\n💡 To enable completion in your CURRENT session, run:");
+            println!("   \x1b[32msource {:?}\x1b[0m", rc_path);
+            println!("   OR");
+            let shell_name = match shell {
+                clap_complete::Shell::Zsh => "zsh",
+                clap_complete::Shell::Bash => "bash",
+                clap_complete::Shell::Fish => "fish",
+                _ => "zsh",
+            };
+            println!("   \x1b[32meval \"$(owenc completion {})\"\x1b[0m", shell_name);
         }
     } else {
         println!("⚠️ Could not write to {:?}. Please manually add: {}", rc_path, source_cmd.trim());
