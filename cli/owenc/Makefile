@@ -27,6 +27,14 @@ build-test:
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/$(BINARY)-test 2>/dev/null || true
 	@echo "🧪 Test build complete: $(OUTPUT_DIR)/$(BINARY)-test"
 
+build-win64:
+	@echo "🪟 Building for Windows 11 Intel (x86_64)..."
+	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	cargo build --release --target x86_64-pc-windows-gnu --no-default-features
+	mkdir -p $(OUTPUT_DIR)/windows
+	cp target/x86_64-pc-windows-gnu/release/owenc.exe $(OUTPUT_DIR)/windows/$(BINARY).exe
+	@echo "✅ Windows Build complete: $(OUTPUT_DIR)/windows/$(BINARY).exe"
+
 test:
 	cargo test
 
