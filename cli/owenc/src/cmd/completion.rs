@@ -171,16 +171,20 @@ fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::S
 
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&rc_path) {
         if file.write_all(source_cmd.as_bytes()).is_ok() {
-            println!("✅ Auto-completion successfully injected into {:?}", rc_path);
-            println!("\n💡 To enable completion in your CURRENT session, run:");
+            println!("✅ Auto-completion configuration injected into {:?}", rc_path);
+            
+            println!("\n\x1b[1;33m⚠️  ACTION REQUIRED: Activate completion for your current session\x1b[0m");
+            println!("Due to shell security restrictions, a child process cannot source files for its parent.");
+            println!("To enable completion \x1b[1mNOW\x1b[0m, please run:");
             println!("   \x1b[32msource {:?}\x1b[0m", rc_path);
-            println!("   OR");
+            
             let shell_name = match shell {
                 clap_complete::Shell::Zsh => "zsh",
                 clap_complete::Shell::Bash => "bash",
                 clap_complete::Shell::Fish => "fish",
                 _ => "zsh",
             };
+            println!("\nAlternatively, for instant activation without restarting, run:");
             println!("   \x1b[32meval \"$(owenc completion {})\"\x1b[0m", shell_name);
         }
     } else {
