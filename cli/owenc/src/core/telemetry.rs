@@ -18,10 +18,12 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
     let mut guards = Vec::new();
 
     // 2. Prepare EnvFilter
+    // We want internal tracing (audit, stream, dlq) to ALWAYS be at least INFO for traceability,
+    // while owenc/sys/sdk follow the user-provided log_level (which defaults to ERROR for console).
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(format!(
-            "warn,owenc={},connector_sdk={},sys={},audit={},stream={},dlq={}", 
-            log_level, log_level, log_level, log_level, log_level, log_level
+            "warn,owenc={},connector_sdk={},sys={},audit=info,stream=info,dlq=info", 
+            log_level, log_level, log_level
         )));
 
     // 3. Setup Console Layer
