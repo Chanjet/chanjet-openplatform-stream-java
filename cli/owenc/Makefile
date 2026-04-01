@@ -61,16 +61,52 @@ build-linux-arm64:
 	@echo "✅ Linux ARM64 Build complete: $(OUTPUT_DIR)/linux-arm64/$(BINARY)"
 
 package-mac: build
-	@echo "🍎 Packaging for macOS..."
+	@echo "🍎 Packaging for macOS Apple Silicon..."
 	mkdir -p pkg_root/usr/local/bin
 	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) pkg_root/usr/local/bin/
-	pkgbuild --identifier com.chanjet.owenc \
+	pkgbuild --identifier com.chanjet.owenc.arm64 \
 	         --version 0.1.2 \
 	         --root pkg_root \
 	         --install-location / \
-	         $(OUTPUT_DIR)/owenc-macos-installer.pkg
+	         $(OUTPUT_DIR)/owenc-macos-arm64.pkg
 	rm -rf pkg_root
-	@echo "✅ macOS Installer created: $(OUTPUT_DIR)/owenc-macos-installer.pkg"
+	@echo "✅ macOS ARM64 Installer created: $(OUTPUT_DIR)/owenc-macos-arm64.pkg"
+
+package-mac-x64: build-mac-intel
+	@echo "🍎 Packaging for macOS Intel..."
+	mkdir -p pkg_root/usr/local/bin
+	cp $(OUTPUT_DIR)/macos-x64/$(BINARY) pkg_root/usr/local/bin/
+	pkgbuild --identifier com.chanjet.owenc.x64 \
+	         --version 0.1.2 \
+	         --root pkg_root \
+	         --install-location / \
+	         $(OUTPUT_DIR)/owenc-macos-x64.pkg
+	rm -rf pkg_root
+	@echo "✅ macOS x64 Installer created: $(OUTPUT_DIR)/owenc-macos-x64.pkg"
+
+package-win64: build-win64
+	@echo "🪟 Packaging for Windows..."
+	cd $(OUTPUT_DIR)/windows-x64 && \
+	cp ../../bin/windows/install.ps1 . && \
+	zip -r ../owenc-windows-x64.zip owenc.exe install.ps1
+	@echo "✅ Windows Package created: $(OUTPUT_DIR)/owenc-windows-x64.zip"
+
+package-linux-x64: build-linux-x64
+	@echo "🐧 Packaging for Linux x64..."
+	cd $(OUTPUT_DIR)/linux-x64 && \
+	cp ../../bin/linux/install.sh . && \
+	tar -czf ../owenc-linux-x64.tar.gz owenc install.sh
+	@echo "✅ Linux x64 Package created: $(OUTPUT_DIR)/owenc-linux-x64.tar.gz"
+
+package-linux-arm64: build-linux-arm64
+	@echo "🐧 Packaging for Linux ARM64..."
+	cd $(OUTPUT_DIR)/linux-arm64 && \
+	cp ../../bin/linux/install.sh . && \
+	tar -czf ../owenc-linux-arm64.tar.gz owenc install.sh
+	@echo "✅ Linux ARM64 Package created: $(OUTPUT_DIR)/owenc-linux-arm64.tar.gz"
+
+package-all: package-mac package-mac-x64 package-win64 package-linux-x64 package-linux-arm64
+	@echo "📦 All packages created successfully in $(OUTPUT_DIR)/"
 
 build-all: build build-mac-intel build-win64 build-linux-x64 build-linux-arm64
 	@echo "📦 All targets built successfully in $(OUTPUT_DIR)/"
