@@ -47,6 +47,35 @@ package-mac: build
 	rm -rf pkg_root
 	@echo "✅ macOS Installer created: $(OUTPUT_DIR)/owenc-macos-installer.pkg"
 
+build-mac-intel:
+	@echo "🍎 Building for macOS Intel (x86_64) [FULL VERSION]..."
+	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	cargo build --release --target x86_64-apple-darwin
+	mkdir -p $(OUTPUT_DIR)/mac-x64
+	cp target/x86_64-apple-darwin/release/owenc $(OUTPUT_DIR)/mac-x64/$(BINARY)
+	@codesign --force --deep --sign - $(OUTPUT_DIR)/mac-x64/$(BINARY) 2>/dev/null || true
+	@echo "✅ Mac Intel Build complete: $(OUTPUT_DIR)/mac-x64/$(BINARY)"
+
+build-linux-x64:
+	@echo "🐧 Building for Linux Intel (x86_64) [CORE VERSION]..."
+	@# Linux full version cross-compile requires complex toolchains, default to core features for stability
+	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	cargo build --release --target x86_64-unknown-linux-gnu --no-default-features
+	mkdir -p $(OUTPUT_DIR)/linux-x64
+	cp target/x86_64-unknown-linux-gnu/release/owenc $(OUTPUT_DIR)/linux-x64/$(BINARY)
+	@echo "✅ Linux x64 Build complete: $(OUTPUT_DIR)/linux-x64/$(BINARY)"
+
+build-linux-arm64:
+	@echo "🐧 Building for Linux ARM64 [CORE VERSION]..."
+	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	cargo build --release --target aarch64-unknown-linux-gnu --no-default-features
+	mkdir -p $(OUTPUT_DIR)/linux-arm64
+	cp target/aarch64-unknown-linux-gnu/release/owenc $(OUTPUT_DIR)/linux-arm64/$(BINARY)
+	@echo "✅ Linux ARM64 Build complete: $(OUTPUT_DIR)/linux-arm64/$(BINARY)"
+
+build-all: build build-mac-intel build-win64 build-linux-x64 build-linux-arm64
+	@echo "📦 All targets built successfully in $(OUTPUT_DIR)/"
+
 test:
 	cargo test
 
