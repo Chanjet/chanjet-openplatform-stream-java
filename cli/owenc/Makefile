@@ -96,7 +96,8 @@ package-win64: build-win64
 	@echo "🪟 Packaging for Windows..."
 	cd $(OUTPUT_DIR)/windows-x64 && \
 	cp ../../bin/windows/install.ps1 . && \
-	zip -r ../owenc-windows-x64.zip owenc.exe install.ps1
+	cp ../../bin/QUICK_START.txt README.txt && \
+	zip -r ../owenc-windows-x64.zip owenc.exe install.ps1 README.txt
 	@md5 -q $(OUTPUT_DIR)/owenc-windows-x64.zip > $(OUTPUT_DIR)/owenc-windows-x64.zip.md5
 	@echo "✅ Windows Package created: $(OUTPUT_DIR)/owenc-windows-x64.zip"
 
@@ -104,7 +105,8 @@ package-linux-x64: build-linux-x64
 	@echo "🐧 Packaging for Linux x64..."
 	cd $(OUTPUT_DIR)/linux-x64 && \
 	cp ../../bin/linux/install.sh . && \
-	tar -czf ../owenc-linux-x64.tar.gz owenc install.sh
+	cp ../../bin/QUICK_START.txt README.txt && \
+	tar -czf ../owenc-linux-x64.tar.gz owenc install.sh README.txt
 	@md5 -q $(OUTPUT_DIR)/owenc-linux-x64.tar.gz > $(OUTPUT_DIR)/owenc-linux-x64.tar.gz.md5
 	@echo "✅ Linux x64 Package created: $(OUTPUT_DIR)/owenc-linux-x64.tar.gz"
 
@@ -112,7 +114,8 @@ package-linux-arm64: build-linux-arm64
 	@echo "🐧 Packaging for Linux ARM64..."
 	cd $(OUTPUT_DIR)/linux-arm64 && \
 	cp ../../bin/linux/install.sh . && \
-	tar -czf ../owenc-linux-arm64.tar.gz owenc install.sh
+	cp ../../bin/QUICK_START.txt README.txt && \
+	tar -czf ../owenc-linux-arm64.tar.gz owenc install.sh README.txt
 	@md5 -q $(OUTPUT_DIR)/owenc-linux-arm64.tar.gz > $(OUTPUT_DIR)/owenc-linux-arm64.tar.gz.md5
 	@echo "✅ Linux ARM64 Package created: $(OUTPUT_DIR)/owenc-linux-arm64.tar.gz"
 
