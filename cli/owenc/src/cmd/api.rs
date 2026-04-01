@@ -113,6 +113,17 @@ pub async fn call(
         }
 
         let body_bytes = resp.bytes().await?.to_vec();
+        
+        tracing::info!(
+            target: "audit", 
+            profile = %profile, 
+            method = %method, 
+            path = %path, 
+            status = %status.as_u16(), 
+            trace_id = %trace_id, 
+            "API request completed"
+        );
+
         return handle_response(status, content_type_header, trace_id, body_bytes, format).await;
     }
 }
@@ -124,7 +135,7 @@ async fn handle_response(
     body_vec: Vec<u8>,
     format: &str,
 ) -> Result<()> {
-    tracing::info!(target: "sys", status = %status, content_type = %content_type, trace_id = %trace_id, "API response received");
+    tracing::debug!(target: "sys", status = %status, content_type = %content_type, trace_id = %trace_id, "API response details processed");
 
     if content_type.contains("application/json") {
         let body: Value = serde_json::from_slice(&body_vec)?;
