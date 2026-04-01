@@ -73,6 +73,75 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
     Ok(())
 }
 
+pub fn uninstall_completion() -> Result<()> {
+    let app_dir = crate::core::config::get_app_dir();
+    let comp_dir = app_dir.join("completions");
+    
+    // 1. Remove completion scripts
+    if comp_dir.exists() {
+        let _ = fs::remove_dir_all(&comp_dir);
+    }
+
+    // 2. Remove marker file
+    let _ = fs::remove_file(app_dir.join(".completion_installed"));
+
+    // 3. Clean RC files
+    let home = directories::UserDirs::new()
+        .context("Could not find home directory")?
+        .home_dir()
+        .to_path_buf();
+
+    let rc_files = vec![
+        home.join(".zshrc"),
+        home.join(".bashrc"),
+        home.join(".bash_profile"),
+    ];
+
+    for rc_path in rc_files {
+        if rc_path.exists() {
+            let content = fs::read_to_string(&rc_path)?;
+            if content.contains("# owenc autocomplete") {
+                // Remove everything between marker blocks if we had end markers, 
+                // but since we only had a start marker, we'll use a more surgical regex or just filter lines.
+                // Our injection was: \n# owenc autocomplete\nif [ -f ... ]; then ... fi\n
+                // Let's use a simple line-based removal for now.
+                let lines: Vec<String> = content.lines().map(String::from).collect();
+                let mut new_lines = Vec::new();
+                let mut skipping = false;
+                
+                for line in lines {
+                    if line.contains("# owenc autocomplete") {
+                        skipping = true;
+                        continue;
+                    }
+                    if skipping {
+                        // The injection block ends with 'fi' for zsh/bash
+                        if line.trim() == "fi" {
+                            skipping = false;
+                            continue;
+                        }
+                        continue;
+                    }
+                    new_lines.push(line.to_string());
+                }
+                
+                fs::write(&rc_path, new_lines.join("\n"))?;
+                println!("✅ Auto-completion removed from {:?}", rc_path);
+            }
+        }
+    }
+
+    // 4. Special case for Fish
+    let fish_comp = home.join(".config").join("fish").join("completions").join("owenc.fish");
+    if fish_comp.exists() {
+        let _ = fs::remove_file(&fish_comp);
+        println!("✅ Auto-completion removed from {:?}", fish_comp);
+    }
+
+    println!("✅ Uninstallation complete.");
+    Ok(())
+}
+
 pub fn is_auto_install_needed() -> bool {
     let app_dir = crate::core::config::get_app_dir();
     !app_dir.join(".completion_installed").exists()

@@ -90,6 +90,10 @@ pub enum Commands {
         /// 自动安装补全脚本到当前用户的配置中
         #[arg(long)]
         install: bool,
+
+        /// 从当前用户的配置中卸载补全脚本
+        #[arg(long)]
+        uninstall: bool,
     },
     /// 管理当前生效的配置 Profile
     Profile {
@@ -349,8 +353,13 @@ async fn run() -> Result<()> {
         Commands::Reset => {
             cmd::system::reset(&active_profile, &cfg_mgr, Some(vault.as_ref())).await?;
         }
-        Commands::Completion { shell, install } => {
-            if *install {
+        Commands::Completion { shell, install, uninstall } => {
+            if *uninstall {
+                match crate::cmd::completion::uninstall_completion() {
+                    Ok(_) => println!("✅ Auto-completion successfully uninstalled. Please restart your terminal."),
+                    Err(e) => eprintln!("❌ Failed to uninstall auto-completion: {}", e),
+                }
+            } else if *install {
                 match crate::cmd::completion::install_completion(*shell) {
                     Ok(_) => println!("✅ Auto-completion successfully installed."),
                     Err(e) => eprintln!("❌ Failed to install auto-completion: {}", e),
