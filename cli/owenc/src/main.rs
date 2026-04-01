@@ -83,7 +83,7 @@ pub enum Commands {
     Reset,
     /// 生成或自动安装命令行自动补全脚本 (Bash, Zsh, Fish)
     Completion {
-        /// 指定 Shell 类型 (打印脚本时需要)
+        /// 指定 Shell 类型: bash, zsh, fish
         #[arg(value_enum)]
         shell: Option<clap_complete::Shell>,
 
