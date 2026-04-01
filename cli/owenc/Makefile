@@ -27,9 +27,9 @@ build-test:
 	@echo "🧪 Test build complete: $(OUTPUT_DIR)/test/$(BINARY)-test"
 
 build-mac-intel:
-	@echo "🍎 Building for macOS Intel (x86_64) [FULL VERSION]..."
+	@echo "🍎 Building for macOS Intel (x86_64) [CORE VERSION]..."
 	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	cargo build --release --target x86_64-apple-darwin
+	cargo build --release --target x86_64-apple-darwin --no-default-features
 	mkdir -p $(OUTPUT_DIR)/macos-x64
 	cp target/x86_64-apple-darwin/release/owenc $(OUTPUT_DIR)/macos-x64/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x64/$(BINARY) 2>/dev/null || true
@@ -45,18 +45,19 @@ build-win64:
 
 build-linux-x64:
 	@echo "🐧 Building for Linux Intel (x86_64) [CORE VERSION]..."
+	@# Use cargo zigbuild for MUSL static binary
 	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	cargo build --release --target x86_64-unknown-linux-gnu --no-default-features
+	cargo zigbuild --release --target x86_64-unknown-linux-musl --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-x64
-	cp target/x86_64-unknown-linux-gnu/release/owenc $(OUTPUT_DIR)/linux-x64/$(BINARY)
+	cp target/x86_64-unknown-linux-musl/release/owenc $(OUTPUT_DIR)/linux-x64/$(BINARY)
 	@echo "✅ Linux x64 Build complete: $(OUTPUT_DIR)/linux-x64/$(BINARY)"
 
 build-linux-arm64:
 	@echo "🐧 Building for Linux ARM64 [CORE VERSION]..."
 	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	cargo build --release --target aarch64-unknown-linux-gnu --no-default-features
+	cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-arm64
-	cp target/aarch64-unknown-linux-gnu/release/owenc $(OUTPUT_DIR)/linux-arm64/$(BINARY)
+	cp target/aarch64-unknown-linux-musl/release/owenc $(OUTPUT_DIR)/linux-arm64/$(BINARY)
 	@echo "✅ Linux ARM64 Build complete: $(OUTPUT_DIR)/linux-arm64/$(BINARY)"
 
 package-mac: build
