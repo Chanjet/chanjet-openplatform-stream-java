@@ -35,9 +35,9 @@ regex = "1.10"
 fs2 = "0.4"
 
 # AI & Search
-ort = { version = "2.0.0-rc.9", features = ["ndarray"] }
-tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
-ndarray = "0.15"
+ort = { version = "2.0.0-rc.9", features = ["ndarray"], optional = true }
+tokenizers = { version = "0.21", default-features = false, features = ["onig"], optional = true }
+ndarray = { version = "0.15", optional = true }
 
 # Observability
 tracing = "0.1"
@@ -47,6 +47,10 @@ tracing-appender = "0.2"
 axum = "0.8.8"
 tower = "0.5.3"
 hyper = { version = "1.8.1", features = ["full"] }
+
+[features]
+default = ["ai"]
+ai = ["dep:ort", "dep:tokenizers", "dep:ndarray"]
 
 [dev-dependencies]
 tempfile = "3.8"

@@ -2,6 +2,7 @@ pub mod config;
 pub mod security;
 pub mod openapi;
 pub mod vault;
+#[cfg(feature = "ai")]
 pub mod search;
 pub mod telemetry;
 pub mod utils;

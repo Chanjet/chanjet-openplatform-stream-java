@@ -203,57 +203,66 @@ pub async fn list(
     let paths = spec["paths"].as_object().ok_or_else(|| anyhow!("Invalid OpenAPI spec: missing paths"))?;
 
     if let Some(query) = search_query {
-        let cache_dir = crate::core::config::get_app_dir();
-        let spec_path = cache_dir.join(format!("{}_openapi.json", profile));
-        let index_path = cache_dir.join(format!("{}_openapi.idx", profile));
+        #[cfg(feature = "ai")]
+        {
+            let cache_dir = crate::core::config::get_app_dir();
+            let spec_path = cache_dir.join(format!("{}_openapi.json", profile));
+            let index_path = cache_dir.join(format!("{}_openapi.idx", profile));
 
-        // 1. Check if index needs rebuild
-        let mut index_ready = false;
-        if index_path.exists() && spec_path.exists() {
-            let spec_meta = std::fs::metadata(&spec_path)?;
-            let index_meta = std::fs::metadata(&index_path)?;
-            if index_meta.modified()? >= spec_meta.modified()? {
-                index_ready = true;
-            }
-        }
-
-        let index = if !index_ready {
-            println!("🔄 Rebuilding semantic search index for profile \"{}\"...", profile);
-            let mut embedder = crate::core::search::ONNXEmbedder::new()?;
-            let new_index = embedder.rebuild_index(&spec)?;
-            new_index.save(&index_path)?;
-            println!("✅ Index rebuilt and saved to {:?}", index_path);
-            new_index
-        } else {
-            crate::core::search::SearchIndex::load(&index_path)?
-        };
-
-        let mut embedder = crate::core::search::ONNXEmbedder::new()?;
-        let query_vec = embedder.embed(query)?;
-        
-        let matches = index.search(&query_vec, query, top * page); // Fetch more for pagination
-
-        let start = (page - 1) * page_size;
-        if start >= matches.len() {
-            println!("No results found for page {}.", page);
-            return Ok(());
-        }
-        let end = std::cmp::min(start + page_size, matches.len());
-        let paginated = &matches[start..end];
-
-        match format {
-            "json" => println!("{}", serde_json::to_string_pretty(&paginated)?),
-            "yaml" => println!("{}", serde_yaml::to_string(&paginated)?),
-            _ => {
-                println!("\n🧠 Neural Search: \"{}\" (Page {}/{})", query, page, (matches.len() + page_size - 1) / page_size);
-                println!("{}", "-".repeat(100));
-                for (i, (score, doc)) in paginated.iter().enumerate() {
-                    println!("{}. [{}] ({:.2}) {} - {}", start + i + 1, doc.id, score, doc.summary, doc.description);
+            // 1. Check if index needs rebuild
+            let mut index_ready = false;
+            if index_path.exists() && spec_path.exists() {
+                let spec_meta = std::fs::metadata(&spec_path)?;
+                let index_meta = std::fs::metadata(&index_path)?;
+                if index_meta.modified()? >= spec_meta.modified()? {
+                    index_ready = true;
                 }
-                println!("\n✅ Verified: Zero-dependency ONNX embedding engine is active.");
-                println!("(TIP: Run 'api spec [METHOD] [PATH]' for full details)\n");
+            }
+
+            let index = if !index_ready {
+                println!("🔄 Rebuilding semantic search index for profile \"{}\"...", profile);
+                let mut embedder = crate::core::search::ONNXEmbedder::new()?;
+                let new_index = embedder.rebuild_index(&spec)?;
+                new_index.save(&index_path)?;
+                println!("✅ Index rebuilt and saved to {:?}", index_path);
+                new_index
+            } else {
+                crate::core::search::SearchIndex::load(&index_path)?
+            };
+
+            let mut embedder = crate::core::search::ONNXEmbedder::new()?;
+            let query_vec = embedder.embed(query)?;
+            
+            let matches = index.search(&query_vec, query, top * page); // Fetch more for pagination
+
+            let start = (page - 1) * page_size;
+            if start >= matches.len() {
+                println!("No results found for page {}.", page);
+                return Ok(());
+            }
+            let end = std::cmp::min(start + page_size, matches.len());
+            let paginated = &matches[start..end];
+
+            match format {
+                "json" => println!("{}", serde_json::to_string_pretty(&paginated)?),
+                "yaml" => println!("{}", serde_yaml::to_string(&paginated)?),
+                _ => {
+                    println!("\n🧠 Neural Search: \"{}\" (Page {}/{})", query, page, (matches.len() + page_size - 1) / page_size);
+                    println!("{}", "-".repeat(100));
+                    for (i, (score, doc)) in paginated.iter().enumerate() {
+                        println!("{}. [{}] ({:.2}) {} - {}", start + i + 1, doc.id, score, doc.summary, doc.description);
+                    }
+                    println!("\n✅ Verified: Zero-dependency ONNX embedding engine is active.");
+                    println!("(TIP: Run 'api spec [METHOD] [PATH]' for full details)\n");
+                }
             }
         }
+        #[cfg(not(feature = "ai"))]
+        {
+            println!("⚠️  Semantic Search is not available in this build of owenc.");
+            println!("💡 To use AI features, please use the macOS or Linux standard versions.");
+        }
+        return Ok(());
     } else {
         // Collect all APIs
         let mut all_apis = Vec::new();

@@ -1,3 +1,4 @@
+#![cfg(feature = "ai")]
 use anyhow::{anyhow, Result, Context};
 use ort::session::Session;
 use ort::value::Tensor;
