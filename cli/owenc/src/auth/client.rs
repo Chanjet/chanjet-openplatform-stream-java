@@ -269,7 +269,7 @@ impl<'a> Client for AuthClient<'a> {
         let token = self.get_app_access_token(profile, cfg).await?;
         let url = format!("{}/developer/api/apiPermissions/isv/open/getInterfaceList?size=100", cfg.openapi_url.trim_end_matches('/'));
         
-        tracing::info!(target: "sys", "Fetching dynamic interface list from {}", url);
+        tracing::info!(target: "sys", "Fetching dynamic interface list with full OpenAPI fragments from {}", url);
         
         let resp = self.http.get(&url)
             .header("openToken", token.value)
@@ -282,36 +282,44 @@ impl<'a> Client for AuthClient<'a> {
         }
 
         let body: serde_json::Value = resp.json().await?;
+        let mut combined_paths = serde_json::Map::new();
         
-        // Transform the platform response into a minimal OpenAPI paths structure
-        let mut paths = serde_json::Map::new();
-        
-        if let Some(list) = body.get("value").and_then(|v| v.get("list")).and_then(|l| l.as_array()) {
+        if let Some(list) = body.get("value").and_then(|v| v.get("resultList")).and_then(|l| l.as_array()) {
             for item in list {
-                let path = item.get("interfaceUrl").and_then(|v| v.as_str()).unwrap_or("");
-                let name = item.get("interfaceName").and_then(|v| v.as_str()).unwrap_or("No Name");
-                let method = item.get("httpMethod").and_then(|v| v.as_str()).unwrap_or("GET").to_lowercase();
-                
-                if !path.is_empty() {
-                    let mut methods_obj = serde_json::Map::new();
-                    methods_obj.insert(method, serde_json::json!({
-                        "summary": name,
-                        "description": format!("Authorized Interface: {}", name),
-                        "responses": { "200": { "description": "OK" } }
-                    }));
-                    paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
+                // Each item contains its own small OpenAPI spec!
+                if let Some(item_spec) = item.get("openApi") {
+                    if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
+                        for (path, methods) in item_paths {
+                            combined_paths.insert(path.clone(), methods.clone());
+                        }
+                    }
+                } else {
+                    // Fallback to minimal info if openApi fragment is missing
+                    let path = item.get("requestPath").and_then(|v| v.as_str()).unwrap_or("");
+                    let name = item.get("interfaceName").and_then(|v| v.as_str()).unwrap_or("No Name");
+                    let method = item.get("requestHttpMethod").and_then(|v| v.as_str()).unwrap_or("GET").to_lowercase();
+                    
+                    if !path.is_empty() {
+                        let mut methods_obj = serde_json::Map::new();
+                        methods_obj.insert(method, serde_json::json!({
+                            "summary": name,
+                            "description": format!("Authorized Interface (Basic): {}", name),
+                            "responses": { "200": { "description": "OK" } }
+                        }));
+                        combined_paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
+                    }
                 }
             }
         }
 
         Ok(serde_json::json!({
-            "openapi": "3.0.0",
+            "openapi": "3.0.1",
             "info": {
-                "title": "Authorized Interface List",
+                "title": "Authorized API Specification",
                 "version": "1.0.0",
-                "description": "Generated from platform authorization API."
+                "description": "This specification is dynamically reconstructed from authorized interface fragments."
             },
-            "paths": paths
+            "paths": combined_paths
         }))
     }
 }
