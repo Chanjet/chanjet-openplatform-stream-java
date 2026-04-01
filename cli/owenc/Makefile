@@ -10,55 +10,41 @@ PROD_STREAM  = https://stream-open.chanapp.chanjet.com
 TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
-.PHONY: build build-test test clean install
+.PHONY: build build-test build-mac-intel build-win64 build-linux-x64 build-linux-arm64 build-all test clean install package-mac
 
 build:
+	@echo "🍎 Building for current host (Apple Silicon) [FULL VERSION]..."
 	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) cargo build --release
-	mkdir -p $(OUTPUT_DIR)
-	cp target/release/owenc $(OUTPUT_DIR)/$(BINARY)
-	@# macOS 26+ requires code signing to avoid UE+ hang
-	@codesign --force --deep --sign - $(OUTPUT_DIR)/$(BINARY) 2>/dev/null || true
-	@echo "✅ Build complete: $(OUTPUT_DIR)/$(BINARY)"
+	mkdir -p $(OUTPUT_DIR)/macos-arm64
+	cp target/release/owenc $(OUTPUT_DIR)/macos-arm64/$(BINARY)
+	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-arm64/$(BINARY) 2>/dev/null || true
+	@echo "✅ Build complete: $(OUTPUT_DIR)/macos-arm64/$(BINARY)"
 
 build-test:
 	APP_DIR_NAME=.owenc-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) cargo build --release
-	mkdir -p $(OUTPUT_DIR)
-	cp target/release/owenc $(OUTPUT_DIR)/$(BINARY)-test
-	@codesign --force --deep --sign - $(OUTPUT_DIR)/$(BINARY)-test 2>/dev/null || true
-	@echo "🧪 Test build complete: $(OUTPUT_DIR)/$(BINARY)-test"
-
-build-win64:
-	@echo "🪟 Building for Windows 11 Intel (x86_64)..."
-	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	cargo build --release --target x86_64-pc-windows-gnu --no-default-features
-	mkdir -p $(OUTPUT_DIR)/windows
-	cp target/x86_64-pc-windows-gnu/release/owenc.exe $(OUTPUT_DIR)/windows/$(BINARY).exe
-	@echo "✅ Windows Build complete: $(OUTPUT_DIR)/windows/$(BINARY).exe"
-
-package-mac: build
-	@echo "🍎 Packaging for macOS..."
-	mkdir -p pkg_root/usr/local/bin
-	cp $(OUTPUT_DIR)/$(BINARY) pkg_root/usr/local/bin/
-	pkgbuild --identifier com.chanjet.owenc \
-	         --version 0.1.2 \
-	         --root pkg_root \
-	         --install-location / \
-	         $(OUTPUT_DIR)/owenc-macos-installer.pkg
-	rm -rf pkg_root
-	@echo "✅ macOS Installer created: $(OUTPUT_DIR)/owenc-macos-installer.pkg"
+	mkdir -p $(OUTPUT_DIR)/test
+	cp target/release/owenc $(OUTPUT_DIR)/test/$(BINARY)-test
+	@echo "🧪 Test build complete: $(OUTPUT_DIR)/test/$(BINARY)-test"
 
 build-mac-intel:
 	@echo "🍎 Building for macOS Intel (x86_64) [FULL VERSION]..."
 	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	cargo build --release --target x86_64-apple-darwin
-	mkdir -p $(OUTPUT_DIR)/mac-x64
-	cp target/x86_64-apple-darwin/release/owenc $(OUTPUT_DIR)/mac-x64/$(BINARY)
-	@codesign --force --deep --sign - $(OUTPUT_DIR)/mac-x64/$(BINARY) 2>/dev/null || true
-	@echo "✅ Mac Intel Build complete: $(OUTPUT_DIR)/mac-x64/$(BINARY)"
+	mkdir -p $(OUTPUT_DIR)/macos-x64
+	cp target/x86_64-apple-darwin/release/owenc $(OUTPUT_DIR)/macos-x64/$(BINARY)
+	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x64/$(BINARY) 2>/dev/null || true
+	@echo "✅ Mac Intel Build complete: $(OUTPUT_DIR)/macos-x64/$(BINARY)"
+
+build-win64:
+	@echo "🪟 Building for Windows Intel (x86_64)..."
+	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	cargo build --release --target x86_64-pc-windows-gnu --no-default-features
+	mkdir -p $(OUTPUT_DIR)/windows-x64
+	cp target/x86_64-pc-windows-gnu/release/owenc.exe $(OUTPUT_DIR)/windows-x64/$(BINARY).exe
+	@echo "✅ Windows Build complete: $(OUTPUT_DIR)/windows-x64/$(BINARY).exe"
 
 build-linux-x64:
 	@echo "🐧 Building for Linux Intel (x86_64) [CORE VERSION]..."
-	@# Linux full version cross-compile requires complex toolchains, default to core features for stability
 	APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	cargo build --release --target x86_64-unknown-linux-gnu --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-x64
@@ -73,6 +59,18 @@ build-linux-arm64:
 	cp target/aarch64-unknown-linux-gnu/release/owenc $(OUTPUT_DIR)/linux-arm64/$(BINARY)
 	@echo "✅ Linux ARM64 Build complete: $(OUTPUT_DIR)/linux-arm64/$(BINARY)"
 
+package-mac: build
+	@echo "🍎 Packaging for macOS..."
+	mkdir -p pkg_root/usr/local/bin
+	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) pkg_root/usr/local/bin/
+	pkgbuild --identifier com.chanjet.owenc \
+	         --version 0.1.2 \
+	         --root pkg_root \
+	         --install-location / \
+	         $(OUTPUT_DIR)/owenc-macos-installer.pkg
+	rm -rf pkg_root
+	@echo "✅ macOS Installer created: $(OUTPUT_DIR)/owenc-macos-installer.pkg"
+
 build-all: build build-mac-intel build-win64 build-linux-x64 build-linux-arm64
 	@echo "📦 All targets built successfully in $(OUTPUT_DIR)/"
 
@@ -81,19 +79,11 @@ test:
 
 clean:
 	cargo clean
-	rm -f $(OUTPUT_DIR)/$(BINARY)
+	rm -rf $(OUTPUT_DIR)/macos-arm64 $(OUTPUT_DIR)/macos-x64 $(OUTPUT_DIR)/windows-x64 $(OUTPUT_DIR)/linux-x64 $(OUTPUT_DIR)/linux-arm64
 
 install: build
-	cp $(OUTPUT_DIR)/$(BINARY) /usr/local/bin/$(BINARY)
+	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) /usr/local/bin/$(BINARY)
 	@echo "🚀 Installed to /usr/local/bin/$(BINARY)"
-	@echo "⚙️ Generating auto-completion scripts..."
-	@mkdir -p /usr/local/etc/bash_completion.d
-	@$(OUTPUT_DIR)/$(BINARY) completion bash > /usr/local/etc/bash_completion.d/owenc
-	@mkdir -p /usr/local/share/zsh/site-functions
-	@$(OUTPUT_DIR)/$(BINARY) completion zsh > /usr/local/share/zsh/site-functions/_owenc
-	@mkdir -p /usr/local/share/fish/vendor_completions.d
-	@$(OUTPUT_DIR)/$(BINARY) completion fish > /usr/local/share/fish/vendor_completions.d/owenc.fish
-	@echo "✅ Auto-completion scripts installed for Bash, Zsh, and Fish."
 
 run:
 	cargo run -- --help
