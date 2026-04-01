@@ -7,6 +7,7 @@ use clap::Parser;
 use crate::core::config::ConfigManager;
 use crate::core::vault::{MultiVault, Vault};
 use crate::core::security;
+use crate::auth::{VaultTokenPool, AuthClient};
 use anyhow::Result;
 
 #[derive(Parser)]
@@ -224,17 +225,20 @@ mod security_tests;
 
 #[tokio::main]
 async fn main() {
-    // SECURITY PATCH: Ensure child processes inherit identity even if parent environment was lost
-    if std::env::var("CARGO_BIN_NAME_OVERRIDE").is_err() {
-        std::env::set_var("CARGO_BIN_NAME_OVERRIDE", env!("CARGO_BIN_NAME_OVERRIDE"));
-    }
-    if std::env::var("APP_DIR_NAME").is_err() {
-        std::env::set_var("APP_DIR_NAME", env!("APP_DIR_NAME"));
-    }
+    // HEARTBEAT: Debug child process start
+    let _ = std::fs::write("/tmp/owenc_last_start.txt", format!("PID: {}, Args: {:?}, Time: {}", std::process::id(), std::env::args().collect::<Vec<_>>(), chrono::Utc::now()));
+
+    // CAPTURE PANICS: Ensure background crashes are recorded
+    std::panic::set_hook(Box::new(|info| {
+        let payload = info.payload().downcast_ref::<&str>().cloned()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("no message");
+        tracing::error!(target: "sys", "FATAL PANIC: {}", payload);
+    }));
 
     if let Err(e) = run().await {
         tracing::error!(target: "sys", error = %e, "CLI execution failed");
-        eprintln!("\n❌ Error: {}", e);
+        eprintln!("❌ Error: {}", e);
         std::process::exit(1);
     }
 }
@@ -278,12 +282,11 @@ async fn run() -> Result<()> {
     }
 
     // 2. Initialize Auth
-    let pool = crate::auth::VaultTokenPool::new(vault.clone());
-    let auth_cli = crate::auth::AuthClient::new(&pool);
+    let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
+    let auth_cli = crate::auth::AuthClient::new(&token_pool);
 
     // 4. Automatic Shell Completion Installation (One-time check)
     if crate::cmd::completion::is_auto_install_needed() {
-        // Silently try to install. Don't block if it fails.
         let _ = crate::cmd::completion::install_completion(None);
     }
 
