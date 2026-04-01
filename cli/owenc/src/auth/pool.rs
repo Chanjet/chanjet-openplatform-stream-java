@@ -15,6 +15,9 @@ pub trait TokenPool: Send + Sync {
     #[allow(dead_code)]
     fn delete_app_ticket(&self, profile: &str) -> Result<()>;
     
+    /// Clear memory cache for a profile to force re-reading from Vault
+    fn clear_cache(&self, profile: &str);
+    
     /// Acquire a global lock for this profile (multi-process)
     fn lock(&self, profile: &str) -> Result<Box<dyn std::any::Any + Send>>;
 
@@ -37,17 +40,16 @@ impl VaultTokenPool {
             tokens: RwLock::new(HashMap::new()),
         }
     }
+}
 
-    #[allow(dead_code)]
-    pub fn clear_cache(&self, profile: &str) {
+impl TokenPool for VaultTokenPool {
+    fn clear_cache(&self, profile: &str) {
         let mut tickets = self.tickets.write().unwrap();
         tickets.remove(profile);
         let mut tokens = self.tokens.write().unwrap();
         tokens.remove(profile);
     }
-}
 
-impl TokenPool for VaultTokenPool {
     fn get_app_ticket(&self, profile: &str) -> Result<Ticket> {
         let tickets = self.tickets.read().unwrap();
         if let Some(t) = tickets.get(profile) {

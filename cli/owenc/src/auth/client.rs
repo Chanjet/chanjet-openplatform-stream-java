@@ -119,7 +119,10 @@ impl<'a> Client for AuthClient<'a> {
         // 2. Slow Path: Acquire Global Lock
         let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
 
-        // 3. Double Check
+        // 3. Clear cache to ensure Double Check reads from Vault (disk)
+        self.pool.clear_cache(profile);
+
+        // 4. Double Check
         if let Ok(token) = self.pool.get_access_token(profile) {
             if !token.is_expired() {
                 return Ok(token);
@@ -133,6 +136,7 @@ impl<'a> Client for AuthClient<'a> {
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
         // Force refresh skips cache but still uses the lock to avoid races
         let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
+        self.pool.clear_cache(profile);
         self.perform_network_refresh(profile, cfg).await
     }
 
