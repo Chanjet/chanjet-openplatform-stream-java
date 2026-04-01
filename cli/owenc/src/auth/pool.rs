@@ -12,12 +12,14 @@ pub trait TokenPool: Send + Sync {
     fn get_access_token(&self, profile: &str) -> Result<Token>;
     fn set_access_token(&self, profile: &str, token: &Token) -> Result<()>;
     fn delete_access_token(&self, profile: &str) -> Result<()>;
+    #[allow(dead_code)]
     fn delete_app_ticket(&self, profile: &str) -> Result<()>;
     
     /// Acquire a global lock for this profile (multi-process)
     fn lock(&self, profile: &str) -> Result<Box<dyn std::any::Any + Send>>;
 
     /// Helper for downcasting
+    #[allow(dead_code)]
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
@@ -36,6 +38,7 @@ impl VaultTokenPool {
         }
     }
 
+    #[allow(dead_code)]
     pub fn clear_cache(&self, profile: &str) {
         let mut tickets = self.tickets.write().unwrap();
         tickets.remove(profile);
