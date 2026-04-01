@@ -224,6 +224,14 @@ mod security_tests;
 
 #[tokio::main]
 async fn main() {
+    // SECURITY PATCH: Ensure child processes inherit identity even if parent environment was lost
+    if std::env::var("CARGO_BIN_NAME_OVERRIDE").is_err() {
+        std::env::set_var("CARGO_BIN_NAME_OVERRIDE", env!("CARGO_BIN_NAME_OVERRIDE"));
+    }
+    if std::env::var("APP_DIR_NAME").is_err() {
+        std::env::set_var("APP_DIR_NAME", env!("APP_DIR_NAME"));
+    }
+
     if let Err(e) = run().await {
         tracing::error!(target: "sys", error = %e, "CLI execution failed");
         eprintln!("\n❌ Error: {}", e);

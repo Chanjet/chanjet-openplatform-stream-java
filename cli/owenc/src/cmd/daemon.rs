@@ -41,6 +41,8 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             .arg("--proxy-port")
             .arg(proxy_port.to_string())
             .arg("--foreground") // Prevent recursive spawn
+            .env("CARGO_BIN_NAME_OVERRIDE", env!("CARGO_BIN_NAME_OVERRIDE"))
+            .env("APP_DIR_NAME", env!("APP_DIR_NAME"))
             .stdin(Stdio::null())
             .stdout(Stdio::from(log_file.try_clone()?))
             .stderr(Stdio::from(log_file)) 

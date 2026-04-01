@@ -105,8 +105,9 @@ fn default_stream_url() -> String {
         .to_string()
 }
 
-pub fn get_app_dir_name() -> &'static str {
-    option_env!("APP_DIR_NAME").unwrap_or(".owenc")
+pub fn get_app_dir_name() -> String {
+    std::env::var("APP_DIR_NAME")
+        .unwrap_or_else(|_| option_env!("APP_DIR_NAME").unwrap_or(".owenc").to_string())
 }
 
 pub fn get_app_dir() -> PathBuf {
