@@ -27,22 +27,75 @@
 ### 2.1 AccessToken 维护机制 (Maintenance Logic)
 系统通过 **“双轨驱动 + 全局锁”** 保障 AccessToken 的高可用性：
 - **生命周期算法**：令牌在本地的失效时间计算公式为 `RealExpiry - Max(TotalLifetime * 10%, 5min)`。这种提前失效机制能有效规避网络延迟或服务器时钟偏移导致的调用失败。
-- **并发冲突保护**：在执行网络换票前，进程必须获取由 Vault 维护的 **全局文件锁**。获取锁后采用 **Double-Check** 模式：再次读取 Vault 确认是否有其他并发进程已完成刷新。若已有新令牌，则直接使用，避免重复换票导致旧令牌瞬间作废。
+- **并发冲突保护**：在执行网络换票前，进程必须获取由 Vault 维护的 **全局文件锁**。获取锁后采用 **Double-Check** 模式：调用 `clear_cache()` 强制清理内存副本并再次读取 Vault 确认是否有其他并发进程已完成刷新。若已有新令牌，则直接使用，避免重复换票导致旧令牌瞬间作废。
 - **安全隔离**：所有令牌均加密存储于 Vault，即使 CLI 异常崩溃，新启动的进程也能瞬间恢复认证状态。
 
-### 2.2 跨模块令牌依赖关系 (Module Dependencies)
-不同组件对 TokenPool 的交互策略如下：
-- **Daemon (主动维护者)**：核心职责是保持长连接。一旦收到平台推送的 `AppTicket`，Daemon 会立即触发 `AuthClient` 执行主动换票。它是系统中令牌“新鲜度”的第一保障。
-- **Local Proxy (高频使用者)**：Proxy 作为长驻留服务，在处理每一个代理请求时都会从共享的 TokenPool 读取最新令牌。它高度依赖 Daemon 的主动维护逻辑，以实现 API 调用的毫秒级响应。
-- **CLI 直接调用 (被动使用者)**：执行 `api call` 时，若发现缓存或 Vault 中令牌已过期，会触发“冷启动”刷新。此过程会阻塞当前调用直到新令牌就绪。
+### 2.2 刷新与同步流程图 (Sequence Flow)
 
-### 2.3 AccessToken 强制刷新策略 (`auth login --force`)
+```mermaid
+sequenceDiagram
+    participant CLI as CLI / Proxy (使用者)
+    participant Daemon as Daemon (维护者)
+    participant Pool as TokenPool (内存+Vault)
+    participant Lock as Global File Lock (OS 级文件锁)
+    participant API as 开放平台 (OpenAPI)
+
+    Note over CLI, Daemon: 场景 A: 被动/高频调用 (Lazy/High-freq)
+    CLI->>Pool: 1. get_access_token()
+    Pool-->>CLI: 返回缓存令牌
+    CLI->>CLI: 2. 检查 10% 提前过期逻辑
+    
+    alt 令牌有效
+        CLI->>CLI: 直接使用
+    else 令牌失效/不存在
+        CLI->>Lock: 3. acquire_lock() [跨进程阻塞]
+        Lock-->>CLI: 获得排他锁
+        CLI->>Pool: 4. clear_cache() [强制使内存失效]
+        CLI->>Pool: 5. get_access_token() [从磁盘 Vault 读取]
+        
+        alt 第二重检查 (Double-Check): 已被别人刷新?
+            Pool-->>CLI: 返回最新令牌 (Valid)
+            CLI->>Lock: 释放锁
+            CLI->>CLI: 使用新令牌
+        else 依然失效
+            CLI->>API: 6. 调用 generateToken 接口
+            API-->>CLI: 返回新 AccessToken
+            CLI->>Pool: 7. set_access_token() [同步写入 Vault 和内存]
+            CLI->>Lock: 8. release_lock()
+            CLI->>CLI: 使用新令牌
+        end
+    end
+
+    Note over Daemon, API: 场景 B: 主动刷新 (Proactive)
+    Daemon->>Daemon: 监听 WebSocket 隧道
+    API->>Daemon: 推送最新 AppTicket
+    Daemon->>Lock: acquire_lock()
+    Daemon->>Pool: clear_cache()
+    Daemon->>API: 使用新 Ticket 换取 Token
+    Daemon->>Pool: set_access_token()
+    Daemon->>Lock: release_lock()
+    Note over CLI, Pool: 下一次 CLI/Proxy 调用将直接命中 Pool 缓存
+```
+
+### 2.3 跨模块令牌依赖关系 (Module Dependencies)
+- **Daemon (主动维护者 - 第一优先级)**：
+    - **职责**：全天候监听 `AppTicket` 的推送。
+    - **刷新时机**：一旦平台推送了新的 `AppTicket`，Daemon 会**立即**触发刷新流程。
+    - **贡献**：它是令牌“新鲜度”的第一保障，确保用户在运行业务指令时通常已经持有最新令牌。
+- **Local Proxy (高频使用者 - 强依赖)**：
+    - **职责**：作为 127.0.0.1 的透明网关，处理密集的 API 请求。
+    - **策略**：高度依赖 `TokenPool` 的缓存与同步机制。通过 **Double-Check** 确保在极高并发下也不会产生冗余的网络换票请求。
+- **CLI 直接调用 (被动使用者 - 兜底逻辑)**：
+    - **职责**：执行一次性 API 指令。
+    - **策略**：作为最后一道防线。若 Daemon 未启动或推送丢失，CLI 将执行阻塞式的“冷启动”刷新。
+
+### 2.4 AccessToken 强制刷新策略 (`auth login --force`)
 采用分级刷新机制确保零中断：
 1. **立即刷新**：尝试利用当前已有的 AppTicket 发起网络请求获取新 Token。
 2. **回退推送**：若 Ticket 已失效，则触发平台重新推送新 Ticket。
 3. **零中断保障**：在获取到新令牌并成功写入 Vault 前，**绝不**删除旧令牌，确保业务连续性。
 
-### 2.4 API 调用预校验
+### 2.5 API 调用预校验
 所有 `api call` 命令在发起请求前均会执行：
 1. **白名单检查**：校验 Path 是否在加载的 OpenAPI 规约范围内。
 2. **规约校验**：根据 OpenAPI 定义，强制检查必填的 Query 参数和 Request Body，非法请求在到达网络层前即被拦截。
