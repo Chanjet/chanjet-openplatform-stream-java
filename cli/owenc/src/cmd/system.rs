@@ -207,7 +207,12 @@ pub async fn reset(
 ) -> Result<()> {
     println!("Resetting profile '{}'...", _profile);
     
-    // Clear Vault if available
+    // 1. Stop daemon if running
+    if let Err(e) = crate::cmd::daemon::stop(_profile).await {
+        tracing::warn!(target: "sys", profile = %_profile, error = %e, "Failed to stop daemon during reset");
+    }
+
+    // 2. Clear Vault if available
     if let Some(v) = vault {
         if let Err(e) = v.clear(_profile) {
             eprintln!("⚠️ Warning: Failed to clear vault for profile '{}': {}", _profile, e);
