@@ -30,10 +30,27 @@ pub async fn list(profile: &str) -> Result<()> {
 
 pub async fn view(_profile: &str, domain: &str, follow: bool, lines: usize) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
-    let log_path = app_dir.join("logs").join(format!("{}.log", domain));
-
+    let log_dir = app_dir.join("logs");
+    
+    let log_path = log_dir.join(format!("{}.log", domain));
     if !log_path.exists() {
-        println!("❌ Log file not found: {:?}", log_path);
+        println!("❌ Log file not found: {}.log", domain);
+        
+        // List available files to help the user
+        if let Ok(entries) = std::fs::read_dir(log_dir) {
+            let available: Vec<String> = entries.filter_map(|e| {
+                let p = e.ok()?.path();
+                if p.extension()? == "log" {
+                    Some(p.file_stem()?.to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            }).collect();
+            
+            if !available.is_empty() {
+                println!("💡 Available domains/profiles: {}", available.join(", "));
+            }
+        }
         return Ok(());
     }
 

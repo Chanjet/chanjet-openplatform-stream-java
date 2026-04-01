@@ -207,7 +207,7 @@ pub enum LogCommands {
     List,
     /// 在终端实时查看并追踪指定 domain 的日志
     View {
-        #[arg(help = "日志域名 (sys, audit, stream, dlq)", default_value = "sys")]
+        #[arg(help = "日志域: sys (系统), audit (审计), stream (流转), dlq (死信)", default_value = "sys")]
         domain: String,
         /// 是否开启实时追踪模式 (等同于 tail -f)
         #[arg(short, long)]
