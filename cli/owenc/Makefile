@@ -94,24 +94,24 @@ package-mac-x64: clean build-mac-intel
 
 package-win64: clean build-win64
 	@echo "🪟 Packaging for Windows..."
-	cp ../../dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x64/
-	cp ../../dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x64/README.txt
+	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x64/
+	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x64/README.txt
 	cd $(OUTPUT_DIR)/windows-x64 && zip -r owenc-windows-x64.zip owenc.exe install.ps1 README.txt
 	@md5 -q $(OUTPUT_DIR)/windows-x64/owenc-windows-x64.zip > $(OUTPUT_DIR)/windows-x64/owenc-windows-x64.zip.md5
 	@echo "✅ Windows Package created: $(OUTPUT_DIR)/windows-x64/owenc-windows-x64.zip"
 
 package-linux-x64: clean build-linux-x64
 	@echo "🐧 Packaging for Linux x64..."
-	cp ../../dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x64/
-	cp ../../dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x64/README.txt
+	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x64/
+	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x64/README.txt
 	cd $(OUTPUT_DIR)/linux-x64 && tar -czf owenc-linux-x64.tar.gz owenc install.sh README.txt
 	@md5 -q $(OUTPUT_DIR)/linux-x64/owenc-linux-x64.tar.gz > $(OUTPUT_DIR)/linux-x64/owenc-linux-x64.tar.gz.md5
 	@echo "✅ Linux x64 Package created: $(OUTPUT_DIR)/linux-x64/owenc-linux-x64.tar.gz"
 
 package-linux-arm64: clean build-linux-arm64
 	@echo "🐧 Packaging for Linux ARM64..."
-	cp ../../dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-arm64/
-	cp ../../dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-arm64/README.txt
+	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-arm64/
+	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-arm64/README.txt
 	cd $(OUTPUT_DIR)/linux-arm64 && tar -czf owenc-linux-arm64.tar.gz owenc install.sh README.txt
 	@md5 -q $(OUTPUT_DIR)/linux-arm64/owenc-linux-arm64.tar.gz > $(OUTPUT_DIR)/linux-arm64/owenc-linux-arm64.tar.gz.md5
 	@echo "✅ Linux ARM64 Package created: $(OUTPUT_DIR)/linux-arm64/owenc-linux-arm64.tar.gz"
