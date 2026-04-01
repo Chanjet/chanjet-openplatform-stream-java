@@ -266,10 +266,16 @@ async fn run() -> Result<()> {
     }
 
     // 2. Initialize Auth
-    let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
-    let auth_cli = crate::auth::AuthClient::new(&token_pool);
+    let pool = crate::auth::VaultTokenPool::new(vault.clone());
+    let auth_cli = crate::auth::AuthClient::new(&pool);
 
-    // 3. Execute Command
+    // 4. Automatic Shell Completion Installation (One-time check)
+    if crate::cmd::completion::is_auto_install_needed() {
+        // Silently try to install. Don't block if it fails.
+        let _ = crate::cmd::completion::install_completion(None);
+    }
+
+    // 5. Execute Command
     match &cli.command {
         Commands::Init { 
             app_key, 

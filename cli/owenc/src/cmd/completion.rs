@@ -67,7 +67,15 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
         _ => {}
     }
 
+    // Mark as installed
+    let _ = fs::write(app_dir.join(".completion_installed"), "");
+
     Ok(())
+}
+
+pub fn is_auto_install_needed() -> bool {
+    let app_dir = crate::core::config::get_app_dir();
+    !app_dir.join(".completion_installed").exists()
 }
 
 fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::Shell) {
