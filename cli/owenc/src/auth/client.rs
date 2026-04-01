@@ -12,6 +12,7 @@ pub trait Client {
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
     async fn trigger_push(&self, profile: &str, cfg: &Config) -> Result<()>;
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value>;
+    async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value>;
     async fn clear_token(&self, profile: &str) -> Result<()>;
 }
 
@@ -227,7 +228,7 @@ impl<'a> Client for AuthClient<'a> {
             return Ok(spec);
         }
 
-        // 3. No Cache: Must Pull or Fallback to Mock
+        // 3. No Cache: Must Pull Spec
         if !cfg.openapi_url.is_empty() {
             let spec_url = format!("{}/v1/common/openapi/spec", cfg.openapi_url.trim_end_matches('/'));
              if let Ok(token) = self.get_app_access_token(profile, cfg).await {
@@ -246,10 +247,72 @@ impl<'a> Client for AuthClient<'a> {
             }
         }
 
-        // Ultimate Fallback to Mock (Development Artifact)
+        // 4. Pull Spec Failed: Try Dynamic Interface List (SYKFPT-1067 Patch)
+        println!("⚠️  Full OpenAPI spec unavailable. Attempting to fetch authorized interface list...");
+        match self.get_dynamic_interface_list(profile, cfg).await {
+            Ok(dynamic_spec) => {
+                let _ = self.save_spec_to_cache(&cache_path, &dynamic_spec);
+                return Ok(dynamic_spec);
+            }
+            Err(e) => {
+                tracing::warn!(target: "sys", "Failed to fetch dynamic interface list: {}", e);
+            }
+        }
+
+        // 5. Ultimate Fallback to Mock (Development Artifact)
         let spec = Self::generate_mock_spec();
         let _ = self.save_spec_to_cache(&cache_path, &spec);
         Ok(spec)
+    }
+
+    async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value> {
+        let token = self.get_app_access_token(profile, cfg).await?;
+        let url = format!("{}/developer/api/apiPermissions/isv/open/getInterfaceList?size=100", cfg.openapi_url.trim_end_matches('/'));
+        
+        tracing::info!(target: "sys", "Fetching dynamic interface list from {}", url);
+        
+        let resp = self.http.get(&url)
+            .header("openToken", token.value)
+            .header("appKey", &cfg.app_key)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Err(anyhow!("Failed to fetch interface list: HTTP {}", resp.status()));
+        }
+
+        let body: serde_json::Value = resp.json().await?;
+        
+        // Transform the platform response into a minimal OpenAPI paths structure
+        let mut paths = serde_json::Map::new();
+        
+        if let Some(list) = body.get("value").and_then(|v| v.get("list")).and_then(|l| l.as_array()) {
+            for item in list {
+                let path = item.get("interfaceUrl").and_then(|v| v.as_str()).unwrap_or("");
+                let name = item.get("interfaceName").and_then(|v| v.as_str()).unwrap_or("No Name");
+                let method = item.get("httpMethod").and_then(|v| v.as_str()).unwrap_or("GET").to_lowercase();
+                
+                if !path.is_empty() {
+                    let mut methods_obj = serde_json::Map::new();
+                    methods_obj.insert(method, serde_json::json!({
+                        "summary": name,
+                        "description": format!("Authorized Interface: {}", name),
+                        "responses": { "200": { "description": "OK" } }
+                    }));
+                    paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
+                }
+            }
+        }
+
+        Ok(serde_json::json!({
+            "openapi": "3.0.0",
+            "info": {
+                "title": "Authorized Interface List",
+                "version": "1.0.0",
+                "description": "Generated from platform authorization API."
+            },
+            "paths": paths
+        }))
     }
 }
 
