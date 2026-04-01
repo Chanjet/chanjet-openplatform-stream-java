@@ -71,14 +71,15 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
 }
 
 fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::Shell) {
+    let script_path_str = script_path.display().to_string();
     let source_cmd = if shell == clap_complete::Shell::Zsh {
         format!(
-            "\n# owenc autocomplete\nif [ -f {} ]; then\n    type compdef >/dev/null 2>&1 || {{ autoload -Uz compinit; compinit; }}\n    source {}\nfi\n",
-            script_path.display(),
-            script_path.display()
+            "\n# owenc autocomplete\nif [ -f \"{}\" ]; then\n    type compdef >/dev/null 2>&1 || {{ autoload -Uz compinit; compinit; }}\n    source \"{}\"\n    compdef _owenc owenc 2>/dev/null\n    compdef _owenc ./owenc 2>/dev/null\nfi\n",
+            script_path_str,
+            script_path_str
         )
     } else {
-        format!("\n# owenc autocomplete\n[ -f {} ] && source {}\n", script_path.display(), script_path.display())
+        format!("\n# owenc autocomplete\n[ -f \"{}\" ] && source \"{}\"\n", script_path_str, script_path_str)
     };
     
     if rc_path.exists() {
