@@ -17,20 +17,23 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
 
     let mut guards = Vec::new();
 
-    // 2. Prepare EnvFilter
-    // We want internal tracing (audit, stream, dlq) to ALWAYS be at least INFO for traceability,
-    // while owenc/sys/sdk follow the user-provided log_level (which defaults to ERROR for console).
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(format!(
-            "warn,owenc={},connector_sdk={},sys={},audit=info,stream=info,dlq=info", 
-            log_level, log_level, log_level
-        )));
+    // 2. Prepare Filters
+    // Global filter allows INFO for all internal targets to ensure they reach file layers for traceability.
+    let global_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("warn,owenc=info,connector_sdk=info,sys=info,audit=info,stream=info,dlq=info"));
+
+    // Console specific filter follows the user-provided log_level (defaults to ERROR).
+    let console_filter = EnvFilter::new(format!(
+        "warn,owenc={},connector_sdk={},sys={},audit={},stream={},dlq={}",
+        log_level, log_level, log_level, log_level, log_level, log_level
+    ));
 
     // 3. Setup Console Layer
     let console_layer = fmt::layer()
         .with_target(false)
         .with_ansi(true)
-        .with_writer(std::io::stderr);
+        .with_writer(std::io::stderr)
+        .with_filter(console_filter);
 
     // 4. Determine Rotation setting
     let rotation = if config.max_size_mb > 0 {
@@ -45,7 +48,7 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
 
     // 5. Initialize global subscriber with domain-specific layers
     let registry = tracing_subscriber::registry()
-        .with(filter)
+        .with(global_filter)
         .with(console_layer);
 
     // Helper macro to create and add a domain layer
