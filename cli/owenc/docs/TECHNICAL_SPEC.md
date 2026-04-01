@@ -4,18 +4,92 @@
 
 `owenc` 采用分层解耦的插件化架构，确保安全性、可扩展性与高性能。
 
-### 1.1 存储层 (Storage Layer)
+### 1.1 模块依赖关系 (Module Dependencies)
+
+```mermaid
+graph TD
+    subgraph "Application Layer"
+        Main[main.rs / run] --> CmdApi[cmd/api]
+        Main --> CmdAuth[cmd/auth]
+        Main --> CmdDaemon[cmd/daemon]
+        Main --> CmdInit[cmd/init]
+    end
+
+    subgraph "Service Layer"
+        CmdApi --> AuthCli[AuthClient]
+        CmdAuth --> AuthCli
+        CmdDaemon --> GatewaySDK[connector-sdk]
+        CmdDaemon --> Proxy[Local Proxy Server]
+        CmdDaemon --> Forwarder[Forwarder]
+        Forwarder --> DLQ[DlqStore]
+    end
+
+    subgraph "Core & Infrastructure"
+        AuthCli --> TokenPool[VaultTokenPool]
+        TokenPool --> Vault[MultiVault]
+        Vault --> Security[Machine Fingerprint]
+        Proxy --> Vault
+        Proxy --> AuthCli
+        Main --> ConfigMgr[ConfigManager]
+    end
+```
+
+### 1.2 核心类图 (Class Diagram)
+
+```mermaid
+classDiagram
+    class Vault {
+        <<interface>>
+        +get(profile, key) String
+        +set(profile, key, secret)
+        +lock(profile) Guard
+    }
+    class MultiVault {
+        -PathBuf seal_path
+        -Vec~u8~ master_key
+        +new(path, key)
+    }
+    class TokenPool {
+        <<interface>>
+        +get_access_token(profile) Token
+        +set_access_token(profile, Token)
+        +clear_cache(profile)
+        +lock(profile) Guard
+    }
+    class VaultTokenPool {
+        -Arc~Vault~ v
+        -RwLock~HashMap~ tokens
+    }
+    class Client {
+        <<interface>>
+        +get_app_access_token(profile, cfg) Token
+        +refresh_app_access_token(profile, cfg) Token
+        +trigger_push(profile, cfg)
+    }
+    class AuthClient {
+        -TokenPool pool
+        -HttpClient http
+    }
+
+    Vault <|-- MultiVault : implements
+    TokenPool <|-- VaultTokenPool : implements
+    TokenPool o-- Vault : uses
+    Client <|-- AuthClient : implements
+    AuthClient o-- TokenPool : uses
+```
+
+### 1.3 存储层 (Storage Layer)
 - **ConfigManager**: 管理基于 Profile 的 YAML 配置文件（存储在 `~/.owenc/*.yaml`）。
 - **Vault (MultiVault)**: 安全加密存储层。使用 **AES-256-GCM** 加密敏感凭据（AppSecret, Certificate, Token）。加密密钥派生自机器唯一指纹，确保凭据无法在机器间拷贝使用。
 - **TokenPool**: 令牌池抽象，负责 AccessToken 和 AppTicket 的内存缓存与 Vault 持久化同步，支持多进程并发锁。
 
-### 1.2 认证层 (Auth Layer)
+### 1.4 认证层 (Auth Layer)
 - **AuthClient**: 封装开放平台认证协议。
   - 支持 **被动刷新**（调用 API 时发现过期自动换票）。
   - 支持 **主动刷新**（接收到 AppTicket 推送时即时换票）。
   - 实现 **10% 提前过期逻辑**：本地缓存有效期比服务器短 10%（至少 5 分钟），确保令牌在临界点前的稳定性。
 
-### 1.3 守护进程层 (Daemon Layer)
+### 1.5 守护进程层 (Daemon Layer)
 - **Dispatcher**: 基于 WebSocket 的长连接管理，监听平台推送事件。
 - **Forwarder**: 事件转发器，将云端消息可靠转发至本地 Webhook，内置 **DLQ (死信队列)** 补偿机制。
 - **Local Proxy**: 本地 127.0.0.1 代理服务器，自动为普通 HTTP 请求注入认证头和签名。
@@ -98,7 +172,7 @@ sequenceDiagram
 ### 2.5 API 调用预校验
 所有 `api call` 命令在发起请求前均会执行：
 1. **白名单检查**：校验 Path 是否在加载的 OpenAPI 规约范围内。
-2. **规约校验**：根据 OpenAPI 定义，强制检查必填的 Query 参数和 Request Body，非法请求在到达网络层前即被拦截。
+2. **规约校验**：根据 OpenAPI 定义，强制检查必填的 Query 参数 and Request Body，非法请求在到达网络层前即被拦截。
 
 ---
 
