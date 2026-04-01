@@ -35,6 +35,18 @@ build-win64:
 	cp target/x86_64-pc-windows-gnu/release/owenc.exe $(OUTPUT_DIR)/windows/$(BINARY).exe
 	@echo "✅ Windows Build complete: $(OUTPUT_DIR)/windows/$(BINARY).exe"
 
+package-mac: build
+	@echo "🍎 Packaging for macOS..."
+	mkdir -p pkg_root/usr/local/bin
+	cp $(OUTPUT_DIR)/$(BINARY) pkg_root/usr/local/bin/
+	pkgbuild --identifier com.chanjet.owenc \
+	         --version 0.1.2 \
+	         --root pkg_root \
+	         --install-location / \
+	         $(OUTPUT_DIR)/owenc-macos-installer.pkg
+	rm -rf pkg_root
+	@echo "✅ macOS Installer created: $(OUTPUT_DIR)/owenc-macos-installer.pkg"
+
 test:
 	cargo test
 
