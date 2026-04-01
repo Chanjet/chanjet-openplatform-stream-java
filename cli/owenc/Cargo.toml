@@ -17,13 +17,14 @@ connector-sdk = { path = "../../sdk/rust" }
 
 # Async & Networking
 tokio = { version = "1.34", features = ["full"] }
-reqwest = { version = "0.11", features = ["json", "blocking"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "blocking", "rustls-tls-native-roots"] }
 async-trait = "0.1"
 anyhow = "1.0"
 thiserror = "1.0"
+tokio-tungstenite = { version = "0.21", default-features = false, features = ["rustls-tls-native-roots", "connect", "handshake"] }
 
 # Auth & Crypto
-keyring = "2.0"
+keyring = { version = "2.3", default-features = false }
 aes-gcm = "0.10"
 sha2 = "0.10"
 base64 = "0.21"
@@ -44,9 +45,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
 logroller = "0.1"
 tracing-appender = "0.2"
-axum = "0.8.8"
+axum = { version = "0.8.8", default-features = false, features = ["json", "tokio", "http1", "http2"] }
 tower = "0.5.3"
-hyper = { version = "1.8.1", features = ["full"] }
+hyper = { version = "1.8.1", default-features = false, features = ["full"] }
+hyper-rustls = { version = "0.24", default-features = false, features = ["rustls-native-certs", "http1", "http2", "logging"] }
 
 [features]
 default = ["ai"]
