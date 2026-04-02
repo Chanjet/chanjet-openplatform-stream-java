@@ -16,6 +16,8 @@ use crate::auth::models::Ticket;
 use chrono::Utc;
 use sysinfo::{System, SystemExt, ProcessExt, PidExt};
 
+use std::io::IsTerminal;
+
 pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: bool) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
@@ -24,11 +26,9 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         // PARENT PROCESS: Launch detached child
         let exe = std::fs::canonicalize(env::current_exe()?)?;
         
-        // Use a temporary boot log to catch early errors
-        let boot_log = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(app_dir.join("logs").join("boot.log"))?;
+        let boot_log_path = app_dir.join("logs").join("boot.log");
+        let _ = fs::create_dir_all(boot_log_path.parent().unwrap());
+        let boot_log = fs::OpenOptions::new().create(true).append(true).open(&boot_log_path)?;
 
         let child = Command::new(&exe)
             .arg("--profile")
@@ -46,14 +46,16 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             .spawn()?;
 
         let pid = child.id();
-        fs::write(&pid_file, pid.to_string())?;
-
         println!("🚀 Stream Bridge daemon launched in background (PID: {}).", pid);
         return Ok(());
     }
 
     // --- CHILD PROCESS LOGIC ---
-    tracing::info!(target: "sys", "Daemon core logic starting for profile: {}", profile);
+    // 1. CRITICAL: Write REAL child PID immediately
+    let pid = std::process::id();
+    fs::write(&pid_file, pid.to_string())?;
+    
+    tracing::info!(target: "sys", "Daemon core logic starting for profile: {} (PID: {})", profile, pid);
 
     let options = ClientOptions {
         app_key: config.app_key.clone(),
@@ -62,7 +64,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         gateway_url: config.stream_url.clone(),
     };
 
-    let client = GatewayClient::new(options);
+    let client = Arc::new(GatewayClient::new(options));
 
     let fingerprint = security::get_machine_fingerprint()?;
     let seal_path = app_dir.join(".seal");
@@ -140,11 +142,11 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     }
 
     // 2. Task: Stream Bridge
+    let stream_client = client.clone();
     let stream_task = tokio::spawn(async move {
-        match client.start().await {
+        match stream_client.start().await {
             Ok(_) => {
                 tracing::info!(target: "sys", "Stream Bridge started. Entering message loop...");
-                // Keep the task alive as long as the client is running
                 std::future::pending::<()>().await;
             }
             Err(e) => {
@@ -160,18 +162,28 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     // 4. WAIT FOR ANY TASK OR SIGNAL
     tracing::info!(target: "sys", "All daemon tasks initialized. Entering watchdog mode.");
     
-    tokio::select! {
-        _ = proxy_task => tracing::error!(target: "sys", "Proxy task exited unexpectedly"),
-        _ = stream_task => tracing::error!(target: "sys", "Stream task exited unexpectedly"),
-        _ = wait_for_termination() => tracing::info!(target: "sys", "Termination signal received"),
+    if std::io::stdout().is_terminal() {
+        println!("🚀 Stream Bridge running in foreground. Press Ctrl+C to stop.");
+        tokio::select! {
+            _ = proxy_task => tracing::error!(target: "sys", "Proxy task exited unexpectedly"),
+            _ = stream_task => tracing::error!(target: "sys", "Stream task exited unexpectedly"),
+            _ = signal::ctrl_c() => tracing::info!(target: "sys", "Interrupted by user"),
+        }
+    } else {
+        // Background child process: Entering persistent loop
+        tracing::info!(target: "sys", "Daemon running in managed background mode. Entering persistent loop...");
+        tokio::select! {
+            _ = proxy_task => tracing::error!(target: "sys", "Proxy task exited unexpectedly"),
+            _ = stream_task => tracing::error!(target: "sys", "Stream task exited unexpectedly"),
+            _ = wait_for_termination() => tracing::info!(target: "sys", "Termination signal received"),
+        }
     }
 
     tracing::info!(target: "sys", "Daemon process shutting down...");
+    client.stop();
     let _ = fs::remove_file(pid_file);
     Ok(())
 }
-
-use std::io::IsTerminal;
 
 async fn wait_for_termination() {
     #[cfg(unix)]
