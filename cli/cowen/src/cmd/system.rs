@@ -130,8 +130,8 @@ pub async fn status(
                 if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
                     let cmdline = process.cmd().join(" ");
                     let name = process.name().to_lowercase();
-                    // Match if name contains 'cowen' (base identity) OR command line contains 'daemon'
-                    if name.contains("cowen") || cmdline.contains("daemon") {
+                    // Match if name contains base package name OR command line contains 'daemon'
+                    if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
                         found_daemon_pid = Some(pid_val);
                     }
                 }

@@ -114,7 +114,7 @@ impl ConfigManager {
 pub fn get_app_dir() -> PathBuf {
     let home = directories::UserDirs::new().expect("Could not find home directory");
     let dir_name = std::env::var("APP_DIR_NAME")
-        .unwrap_or_else(|_| option_env!("APP_DIR_NAME").unwrap_or(".cowen").to_string());
+        .unwrap_or_else(|_| option_env!("APP_DIR_NAME").map(|s| s.to_string()).unwrap_or_else(|| format!(".{}", env!("CARGO_PKG_NAME"))));
     
     home.home_dir().join(dir_name)
 }

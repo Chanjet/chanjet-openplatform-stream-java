@@ -48,7 +48,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy
 
         child_cmd.arg("--foreground") // Child logic
             // EXPLICITLY PASS IDENTITY via environment to ensure child knows its home
-            .env("APP_DIR_NAME", option_env!("APP_DIR_NAME").unwrap_or(".cowen"))
+            .env("APP_DIR_NAME", option_env!("APP_DIR_NAME").unwrap_or_else(|| concat!(".", env!("CARGO_PKG_NAME"))))
             .env("CARGO_BIN_NAME_OVERRIDE", crate::core::utils::get_bin_name())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
