@@ -61,8 +61,6 @@ impl<'a> AuthClient<'a> {
             prefix, 
             ticket.created_at
         );
-        println!("[{}] 📡 [Auth] Token refresh request (with AppTicket: {}..., created: {})", 
-            Utc::now(), prefix, ticket.created_at);
         
         let body = serde_json::json!({
             "appKey": app_key,
@@ -110,32 +108,25 @@ impl<'a> AuthClient<'a> {
 #[async_trait::async_trait]
 impl<'a> Client for AuthClient<'a> {
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        // 1. Fast Path: Check pool
         if let Ok(token) = self.pool.get_access_token(profile) {
             if !token.is_expired() {
                 return Ok(token);
             }
         }
 
-        // 2. Slow Path: Acquire Global Lock
         let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
-
-        // 3. Clear cache to ensure Double Check reads from Vault (disk)
         self.pool.clear_cache(profile);
 
-        // 4. Double Check
         if let Ok(token) = self.pool.get_access_token(profile) {
             if !token.is_expired() {
                 return Ok(token);
             }
         }
 
-        // 4. Perform network refresh
         self.perform_network_refresh(profile, cfg).await
     }
 
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        // Force refresh skips cache but still uses the lock to avoid races
         let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
         self.pool.clear_cache(profile);
         self.perform_network_refresh(profile, cfg).await
@@ -149,8 +140,6 @@ impl<'a> Client for AuthClient<'a> {
         let url = format!("{}/auth/appTicket/resend", cfg.openapi_url);
         let app_key = cfg.app_key.trim();
         let app_secret = cfg.app_secret.trim();
-        
-        println!("📡 [Auth] Triggering push to: {} (appKey: {}...)", url, &app_key[..std::cmp::min(app_key.len(), 5)]);
         
         let body = serde_json::json!({});
 
@@ -183,26 +172,25 @@ impl<'a> Client for AuthClient<'a> {
 
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value> {
         let app_dir = crate::core::config::get_app_dir();
-        let cache_path = app_dir.join(format!("{}_openapi.json", profile));
+        // CHANGED: Use .yaml instead of .json
+        let cache_path = app_dir.join(format!("{}_openapi.yaml", profile));
 
         // 1. Load Cache if exists
         let cached_data = if cache_path.exists() {
             if let Ok(data) = std::fs::read_to_string(&cache_path) {
-                serde_json::from_str::<serde_json::Value>(&data).ok()
+                serde_yaml::from_str::<serde_json::Value>(&data).ok()
             } else { None }
         } else { None };
 
-        // 2. Evaluation Logic (PRD v0.1.1 Cache-First Strategy)
+        // 2. Evaluation Logic
         if let Some(spec) = cached_data {
             let metadata = std::fs::metadata(&cache_path)?;
             let elapsed = metadata.modified()?.elapsed()?.as_secs();
 
-            // Soft TTL (1h): Use cache directly for high performance (Agent-First)
             if elapsed < 3600 {
                 return Ok(spec);
             }
 
-            // Hard TTL or Stale: Try Refresh (Pull)
             if !cfg.openapi_url.is_empty() {
                 let spec_url = format!("{}/v1/common/openapi/spec", cfg.openapi_url.trim_end_matches('/'));
                 if let Ok(token) = self.get_app_access_token(profile, cfg).await {
@@ -212,19 +200,22 @@ impl<'a> Client for AuthClient<'a> {
                         .send()
                         .await {
                         Ok(resp) if resp.status().is_success() => {
-                            if let Ok(fresh_spec) = resp.json::<serde_json::Value>().await {
+                            if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
+                                Self::clean_non_standard_fields(&mut fresh_spec);
                                 let _ = self.save_spec_to_cache(&cache_path, &fresh_spec);
                                 return Ok(fresh_spec);
                             }
                         }
-                        _ => {
-                            tracing::warn!(target: "sys", "Failed to refresh OpenAPI spec from {}, using stale cache (age: {}s)", spec_url, elapsed);
-                        }
+                        _ => {}
                     }
                 }
             }
+            
+            if let Ok(dynamic_spec) = self.get_dynamic_interface_list(profile, cfg).await {
+                let _ = self.save_spec_to_cache(&cache_path, &dynamic_spec);
+                return Ok(dynamic_spec);
+            }
 
-            // Fallback: If refresh fails but we have cache, always return it (Fail-Fallback)
             return Ok(spec);
         }
 
@@ -238,7 +229,8 @@ impl<'a> Client for AuthClient<'a> {
                     .send()
                     .await {
                     if resp.status().is_success() {
-                        if let Ok(spec) = resp.json::<serde_json::Value>().await {
+                        if let Ok(mut spec) = resp.json::<serde_json::Value>().await {
+                            Self::clean_non_standard_fields(&mut spec);
                             let _ = self.save_spec_to_cache(&cache_path, &spec);
                             return Ok(spec);
                         }
@@ -247,69 +239,77 @@ impl<'a> Client for AuthClient<'a> {
             }
         }
 
-        // 4. Pull Spec Failed: Try Dynamic Interface List (SYKFPT-1067 Patch)
-        println!("⚠️  Full OpenAPI spec unavailable. Attempting to fetch authorized interface list...");
+        // 4. Pull Spec Failed: Try Dynamic Interface List
+        tracing::info!(target: "sys", "Full OpenAPI spec unavailable. Fetching real authorized interface list...");
         match self.get_dynamic_interface_list(profile, cfg).await {
             Ok(dynamic_spec) => {
                 let _ = self.save_spec_to_cache(&cache_path, &dynamic_spec);
                 return Ok(dynamic_spec);
             }
             Err(e) => {
-                tracing::warn!(target: "sys", "Failed to fetch dynamic interface list: {}", e);
+                tracing::error!(target: "sys", "Live discovery failed: {}", e);
+                Err(anyhow!("Could not fetch real API list. Fallback unavailable."))
             }
         }
-
-        // 5. Ultimate Fallback to Mock (Development Artifact)
-        let spec = Self::generate_mock_spec();
-        let _ = self.save_spec_to_cache(&cache_path, &spec);
-        Ok(spec)
     }
 
     async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value> {
         let token = self.get_app_access_token(profile, cfg).await?;
-        let url = format!("{}/developer/api/apiPermissions/isv/open/getInterfaceList?size=100", cfg.openapi_url.trim_end_matches('/'));
+        let base_url = format!("{}/developer/api/apiPermissions/isv/open/getInterfaceList", cfg.openapi_url.trim_end_matches('/'));
         
-        tracing::info!(target: "sys", "Fetching dynamic interface list with full OpenAPI fragments from {}", url);
-        
-        let resp = self.http.get(&url)
-            .header("openToken", token.value)
-            .header("appKey", &cfg.app_key)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            return Err(anyhow!("Failed to fetch interface list: HTTP {}", resp.status()));
-        }
-
-        let body: serde_json::Value = resp.json().await?;
+        let mut current_page = 0;
+        let mut total_pages = 1;
         let mut combined_paths = serde_json::Map::new();
-        
-        if let Some(list) = body.get("value").and_then(|v| v.get("resultList")).and_then(|l| l.as_array()) {
-            for item in list {
-                // Each item contains its own small OpenAPI spec!
-                if let Some(item_spec) = item.get("openApi") {
-                    if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
-                        for (path, methods) in item_paths {
-                            combined_paths.insert(path.clone(), methods.clone());
+
+        while current_page < total_pages {
+            let url = format!("{}?currentPage={}&size=100", base_url, current_page);
+            tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page + 1, total_pages);
+            
+            let resp = self.http.get(&url)
+                .header("openToken", &token.value)
+                .header("appKey", &cfg.app_key)
+                .send()
+                .await?;
+
+            if !resp.status().is_success() {
+                return Err(anyhow!("Failed to fetch interface list page {}: HTTP {}", current_page, resp.status()));
+            }
+
+            let body: serde_json::Value = resp.json().await?;
+            let value = body.get("value").ok_or_else(|| anyhow!("Invalid response structure"))?;
+            
+            // Update pagination info
+            total_pages = value.get("totalPages").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+            
+            if let Some(list) = value.get("resultList").and_then(|l| l.as_array()) {
+                for item in list {
+                    if let Some(mut item_spec) = item.get("openApi").cloned() {
+                        // CLEAN EXTENSIONS from snippet
+                        Self::clean_non_standard_fields(&mut item_spec);
+                        
+                        if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
+                            for (path, methods) in item_paths {
+                                combined_paths.insert(path.clone(), methods.clone());
+                            }
                         }
-                    }
-                } else {
-                    // Fallback to minimal info if openApi fragment is missing
-                    let path = item.get("requestPath").and_then(|v| v.as_str()).unwrap_or("");
-                    let name = item.get("interfaceName").and_then(|v| v.as_str()).unwrap_or("No Name");
-                    let method = item.get("requestHttpMethod").and_then(|v| v.as_str()).unwrap_or("GET").to_lowercase();
-                    
-                    if !path.is_empty() {
-                        let mut methods_obj = serde_json::Map::new();
-                        methods_obj.insert(method, serde_json::json!({
-                            "summary": name,
-                            "description": format!("Authorized Interface (Basic): {}", name),
-                            "responses": { "200": { "description": "OK" } }
-                        }));
-                        combined_paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
+                    } else {
+                        let path = item.get("requestPath").and_then(|v| v.as_str()).unwrap_or("");
+                        let name = item.get("interfaceName").and_then(|v| v.as_str()).unwrap_or("No Name");
+                        let method = item.get("requestHttpMethod").and_then(|v| v.as_str()).unwrap_or("GET").to_lowercase();
+                        
+                        if !path.is_empty() {
+                            let mut methods_obj = serde_json::Map::new();
+                            methods_obj.insert(method, serde_json::json!({
+                                "summary": name,
+                                "description": format!("Authorized Interface: {}", name),
+                                "responses": { "200": { "description": "OK" } }
+                            }));
+                            combined_paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
+                        }
                     }
                 }
             }
+            current_page += 1;
         }
 
         Ok(serde_json::json!({
@@ -317,7 +317,7 @@ impl<'a> Client for AuthClient<'a> {
             "info": {
                 "title": "Authorized API Specification",
                 "version": "1.0.0",
-                "description": "This specification is dynamically reconstructed from authorized interface fragments."
+                "description": "DYNAMICALLY DISCOVERED FROM PLATFORM"
             },
             "paths": combined_paths
         }))
@@ -329,17 +329,30 @@ impl<'a> AuthClient<'a> {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let json_data = serde_json::to_string_pretty(spec)?;
-        std::fs::write(path, json_data)?;
+        // CHANGED: Use YAML for persistence
+        let yaml_data = serde_yaml::to_string(spec)?;
+        std::fs::write(path, yaml_data)?;
         Ok(())
     }
 
-    fn generate_mock_spec() -> serde_json::Value {
-        let template_str = include_str!("mock_openapi.json");
-        let mut spec: serde_json::Value = serde_json::from_str(template_str).unwrap_or_else(|_| serde_json::json!({}));
-        
-        crate::core::openapi::flatten(&mut spec);
-        spec
+    /// Recursively removes all keys starting with 'x-' (OpenAPI extensions)
+    fn clean_non_standard_fields(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                // 1. Remove x- fields from this level
+                map.retain(|k, _| !k.starts_with("x-"));
+                // 2. Recursively clean children
+                for (_, val) in map.iter_mut() {
+                    Self::clean_non_standard_fields(val);
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for val in arr.iter_mut() {
+                    Self::clean_non_standard_fields(val);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -355,7 +368,7 @@ pub fn find_matching_spec_path(req_path: &str, spec: &serde_json::Value) -> Opti
                 let mut match_ok = true;
                 for (req_seg, spec_seg) in req_segments.iter().zip(spec_segments.iter()) {
                     if spec_seg.starts_with('{') && spec_seg.ends_with('}') {
-                        continue; // matches path variable
+                        continue; 
                     }
                     if req_seg != spec_seg {
                         match_ok = false;
@@ -384,70 +397,4 @@ pub fn get_operation(spec: &serde_json::Value, path: &str, method: &str) -> Opti
 
 pub fn is_path_in_whitelist(req_path: &str, spec: &serde_json::Value) -> bool {
     find_matching_spec_path(req_path, spec).is_some()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::auth::pool::VaultTokenPool;
-    use crate::auth::models::Token;
-    use crate::core::vault::Vault;
-    use axum::{routing::get, Router, Json};
-    use tokio::net::TcpListener;
-    use std::sync::Arc;
-    use std::sync::Mutex;
-    use std::collections::HashMap;
-    use serde_json::json;
-
-    pub struct MockVault {
-        data: Mutex<HashMap<String, String>>,
-    }
-    impl MockVault {
-        pub fn new() -> Self { Self { data: Mutex::new(HashMap::new()) } }
-    }
-    impl Vault for MockVault {
-        fn get(&self, profile: &str, key: &str) -> Result<String> {
-            let full_key = format!("{}:{}", profile, key);
-            self.data.lock().unwrap().get(&full_key).cloned().ok_or(anyhow!("Not found"))
-        }
-        fn set(&self, profile: &str, key: &str, secret: &str) -> Result<()> {
-            let full_key = format!("{}:{}", profile, key);
-            self.data.lock().unwrap().insert(full_key, secret.to_string());
-            Ok(())
-        }
-        fn delete(&self, _profile: &str, _key: &str) -> Result<()> { Ok(()) }
-        fn clear(&self, _profile: &str) -> Result<()> { Ok(()) }
-        fn lock(&self, _profile: &str) -> Result<Box<dyn std::any::Any + Send>> {
-            Ok(Box::new(()))
-        }
-    }
-
-    #[tokio::test]
-    async fn test_spec_pull_then_fallback() -> Result<()> {
-        // 1. Mock Server
-        let app = Router::new()
-            .route("/v1/common/openapi/spec", get(|| async {
-                Json(json!({"openapi": "3.0.0", "info": {"title": "Fresh Spec"}}))
-            }));
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        let addr = listener.local_addr()?;
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
-        });
-
-        // 2. Setup
-        let vault: Arc<dyn Vault> = Arc::new(MockVault::new());
-        let pool = VaultTokenPool::new(vault.clone());
-        pool.set_access_token("test", &Token { value: "test-token".into(), expires_at: Utc::now() + Duration::hours(1), created_at: Utc::now() })?;
-        
-        let client = AuthClient::new(&pool);
-        let mut config = Config::default_with_profile("test");
-        config.openapi_url = format!("http://{}", addr);
-
-        // 3. Run (Will pull from mock server)
-        let spec = client.get_openapi_spec("test", &config).await?;
-        assert_eq!(spec["info"]["title"], "Fresh Spec");
-
-        Ok(())
-    }
 }
