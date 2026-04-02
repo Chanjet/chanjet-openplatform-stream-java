@@ -26,12 +26,8 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         // PARENT PROCESS: Launch detached child
         let exe = std::fs::canonicalize(env::current_exe()?)?;
         
-        let boot_log_path = app_dir.join("logs").join("boot.log");
-        let _ = fs::create_dir_all(boot_log_path.parent().unwrap());
-        let boot_log = fs::OpenOptions::new().create(true).append(true).open(&boot_log_path)?;
-
-        let child = Command::new(&exe)
-            .arg("--profile")
+        let mut child_cmd = Command::new(&exe);
+        child_cmd.arg("--profile")
             .arg(profile)
             .arg("daemon")
             .arg("start")
@@ -41,11 +37,21 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             .env("APP_DIR_NAME", env!("APP_DIR_NAME"))
             .env("CARGO_BIN_NAME_OVERRIDE", env!("CARGO_BIN_NAME_OVERRIDE"))
             .stdin(Stdio::null())
-            .stdout(Stdio::from(boot_log.try_clone()?))
-            .stderr(Stdio::from(boot_log))
-            .spawn()?;
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
 
-        let pid = child.id();
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            child_cmd.process_group(0);
+        }
+
+        let spawned = child_cmd.spawn()?;
+        let pid = spawned.id();
+        
+        // Give the OS a tiny moment to stabilize the session
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        
         println!("🚀 Stream Bridge daemon launched in background (PID: {}).", pid);
         return Ok(());
     }
@@ -147,7 +153,6 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         match stream_client.start().await {
             Ok(_) => {
                 tracing::info!(target: "sys", "Stream Bridge started. Entering message loop...");
-                // Keep the task alive as long as the client is running
                 std::future::pending::<()>().await;
             }
             Err(e) => {
@@ -161,19 +166,18 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     let p_profile_task = profile.to_string();
     let p_config_task = config.clone();
     let maintenance_task = tokio::spawn(async move {
+        // Delay maintenance start to ensure core tasks are running
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let auth = AuthClient::new(p_pool_task.as_ref());
         loop {
             tracing::info!(target: "sys", "Running daemon credential maintenance check...");
             match auth.get_app_access_token(&p_profile_task, &p_config_task).await {
                 Ok(_) => tracing::info!(target: "sys", "Credential check: AccessToken is valid"),
                 Err(e) => {
-                    tracing::warn!(target: "sys", error = %e, "Credential check failed. Triggering platform push for new AppTicket...");
-                    if let Err(push_err) = auth.trigger_push(&p_profile_task, &p_config_task).await {
-                        tracing::error!(target: "sys", error = %push_err, "Failed to trigger emergency push during maintenance");
-                    }
+                    tracing::warn!(target: "sys", error = %e, "Credential check failed. Triggering platform push...");
+                    let _ = auth.trigger_push(&p_profile_task, &p_config_task).await;
                 }
             }
-            // Check every 1 hour
             tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
         }
     });
