@@ -34,8 +34,9 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             .arg("--proxy-port")
             .arg(proxy_port.to_string())
             .arg("--foreground") // Child logic
-            .env("APP_DIR_NAME", env!("APP_DIR_NAME"))
-            .env("CARGO_BIN_NAME_OVERRIDE", env!("CARGO_BIN_NAME_OVERRIDE"))
+            // EXPLICITLY PASS IDENTITY via environment to ensure child knows its home
+            .env("APP_DIR_NAME", option_env!("APP_DIR_NAME").unwrap_or(".cowen"))
+            .env("CARGO_BIN_NAME_OVERRIDE", crate::core::utils::get_bin_name())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -50,7 +51,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         let pid = spawned.id();
         
         // Give the OS a tiny moment to stabilize the session
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(200));
         
         println!("🚀 Stream Bridge daemon launched in background (PID: {}).", pid);
         return Ok(());
@@ -59,6 +60,9 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     // --- CHILD PROCESS LOGIC ---
     // 1. CRITICAL: Write REAL child PID immediately
     let pid = std::process::id();
+    // Double check we are in the right directory
+    tracing::info!(target: "sys", "Daemon starting in directory: {:?}", app_dir);
+    
     fs::write(&pid_file, pid.to_string())?;
     
     tracing::info!(target: "sys", "Daemon core logic starting for profile: {} (PID: {})", profile, pid);
@@ -166,7 +170,6 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     let p_profile_task = profile.to_string();
     let p_config_task = config.clone();
     let maintenance_task = tokio::spawn(async move {
-        // Delay maintenance start to ensure core tasks are running
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let auth = AuthClient::new(p_pool_task.as_ref());
         loop {

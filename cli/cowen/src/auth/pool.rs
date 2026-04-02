@@ -1,10 +1,8 @@
-use crate::core::vault::Vault;
+use anyhow::{Result, Context};
 use crate::auth::models::{Token, Ticket};
-use anyhow::Result;
-use std::sync::RwLock;
-use std::collections::HashMap;
-
+use crate::core::vault::Vault;
 use std::sync::Arc;
+use chrono::Utc;
 
 pub trait TokenPool: Send + Sync {
     fn get_app_ticket(&self, profile: &str) -> Result<Ticket>;
@@ -12,109 +10,75 @@ pub trait TokenPool: Send + Sync {
     fn get_access_token(&self, profile: &str) -> Result<Token>;
     fn set_access_token(&self, profile: &str, token: &Token) -> Result<()>;
     fn delete_access_token(&self, profile: &str) -> Result<()>;
-    #[allow(dead_code)]
-    fn delete_app_ticket(&self, profile: &str) -> Result<()>;
-    
-    /// Clear memory cache for a profile to force re-reading from Vault
     fn clear_cache(&self, profile: &str);
-    
-    /// Acquire a global lock for this profile (multi-process)
     fn lock(&self, profile: &str) -> Result<Box<dyn std::any::Any + Send>>;
-
-    /// Helper for downcasting
-    #[allow(dead_code)]
-    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 pub struct VaultTokenPool {
     v: Arc<dyn Vault>,
-    tickets: RwLock<HashMap<String, Ticket>>,
-    tokens: RwLock<HashMap<String, Token>>,
 }
 
 impl VaultTokenPool {
     pub fn new(v: Arc<dyn Vault>) -> Self {
-        Self {
-            v,
-            tickets: RwLock::new(HashMap::new()),
-            tokens: RwLock::new(HashMap::new()),
-        }
+        Self { v }
     }
 }
 
 impl TokenPool for VaultTokenPool {
-    fn clear_cache(&self, profile: &str) {
-        let mut tickets = self.tickets.write().unwrap();
-        tickets.remove(profile);
-        let mut tokens = self.tokens.write().unwrap();
-        tokens.remove(profile);
-    }
-
     fn get_app_ticket(&self, profile: &str) -> Result<Ticket> {
-        let tickets = self.tickets.read().unwrap();
-        if let Some(t) = tickets.get(profile) {
-            return Ok(t.clone());
-        }
-        drop(tickets);
-
         let val = self.v.get(profile, "app_ticket")?;
-        let t: Ticket = serde_json::from_str(&val)?;
-
-        let mut tickets = self.tickets.write().unwrap();
-        tickets.insert(profile.to_string(), t.clone());
-        Ok(t)
+        // For now, we don't have a reliable receive time in vault, so we use now as proxy
+        // Better: store as JSON in vault.
+        Ok(Ticket {
+            value: val,
+            created_at: Utc::now(),
+        })
     }
 
     fn set_app_ticket(&self, profile: &str, ticket: &Ticket) -> Result<()> {
-        let raw = serde_json::to_string(ticket)?;
-        self.v.set(profile, "app_ticket", &raw)?;
-
-        let mut tickets = self.tickets.write().unwrap();
-        tickets.insert(profile.to_string(), ticket.clone());
-        Ok(())
+        self.v.set(profile, "app_ticket", &ticket.value)
     }
 
     fn get_access_token(&self, profile: &str) -> Result<Token> {
-        let tokens = self.tokens.read().unwrap();
-        if let Some(t) = tokens.get(profile) {
-            return Ok(t.clone());
-        }
-        drop(tokens);
-
         let val = self.v.get(profile, "access_token")?;
-        let t: Token = serde_json::from_str(&val)?;
+        let exp_str = self.v.get(profile, "access_token_expires")?;
+        let created_str = self.v.get(profile, "access_token_created")?;
+        
+        let expires_at = chrono::DateTime::parse_from_rfc3339(&exp_str)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(|e| anyhow::anyhow!("Invalid expiry date: {}", e))?;
+            
+        let created_at = chrono::DateTime::parse_from_rfc3339(&created_str)
+            .map(|dt| dt.with_timezone(&Utc))
+            .map_err(|e| anyhow::anyhow!("Invalid created date: {}", e))?;
 
-        let mut tokens = self.tokens.write().unwrap();
-        tokens.insert(profile.to_string(), t.clone());
-        Ok(t)
+        Ok(Token {
+            value: val,
+            expires_at,
+            created_at,
+        })
     }
 
     fn set_access_token(&self, profile: &str, token: &Token) -> Result<()> {
-        let raw = serde_json::to_string(token)?;
-        self.v.set(profile, "access_token", &raw)?;
-
-        let mut tokens = self.tokens.write().unwrap();
-        tokens.insert(profile.to_string(), token.clone());
+        self.v.set(profile, "access_token", &token.value)?;
+        self.v.set(profile, "access_token_expires", &token.expires_at.to_rfc3339())?;
+        self.v.set(profile, "access_token_created", &token.created_at.to_rfc3339())?;
         Ok(())
     }
 
     fn delete_access_token(&self, profile: &str) -> Result<()> {
-        let mut tokens = self.tokens.write().unwrap();
-        tokens.remove(profile);
-        self.v.delete(profile, "access_token")
+        let _ = self.v.delete(profile, "access_token");
+        let _ = self.v.delete(profile, "access_token_expires");
+        let _ = self.v.delete(profile, "access_token_created");
+        Ok(())
     }
 
-    fn delete_app_ticket(&self, profile: &str) -> Result<()> {
-        let mut tickets = self.tickets.write().unwrap();
-        tickets.remove(profile);
-        self.v.delete(profile, "app_ticket")
+    fn clear_cache(&self, _profile: &str) {
+        // MultiVault doesn't have an internal cache that needs clearing yet
     }
 
     fn lock(&self, profile: &str) -> Result<Box<dyn std::any::Any + Send>> {
-        self.v.lock(profile)
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+        let file = self.v.lock(profile)?;
+        Ok(Box::new(file))
     }
 }
