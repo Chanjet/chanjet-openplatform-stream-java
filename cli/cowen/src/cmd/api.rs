@@ -387,7 +387,8 @@ pub async fn spec(
         let filtered_params: Vec<&serde_json::Value> = params.iter()
             .filter(|p| {
                 let name = p["name"].as_str().unwrap_or("-");
-                name != "appKey" && name != "appSecret" && name != "openToken" && name != "accessToken" && name != "timestamp" && name != "nonce" && name != "sign"
+                let n = name.to_lowercase();
+                n != "appkey" && n != "appsecret" && n != "opentoken" && n != "accesstoken" && n != "timestamp" && n != "nonce" && n != "sign" && n != "content-type"
             })
             .collect();
 
@@ -467,7 +468,7 @@ fn generate_usage_example(method: &str, path: &str, op: &serde_json::Value) -> S
         }
     }
 
-    let mut parts = vec![format!("./owenc api {} \"{}\"", method.to_lowercase(), final_path)];
+    let mut parts = vec![format!("{} api {} \"{}\"", crate::core::utils::get_bin_name(), method.to_lowercase(), final_path)];
     
     if let Some(body) = op.get("requestBody") {
         if let Some(content_map) = body.get("content").and_then(|c| c.as_object()) {
