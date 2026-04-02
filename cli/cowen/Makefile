@@ -51,7 +51,7 @@ build-win64:
 
 build-linux-x64:
 	@echo "🐧 Building for Linux Intel (x86_64) [CORE VERSION]..."
-	APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	cargo zigbuild --release --target x86_64-unknown-linux-musl --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-x64
 	cp target/x86_64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-x64/$(BINARY)
@@ -60,7 +60,7 @@ build-linux-x64:
 
 build-linux-arm64:
 	@echo "🐧 Building for Linux ARM64 [CORE VERSION]..."
-	APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-arm64
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-arm64/$(BINARY)

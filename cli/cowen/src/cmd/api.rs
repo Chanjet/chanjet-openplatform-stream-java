@@ -194,7 +194,7 @@ pub async fn list(
     cfg: &Config,
     auth_cli: &dyn AuthClientTrait,
     search_query: &Option<String>,
-    top: usize,
+    _top: usize,
     page: usize,
     page_size: usize,
     format: &str,
@@ -202,7 +202,7 @@ pub async fn list(
     let spec = auth_cli.get_openapi_spec(profile, cfg).await?;
     let paths = spec["paths"].as_object().ok_or_else(|| anyhow!("Invalid OpenAPI spec: missing paths"))?;
 
-    if let Some(query) = search_query {
+    if let Some(_query) = search_query {
         #[cfg(feature = "ai")]
         {
             let cache_dir = crate::core::config::get_app_dir();
@@ -231,9 +231,9 @@ pub async fn list(
             };
 
             let mut embedder = crate::core::search::ONNXEmbedder::new()?;
-            let query_vec = embedder.embed(query)?;
+            let query_vec = embedder.embed(_query)?;
             
-            let matches = index.search(&query_vec, query, top * page); // Fetch more for pagination
+            let matches = index.search(&query_vec, _query, _top * page); // Fetch more for pagination
 
             let start = (page - 1) * page_size;
             if start >= matches.len() {
@@ -247,7 +247,7 @@ pub async fn list(
                 "json" => println!("{}", serde_json::to_string_pretty(&paginated)?),
                 "yaml" => println!("{}", serde_yaml::to_string(&paginated)?),
                 _ => {
-                    println!("\n🧠 Neural Search: \"{}\" (Page {}/{})", query, page, (matches.len() + page_size - 1) / page_size);
+                    println!("\n🧠 Neural Search: \"{}\" (Page {}/{})", _query, page, (matches.len() + page_size - 1) / page_size);
                     println!("{}", "-".repeat(100));
                     for (i, (score, doc)) in paginated.iter().enumerate() {
                         println!("{}. [{}] ({:.2}) {} - {}", start + i + 1, doc.id, score, doc.summary, doc.description);
