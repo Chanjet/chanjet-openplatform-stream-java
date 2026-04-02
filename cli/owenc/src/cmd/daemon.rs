@@ -23,15 +23,14 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
     if !foreground {
-        // PARENT PROCESS: Launch detached child
+        // PARENT PROCESS: Launch detached child using OS-level backgrounding
         let exe = std::fs::canonicalize(env::current_exe()?)?;
-        
-        let boot_log_path = app_dir.join("logs").join("boot.log");
-        let _ = fs::create_dir_all(boot_log_path.parent().unwrap());
-        let boot_log = fs::OpenOptions::new().create(true).append(true).open(&boot_log_path)?;
+        let log_path = app_dir.join("logs").join("default.log");
+        let _ = fs::create_dir_all(log_path.parent().unwrap());
 
-        let child = Command::new(&exe)
-            .arg("--profile")
+        // We use a simpler spawn that doesn't try to inherit anything sensitive
+        let mut child = Command::new(&exe);
+        child.arg("--profile")
             .arg(profile)
             .arg("daemon")
             .arg("start")
@@ -41,12 +40,21 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             .env("APP_DIR_NAME", env!("APP_DIR_NAME"))
             .env("CARGO_BIN_NAME_OVERRIDE", env!("CARGO_BIN_NAME_OVERRIDE"))
             .stdin(Stdio::null())
-            .stdout(Stdio::from(boot_log.try_clone()?))
-            .stderr(Stdio::from(boot_log))
-            .spawn()?;
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
 
-        let pid = child.id();
-        println!("🚀 Stream Bridge daemon launched in background (PID: {}).", pid);
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // This is the magic: detach the process group and ensure it survives parent death
+            child.process_group(0);
+        }
+
+        let spawned = child.spawn()?;
+        let pid = spawned.id();
+        
+        // We don't write PID here anymore, child writes its own PID when ready
+        println!("🚀 Stream Bridge daemon initialization triggered (PID: {}).", pid);
         return Ok(());
     }
 
