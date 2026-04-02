@@ -36,7 +36,7 @@ pub async fn start_proxy(
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     
-    println!("🛡️  Local Proxy Server listening on http://127.0.0.1:{}", port);
+    tracing::info!(target: "sys", "Local Proxy Server listening on http://127.0.0.1:{}", port);
     
     axum::serve(listener, app).await?;
     Ok(())

@@ -73,8 +73,14 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     let p_profile_proxy = profile.to_string();
     let p_config_proxy = config.clone();
     let proxy_task = tokio::spawn(async move {
-        if let Err(e) = start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port).await {
-            tracing::error!(target: "sys", error = %e, "Local Proxy Server crashed");
+        match start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port).await {
+            Ok(_) => {
+                tracing::info!(target: "sys", "Local Proxy Server started. Entering message loop...");
+                std::future::pending::<()>().await;
+            }
+            Err(e) => {
+                tracing::error!(target: "sys", error = %e, "Local Proxy Server crashed");
+            }
         }
     });
 
