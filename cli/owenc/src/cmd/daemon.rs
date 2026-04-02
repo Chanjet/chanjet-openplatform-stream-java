@@ -23,14 +23,15 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
     if !foreground {
-        // PARENT PROCESS: Launch detached child using OS-level backgrounding
+        // PARENT PROCESS: Launch detached child
         let exe = std::fs::canonicalize(env::current_exe()?)?;
-        let log_path = app_dir.join("logs").join("default.log");
-        let _ = fs::create_dir_all(log_path.parent().unwrap());
+        
+        let boot_log_path = app_dir.join("logs").join("boot.log");
+        let _ = fs::create_dir_all(boot_log_path.parent().unwrap());
+        let boot_log = fs::OpenOptions::new().create(true).append(true).open(&boot_log_path)?;
 
-        // We use a simpler spawn that doesn't try to inherit anything sensitive
-        let mut child = Command::new(&exe);
-        child.arg("--profile")
+        let child = Command::new(&exe)
+            .arg("--profile")
             .arg(profile)
             .arg("daemon")
             .arg("start")
@@ -40,21 +41,12 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             .env("APP_DIR_NAME", env!("APP_DIR_NAME"))
             .env("CARGO_BIN_NAME_OVERRIDE", env!("CARGO_BIN_NAME_OVERRIDE"))
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stdout(Stdio::from(boot_log.try_clone()?))
+            .stderr(Stdio::from(boot_log))
+            .spawn()?;
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            // This is the magic: detach the process group and ensure it survives parent death
-            child.process_group(0);
-        }
-
-        let spawned = child.spawn()?;
-        let pid = spawned.id();
-        
-        // We don't write PID here anymore, child writes its own PID when ready
-        println!("🚀 Stream Bridge daemon initialization triggered (PID: {}).", pid);
+        let pid = child.id();
+        println!("🚀 Stream Bridge daemon launched in background (PID: {}).", pid);
         return Ok(());
     }
 
@@ -155,6 +147,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         match stream_client.start().await {
             Ok(_) => {
                 tracing::info!(target: "sys", "Stream Bridge started. Entering message loop...");
+                // Keep the task alive as long as the client is running
                 std::future::pending::<()>().await;
             }
             Err(e) => {
@@ -163,9 +156,27 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         }
     });
 
-    // 3. Proactive refresh
-    let auth_on_start = AuthClient::new(pool.as_ref());
-    let _ = auth_on_start.get_app_access_token(profile, config).await;
+    // 3. Task: Proactive maintenance
+    let p_pool_task = pool.clone();
+    let p_profile_task = profile.to_string();
+    let p_config_task = config.clone();
+    let maintenance_task = tokio::spawn(async move {
+        let auth = AuthClient::new(p_pool_task.as_ref());
+        loop {
+            tracing::info!(target: "sys", "Running daemon credential maintenance check...");
+            match auth.get_app_access_token(&p_profile_task, &p_config_task).await {
+                Ok(_) => tracing::info!(target: "sys", "Credential check: AccessToken is valid"),
+                Err(e) => {
+                    tracing::warn!(target: "sys", error = %e, "Credential check failed. Triggering platform push for new AppTicket...");
+                    if let Err(push_err) = auth.trigger_push(&p_profile_task, &p_config_task).await {
+                        tracing::error!(target: "sys", error = %push_err, "Failed to trigger emergency push during maintenance");
+                    }
+                }
+            }
+            // Check every 1 hour
+            tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+        }
+    });
 
     // 4. WAIT FOR ANY TASK OR SIGNAL
     tracing::info!(target: "sys", "All daemon tasks initialized. Entering watchdog mode.");
@@ -175,6 +186,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         tokio::select! {
             _ = proxy_task => tracing::error!(target: "sys", "Proxy task exited unexpectedly"),
             _ = stream_task => tracing::error!(target: "sys", "Stream task exited unexpectedly"),
+            _ = maintenance_task => tracing::error!(target: "sys", "Maintenance task exited unexpectedly"),
             _ = signal::ctrl_c() => tracing::info!(target: "sys", "Interrupted by user"),
         }
     } else {
@@ -183,6 +195,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
         tokio::select! {
             _ = proxy_task => tracing::error!(target: "sys", "Proxy task exited unexpectedly"),
             _ = stream_task => tracing::error!(target: "sys", "Stream task exited unexpectedly"),
+            _ = maintenance_task => tracing::error!(target: "sys", "Maintenance task exited unexpectedly"),
             _ = wait_for_termination() => tracing::info!(target: "sys", "Termination signal received"),
         }
     }
