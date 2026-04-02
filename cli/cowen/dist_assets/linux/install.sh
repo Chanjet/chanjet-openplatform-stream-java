@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-BINARY="owenc"
-INSTALL_DIR="$HOME/.owenc/bin"
+BINARY="cowen"
+INSTALL_DIR="$HOME/.cowen/bin"
 
 echo "🚀 Installing $BINARY to $INSTALL_DIR..."
 
@@ -25,7 +25,7 @@ fi
 if [ -n "$SHELL_RC" ] && [ -f "$SHELL_RC" ]; then
     if ! grep -q "$INSTALL_DIR" "$SHELL_RC"; then
         echo "Adding $INSTALL_DIR to PATH in $SHELL_RC..."
-        echo -e "\n# owenc CLI\nexport PATH=\"\$PATH:$INSTALL_DIR\"" >> "$SHELL_RC"
+        echo -e "\n# cowen CLI\nexport PATH=\"\$PATH:$INSTALL_DIR\"" >> "$SHELL_RC"
         echo "✅ PATH updated. Please run 'source $SHELL_RC' or restart terminal."
     fi
 fi
@@ -34,4 +34,4 @@ fi
 echo "⚙️ Setting up shell completion..."
 "$INSTALL_DIR/$BINARY" completion --install > /dev/null 2>&1 || true
 
-echo -e "\n🎉 Installation complete! Run 'owenc --help' to get started."
+echo -e "\n🎉 Installation complete! Run 'cowen --help' to get started."

@@ -1,5 +1,5 @@
-BINARY=owenc
-PKG=cli/owenc
+BINARY=cowen
+PKG=cli/cowen
 OUTPUT_DIR=../../bin
 
 # 生产环境默认值
@@ -14,55 +14,55 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 build:
 	@echo "🍎 Building for current host (Apple Silicon) [FULL VERSION]..."
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) cargo build --release
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) cargo build --release
 	mkdir -p $(OUTPUT_DIR)/macos-arm64
-	cp target/release/owenc $(OUTPUT_DIR)/macos-arm64/$(BINARY)
+	cp target/release/$(BINARY) $(OUTPUT_DIR)/macos-arm64/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-arm64/$(BINARY) 2>/dev/null || true
 	@md5 -q $(OUTPUT_DIR)/macos-arm64/$(BINARY) > $(OUTPUT_DIR)/macos-arm64/$(BINARY).md5
 	@echo "✅ Build complete: $(OUTPUT_DIR)/macos-arm64/$(BINARY) (MD5 generated)"
 
 build-test:
 	@echo "🧪 Building for test environment..."
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.owenc-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) cargo build --release
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) cargo build --release
 	mkdir -p $(OUTPUT_DIR)/test
-	cp target/release/owenc $(OUTPUT_DIR)/test/$(BINARY)-test
+	cp target/release/$(BINARY) $(OUTPUT_DIR)/test/$(BINARY)-test
 	@md5 -q $(OUTPUT_DIR)/test/$(BINARY)-test > $(OUTPUT_DIR)/test/$(BINARY)-test.md5
 	@echo "✅ Test build complete: $(OUTPUT_DIR)/test/$(BINARY)-test"
 
 build-mac-intel:
 	@echo "🍎 Building for macOS Intel (x86_64) [CORE VERSION]..."
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	cargo build --release --target x86_64-apple-darwin --no-default-features
 	mkdir -p $(OUTPUT_DIR)/macos-x64
-	cp target/x86_64-apple-darwin/release/owenc $(OUTPUT_DIR)/macos-x64/$(BINARY)
+	cp target/x86_64-apple-darwin/release/$(BINARY) $(OUTPUT_DIR)/macos-x64/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x64/$(BINARY) 2>/dev/null || true
 	@md5 -q $(OUTPUT_DIR)/macos-x64/$(BINARY) > $(OUTPUT_DIR)/macos-x64/$(BINARY).md5
 	@echo "✅ Mac Intel Build complete: $(OUTPUT_DIR)/macos-x64/$(BINARY)"
 
 build-win64:
 	@echo "🪟 Building for Windows Intel (x86_64)..."
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	cargo build --release --target x86_64-pc-windows-gnu --no-default-features
 	mkdir -p $(OUTPUT_DIR)/windows-x64
-	cp target/x86_64-pc-windows-gnu/release/owenc.exe $(OUTPUT_DIR)/windows-x64/$(BINARY).exe
+	cp target/x86_64-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x64/$(BINARY).exe
 	@md5 -q $(OUTPUT_DIR)/windows-x64/$(BINARY).exe > $(OUTPUT_DIR)/windows-x64/$(BINARY).exe.md5
 	@echo "✅ Windows Build complete: $(OUTPUT_DIR)/windows-x64/$(BINARY).exe"
 
 build-linux-x64:
 	@echo "🐧 Building for Linux Intel (x86_64) [CORE VERSION]..."
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	cargo zigbuild --release --target x86_64-unknown-linux-musl --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-x64
-	cp target/x86_64-unknown-linux-musl/release/owenc $(OUTPUT_DIR)/linux-x64/$(BINARY)
+	cp target/x86_64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-x64/$(BINARY)
 	@md5 -q $(OUTPUT_DIR)/linux-x64/$(BINARY) > $(OUTPUT_DIR)/linux-x64/$(BINARY).md5
 	@echo "✅ Linux x64 Build complete: $(OUTPUT_DIR)/linux-x64/$(BINARY)"
 
 build-linux-arm64:
 	@echo "🐧 Building for Linux ARM64 [CORE VERSION]..."
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.owenc DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features
 	mkdir -p $(OUTPUT_DIR)/linux-arm64
-	cp target/aarch64-unknown-linux-musl/release/owenc $(OUTPUT_DIR)/linux-arm64/$(BINARY)
+	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-arm64/$(BINARY)
 	@md5 -q $(OUTPUT_DIR)/linux-arm64/$(BINARY) > $(OUTPUT_DIR)/linux-arm64/$(BINARY).md5
 	@echo "✅ Linux ARM64 Build complete: $(OUTPUT_DIR)/linux-arm64/$(BINARY)"
 
@@ -71,38 +71,38 @@ impl-package-mac: build
 	@echo "🍎 Packaging for macOS Apple Silicon..."
 	mkdir -p pkg_root/usr/local/bin
 	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) pkg_root/usr/local/bin/
-	pkgbuild --identifier com.chanjet.owenc.arm64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-arm64/owenc-macos-arm64.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).arm64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-arm64/$(BINARY)-macos-arm64.pkg
 	rm -rf pkg_root
-	@md5 -q $(OUTPUT_DIR)/macos-arm64/owenc-macos-arm64.pkg > $(OUTPUT_DIR)/macos-arm64/owenc-macos-arm64.pkg.md5
+	@md5 -q $(OUTPUT_DIR)/macos-arm64/$(BINARY)-macos-arm64.pkg > $(OUTPUT_DIR)/macos-arm64/$(BINARY)-macos-arm64.pkg.md5
 
 impl-package-mac-x64: build-mac-intel
 	@echo "🍎 Packaging for macOS Intel..."
 	mkdir -p pkg_root/usr/local/bin
 	cp $(OUTPUT_DIR)/macos-x64/$(BINARY) pkg_root/usr/local/bin/
-	pkgbuild --identifier com.chanjet.owenc.x64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-x64/owenc-macos-x64.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).x64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-x64/$(BINARY)-macos-x64.pkg
 	rm -rf pkg_root
-	@md5 -q $(OUTPUT_DIR)/macos-x64/owenc-macos-x64.pkg > $(OUTPUT_DIR)/macos-x64/owenc-macos-x64.pkg.md5
+	@md5 -q $(OUTPUT_DIR)/macos-x64/$(BINARY)-macos-x64.pkg > $(OUTPUT_DIR)/macos-x64/$(BINARY)-macos-x64.pkg.md5
 
 impl-package-win64: build-win64
 	@echo "🪟 Packaging for Windows..."
 	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x64/README.txt
-	cd $(OUTPUT_DIR)/windows-x64 && zip -r owenc-windows-x64.zip owenc.exe install.ps1 README.txt
-	@md5 -q $(OUTPUT_DIR)/windows-x64/owenc-windows-x64.zip > $(OUTPUT_DIR)/windows-x64/owenc-windows-x64.zip.md5
+	cd $(OUTPUT_DIR)/windows-x64 && zip -r $(BINARY)-windows-x64.zip $(BINARY).exe install.ps1 README.txt
+	@md5 -q $(OUTPUT_DIR)/windows-x64/$(BINARY)-windows-x64.zip > $(OUTPUT_DIR)/windows-x64/$(BINARY)-windows-x64.zip.md5
 
 impl-package-linux-x64: build-linux-x64
 	@echo "🐧 Packaging for Linux x64..."
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x64/README.txt
-	cd $(OUTPUT_DIR)/linux-x64 && tar -czf owenc-linux-x64.tar.gz owenc install.sh README.txt
-	@md5 -q $(OUTPUT_DIR)/linux-x64/owenc-linux-x64.tar.gz > $(OUTPUT_DIR)/linux-x64/owenc-linux-x64.tar.gz.md5
+	cd $(OUTPUT_DIR)/linux-x64 && tar -czf $(BINARY)-linux-x64.tar.gz $(BINARY) install.sh README.txt
+	@md5 -q $(OUTPUT_DIR)/linux-x64/$(BINARY)-linux-x64.tar.gz > $(OUTPUT_DIR)/linux-x64/$(BINARY)-linux-x64.tar.gz.md5
 
 impl-package-linux-arm64: build-linux-arm64
 	@echo "🐧 Packaging for Linux ARM64..."
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-arm64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-arm64/README.txt
-	cd $(OUTPUT_DIR)/linux-arm64 && tar -czf owenc-linux-arm64.tar.gz owenc install.sh README.txt
-	@md5 -q $(OUTPUT_DIR)/linux-arm64/owenc-linux-arm64.tar.gz > $(OUTPUT_DIR)/linux-arm64/owenc-linux-arm64.tar.gz.md5
+	cd $(OUTPUT_DIR)/linux-arm64 && tar -czf $(BINARY)-linux-arm64.tar.gz $(BINARY) install.sh README.txt
+	@md5 -q $(OUTPUT_DIR)/linux-arm64/$(BINARY)-linux-arm64.tar.gz > $(OUTPUT_DIR)/linux-arm64/$(BINARY)-linux-arm64.tar.gz.md5
 
 # Public targets with clean
 package-mac: clean impl-package-mac

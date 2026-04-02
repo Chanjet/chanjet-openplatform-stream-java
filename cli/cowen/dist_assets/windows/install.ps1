@@ -1,10 +1,10 @@
-# owenc CLI Installer for Windows
+# cowen CLI Installer for Windows
 $ErrorActionPreference = "Stop"
 
-$BinaryName = "owenc.exe"
-$InstallDir = "$HOME\.owenc\bin"
+$BinaryName = "cowen.exe"
+$InstallDir = "$HOME\.cowen\bin"
 
-Write-Host "🚀 Starting owenc installation..." -ForegroundColor Cyan
+Write-Host "🚀 Starting cowen installation..." -ForegroundColor Cyan
 
 # 1. Create install directory
 if (!(Test-Path $InstallDir)) {
@@ -37,12 +37,12 @@ $ProfileDir = Split-Path $PROFILE -Parent
 if (!(Test-Path $ProfileDir)) { New-Item -Path $ProfileDir -ItemType Directory | Out-Null }
 if (!(Test-Path $PROFILE)) { New-Item -Path $PROFILE -ItemType File | Out-Null }
 
-$CompletionCmd = "`n# owenc completion`nif (Get-Command owenc -ErrorAction SilentlyContinue) { owenc completion powershell | Out-String | Invoke-Expression }"
+$CompletionCmd = "`n# cowen completion`nif (Get-Command cowen -ErrorAction SilentlyContinue) { cowen completion powershell | Out-String | Invoke-Expression }"
 $ProfileContent = Get-Content $PROFILE -ErrorAction SilentlyContinue
-if ($ProfileContent -notlike "*# owenc completion*") {
+if ($ProfileContent -notlike "*# cowen completion*") {
     Add-Content -Path $PROFILE -Value $CompletionCmd
     Write-Host "✅ Auto-completion added to your PowerShell profile." -ForegroundColor Green
 }
 
 Write-Host "`n🎉 Installation complete! Please RESTART your terminal." -ForegroundColor Cyan
-Write-Host "Try running: owenc --help"
+Write-Host "Try running: cowen --help"

@@ -116,7 +116,9 @@ pub async fn status(
                 // Check if process exists and is actually an owenc daemon
                 if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
                     let cmdline = process.cmd().join(" ");
-                    if cmdline.contains("daemon") && cmdline.contains("start") {
+                    let name = process.name().to_lowercase();
+                    // Match if name contains owenc OR command line contains daemon
+                    if name.contains("owenc") || cmdline.contains("daemon") {
                         found_daemon_pid = Some(pid_val);
                     }
                 }
