@@ -26,6 +26,7 @@ build-test:
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) cargo build --release
 	mkdir -p $(OUTPUT_DIR)/test
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/test/$(BINARY)-test
+	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/$(BINARY)-test 2>/dev/null || true
 	@md5 -q $(OUTPUT_DIR)/test/$(BINARY)-test > $(OUTPUT_DIR)/test/$(BINARY)-test.md5
 	@echo "✅ Test build complete: $(OUTPUT_DIR)/test/$(BINARY)-test"
 

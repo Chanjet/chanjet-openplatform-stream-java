@@ -82,24 +82,37 @@ pub async fn status(
     };
 
     // 3. Token
-    let token_status = if let Ok(token_raw) = vault.get(profile, "access_token") {
-        if let Ok(token) = serde_json::from_str::<Token>(&token_raw) {
-            Some(TokenStatus {
-                status: if token.is_expired() { "EXPIRED".to_string() } else { "VALID".to_string() },
-                expires_at: token.expires_at,
-                real_expires_at: token.real_expires_at(),
-            })
-        } else { None }
+    let token_status = if let (Ok(val), Ok(exp_str), Ok(created_str)) = (
+        vault.get(profile, "access_token"),
+        vault.get(profile, "access_token_expires"),
+        vault.get(profile, "access_token_created")
+    ) {
+        let expires_at = chrono::DateTime::parse_from_rfc3339(&exp_str)
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or(Utc::now());
+        let created_at = chrono::DateTime::parse_from_rfc3339(&created_str)
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or(Utc::now());
+            
+        let token = crate::auth::models::Token {
+            value: val,
+            expires_at,
+            created_at,
+        };
+        
+        Some(TokenStatus {
+            status: if token.is_expired() { "EXPIRED".to_string() } else { "VALID".to_string() },
+            expires_at: token.expires_at,
+            real_expires_at: token.real_expires_at(),
+        })
     } else { None };
 
     // 4. Ticket
-    let ticket_status = if let Ok(ticket_raw) = vault.get(profile, "app_ticket") {
-        if let Ok(ticket) = serde_json::from_str::<Ticket>(&ticket_raw) {
-            Some(TicketStatus {
-                status: "CACHED".to_string(),
-                created_at: ticket.created_at,
-            })
-        } else { None }
+    let ticket_status = if let Ok(_ticket_raw) = vault.get(profile, "app_ticket") {
+        Some(TicketStatus {
+            status: "CACHED".to_string(),
+            created_at: Utc::now(),
+        })
     } else { None };
 
     // 5. Daemon detection: PID file based (More reliable for renamed binaries like owenc-test)
