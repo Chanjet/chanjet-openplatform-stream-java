@@ -2,9 +2,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use anyhow::{Result, Context};
 use std::fs;
-use crate::core::utils::get_bin_name;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     pub app_key: String,
     pub openapi_url: String,
@@ -18,6 +17,28 @@ pub struct Config {
     pub certificate: String,
     #[serde(skip)]
     pub encrypt_key: String,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mask = |s: &str| -> String {
+            if s.len() > 8 {
+                format!("{}...{}", &s[..8], &s[s.len() - 4..])
+            } else {
+                "***".to_string()
+            }
+        };
+        f.debug_struct("Config")
+            .field("app_key", &self.app_key)
+            .field("openapi_url", &self.openapi_url)
+            .field("stream_url", &self.stream_url)
+            .field("webhook_target", &self.webhook_target)
+            .field("log", &self.log)
+            .field("app_secret", &mask(&self.app_secret))
+            .field("certificate", &mask(&self.certificate))
+            .field("encrypt_key", &mask(&self.encrypt_key))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

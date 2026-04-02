@@ -32,6 +32,7 @@ Thumbs.db
 services/gateway-java/connector-server/src/main/resources/application-local-private.yml
 
 # AI Assets
+assets/search/models/*.onnx_data
 cli/cjtCli/lib/*.a
 cli/cjtCli/pkg/search/assets/lib/
 cli/cjtCli/pkg/search/assets/models/

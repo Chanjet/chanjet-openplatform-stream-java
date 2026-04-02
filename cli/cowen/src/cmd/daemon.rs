@@ -71,14 +71,15 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy
     }
 
     // --- CHILD PROCESS LOGIC ---
-    // 1. CRITICAL: Write REAL child PID immediately
+    // 1. CRITICAL: Write REAL child PID and BUILD_ID immediately
     let pid = std::process::id();
     // Double check we are in the right directory
     tracing::info!(target: "sys", "Daemon starting in directory: {:?}", app_dir);
     
-    fs::write(&pid_file, pid.to_string())?;
+    let build_id = env!("BUILD_ID");
+    fs::write(&pid_file, format!("{}\n{}", pid, build_id))?;
     
-    tracing::info!(target: "sys", "Daemon core logic starting for profile: {} (PID: {})", profile, pid);
+    tracing::info!(target: "sys", "Daemon core logic starting for profile: {} (PID: {}, BUILD_ID: {})", profile, pid, build_id);
 
     let options = ClientOptions {
         app_key: config.app_key.clone(),
@@ -307,18 +308,19 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_pro
 pub async fn stop(profile: &str) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
-    
     if pid_file.exists() {
-        if let Ok(pid_str) = fs::read_to_string(&pid_file) {
-            let pid_str = pid_str.trim();
-            println!("🛑 Stopping daemon (PID: {})...", pid_str);
-            
-            #[cfg(unix)]
-            let _ = Command::new("kill").arg("-15").arg(pid_str).status();
-            
-            #[cfg(windows)]
-            let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid_str).status();
-            
+        if let Ok(pid_content) = fs::read_to_string(&pid_file) {
+            if let Some(pid_str) = pid_content.lines().next() {
+                let pid_str = pid_str.trim();
+                println!("🛑 Stopping daemon (PID: {})...", pid_str);
+
+                #[cfg(unix)]
+                let _ = Command::new("kill").arg("-15").arg(pid_str).status();
+
+                #[cfg(windows)]
+                let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid_str).status();
+            }
+            let _ = fs::remove_file(&pid_file);
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             let _ = fs::remove_file(&pid_file);
             println!("✅ Daemon stopped for profile '{}'.", profile);

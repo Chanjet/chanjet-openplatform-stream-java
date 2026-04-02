@@ -2,7 +2,6 @@ use crate::core::vault::Vault;
 use crate::core::config::ConfigManager;
 use anyhow::Result;
 use serde::Serialize;
-use crate::auth::models::{Token, Ticket};
 use chrono::{Local, DateTime, Utc};
 use sysinfo::{ProcessExt, System, SystemExt, PidExt};
 
@@ -50,6 +49,7 @@ pub struct DaemonStatus {
     pub running: bool,
     pub pid: Option<u32>,
     pub log_path: Option<String>,
+    pub build_id: Option<String>,
 }
 
 pub async fn status(
@@ -115,24 +115,29 @@ pub async fn status(
         })
     } else { None };
 
-    // 5. Daemon detection: PID file based (More reliable for renamed binaries like owenc-test)
+    // 5. Daemon detection: PID file based (More reliable for renamed binaries)
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
     let mut found_daemon_pid = None;
+    let mut found_build_id = None;
 
     if pid_file.exists() {
-        if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
-            if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
-                let mut s = System::new_all();
-                s.refresh_processes();
-                
-                // Check if process exists and is actually a cowen daemon
-                if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
-                    let cmdline = process.cmd().join(" ");
-                    let name = process.name().to_lowercase();
-                    // Match if name contains base package name OR command line contains 'daemon'
-                    if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
-                        found_daemon_pid = Some(pid_val);
+        if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
+            let mut lines = pid_content.lines();
+            if let Some(pid_str) = lines.next() {
+                if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+                    let mut s = System::new_all();
+                    s.refresh_processes();
+                    
+                    // Check if process exists and is actually a daemon belonging to this package
+                    if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
+                        let cmdline = process.cmd().join(" ");
+                        let name = process.name().to_lowercase();
+                        // Match if name contains base package name OR command line contains 'daemon'
+                        if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
+                            found_daemon_pid = Some(pid_val);
+                            found_build_id = lines.next().map(|s| s.trim().to_string());
+                        }
                     }
                 }
             }
@@ -145,6 +150,7 @@ pub async fn status(
         log_path: found_daemon_pid.map(|_| {
             app_dir.join("logs").join(format!("{}.log", profile)).to_string_lossy().to_string()
         }),
+        build_id: found_build_id,
     };
 
     let full_status = SystemStatus {
@@ -161,7 +167,8 @@ pub async fn status(
     }
 
     // Default Text Output
-    println!("🔍 CJTC System Status Diagnostics (Profile: '{}')", profile);
+    let bin_name = crate::core::utils::get_bin_name().to_uppercase();
+    println!("🔍 {} System Status Diagnostics (Profile: '{}')", bin_name, profile);
     println!("--------------------------------------------------");
 
     if !full_status.config.app_key.is_empty() {
@@ -221,7 +228,6 @@ pub async fn config(
 
 pub async fn reset(
     _profile: &str,
-    cfg_mgr: &ConfigManager,
     vault: Option<&dyn Vault>,
 ) -> Result<()> {
     println!("Resetting profile '{}'...", _profile);
@@ -264,4 +270,45 @@ pub async fn reset(
 
     println!("✨ Profile '{}' reset complete. You can run 'init' to start fresh.", _profile);
     Ok(())
+}
+
+pub async fn ensure_daemon_version(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager) {
+    let app_dir = crate::core::config::get_app_dir();
+    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
+    let mut found_daemon_pid = None;
+    let mut found_build_id = None;
+
+    if pid_file.exists() {
+        if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
+            let mut lines = pid_content.lines();
+            if let Some(pid_str) = lines.next() {
+                if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+                    let mut s = System::new_all();
+                    s.refresh_processes();
+                    if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
+                        let cmdline = process.cmd().join(" ");
+                        let name = process.name().to_lowercase();
+                        if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
+                            found_daemon_pid = Some(pid_val);
+                            found_build_id = lines.next().map(|s| s.trim().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if found_daemon_pid.is_some() {
+        let current_build_id = env!("BUILD_ID");
+        let needs_restart = match &found_build_id {
+            Some(daemon_build_id) => daemon_build_id != current_build_id,
+            None => true, // Old daemon without build_id support
+        };
+
+        if needs_restart {
+            tracing::info!(target: "sys", "Detected outdated daemon running in background. Automatically restarting to new version...");
+            println!("🔄 Detecting outdated daemon running in background. Automatically restarting to new version...");
+            let _ = crate::cmd::daemon::restart(profile, config, 8080, false, false, cfg_mgr).await;
+        }
+    }
 }

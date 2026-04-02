@@ -347,6 +347,16 @@ impl<'a> AuthClient<'a> {
                 }
             }
             serde_json::Value::Array(arr) => {
+                arr.retain(|val| {
+                    if let Some(obj) = val.as_object() {
+                        let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                        let in_location = obj.get("in").and_then(|v| v.as_str()).unwrap_or("");
+                        if name.eq_ignore_ascii_case("content-type") && in_location.eq_ignore_ascii_case("header") {
+                            return false;
+                        }
+                    }
+                    true
+                });
                 for val in arr.iter_mut() {
                     Self::clean_non_standard_fields(val);
                 }
@@ -397,4 +407,44 @@ pub fn get_operation(spec: &serde_json::Value, path: &str, method: &str) -> Opti
 
 pub fn is_path_in_whitelist(req_path: &str, spec: &serde_json::Value) -> bool {
     find_matching_spec_path(req_path, spec).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_clean_non_standard_fields_removes_content_type_header() {
+        let mut spec = json!({
+            "openapi": "3.0.0",
+            "paths": {
+                "/test": {
+                    "post": {
+                        "parameters": [
+                            {
+                                "name": "Content-Type",
+                                "in": "header",
+                                "required": true,
+                                "schema": {
+                                    "type": "string",
+                                    "default": "application/json"
+                                }
+                            },
+                            {
+                                "name": "Authorization",
+                                "in": "header"
+                            }
+                        ]
+                    }
+                }
+            }
+        });
+
+        AuthClient::clean_non_standard_fields(&mut spec);
+
+        let parameters = spec["paths"]["/test"]["post"]["parameters"].as_array().unwrap();
+        assert_eq!(parameters.len(), 1);
+        assert_eq!(parameters[0]["name"], "Authorization");
+    }
 }

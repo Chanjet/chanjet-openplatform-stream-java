@@ -101,9 +101,9 @@ impl ONNXEmbedder {
         let tokenizer_path = model_dir.join("tokenizer.json");
 
         // Extract embedded assets to local filesystem
-        Self::ensure_asset(&model_path, include_bytes!("../../../../cli/owenc-go/pkg/search/assets/models/model_quantized.onnx"))?;
-        Self::ensure_asset(&data_path, include_bytes!("../../../../cli/owenc-go/pkg/search/assets/models/model_quantized.onnx_data"))?;
-        Self::ensure_asset(&tokenizer_path, include_bytes!("../../../../cli/owenc-go/pkg/search/assets/models/tokenizer.json"))?;
+        Self::ensure_asset(&model_path, include_bytes!("../../../../assets/search/models/model_quantized.onnx"))?;
+        Self::ensure_asset(&data_path, include_bytes!("../../../../assets/search/models/model_quantized.onnx_data"))?;
+        Self::ensure_asset(&tokenizer_path, include_bytes!("../../../../assets/search/models/tokenizer.json"))?;
 
         // Load Tokenizer
         let tokenizer = Tokenizer::from_file(&tokenizer_path)

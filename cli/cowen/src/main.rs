@@ -7,7 +7,6 @@ use clap::Parser;
 use crate::core::config::ConfigManager;
 use crate::core::vault::{MultiVault, Vault};
 use crate::core::security;
-use crate::auth::{VaultTokenPool, AuthClient};
 use crate::core::utils::get_bin_name;
 use anyhow::Result;
 
@@ -295,7 +294,12 @@ async fn run() -> Result<()> {
         let _ = crate::cmd::completion::install_completion(None);
     }
 
-    // 5. Execute Command
+    // 5. Ensure daemon is up to date with this CLI binary
+    if !matches!(&cli.command, Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. }) {
+        crate::cmd::system::ensure_daemon_version(&active_profile, &config, &cfg_mgr).await;
+    }
+
+    // 6. Execute Command
     match &cli.command {
         Commands::Init { 
             app_key, 
@@ -340,7 +344,7 @@ async fn run() -> Result<()> {
                 cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format).await?;
             }
             AuthCommands::Reset => {
-                cmd::system::reset(&active_profile, &cfg_mgr, Some(vault.as_ref())).await?;
+                cmd::system::reset(&active_profile, Some(vault.as_ref())).await?;
             }
             AuthCommands::Login { force } => {
                 cmd::auth::login(&active_profile, &config, &auth_cli, *force).await?;
@@ -367,7 +371,7 @@ async fn run() -> Result<()> {
             cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?;
         }
         Commands::Reset => {
-            cmd::system::reset(&active_profile, &cfg_mgr, Some(vault.as_ref())).await?;
+            cmd::system::reset(&active_profile, Some(vault.as_ref())).await?;
         }
         Commands::Completion { shell, install, uninstall } => {
             if *uninstall {

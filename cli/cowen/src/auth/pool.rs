@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
 use crate::auth::models::{Token, Ticket};
 use crate::core::vault::Vault;
 use std::sync::Arc;

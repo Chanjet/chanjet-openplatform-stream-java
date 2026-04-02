@@ -1,7 +1,7 @@
 use sha2::{Sha256, Digest};
 use std::env;
 use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use anyhow::{Result, anyhow};
@@ -61,12 +61,4 @@ pub fn decrypt(combined: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
         .map_err(|e| anyhow!("Decryption failed: {}", e))?;
 
     Ok(plaintext)
-}
-
-pub fn mask_tail(s: &str, visible_len: usize) -> String {
-    if s.len() <= visible_len {
-        return s.to_string();
-    }
-    let mask_len = s.len() - visible_len;
-    format!("{}***{}", &s[..visible_len/2], &s[s.len()-visible_len/2..])
 }

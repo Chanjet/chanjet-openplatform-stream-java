@@ -259,7 +259,8 @@ pub async fn list(
         }
         #[cfg(not(feature = "ai"))]
         {
-            println!("⚠️  Semantic Search is not available in this build of owenc.");
+            let bin_name = crate::core::utils::get_bin_name();
+            println!("⚠️  Semantic Search is not available in this build of {}.", bin_name);
             println!("💡 To use AI features, please use the macOS or Linux standard versions.");
         }
         return Ok(());
@@ -614,6 +615,9 @@ mod tests {
             Ok(())
         }
         async fn get_openapi_spec(&self, _profile: &str, _cfg: &Config) -> Result<serde_json::Value> {
+            Ok(self.spec.clone())
+        }
+        async fn get_dynamic_interface_list(&self, _profile: &str, _cfg: &Config) -> Result<serde_json::Value> {
             Ok(self.spec.clone())
         }
         async fn clear_token(&self, _profile: &str) -> Result<()> { Ok(()) }
