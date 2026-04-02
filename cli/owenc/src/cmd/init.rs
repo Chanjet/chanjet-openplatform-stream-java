@@ -15,8 +15,9 @@ pub async fn execute(
     stream_url: &Option<String>,
 ) -> Result<()> {
     if app_key.is_none() || app_secret.is_none() || certificate.is_none() {
+        let bin_name = crate::core::utils::get_bin_name();
         println!("Error: --app-key, --app-secret, and --certificate are required for init.");
-        println!("Example: owenc init --app-key X --app-secret Y --certificate Z");
+        println!("Example: {} init --app-key X --app-secret Y --certificate Z", bin_name);
         return Ok(());
     }
 

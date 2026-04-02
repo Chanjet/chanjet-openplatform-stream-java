@@ -24,8 +24,9 @@ pub async fn login(
 
     println!("📡 Triggering AppTicket resend for profile '{}'...", _profile);
     auth_cli.trigger_push(_profile, cfg).await?;
+    let bin_name = crate::core::utils::get_bin_name();
     println!("✅ Push request sent. Platform will push a new AppTicket via Stream Bridge.");
-    println!("(TIP: Ensure 'owenc daemon start' is running to receive the push and auto-refresh)");
+    println!("(TIP: Ensure '{} daemon start' is running to receive the push and auto-refresh)", bin_name);
     Ok(())
 }
 

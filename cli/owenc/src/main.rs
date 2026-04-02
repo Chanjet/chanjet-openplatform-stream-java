@@ -8,6 +8,7 @@ use crate::core::config::ConfigManager;
 use crate::core::vault::{MultiVault, Vault};
 use crate::core::security;
 use crate::auth::{VaultTokenPool, AuthClient};
+use crate::core::utils::get_bin_name;
 use anyhow::Result;
 
 #[derive(Parser)]
@@ -15,7 +16,7 @@ use anyhow::Result;
 #[command(version = "0.1.2")]
 #[command(
     about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
-    long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具 (Open Streaming Connector CLI)。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言（如“查询账套”）实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管 AES-GCM/国密加密的安全凭据存储 (Vault)，自动注入 X-CJT-Signature 签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。"
+    long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。"
 )]
 pub struct Cli {
     #[arg(short, long, global = true, help = "配置环境名称 (缺省则使用当前激活的 Profile)")]
@@ -34,7 +35,7 @@ pub struct Cli {
 #[derive(clap::Subcommand)]
 pub enum Commands {
     /// 初始化应用配置与安全凭据
-    #[command(long_about = "初始化 CLI 的应用环境与安全凭据。这是使用 CLI 治理工具的第一步。\nCLI 会引导您输入 AppKey, AppSecret 等核心参数，并将其加密存储在本地安全存储 (Vault) 中。\n\n支持基于 Profile 的多环境隔离 (default/inte/prod)。")]
+    #[command(long_about = "初始化 CLI 的应用环境与安全凭据。这是治理工具的第一步。\nCLI 会引导您输入 AppKey, AppSecret 等核心参数，并将其加密存储在本地安全存储 (Vault) 中。\n\n支持基于 Profile 的多环境隔离 (default/inte/prod)。")]
     Init {
         #[arg(long, help = "开放平台 AppKey")]
         app_key: Option<String>,
@@ -75,7 +76,6 @@ pub enum Commands {
         action: DaemonCommands,
     },
     /// 检查 CLI 的整体运行状态
-    #[command(long_about = "全面检查 CLI 的运行状态，包括配置、鉴权凭据与后台进程。\n默认列出所有已初始化的环境。指定 --profile 可查看特定环境的诊断详情。")]
     Status,
     /// 查看当前环境的配置详情
     Config,
@@ -151,7 +151,6 @@ pub enum ApiCommands {
 #[derive(clap::Subcommand)]
 pub enum AuthCommands {
     /// 检查当前环境的身份认证状态
-    #[command(long_about = "检查当前 Profile 下 AppKey, Certificate 与 AppSecret 的完整性。\n此命令仅关注凭据层，不检查 Daemon 状态。若需查看 CLI 整体健康度，请直接运行 'owenc status'。")]
     Status,
     /// 重置当前配置环境的所有凭据与安全设置
     Reset,
@@ -167,7 +166,7 @@ pub enum AuthCommands {
 
 #[derive(clap::Subcommand)]
 pub enum DaemonCommands {
-    /// 启动 owenc 后台服务 (包括 Stream 桥接、反向代理与转发器)
+    /// 启动后台服务 (包括 Stream 桥接、反向代理与转发器)
     Start {
         #[arg(long, default_value_t = 8080)]
         proxy_port: u16,
@@ -176,7 +175,7 @@ pub enum DaemonCommands {
         #[arg(long)]
         foreground: bool,
     },
-    /// 停止正在运行的 owenc 守护进程
+    /// 停止正在运行的守护进程
     Stop,
     /// 重启守护进程
     Restart {
@@ -225,9 +224,6 @@ mod security_tests;
 
 #[tokio::main]
 async fn main() {
-    // HEARTBEAT: Debug child process start
-    let _ = std::fs::write("/tmp/owenc_last_start.txt", format!("PID: {}, Args: {:?}, Time: {}", std::process::id(), std::env::args().collect::<Vec<_>>(), chrono::Utc::now()));
-
     // CAPTURE PANICS: Ensure background crashes are recorded
     std::panic::set_hook(Box::new(|info| {
         let payload = info.payload().downcast_ref::<&str>().cloned()
@@ -245,6 +241,7 @@ async fn main() {
 
 async fn run() -> Result<()> {
     let cli = Cli::parse();
+    let bin_name = get_bin_name();
 
     // 1. Core Paths
     let app_dir = crate::core::config::get_app_dir();
@@ -262,7 +259,7 @@ async fn run() -> Result<()> {
 
     // 3. Initialize Telemetry (Structured & Rotated Logging)
     let _guards = crate::core::telemetry::init_telemetry(log_dir, &config.log)?;
-    tracing::info!(target: "sys", "owenc starting (version {})", env!("CARGO_PKG_VERSION"));
+    tracing::info!(target: "sys", "{} starting (version {})", bin_name, env!("CARGO_PKG_VERSION"));
     tracing::info!(target: "sys", profile = %active_profile, "active profile loaded");
 
     let fingerprint = security::get_machine_fingerprint()?;
@@ -327,7 +324,7 @@ async fn run() -> Result<()> {
             } else if let (Some(m), Some(p)) = (method, path) {
                 cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, &cli.format).await?;
             } else {
-                println!("Usage: owenc api [METHOD] [PATH] or use subcommands (list, spec)");
+                println!("Usage: {} api [METHOD] [PATH] or use subcommands (list, spec)", bin_name);
             }
         },
         Commands::Auth { action } => match action {
@@ -378,9 +375,9 @@ async fn run() -> Result<()> {
             } else if let Some(s) = shell {
                 use clap::CommandFactory;
                 let mut cmd = Cli::command();
-                clap_complete::generate(*s, &mut cmd, "owenc", &mut std::io::stdout());
+                clap_complete::generate(*s, &mut cmd, &bin_name, &mut std::io::stdout());
             } else {
-                println!("Usage: owenc completion [SHELL] or owenc completion --install");
+                println!("Usage: {} completion [SHELL] or {} completion --install", bin_name, bin_name);
             }
         }
         Commands::Profile { action } => match action {

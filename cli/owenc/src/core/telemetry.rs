@@ -9,6 +9,7 @@ use anyhow::{Result, Context};
 
 pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
     let log_level = &config.level;
+    let bin_name = crate::core::utils::get_bin_name();
     
     // 1. Create log directory if it doesn't exist
     if !log_dir.exists() {
@@ -20,12 +21,12 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
     // 2. Prepare Filters
     // Global filter allows INFO for all internal targets to ensure they reach file layers for traceability.
     let global_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("warn,owenc=info,connector_sdk=info,sys=info,audit=info,stream=info,dlq=info"));
+        .unwrap_or_else(|_| EnvFilter::new(format!("warn,{}=info,connector_sdk=info,sys=info,audit=info,stream=info,dlq=info", bin_name)));
 
     // Console specific filter follows the user-provided log_level (defaults to ERROR).
     let console_filter = EnvFilter::new(format!(
-        "warn,owenc={},connector_sdk={},sys={},audit={},stream={},dlq={}",
-        log_level, log_level, log_level, log_level, log_level, log_level
+        "warn,{}={},connector_sdk={},sys={},audit={},stream={},dlq={}",
+        bin_name, log_level, log_level, log_level, log_level, log_level, log_level
     ));
 
     // 3. Setup Console Layer
@@ -62,13 +63,16 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
             let (writer, guard) = tracing_appender::non_blocking(appender);
             guards.push(guard);
             $reg.with(fmt::layer()
-                .json()
                 .with_writer(writer)
+                .with_target(true)
+                .with_line_number(true)
+                .with_thread_ids(true)
                 .with_filter(tracing_subscriber::filter::filter_fn($filter_fn)))
         }};
     }
 
-    let registry = add_domain_layer!(registry, "sys.log", |m| m.target().starts_with("sys") || m.target().starts_with("owenc"));
+    let bin_name_clone = bin_name.clone();
+    let registry = add_domain_layer!(registry, "sys.log", move |m| m.target().starts_with("sys") || m.target().starts_with(&bin_name_clone));
     let registry = add_domain_layer!(registry, "audit.log", |m| m.target() == "audit");
     let registry = add_domain_layer!(registry, "stream.log", |m| m.target() == "stream" || m.target().starts_with("connector_sdk"));
     let registry = add_domain_layer!(registry, "dlq.log", |m| m.target() == "dlq");

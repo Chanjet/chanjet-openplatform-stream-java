@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use crate::Cli;
 
 pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Result<()> {
+    let bin_name = crate::core::utils::get_bin_name();
     let home = directories::UserDirs::new()
         .context("Could not find home directory")?
         .home_dir()
@@ -24,7 +25,7 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
             } else if shell_path.ends_with("fish") {
                 clap_complete::Shell::Fish
             } else {
-                return Err(anyhow::anyhow!("Unsupported or unknown shell ({}). Please specify shell with 'owenc completion <SHELL> --install'", shell_path));
+                return Err(anyhow::anyhow!("Unsupported or unknown shell ({}). Please specify shell with '{} completion <SHELL> --install'", shell_path, bin_name));
             }
         }
     };
@@ -35,13 +36,13 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
 
     let mut cmd = Cli::command();
     let mut script_buf = Vec::new();
-    clap_complete::generate(shell, &mut cmd, "owenc", &mut script_buf);
+    clap_complete::generate(shell, &mut cmd, &bin_name, &mut script_buf);
 
     let script_name = match shell {
-        clap_complete::Shell::Zsh => "owenc.zsh",
-        clap_complete::Shell::Bash => "owenc.bash",
-        clap_complete::Shell::Fish => "owenc.fish",
-        _ => "owenc.sh",
+        clap_complete::Shell::Zsh => format!("{}.zsh", bin_name),
+        clap_complete::Shell::Bash => format!("{}.bash", bin_name),
+        clap_complete::Shell::Fish => format!("{}.fish", bin_name),
+        _ => format!("{}.sh", bin_name),
     };
 
     let script_path = comp_dir.join(script_name);
@@ -60,7 +61,7 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
         clap_complete::Shell::Fish => {
             let fish_comp_dir = home.join(".config").join("fish").join("completions");
             fs::create_dir_all(&fish_comp_dir).unwrap_or_default();
-            let dest = fish_comp_dir.join("owenc.fish");
+            let dest = fish_comp_dir.join(format!("{}.fish", bin_name));
             let _ = fs::copy(&script_path, &dest);
             println!("✅ Auto-completion installed to {:?}", dest);
         },
@@ -74,6 +75,7 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
 }
 
 pub fn uninstall_completion() -> Result<()> {
+    let bin_name = crate::core::utils::get_bin_name();
     let app_dir = crate::core::config::get_app_dir();
     let comp_dir = app_dir.join("completions");
     
@@ -97,20 +99,18 @@ pub fn uninstall_completion() -> Result<()> {
         home.join(".bash_profile"),
     ];
 
+    let marker = format!("# {} autocomplete", bin_name);
+
     for rc_path in rc_files {
         if rc_path.exists() {
             let content = fs::read_to_string(&rc_path)?;
-            if content.contains("# owenc autocomplete") {
-                // Remove everything between marker blocks if we had end markers, 
-                // but since we only had a start marker, we'll use a more surgical regex or just filter lines.
-                // Our injection was: \n# owenc autocomplete\nif [ -f ... ]; then ... fi\n
-                // Let's use a simple line-based removal for now.
+            if content.contains(&marker) {
                 let lines: Vec<String> = content.lines().map(String::from).collect();
                 let mut new_lines = Vec::new();
                 let mut skipping = false;
                 
                 for line in lines {
-                    if line.contains("# owenc autocomplete") {
+                    if line.contains(&marker) {
                         skipping = true;
                         continue;
                     }
@@ -132,7 +132,7 @@ pub fn uninstall_completion() -> Result<()> {
     }
 
     // 4. Special case for Fish
-    let fish_comp = home.join(".config").join("fish").join("completions").join("owenc.fish");
+    let fish_comp = home.join(".config").join("fish").join("completions").join(format!("{}.fish", bin_name));
     if fish_comp.exists() {
         let _ = fs::remove_file(&fish_comp);
         println!("✅ Auto-completion removed from {:?}", fish_comp);
@@ -148,20 +148,26 @@ pub fn is_auto_install_needed() -> bool {
 }
 
 fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::Shell) {
+    let bin_name = crate::core::utils::get_bin_name();
     let script_path_str = script_path.display().to_string();
+    let marker = format!("# {} autocomplete", bin_name);
+
     let source_cmd = if shell == clap_complete::Shell::Zsh {
         format!(
-            "\n# owenc autocomplete\nif [ -f \"{}\" ]; then\n    type compdef >/dev/null 2>&1 || {{ autoload -Uz compinit; compinit; }}\n    source \"{}\"\n    compdef _owenc owenc 2>/dev/null\n    compdef _owenc ./owenc 2>/dev/null\nfi\n",
+            "\n{}\nif [ -f \"{}\" ]; then\n    type compdef >/dev/null 2>&1 || {{ autoload -Uz compinit; compinit; }}\n    source \"{}\"\n    compdef _{} {} 2>/dev/null\n    compdef _{} ./{} 2>/dev/null\nfi\n",
+            marker,
             script_path_str,
-            script_path_str
+            script_path_str,
+            bin_name, bin_name,
+            bin_name, bin_name
         )
     } else {
-        format!("\n# owenc autocomplete\n[ -f \"{}\" ] && source \"{}\"\n", script_path_str, script_path_str)
+        format!("\n{}\n[ -f \"{}\" ] && source \"{}\"\n", marker, script_path_str, script_path_str)
     };
     
     if rc_path.exists() {
         if let Ok(content) = fs::read_to_string(&rc_path) {
-            if content.contains(&script_path.display().to_string()) {
+            if content.contains(&script_path_str) {
                 println!("✅ Auto-completion already configured in {:?}", rc_path);
                 println!("💡 Run \x1b[32msource {:?}\x1b[0m to refresh your current session.", rc_path);
                 return;
@@ -185,7 +191,7 @@ fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::S
                 _ => "zsh",
             };
             println!("\nAlternatively, for instant activation without restarting, run:");
-            println!("   \x1b[32meval \"$(owenc completion {})\"\x1b[0m", shell_name);
+            println!("   \x1b[32meval \"$({} completion {})\"\x1b[0m", bin_name, shell_name);
         }
     } else {
         println!("⚠️ Could not write to {:?}. Please manually add: {}", rc_path, source_cmd.trim());

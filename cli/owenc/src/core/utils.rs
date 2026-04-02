@@ -1,6 +1,11 @@
 use serde::Serialize;
 use anyhow::Result;
 
+pub fn get_bin_name() -> String {
+    std::env::var("CARGO_BIN_NAME_OVERRIDE")
+        .unwrap_or_else(|_| option_env!("CARGO_BIN_NAME_OVERRIDE").unwrap_or("owenc").to_string())
+}
+
 pub fn render<T: Serialize>(data: &T, format: &str) -> Result<()> {
     let output = match format {
         "json" => {
