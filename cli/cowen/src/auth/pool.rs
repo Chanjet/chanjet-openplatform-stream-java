@@ -82,3 +82,46 @@ impl TokenPool for VaultTokenPool {
         Ok(Box::new(file))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::vault::MultiVault;
+    use tempfile::tempdir;
+    use chrono::{Duration, Utc, SubsecRound};
+
+    #[test]
+    fn test_vault_token_pool_lifecycle() {
+        let dir = tempdir().unwrap();
+        let vault_path = dir.path().join("test.vault");
+        let vault = Arc::new(MultiVault::new(vault_path, "fingerprint").unwrap());
+        let pool = VaultTokenPool::new(vault);
+        let profile = "test-profile";
+
+        // 1. Ticket
+        let ticket = Ticket {
+            value: "ticket-123".to_string(),
+            created_at: Utc::now(),
+        };
+        pool.set_app_ticket(profile, &ticket).unwrap();
+        let retrieved_ticket = pool.get_app_ticket(profile).unwrap();
+        assert_eq!(retrieved_ticket.value, "ticket-123");
+
+        // 2. Token
+        let now = Utc::now().round_subsecs(0); // RFC3339 might lose some precision depending on implementation
+        let token = Token {
+            value: "token-abc".to_string(),
+            expires_at: now + Duration::hours(2),
+            created_at: now,
+        };
+        pool.set_access_token(profile, &token).unwrap();
+        
+        let retrieved_token = pool.get_access_token(profile).unwrap();
+        assert_eq!(retrieved_token.value, "token-abc");
+        assert_eq!(retrieved_token.expires_at.to_rfc3339(), token.expires_at.to_rfc3339());
+        
+        // 3. Delete
+        pool.delete_access_token(profile).unwrap();
+        assert!(pool.get_access_token(profile).is_err());
+    }
+}

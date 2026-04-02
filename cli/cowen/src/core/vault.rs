@@ -149,3 +149,81 @@ impl Vault for MultiVault {
         Ok(lock_file)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_multivault_crud() {
+        let dir = tempdir().unwrap();
+        let vault_path = dir.path().join("test.vault");
+        let vault = MultiVault::new(vault_path, "fingerprint-1").unwrap();
+
+        // Set
+        vault.set("default", "key1", "value1").unwrap();
+        vault.set("default", "key2", "value2").unwrap();
+
+        // Get
+        assert_eq!(vault.get("default", "key1").unwrap(), "value1");
+        assert_eq!(vault.get("default", "key2").unwrap(), "value2");
+
+        // Delete
+        vault.delete("default", "key1").unwrap();
+        assert!(vault.get("default", "key1").is_err());
+        assert_eq!(vault.get("default", "key2").unwrap(), "value2");
+
+        // Clear
+        vault.clear("default").unwrap();
+        assert!(vault.get("default", "key2").is_err());
+    }
+
+    #[test]
+    fn test_multivault_isolation() {
+        let dir = tempdir().unwrap();
+        let vault_path = dir.path().join("test.vault");
+        let vault = MultiVault::new(vault_path, "fingerprint-1").unwrap();
+
+        vault.set("profile1", "k", "v1").unwrap();
+        vault.set("profile2", "k", "v2").unwrap();
+
+        assert_eq!(vault.get("profile1", "k").unwrap(), "v1");
+        assert_eq!(vault.get("profile2", "k").unwrap(), "v2");
+
+        vault.clear("profile1").unwrap();
+        assert!(vault.get("profile1", "k").is_err());
+        assert_eq!(vault.get("profile2", "k").unwrap(), "v2");
+    }
+
+    #[test]
+    fn test_multivault_persistence() {
+        let dir = tempdir().unwrap();
+        let vault_path = dir.path().join("test.vault");
+        
+        {
+            let vault = MultiVault::new(vault_path.clone(), "fingerprint-1").unwrap();
+            vault.set("default", "secret", "hidden").unwrap();
+        }
+
+        // Reload from same path
+        let vault = MultiVault::new(vault_path, "fingerprint-1").unwrap();
+        assert_eq!(vault.get("default", "secret").unwrap(), "hidden");
+    }
+
+    #[test]
+    fn test_multivault_wrong_fingerprint() {
+        let dir = tempdir().unwrap();
+        let vault_path = dir.path().join("test.vault");
+        
+        {
+            let vault = MultiVault::new(vault_path.clone(), "fingerprint-1").unwrap();
+            vault.set("default", "secret", "hidden").unwrap();
+        }
+
+        // Try load with different fingerprint (wrong key)
+        let vault = MultiVault::new(vault_path, "wrong-fingerprint").unwrap();
+        // Should start fresh instead of failing hard (per implementation)
+        assert!(vault.get("default", "secret").is_err());
+    }
+}

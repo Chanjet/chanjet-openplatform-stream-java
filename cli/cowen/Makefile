@@ -119,7 +119,7 @@ build-all: build build-mac-intel build-win64 build-linux-x64 build-linux-arm64
 	@echo "📦 All targets built successfully in $(OUTPUT_DIR)/"
 
 test:
-	cargo test
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) cargo test
 
 clean:
 	cargo clean

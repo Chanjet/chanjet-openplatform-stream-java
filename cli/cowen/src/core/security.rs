@@ -62,3 +62,57 @@ pub fn decrypt(combined: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
 
     Ok(plaintext)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_machine_fingerprint() {
+        let fingerprint = get_machine_fingerprint().unwrap();
+        assert!(!fingerprint.is_empty());
+        assert_eq!(fingerprint.len(), 64); // SHA256 hex
+    }
+
+    #[test]
+    fn test_derive_key() {
+        let key1 = derive_key("test-fingerprint");
+        let key2 = derive_key("test-fingerprint");
+        let key3 = derive_key("other-fingerprint");
+
+        assert_eq!(key1, key2);
+        assert_ne!(key1, key3);
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_cycle() {
+        let key = derive_key("secret-key");
+        let data = b"hello world secure message";
+        
+        let encrypted = encrypt(data, &key).expect("Encryption failed");
+        assert!(encrypted.len() > data.len());
+        
+        let decrypted = decrypt(&encrypted, &key).expect("Decryption failed");
+        assert_eq!(data, decrypted.as_slice());
+    }
+
+    #[test]
+    fn test_decrypt_invalid_data() {
+        let key = derive_key("secret-key");
+        let too_short = vec![0u8; 11];
+        let result = decrypt(&too_short, &key);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid encrypted data"));
+    }
+
+    #[test]
+    fn test_decrypt_wrong_key() {
+        let key1 = derive_key("key-1");
+        let key2 = derive_key("key-2");
+        let data = b"sensitive info";
+        
+        let encrypted = encrypt(data, &key1).unwrap();
+        let result = decrypt(&encrypted, &key2);
+        assert!(result.is_err());
+    }
+}

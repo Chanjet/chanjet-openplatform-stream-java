@@ -591,6 +591,7 @@ fn print_schema_recursive(schema: &serde_json::Value, indent: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use crate::auth::models::Token;
     use crate::core::config::Config;
     use axum::{routing::get, Router, Json, extract::Query};
@@ -698,6 +699,38 @@ mod tests {
         ).await;
 
         assert!(result.is_ok(), "API call failed: {:?}", result.err());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_list_apis() -> Result<()> {
+        let mock_spec = json!({
+            "openapi": "3.0.0",
+            "paths": {
+                "/api/v1/test": {
+                    "get": { "summary": "Test API" }
+                },
+                "/api/v2/other": {
+                    "post": { "summary": "Other API" }
+                }
+            }
+        });
+
+        let mock_auth = MockAuthClient {
+            spec: mock_spec,
+            token: Token {
+                value: "token".into(),
+                expires_at: Utc::now(),
+                created_at: Utc::now(),
+            },
+        };
+
+        let config = Config::default_with_profile("test");
+        
+        // Just verify it doesn't crash and returns Ok
+        let result = list("default", &config, &mock_auth, &None, 5, 1, 20, "text").await;
+        assert!(result.is_ok());
 
         Ok(())
     }
