@@ -12,7 +12,7 @@ use anyhow::Result;
 
 #[derive(Parser)]
 #[command(name = env!("CARGO_BIN_NAME_OVERRIDE"))]
-#[command(version = "0.1.2")]
+#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("BUILD_ID"), " / ", env!("BUILD_TIME"), ")"))]
 #[command(
     about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
     long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。"
@@ -60,6 +60,8 @@ pub enum Commands {
         path: Option<String>,
         #[arg(short = 'd', long = "data", help = "HTTP 请求体数据 (JSON格式)")]
         data: Option<String>,
+        #[arg(short = 'f', long = "file", help = "从文件读取请求体数据 (JSON格式)")]
+        data_file: Option<String>,
 
         #[command(subcommand)]
         action: Option<ApiCommands>,
@@ -137,6 +139,8 @@ pub enum ApiCommands {
         page: usize,
         #[arg(long, default_value_t = 20, help = "每页数量")]
         page_size: usize,
+        #[arg(short, long, help = "强制从云端同步最新的 OpenAPI 规约")]
+        refresh: bool,
     },
     /// 获取指定 API 的 OpenAPI 3.0 规范或详细离线文档
     Spec {
@@ -323,22 +327,23 @@ async fn run() -> Result<()> {
                 stream_url,
             ).await?;
         }
-        Commands::Api { action, method, path, data } => {
+        Commands::Api { method, path, data, data_file, action } => {
             if let Some(act) = action {
                 match act {
-                    ApiCommands::List { search, top, page, page_size } => {
-                        cmd::api::list(&active_profile, &config, &auth_cli, search, *top, *page, *page_size, &cli.format).await?;
+                    ApiCommands::List { search, top, page, page_size, refresh } => {
+                        cmd::api::list(&active_profile, &config, &auth_cli, search, *top, *page, *page_size, &cli.format, *refresh).await?;
                     }
                     ApiCommands::Spec { method, path, raw } => {
                         cmd::api::spec(&active_profile, &config, &auth_cli, method, path, *raw).await?;
                     }
                 }
             } else if let (Some(m), Some(p)) = (method, path) {
-                cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, &cli.format).await?;
+                cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, data_file, &cli.format).await?;
             } else {
                 println!("Usage: {} api [METHOD] [PATH] or use subcommands (list, spec)", bin_name);
             }
         },
+
         Commands::Auth { action } => match action {
             AuthCommands::Status => {
                 cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format).await?;

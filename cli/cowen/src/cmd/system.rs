@@ -239,7 +239,7 @@ pub async fn reset(
 
     // 2. Clear Vault if available
     if let Some(v) = vault {
-        if let Err(e) = v.clear(_profile) {
+        if let Err(e) = v.clear_profile(_profile) {
             eprintln!("⚠️ Warning: Failed to clear vault for profile '{}': {}", _profile, e);
         } else {
             println!("✅ Vault secrets cleared.");
@@ -253,6 +253,7 @@ pub async fn reset(
     let targets = vec![
         app_dir.join(format!("{}.yaml", _profile)),
         app_dir.join(format!("{}_openapi.json", _profile)),
+        app_dir.join(format!("{}_openapi.yaml", _profile)),
         app_dir.join(format!("{}_openapi.idx", _profile)),
         app_dir.join(format!("{}_daemon.pid", _profile)),
         app_dir.join("logs").join(format!("{}.log", _profile)),

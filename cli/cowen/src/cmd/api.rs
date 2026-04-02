@@ -12,13 +12,26 @@ pub async fn call(
     method: &str,
     path: &str,
     data: &Option<String>,
+    data_file: &Option<String>,
     format: &str,
 ) -> Result<()> {
+    // 1. Resolve Body Data
+    let body_str = if let Some(file_path) = data_file {
+        std::fs::read_to_string(file_path)
+            .map_err(|e| anyhow!("Failed to read data file '{}': {}", file_path, e))?
+    } else if let Some(d) = data {
+        d.clone()
+    } else {
+        "".to_string()
+    };
+
+    let body_option = if body_str.is_empty() { None } else { Some(body_str) };
+
     // PROTECT CLI: Whitelist Check
-    let spec = auth_cli.get_openapi_spec(profile, cfg).await?;
+    let spec = auth_cli.get_openapi_spec(profile, cfg, false).await?;
 
     // PRE-CHECK: Validate Parameters & Body against OpenAPI spec
-    crate::core::openapi::validate_request(&spec, method, path, data)?;
+    crate::core::openapi::validate_request(&spec, method, path, &body_option)?;
 
     let path_no_query = path.split('?').next().unwrap_or(path);
     if !crate::auth::client::is_path_in_whitelist(path_no_query, &spec) {
@@ -61,7 +74,7 @@ pub async fn call(
             .map_err(|_| anyhow!("Invalid HTTP method: {}", method))?;
 
         let mut req = client.request(req_method, &url)
-            .header("Content-Type", content_type);
+            .header("Content-Type", content_type.clone());
 
         let auth_headers = crate::auth::RequestDecorator::get_auth_headers(
             &spec, 
@@ -76,9 +89,19 @@ pub async fn call(
             req = req.header(name, value);
         }
 
-        if let Some(body_data) = data {
+        if let Some(body_data) = &body_option {
             req = req.body(body_data.clone());
         }
+
+        // DEBUG: Log the full request details
+        tracing::info!(
+            target: "sys",
+            method = %method,
+            url = %url,
+            content_type = %content_type,
+            body = %body_option.as_deref().unwrap_or(""),
+            "Sending platform API request"
+        );
 
         let resp = req.send().await?;
         let status = resp.status();
@@ -198,8 +221,9 @@ pub async fn list(
     page: usize,
     page_size: usize,
     format: &str,
+    refresh: bool,
 ) -> Result<()> {
-    let spec = auth_cli.get_openapi_spec(profile, cfg).await?;
+    let spec = auth_cli.get_openapi_spec(profile, cfg, refresh).await?;
     let paths = spec["paths"].as_object().ok_or_else(|| anyhow!("Invalid OpenAPI spec: missing paths"))?;
 
     if let Some(_query) = search_query {
@@ -341,7 +365,7 @@ pub async fn spec(
     input_path: &str,
     raw: bool,
 ) -> Result<()> {
-    let spec = auth_cli.get_openapi_spec(profile, cfg).await?;
+    let spec = auth_cli.get_openapi_spec(profile, cfg, false).await?;
     
     // 1. Resolve Path
     let matched_path = crate::auth::client::find_matching_spec_path(input_path, &spec)
@@ -615,7 +639,7 @@ mod tests {
         async fn trigger_push(&self, _profile: &str, _cfg: &Config) -> Result<()> {
             Ok(())
         }
-        async fn get_openapi_spec(&self, _profile: &str, _cfg: &Config) -> Result<serde_json::Value> {
+        async fn get_openapi_spec(&self, _profile: &str, _cfg: &Config, _force_refresh: bool) -> Result<serde_json::Value> {
             Ok(self.spec.clone())
         }
         async fn get_dynamic_interface_list(&self, _profile: &str, _cfg: &Config) -> Result<serde_json::Value> {
@@ -695,6 +719,7 @@ mod tests {
             "GET",
             "/accounting/openapi/cc/book/findByEnterpriseId?queryType=BINDING_TO_THIRD_PLATFORM",
             &None,
+            &None,
             "json"
         ).await;
 
@@ -729,7 +754,7 @@ mod tests {
         let config = Config::default_with_profile("test");
         
         // Just verify it doesn't crash and returns Ok
-        let result = list("default", &config, &mock_auth, &None, 5, 1, 20, "text").await;
+        let result = list("default", &config, &mock_auth, &None, 5, 1, 20, "text", false).await;
         assert!(result.is_ok());
 
         Ok(())

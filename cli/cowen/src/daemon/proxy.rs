@@ -66,7 +66,7 @@ async fn handle_proxy(
     let auth_cli = crate::auth::AuthClient::new(&pool);
     use crate::auth::client::Client as AuthTrait; // This import was inside the old match, moved here for scope.
 
-    let spec = match auth_cli.get_openapi_spec(&state.profile, &state.config).await {
+    let spec = match auth_cli.get_openapi_spec(&state.profile, &state.config, false).await {
         Ok(s) => s,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Spec error: {}", crate::core::utils::mask_sensitive_json(&e.to_string()))).into_response()
     };

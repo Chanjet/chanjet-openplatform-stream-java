@@ -10,24 +10,45 @@ pub async fn login(
 ) -> Result<()> {
     if force {
         println!("🔄 Force refresh requested. Attempting immediate Token refresh using existing Ticket...");
-        match auth_cli.refresh_app_access_token(_profile, cfg).await {
-            Ok(_) => {
-                println!("✅ Success! AccessToken has been refreshed and saved to Vault.");
-                return Ok(());
-            }
-            Err(e) => {
-                println!("⚠️  Immediate refresh failed (likely expired AppTicket): {}", e);
-                println!("📡 Falling back to platform push...");
+    } else {
+        println!("📡 Checking current credentials for profile '{}'...", _profile);
+    }
+
+    // 1. Attempt immediate refresh (it will loop for 30s internally if ticket is missing)
+    match auth_cli.refresh_app_access_token(_profile, cfg).await {
+        Ok(_) => {
+            println!("✅ Success! AccessToken has been refreshed and saved to Vault.");
+            return Ok(());
+        }
+        Err(e) => {
+            let err_msg = e.to_string();
+            if err_msg.contains("Missing app_ticket") {
+                println!("⚠️  Local AppTicket missing or expired. Requesting a new one from platform...");
+                // Note: perform_network_refresh already triggers a push on first attempt, 
+                // but we can be explicit here if it returned error immediately (which it shouldn't per impl)
+            } else {
+                println!("⚠️  Refresh failed: {}", err_msg);
+                println!("📡 Triggering a fresh platform push to recover...");
+                auth_cli.trigger_push(_profile, cfg).await?;
             }
         }
     }
 
-    println!("📡 Triggering AppTicket resend for profile '{}'...", _profile);
-    auth_cli.trigger_push(_profile, cfg).await?;
-    let bin_name = crate::core::utils::get_bin_name();
-    println!("✅ Push request sent. Platform will push a new AppTicket via Stream Bridge.");
-    println!("(TIP: Ensure '{} daemon start' is running to receive the push and auto-refresh)", bin_name);
-    Ok(())
+    // 2. If we reach here, the internal 30s loop in refresh_app_access_token might have failed,
+    // or we are doing a manual retry. Let's give it one more guided wait.
+    println!("⏳ Waiting for platform to push security handshake (AppTicket)...");
+    println!("(TIP: Ensure the daemon is running to receive the push)");
+    
+    // We try one more time with a fresh wait
+    match auth_cli.refresh_app_access_token(_profile, cfg).await {
+        Ok(_) => {
+            println!("✅ Success! AccessToken obtained.");
+            Ok(())
+        }
+        Err(e) => {
+            Err(anyhow::anyhow!("Failed to obtain token after waiting: {}. \nSuggestion: Check if 'owenc daemon start' is running and your network/firewall allows WebSocket connections to {}", e, cfg.stream_url))
+        }
+    }
 }
 
 pub async fn token(

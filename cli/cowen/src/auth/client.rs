@@ -5,20 +5,88 @@ use anyhow::{Result, anyhow, Context};
 use serde::Deserialize;
 use chrono::{Utc, Duration};
 use reqwest::Client as HttpClient;
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub struct SimpleResponse {
+    pub status: u16,
+    pub body: String,
+}
+
+impl SimpleResponse {
+    pub fn is_success(&self) -> bool {
+        self.status >= 200 && self.status < 300
+    }
+
+    pub async fn json<T: for<'de> Deserialize<'de>>(&self) -> Result<T> {
+        serde_json::from_str(&self.body).map_err(|e| anyhow!("JSON parse error: {}", e))
+    }
+
+    pub fn text(&self) -> String {
+        self.body.clone()
+    }
+}
 
 #[async_trait::async_trait]
-pub trait Client {
+pub trait HttpSender: Send + Sync {
+    async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse>;
+    async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> Result<SimpleResponse>;
+}
+
+pub struct ReqwestSender {
+    client: HttpClient,
+}
+
+impl ReqwestSender {
+    pub fn new() -> Self {
+        Self {
+            client: HttpClient::new(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl HttpSender for ReqwestSender {
+    async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
+        let resp = self.client.post(url)
+            .headers(headers)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Network error: {}", e))?;
+        
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        Ok(SimpleResponse { status, body })
+    }
+
+    async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
+        let resp = self.client.get(url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Network error: {}", e))?;
+            
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        Ok(SimpleResponse { status, body })
+    }
+}
+
+#[async_trait::async_trait]
+pub trait Client: Send + Sync {
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
     async fn trigger_push(&self, profile: &str, cfg: &Config) -> Result<()>;
-    async fn get_openapi_spec(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value>;
+    async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value>;
     async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value>;
     async fn clear_token(&self, profile: &str) -> Result<()>;
 }
 
 pub struct AuthClient<'a> {
     pool: &'a (dyn TokenPool + Send + Sync),
-    http: HttpClient,
+    http_sender: Arc<dyn HttpSender>,
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,13 +108,50 @@ impl<'a> AuthClient<'a> {
     pub fn new(pool: &'a (dyn TokenPool + Send + Sync)) -> Self {
         Self {
             pool,
-            http: HttpClient::new(),
+            http_sender: Arc::new(ReqwestSender::new()),
+            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_sender(pool: &'a (dyn TokenPool + Send + Sync), sender: Arc<dyn HttpSender>) -> Self {
+        Self {
+            pool,
+            http_sender: sender,
+            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 
     async fn perform_network_refresh(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        let ticket = self.pool.get_app_ticket(profile)
-            .context("Missing app_ticket, please ensure daemon is running and app_ticket is received.")?;
+        let mut attempts = 0;
+        let max_attempts = 30; // Wait up to 30 seconds for cloud push
+        
+        let ticket = loop {
+            match self.pool.get_app_ticket(profile) {
+                Ok(t) => break t,
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        return Err(e).context("Missing app_ticket. The background daemon is running but hasn't received a push from the platform yet. Please wait a moment or check your network/firewall.");
+                    }
+                    if attempts == 0 {
+                        eprintln!("⏳ AppTicket missing. Proactively triggering a platform push...");
+                        // Proactively trigger push on first failure
+                        if let Err(push_err) = self.trigger_push(profile, cfg).await {
+                            let err_str = push_err.to_string();
+                            if err_str.contains("HTTP 401") || err_str.contains("50003") {
+                                return Err(push_err).context("Fatal configuration error from platform. Please check your AppKey, AppSecret, and OpenAPI URL settings.");
+                            }
+                            tracing::warn!(target: "sys", error = %push_err, "Failed to trigger proactive push");
+                        }
+                    }
+                    if attempts % 5 == 0 {
+                        eprintln!("⏳ Waiting for security handshake (AppTicket) from platform ({}s)...", attempts);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    attempts += 1;
+                }
+            }
+        };
 
         let url = format!("{}/v1/common/auth/selfBuiltApp/generateToken", cfg.openapi_url);
         let app_key = cfg.app_key.trim();
@@ -70,16 +175,22 @@ impl<'a> AuthClient<'a> {
             "authCertificate": cfg.certificate.trim(),
         });
 
-        let resp = self.http.post(&url)
-            .header("appKey", app_key)
-            .header("appSecret", app_secret)
-            .json(&body)
-            .send()
-            .await?;
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("appKey", app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+        headers.insert("appSecret", app_secret.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let err_text = resp.text().await?;
+        tracing::info!(
+            target: "sys", 
+            url = %url, 
+            app_key = %app_key,
+            "Outgoing platform auth request"
+        );
+
+        let resp = self.http_sender.post(&url, headers, body).await?;
+
+        if !resp.is_success() {
+            let status = resp.status;
+            let err_text = resp.text();
             let safe_err = crate::core::utils::mask_sensitive_json(&err_text);
             return Err(anyhow!("Platform auth failed (HTTP {}): {}", status, safe_err));
         }
@@ -108,26 +219,29 @@ impl<'a> AuthClient<'a> {
 #[async_trait::async_trait]
 impl<'a> Client for AuthClient<'a> {
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
+        // 1. Fast path: check pool
         if let Ok(token) = self.pool.get_access_token(profile) {
             if !token.is_expired() {
                 return Ok(token);
             }
         }
 
-        let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
+        // 2. Slow path: barrier refresh
+        let _guard = self.refresh_lock.lock().await;
+        
+        // Re-check after acquiring lock
+        if let Ok(token) = self.pool.get_access_token(profile) {
+            if !token.is_expired() {
+                return Ok(token);
+            }
+        }
+
         self.pool.clear_cache(profile);
-
-        if let Ok(token) = self.pool.get_access_token(profile) {
-            if !token.is_expired() {
-                return Ok(token);
-            }
-        }
-
         self.perform_network_refresh(profile, cfg).await
     }
 
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        let _lock_guard = self.pool.lock(profile).context("Failed to acquire global refresh lock")?;
+        let _guard = self.refresh_lock.lock().await;
         self.pool.clear_cache(profile);
         self.perform_network_refresh(profile, cfg).await
     }
@@ -143,16 +257,22 @@ impl<'a> Client for AuthClient<'a> {
         
         let body = serde_json::json!({});
 
-        let resp = self.http.post(&url)
-            .header("appKey", app_key)
-            .header("appSecret", app_secret)
-            .json(&body)
-            .send()
-            .await?;
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("appKey", app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+        headers.insert("appSecret", app_secret.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let err_text = resp.text().await?;
+        tracing::info!(
+            target: "sys", 
+            url = %url, 
+            app_key = %app_key,
+            "Outgoing platform auth request"
+        );
+
+        let resp = self.http_sender.post(&url, headers, body).await?;
+
+        if !resp.is_success() {
+            let status = resp.status;
+            let err_text = resp.text();
             return Err(anyhow!("Failed to trigger push (HTTP {}): {}", status, err_text));
         }
 
@@ -170,13 +290,12 @@ impl<'a> Client for AuthClient<'a> {
         Ok(())
     }
 
-    async fn get_openapi_spec(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value> {
+    async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value> {
         let app_dir = crate::core::config::get_app_dir();
-        // CHANGED: Use .yaml instead of .json
         let cache_path = app_dir.join(format!("{}_openapi.yaml", profile));
 
-        // 1. Load Cache if exists
-        let cached_data = if cache_path.exists() {
+        // 1. Load Cache if exists and not forcing
+        let cached_data = if cache_path.exists() && !force_refresh {
             if let Ok(data) = std::fs::read_to_string(&cache_path) {
                 serde_yaml::from_str::<serde_json::Value>(&data).ok()
             } else { None }
@@ -190,16 +309,18 @@ impl<'a> Client for AuthClient<'a> {
             if elapsed < 3600 {
                 return Ok(spec);
             }
+            
+            // ... (rest of automatic refresh logic)
 
             if !cfg.openapi_url.is_empty() {
                 let spec_url = format!("{}/v1/common/openapi/spec", cfg.openapi_url.trim_end_matches('/'));
                 if let Ok(token) = self.get_app_access_token(profile, cfg).await {
-                    match self.http.get(&spec_url)
-                        .header("openToken", token.value)
-                        .header("appKey", &cfg.app_key)
-                        .send()
-                        .await {
-                        Ok(resp) if resp.status().is_success() => {
+                    let mut headers = reqwest::header::HeaderMap::new();
+                    headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+                    headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+
+                    match self.http_sender.get(&spec_url, headers).await {
+                        Ok(resp) if resp.is_success() => {
                             if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
                                 Self::clean_non_standard_fields(&mut fresh_spec);
                                 let _ = self.save_spec_to_cache(&cache_path, &fresh_spec);
@@ -223,20 +344,20 @@ impl<'a> Client for AuthClient<'a> {
         if !cfg.openapi_url.is_empty() {
             let spec_url = format!("{}/v1/common/openapi/spec", cfg.openapi_url.trim_end_matches('/'));
              if let Ok(token) = self.get_app_access_token(profile, cfg).await {
-                if let Ok(resp) = self.http.get(&spec_url)
-                    .header("openToken", token.value)
-                    .header("appKey", &cfg.app_key)
-                    .send()
-                    .await {
-                    if resp.status().is_success() {
-                        if let Ok(mut spec) = resp.json::<serde_json::Value>().await {
-                            Self::clean_non_standard_fields(&mut spec);
-                            let _ = self.save_spec_to_cache(&cache_path, &spec);
-                            return Ok(spec);
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+                headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+
+                if let Ok(resp) = self.http_sender.get(&spec_url, headers).await {
+                    if resp.is_success() {
+                        if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
+                            Self::clean_non_standard_fields(&mut fresh_spec);
+                            let _ = self.save_spec_to_cache(&cache_path, &fresh_spec);
+                            return Ok(fresh_spec);
                         }
                     }
                 }
-            }
+             }
         }
 
         // 4. Pull Spec Failed: Try Dynamic Interface List
@@ -265,14 +386,14 @@ impl<'a> Client for AuthClient<'a> {
             let url = format!("{}?currentPage={}&size=100", base_url, current_page);
             tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page + 1, total_pages);
             
-            let resp = self.http.get(&url)
-                .header("openToken", &token.value)
-                .header("appKey", &cfg.app_key)
-                .send()
-                .await?;
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+            headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
 
-            if !resp.status().is_success() {
-                return Err(anyhow!("Failed to fetch interface list page {}: HTTP {}", current_page, resp.status()));
+            let resp = self.http_sender.get(&url, headers).await?;
+
+            if !resp.is_success() {
+                return Err(anyhow!("Failed to fetch interface list page {}: HTTP {}", current_page, resp.status));
             }
 
             let body: serde_json::Value = resp.json().await?;
@@ -284,7 +405,6 @@ impl<'a> Client for AuthClient<'a> {
             if let Some(list) = value.get("resultList").and_then(|l| l.as_array()) {
                 for item in list {
                     if let Some(mut item_spec) = item.get("openApi").cloned() {
-                        // CLEAN EXTENSIONS from snippet
                         Self::clean_non_standard_fields(&mut item_spec);
                         
                         if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
@@ -329,19 +449,15 @@ impl<'a> AuthClient<'a> {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        // CHANGED: Use YAML for persistence
         let yaml_data = serde_yaml::to_string(spec)?;
         std::fs::write(path, yaml_data)?;
         Ok(())
     }
 
-    /// Recursively removes all keys starting with 'x-' (OpenAPI extensions)
     fn clean_non_standard_fields(value: &mut serde_json::Value) {
         match value {
             serde_json::Value::Object(map) => {
-                // 1. Remove x- fields from this level
                 map.retain(|k, _| !k.starts_with("x-"));
-                // 2. Recursively clean children
                 for (_, val) in map.iter_mut() {
                     Self::clean_non_standard_fields(val);
                 }
@@ -413,6 +529,94 @@ pub fn is_path_in_whitelist(req_path: &str, spec: &serde_json::Value) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+    use crate::auth::models::{Token, Ticket};
+    use std::sync::Mutex;
+
+    struct MockPool {
+        ticket: Mutex<Option<Ticket>>,
+        token: Mutex<Option<Token>>,
+    }
+
+    impl MockPool {
+        fn new() -> Self {
+            Self {
+                ticket: Mutex::new(None),
+                token: Mutex::new(None),
+            }
+        }
+    }
+
+    impl TokenPool for MockPool {
+        fn get_app_ticket(&self, _profile: &str) -> Result<Ticket> {
+            self.ticket.lock().unwrap().clone().ok_or_else(|| anyhow!("No ticket"))
+        }
+        fn set_app_ticket(&self, _profile: &str, ticket: &Ticket) -> Result<()> {
+            *self.ticket.lock().unwrap() = Some(ticket.clone());
+            Ok(())
+        }
+        fn get_access_token(&self, _profile: &str) -> Result<Token> {
+            self.token.lock().unwrap().clone().ok_or_else(|| anyhow!("No token"))
+        }
+        fn set_access_token(&self, _profile: &str, token: &Token) -> Result<()> {
+            *self.token.lock().unwrap() = Some(token.clone());
+            Ok(())
+        }
+        fn delete_access_token(&self, _profile: &str) -> Result<()> {
+            *self.token.lock().unwrap() = None;
+            Ok(())
+        }
+        fn clear_cache(&self, _profile: &str) {}
+    }
+
+    struct MockHttpSender {
+        response_body: String,
+        status: u16,
+    }
+
+    #[async_trait::async_trait]
+    impl HttpSender for MockHttpSender {
+        async fn post(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
+            Ok(SimpleResponse {
+                status: self.status,
+                body: self.response_body.clone(),
+            })
+        }
+        async fn get(&self, _url: &str, _headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
+            Ok(SimpleResponse {
+                status: self.status,
+                body: self.response_body.clone(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_perform_network_refresh_success() {
+        let pool = MockPool::new();
+        pool.set_app_ticket("test", &Ticket {
+            value: "valid_ticket".to_string(),
+            created_at: Utc::now(),
+        }).unwrap();
+
+        let mock_http = Arc::new(MockHttpSender {
+            status: 200,
+            response_body: json!({
+                "result": true,
+                "value": {
+                    "accessToken": "new_token",
+                    "expiresIn": 3600
+                }
+            }).to_string(),
+        });
+
+        let client = AuthClient::with_sender(&pool, mock_http);
+        let cfg = Config::default_with_profile("test");
+        
+        let token = client.perform_network_refresh("test", &cfg).await.unwrap();
+        assert_eq!(token.value, "new_token");
+        
+        let saved_token = pool.get_access_token("test").unwrap();
+        assert_eq!(saved_token.value, "new_token");
+    }
 
     #[test]
     fn test_clean_non_standard_fields_removes_content_type_header() {

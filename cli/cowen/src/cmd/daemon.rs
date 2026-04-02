@@ -191,8 +191,16 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy
     let p_profile_task = profile.to_string();
     let p_config_task = config.clone();
     let maintenance_task = tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        // Wait a short moment for WebSocket to establish before requesting ticket
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         let auth = AuthClient::new(p_pool_task.as_ref());
+
+        // Proactively request a ticket push if we don't have one cached
+        if p_pool_task.get_app_ticket(&p_profile_task).is_err() {
+            tracing::info!(target: "sys", "Initial AppTicket missing. Proactively requesting platform push...");
+            let _ = auth.trigger_push(&p_profile_task, &p_config_task).await;
+        }
+
         loop {
             tracing::info!(target: "sys", "Running daemon credential maintenance check...");
             match auth.get_app_access_token(&p_profile_task, &p_config_task).await {

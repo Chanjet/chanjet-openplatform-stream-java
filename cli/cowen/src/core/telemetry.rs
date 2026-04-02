@@ -63,6 +63,7 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
             let (writer, guard) = tracing_appender::non_blocking(appender);
             guards.push(guard);
             $reg.with(fmt::layer()
+                .json()
                 .with_writer(writer)
                 .with_target(true)
                 .with_line_number(true)

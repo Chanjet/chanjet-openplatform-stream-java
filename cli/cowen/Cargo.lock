@@ -498,6 +498,7 @@ dependencies = [
  "directories",
  "fs2",
  "hostname",
+ "http 1.4.0",
  "hyper 1.8.1",
  "hyper-rustls 0.24.2",
  "keyring",

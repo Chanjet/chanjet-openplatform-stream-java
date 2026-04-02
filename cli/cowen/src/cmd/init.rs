@@ -74,6 +74,8 @@ pub async fn execute(
     let _ = crate::cmd::daemon::stop(profile).await;
     if let Err(e) = crate::cmd::daemon::start(profile, &config, 8080, false, false).await {
         eprintln!("⚠️ Failed to auto-start daemon: {}", e);
+    } else {
+        println!("💡 Security handshake is running in background. First API call may take a few seconds to authorize.");
     }
 
     Ok(())

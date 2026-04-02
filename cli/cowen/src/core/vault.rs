@@ -11,16 +11,15 @@ pub trait Vault: Send + Sync {
     fn get(&self, profile: &str, key: &str) -> Result<String>;
     fn set(&self, profile: &str, key: &str, value: &str) -> Result<()>;
     fn delete(&self, profile: &str, key: &str) -> Result<()>;
-    fn clear(&self, profile: &str) -> Result<()>;
-    fn lock(&self, profile: &str) -> Result<File>;
+    fn clear_profile(&self, profile: &str) -> Result<()>;
 }
+
 
 pub struct MultiVault {
     path: PathBuf,
     key: [u8; 32],
     _cache: Mutex<HashMap<String, HashMap<String, String>>>,
     storage_lock_path: PathBuf,
-    business_lock_path: PathBuf,
 }
 
 impl MultiVault {
@@ -28,14 +27,12 @@ impl MultiVault {
         let key = security::derive_key(fingerprint);
         // DIFFERENT LOCK FILES to prevent deadlock between IO protection and business coordination
         let storage_lock_path = path.with_extension("lock");
-        let business_lock_path = path.with_extension("bizlock");
         
         Ok(Self {
             path,
             key,
             _cache: Mutex::new(HashMap::new()),
             storage_lock_path,
-            business_lock_path,
         })
     }
 
@@ -130,25 +127,15 @@ impl Vault for MultiVault {
             Ok(())
         })
     }
-
-    fn clear(&self, profile: &str) -> Result<()> {
-        self.with_storage_lock(|| {
-            let mut data = self.load_all()?;
-            data.remove(profile);
-            self.save_all(&data)
-        })
-    }
-
-    fn lock(&self, _profile: &str) -> Result<File> {
-        let lock_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(&self.business_lock_path)?;
-        lock_file.lock_exclusive().context("Failed to acquire exclusive business vault lock")?;
-        Ok(lock_file)
-    }
+fn clear_profile(&self, profile: &str) -> Result<()> {
+    self.with_storage_lock(|| {
+        let mut data = self.load_all()?;
+        data.remove(profile);
+        self.save_all(&data)
+    })
 }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -175,7 +162,7 @@ mod tests {
         assert_eq!(vault.get("default", "key2").unwrap(), "value2");
 
         // Clear
-        vault.clear("default").unwrap();
+        vault.clear_profile("default").unwrap();
         assert!(vault.get("default", "key2").is_err());
     }
 
@@ -191,7 +178,7 @@ mod tests {
         assert_eq!(vault.get("profile1", "k").unwrap(), "v1");
         assert_eq!(vault.get("profile2", "k").unwrap(), "v2");
 
-        vault.clear("profile1").unwrap();
+        vault.clear_profile("profile1").unwrap();
         assert!(vault.get("profile1", "k").is_err());
         assert_eq!(vault.get("profile2", "k").unwrap(), "v2");
     }

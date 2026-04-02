@@ -11,7 +11,6 @@ pub trait TokenPool: Send + Sync {
     fn set_access_token(&self, profile: &str, token: &Token) -> Result<()>;
     fn delete_access_token(&self, profile: &str) -> Result<()>;
     fn clear_cache(&self, profile: &str);
-    fn lock(&self, profile: &str) -> Result<Box<dyn std::any::Any + Send>>;
 }
 
 pub struct VaultTokenPool {
@@ -75,11 +74,6 @@ impl TokenPool for VaultTokenPool {
 
     fn clear_cache(&self, _profile: &str) {
         // MultiVault doesn't have an internal cache that needs clearing yet
-    }
-
-    fn lock(&self, profile: &str) -> Result<Box<dyn std::any::Any + Send>> {
-        let file = self.v.lock(profile)?;
-        Ok(Box::new(file))
     }
 }
 
