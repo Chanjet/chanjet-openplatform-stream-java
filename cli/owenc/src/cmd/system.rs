@@ -102,19 +102,24 @@ pub async fn status(
         } else { None }
     } else { None };
 
-    // 5. Daemon
-    let mut s = System::new_all();
-    s.refresh_processes();
-    let current_pid = std::process::id();
+    // 5. Daemon detection: PID file based (More reliable for renamed binaries like owenc-test)
+    let app_dir = crate::core::config::get_app_dir();
+    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
     let mut found_daemon_pid = None;
 
-    for (pid, process) in s.processes() {
-        let pid_u32 = pid.as_u32();
-        if pid_u32 != current_pid && (process.name().contains("owenc") || process.name().contains("owenc") || process.name().contains("owenc")) {
-            let cmdline = process.cmd().join(" ");
-            if cmdline.contains("daemon") && cmdline.contains("start") {
-                found_daemon_pid = Some(pid_u32);
-                break;
+    if pid_file.exists() {
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
+            if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+                let mut s = System::new_all();
+                s.refresh_processes();
+                
+                // Check if process exists and is actually an owenc daemon
+                if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
+                    let cmdline = process.cmd().join(" ");
+                    if cmdline.contains("daemon") && cmdline.contains("start") {
+                        found_daemon_pid = Some(pid_val);
+                    }
+                }
             }
         }
     }
@@ -123,7 +128,6 @@ pub async fn status(
         running: found_daemon_pid.is_some(),
         pid: found_daemon_pid,
         log_path: found_daemon_pid.map(|_| {
-            let app_dir = crate::core::config::get_app_dir();
             app_dir.join("logs").join(format!("{}.log", profile)).to_string_lossy().to_string()
         }),
     };
@@ -221,7 +225,28 @@ pub async fn reset(
         }
     }
 
-    cfg_mgr.save(_profile, &crate::core::config::Config::default_with_profile(_profile))?;
-    println!("✅ Configuration reset to defaults.");
+    // 3. Physical file cleanup
+    let app_dir = crate::core::config::get_app_dir();
+    
+    // Files to remove
+    let targets = vec![
+        app_dir.join(format!("{}.yaml", _profile)),
+        app_dir.join(format!("{}_openapi.json", _profile)),
+        app_dir.join(format!("{}_openapi.idx", _profile)),
+        app_dir.join(format!("{}_daemon.pid", _profile)),
+        app_dir.join("logs").join(format!("{}.log", _profile)),
+    ];
+
+    for path in targets {
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("⚠️ Failed to delete {:?}: {}", path, e);
+            } else {
+                println!("✅ Deleted {:?}", path.file_name().unwrap_or_default());
+            }
+        }
+    }
+
+    println!("✨ Profile '{}' reset complete. You can run 'init' to start fresh.", _profile);
     Ok(())
 }
