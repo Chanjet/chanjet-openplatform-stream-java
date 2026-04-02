@@ -18,9 +18,17 @@ use sysinfo::{System, SystemExt, ProcessExt, PidExt};
 
 use std::io::IsTerminal;
 
-pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: bool) -> Result<()> {
+pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
+
+    // Fast-fail: Check if proxy port is available before launching the daemon
+    if enable_proxy && !foreground {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], proxy_port));
+        if let Err(e) = std::net::TcpListener::bind(addr) {
+            anyhow::bail!("Cannot start daemon: Proxy port {} is already in use or unavailable ({})", proxy_port, e);
+        }
+    }
 
     if !foreground {
         // PARENT PROCESS: Launch detached child
@@ -32,8 +40,13 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
             .arg("daemon")
             .arg("start")
             .arg("--proxy-port")
-            .arg(proxy_port.to_string())
-            .arg("--foreground") // Child logic
+            .arg(proxy_port.to_string());
+
+        if enable_proxy {
+            child_cmd.arg("--enable-proxy");
+        }
+
+        child_cmd.arg("--foreground") // Child logic
             // EXPLICITLY PASS IDENTITY via environment to ensure child knows its home
             .env("APP_DIR_NAME", option_env!("APP_DIR_NAME").unwrap_or(".cowen"))
             .env("CARGO_BIN_NAME_OVERRIDE", crate::core::utils::get_bin_name())
@@ -84,17 +97,24 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, foreground: 
     // 1. Task: Local Proxy
     let p_profile_proxy = profile.to_string();
     let p_config_proxy = config.clone();
-    let proxy_task = tokio::spawn(async move {
-        match start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port).await {
-            Ok(_) => {
-                tracing::info!(target: "sys", "Local Proxy Server started. Entering message loop...");
-                std::future::pending::<()>().await;
+    let proxy_task = if enable_proxy {
+        tokio::spawn(async move {
+            match start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port).await {
+                Ok(_) => {
+                    tracing::info!(target: "sys", "Local Proxy Server started. Entering message loop...");
+                    std::future::pending::<()>().await;
+                }
+                Err(e) => {
+                    tracing::error!(target: "sys", error = %e, "Local Proxy Server crashed");
+                }
             }
-            Err(e) => {
-                tracing::error!(target: "sys", error = %e, "Local Proxy Server crashed");
-            }
-        }
-    });
+        })
+    } else {
+        tokio::spawn(async move {
+            tracing::info!(target: "sys", "Local Proxy Server is disabled.");
+            std::future::pending::<()>().await;
+        })
+    };
 
     let dlq = Arc::new(DlqStore::new(profile)?);
     let forwarder = Forwarder::new(dlq, &config.webhook_target);
@@ -233,12 +253,12 @@ async fn wait_for_termination() {
     }
 }
 
-pub async fn restart(profile: &str, config: &Config, proxy_port: u16, all: bool, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
     let mut s = System::new_all();
     s.refresh_processes();
     let current_pid = std::process::id();
     
-    let mut targets: Vec<(u32, String, u16)> = Vec::new();
+    let mut targets: Vec<(u32, String, u16, bool)> = Vec::new();
     for (pid, process) in s.processes() {
         let pid_u32 = pid.as_u32();
         if pid_u32 == current_pid { continue; }
@@ -248,17 +268,20 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, all: bool,
         if cmdline.contains("daemon") && cmdline.contains("start") {
             let mut p_profile = "default".to_string();
             let mut p_port = 8080;
+            let mut p_enable_proxy = false;
             
             for i in 0..cmd.len() {
                 if cmd[i] == "--profile" && i + 1 < cmd.len() {
                     p_profile = cmd[i+1].clone();
                 } else if cmd[i] == "--proxy-port" && i + 1 < cmd.len() {
                     p_port = cmd[i+1].parse().unwrap_or(8080);
+                } else if cmd[i] == "--enable-proxy" {
+                    p_enable_proxy = true;
                 }
             }
             
             if all || p_profile == profile {
-                targets.push((pid_u32, p_profile, p_port));
+                targets.push((pid_u32, p_profile, p_port, p_enable_proxy));
             }
         }
     }
@@ -266,16 +289,16 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, all: bool,
     if targets.is_empty() {
         if !all {
             println!("📂 Daemon for profile '{}' is not running. Starting it now...", profile);
-            start(profile, config, proxy_port, false).await?;
+            start(profile, config, proxy_port, enable_proxy, false).await?;
         }
         return Ok(());
     }
 
-    for (pid, p_profile, p_port) in targets {
+    for (pid, p_profile, p_port, p_enable_proxy) in targets {
         println!("🔄 Restarting daemon for profile '{}' (PID: {}, Port: {})...", p_profile, pid, p_port);
         let _ = stop(&p_profile).await;
         let p_config = cfg_mgr.load(&p_profile).unwrap_or_else(|_| Config::default_with_profile(&p_profile));
-        start(&p_profile, &p_config, p_port, false).await?;
+        start(&p_profile, &p_config, p_port, p_enable_proxy, false).await?;
     }
     
     Ok(())

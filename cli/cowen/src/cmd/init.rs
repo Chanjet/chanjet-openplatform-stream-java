@@ -71,7 +71,7 @@ pub async fn execute(
     }
 
     // Automatically start the daemon in background
-    if let Err(e) = crate::cmd::daemon::start(profile, &config, 8080, false).await {
+    if let Err(e) = crate::cmd::daemon::start(profile, &config, 8080, false, false).await {
         eprintln!("⚠️ Failed to auto-start daemon: {}", e);
     }
 

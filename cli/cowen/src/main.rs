@@ -170,6 +170,10 @@ pub enum DaemonCommands {
     Start {
         #[arg(long, default_value_t = 8080)]
         proxy_port: u16,
+
+        /// 启用本地 OpenAPI 反向代理服务器
+        #[arg(long)]
+        enable_proxy: bool,
         
         /// 在前台运行 (阻塞模式)
         #[arg(long)]
@@ -181,6 +185,10 @@ pub enum DaemonCommands {
     Restart {
         #[arg(long, default_value_t = 8080)]
         proxy_port: u16,
+
+        /// 启用本地 OpenAPI 反向代理服务器
+        #[arg(long)]
+        enable_proxy: bool,
 
         /// 重启所有正在运行的守护进程
         #[arg(short, long)]
@@ -342,14 +350,14 @@ async fn run() -> Result<()> {
             }
         },
         Commands::Daemon { action } => match action {
-            DaemonCommands::Start { proxy_port, foreground } => {
-                cmd::daemon::start(&active_profile, &config, *proxy_port, *foreground).await?;
+            DaemonCommands::Start { proxy_port, enable_proxy, foreground } => {
+                cmd::daemon::start(&active_profile, &config, *proxy_port, *enable_proxy, *foreground).await?;
             }
             DaemonCommands::Stop => {
                 cmd::daemon::stop(&active_profile).await?;
             }
-            DaemonCommands::Restart { proxy_port, all } => {
-                cmd::daemon::restart(&active_profile, &config, *proxy_port, *all, &cfg_mgr).await?;
+            DaemonCommands::Restart { proxy_port, enable_proxy, all } => {
+                cmd::daemon::restart(&active_profile, &config, *proxy_port, *enable_proxy, *all, &cfg_mgr).await?;
             }
         },
         Commands::Status => {
