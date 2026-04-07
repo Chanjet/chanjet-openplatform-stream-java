@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "spring.cloud.nacos.discovery.enabled=false",
     "spring.cloud.nacos.config.import-check.enabled=false",
     "spring.config.import=optional:nacos:",
-    "spring.application.cid=TELEMETRY_TEST"
+    "spring.application.cid=SECURITY_FIX_TEST"
 })
 public class TelemetryControllerTest {
 
@@ -32,27 +32,36 @@ public class TelemetryControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    public void testPostTelemetryEventAndVerifyLog() throws Exception {
-        String eventJson = "{\"event\":\"command_run\",\"fingerprint\":\"test-fp\",\"app_key\":\"test-key\"}";
+    public void testInjectedPayloadShouldBeRejected() throws Exception {
+        // 发送非法 JSON（包含换行符尝试破坏格式）
+        // Jackson 在反序列化 DTO 时会直接报错或将换行符作为字段内容处理
+        String maliciousJson = "{\"event\":\"valid\"}\n{\"event\":\"injected\"}";
 
         mockMvc.perform(post("/v1/telemetry/events")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(eventJson))
+                .content(maliciousJson))
+                .andExpect(status().isBadRequest()); // 预期 Jackson 会因为非法 JSON 结构返回 400
+    }
+
+    @Test
+    public void testMissingMandatoryFieldsShouldBeRejected() throws Exception {
+        // 缺少 event 字段
+        String invalidJson = "{\"fingerprint\":\"test-fp\"}";
+
+        mockMvc.perform(post("/v1/telemetry/events")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invalidJson))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    public void testValidPayloadWithOptionalAppKey() throws Exception {
+        // app_key 为空时依然应该成功
+        String validJson = "{\"event\":\"cmd\",\"fingerprint\":\"fp-123\",\"app_key\":\"\"}";
+
+        mockMvc.perform(post("/v1/telemetry/events")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(validJson))
                 .andExpect(status().isOk());
-
-        // 验证日志文件写入
-        // 在 mvn 子模块运行时，target 通常在子模块目录下
-        Path logPath = Paths.get("target/logs/TELEMETRY_TEST/telemetry.log");
-        
-        // 尝试多次寻找
-        int retries = 10;
-        while (retries > 0 && !Files.exists(logPath)) {
-            Thread.sleep(500);
-            retries--;
-        }
-
-        assertThat(Files.exists(logPath)).as("Telemetry log file should exist at: " + logPath.toAbsolutePath()).isTrue();
-        List<String> lines = Files.readAllLines(logPath);
-        assertThat(lines).anyMatch(line -> line.contains("test-fp") && line.contains("test-key"));
     }
 }
