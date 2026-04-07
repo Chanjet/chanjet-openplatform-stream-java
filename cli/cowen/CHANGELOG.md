@@ -7,6 +7,7 @@
 ## [0.1.3] - 2026-04-07
 
 ### 🚀 新特性 (Features)
+- **Windows 原生安装器 (Installer)**: 废弃了旧版的 `install.ps1` 脚本，全面引入原生的 `cowen_setup` 安装程序以进行 Windows (`win64`) 环境的打包与自动安装分发。
 - **API 列表展示增强**: 使用 `api list -r` 强制刷新时，现在会直观地显示刷新前和刷新后的接口总数对比。
 - **异步遥测系统 (Telemetry)**: 
   - 实现基于 `tokio::spawn` 的非阻塞上报引擎。
