@@ -303,9 +303,26 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_pro
         return Ok(());
     }
 
+    let mut profiles_to_start = std::collections::HashSet::new();
+
     for (pid, p_profile, p_port, p_enable_proxy) in targets {
         println!("🔄 Restarting daemon for profile '{}' (PID: {}, Port: {})...", p_profile, pid, p_port);
-        let _ = stop(&p_profile).await;
+        
+        #[cfg(unix)]
+        let _ = Command::new("kill").arg("-15").arg(pid.to_string()).status();
+        #[cfg(windows)]
+        let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
+
+        profiles_to_start.insert((p_profile, p_port, p_enable_proxy));
+    }
+    
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    for (p_profile, p_port, p_enable_proxy) in profiles_to_start {
+        let app_dir = crate::core::config::get_app_dir();
+        let pid_file = app_dir.join(format!("{}_daemon.pid", p_profile));
+        let _ = fs::remove_file(&pid_file);
+
         let p_config = cfg_mgr.load(&p_profile).unwrap_or_else(|_| Config::default_with_profile(&p_profile));
         start(&p_profile, &p_config, p_port, p_enable_proxy, false).await?;
     }

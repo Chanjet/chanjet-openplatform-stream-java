@@ -368,13 +368,13 @@ impl<'a> Client for AuthClient<'a> {
         let token = self.get_app_access_token(profile, cfg).await?;
         let base_url = format!("{}/developer/api/apiPermissions/isv/open/getInterfaceList", cfg.openapi_url.trim_end_matches('/'));
         
-        let mut current_page = 0;
+        let mut current_page = 1;
         let mut total_pages = 1;
         let mut combined_paths = serde_json::Map::new();
 
-        while current_page < total_pages {
-            let url = format!("{}?currentPage={}&size=100", base_url, current_page);
-            tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page + 1, total_pages);
+        while current_page <= total_pages {
+            let url = format!("{}?page={}&size=100", base_url, current_page-1);
+            tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page, total_pages);
             
             let mut headers = reqwest::header::HeaderMap::new();
             headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
@@ -389,10 +389,17 @@ impl<'a> Client for AuthClient<'a> {
             let body: serde_json::Value = resp.json().await?;
             let value = body.get("value").ok_or_else(|| anyhow!("Invalid response structure"))?;
             
+            tracing::debug!(target: "sys", "Server reported currentPage: {:?}, totalPages: {:?}", value.get("currentPage"), value.get("totalPages"));
+
             // Update pagination info
             total_pages = value.get("totalPages").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
             
             if let Some(list) = value.get("resultList").and_then(|l| l.as_array()) {
+                tracing::debug!(target: "sys", "Page {} resultList contains {} items", current_page, list.len());
+                if !list.is_empty() {
+                    let first_item = &list[0];
+                    tracing::debug!(target: "sys", "Page {} first item: path={:?}, name={:?}", current_page, first_item.get("requestPath"), first_item.get("interfaceName"));
+                }
                 for item in list {
                     let mut parsed_paths = None;
 
@@ -408,8 +415,9 @@ impl<'a> Client for AuthClient<'a> {
                             Self::clean_non_standard_fields(&mut item_spec);
                             if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
                                 parsed_paths = Some(item_paths.clone());
+                                // tracing::debug!(target: "sys", "Extracted {} paths from openApi object", item_paths.len());
                             } else {
-                                tracing::debug!(target: "sys", "openApi field exists but no paths found for item");
+                                // tracing::debug!(target: "sys", "openApi field exists but no paths found for item");
                             }
                         }
                     }
@@ -435,7 +443,7 @@ impl<'a> Client for AuthClient<'a> {
                         
                         if !path.is_empty() {
                             let mut methods_obj = serde_json::Map::new();
-                            methods_obj.insert(method, serde_json::json!({
+                            methods_obj.insert(method.clone(), serde_json::json!({
                                 "summary": name,
                                 "description": format!("Authorized Interface: {}", name),
                                 "responses": { "200": { "description": "OK" } }
@@ -443,17 +451,29 @@ impl<'a> Client for AuthClient<'a> {
 
                             if let Some(existing) = combined_paths.get_mut(path) {
                                 if let Some(e_obj) = existing.as_object_mut() {
-                                    for (k, v) in methods_obj {
-                                        e_obj.insert(k, v);
-                                    }
+                                    e_obj.insert(method.clone(), methods_obj.get(&method).unwrap().clone());
                                 }
                             } else {
                                 combined_paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
                             }
+                        } else {
+                            tracing::debug!(target: "sys", "Fallback failed: requestPath is empty for item {:?}", item.get("id"));
                         }
                     }
                 }
+            } else {
+                tracing::debug!(target: "sys", "Page {} resultList is empty or invalid", current_page);
             }
+            
+            // Calculate total methods merged so far
+            let mut current_total_methods = 0;
+            for methods in combined_paths.values() {
+                if let Some(m) = methods.as_object() {
+                    current_total_methods += m.len();
+                }
+            }
+            tracing::debug!(target: "sys", "After page {}, combined_paths has {} unique paths and {} total methods", current_page, combined_paths.len(), current_total_methods);
+
             current_page += 1;
         }
 
