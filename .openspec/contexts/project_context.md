@@ -30,8 +30,10 @@ SYSTEM SHALL 在后台执行且不显示任何网络相关的错误。
 ### Requirement: 服务端接收接口
 FOR 接收来自 CLI 的遥测数据,
 服务端 SHALL 暴露一个异步或极速响应的 POST 接口 `/v1/telemetry/events`。
+SYSTEM SHALL 验证报文大小不得超过 2KB, 且必须包含 `event` 和 `fingerprint` 核心字段。
 
 ### Requirement: 遥测日志隔离
 SYSTEM SHALL 确保遥测数据不进入系统普通运行日志。
 WHEN 上报数据时
 THEN 该记录 SHALL 仅出现在 `telemetry.log` 中。
+AND 任何非法的报文（如缺少强制字段、超长或非 JSON 格式）SHALL 被静默拦截。
