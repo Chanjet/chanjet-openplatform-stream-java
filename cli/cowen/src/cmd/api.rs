@@ -217,7 +217,7 @@ pub async fn list(
     cfg: &Config,
     auth_cli: &dyn AuthClientTrait,
     search_query: &Option<String>,
-    _top: usize,
+    top: usize,
     page: usize,
     page_size: usize,
     format: &str,
@@ -257,21 +257,25 @@ pub async fn list(
             let mut embedder = crate::core::search::ONNXEmbedder::new()?;
             let query_vec = embedder.embed(_query)?;
             
-            let matches = index.search(&query_vec, _query, _top * page); // Fetch more for pagination
+            let matches = index.search(&query_vec, _query, std::cmp::max(top, page * page_size)); // Fetch more for pagination
 
             let start = (page - 1) * page_size;
             if start >= matches.len() {
                 println!("No results found for page {}.", page);
                 return Ok(());
             }
-            let end = std::cmp::min(start + page_size, matches.len());
-            let paginated = &matches[start..end];
+            let end = std::cmp::min(std::cmp::min(start + page_size, matches.len()), top);
+            let paginated = if start < end { &matches[start..end] } else { &[] };
 
             match format {
                 "json" => println!("{}", serde_json::to_string_pretty(&paginated)?),
                 "yaml" => println!("{}", serde_yaml::to_string(&paginated)?),
                 _ => {
-                    println!("\n🧠 Neural Search: \"{}\" (Page {}/{})", _query, page, (matches.len() + page_size - 1) / page_size);
+                    if paginated.is_empty() {
+                        println!("No results found within the Top-{} limit.", top);
+                        return Ok(());
+                    }
+                    println!("\n🧠 Neural Search: \"{}\" (Page {}/{}, Top-{})", _query, page, (std::cmp::min(matches.len(), top) + page_size - 1) / page_size, top);
                     println!("{}", "-".repeat(100));
                     for (i, (score, doc)) in paginated.iter().enumerate() {
                         println!("{}. [{}] ({:.2}) {} - {}", start + i + 1, doc.id, score, doc.summary, doc.description);
@@ -306,6 +310,11 @@ pub async fn list(
             }
         }
 
+        // Apply Top-N limit if specified
+        if top > 0 && top < all_apis.len() {
+            all_apis.truncate(top);
+        }
+
         let start = (page - 1) * page_size;
         if start >= all_apis.len() {
             println!("No results found for page {}.", page);
@@ -318,7 +327,7 @@ pub async fn list(
             "json" => println!("{}", serde_json::to_string_pretty(&paginated)?),
             "yaml" => println!("{}", serde_yaml::to_string(&paginated)?),
             _ => {
-                println!("\n📖 Available APIs (Page {}/{}):", page, (all_apis.len() + page_size - 1) / page_size);
+                println!("\n📖 Available APIs (Page {}/{}, Top-{}):", page, (all_apis.len() + page_size - 1) / page_size, all_apis.len());
                 println!(" {:<11} {:<40} {}", "METHOD", "PATH", "INFO");
                 println!("{}", "—".repeat(110));
                 for api in paginated {
