@@ -43,7 +43,7 @@ build-mac-intel:
 build-win64:
 	@echo "🪟 Building for Windows Intel (x86_64)..."
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	cargo build --release --target x86_64-pc-windows-gnu --no-default-features
+	cargo build --release --target x86_64-pc-windows-gnu
 	mkdir -p $(OUTPUT_DIR)/windows-x64
 	cp target/x86_64-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x64/$(BINARY).exe
 	@md5 -q $(OUTPUT_DIR)/windows-x64/$(BINARY).exe > $(OUTPUT_DIR)/windows-x64/$(BINARY).exe.md5
