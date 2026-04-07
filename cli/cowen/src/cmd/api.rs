@@ -222,8 +222,47 @@ pub async fn list(
     format: &str,
     refresh: bool,
 ) -> Result<()> {
+    // 1. Capture old count if refreshing
+    let old_count = if refresh {
+        let app_dir = crate::core::config::get_app_dir();
+        let cache_path = app_dir.join(format!("{}_openapi.yaml", profile));
+        if let Ok(data) = std::fs::read_to_string(&cache_path) {
+            if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
+                if let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) {
+                    let mut count = 0;
+                    for methods in paths.values() {
+                        if let Some(m) = methods.as_object() {
+                            count += m.len();
+                        }
+                    }
+                    Some(count)
+                } else { None }
+            } else { None }
+        } else { None }
+    } else { None };
+
     let spec = auth_cli.get_openapi_spec(profile, cfg, refresh).await?;
     let paths = spec["paths"].as_object().ok_or_else(|| anyhow!("Invalid OpenAPI spec: missing paths"))?;
+
+    // 2. Capture new count
+    let mut new_count = 0;
+    for methods in paths.values() {
+        if let Some(m) = methods.as_object() {
+            new_count += m.len();
+        }
+    }
+
+    if refresh && format != "json" && format != "yaml" {
+        if let Some(o_count) = old_count {
+            if o_count != new_count {
+                println!("🔄 API List refreshed. Old count: {}, New count: {}", o_count, new_count);
+            } else {
+                println!("🔄 API List refreshed. Count remains: {}", new_count);
+            }
+        } else {
+            println!("🔄 API List fetched. Total count: {}", new_count);
+        }
+    }
 
     if let Some(_query) = search_query {
         #[cfg(feature = "ai")]
