@@ -98,7 +98,7 @@ pub fn report_event(config: &crate::core::config::Config, event_name: String, pa
             let client = crate::core::network::create_client(&config)?;
             let fingerprint = crate::core::security::get_machine_fingerprint()?;
             
-            let url = format!("{}/v1/telemetry/events", config.openapi_url.trim_end_matches('/'));
+            let url = format!("{}/v1/telemetry/events", config.stream_url.trim_end_matches('/'));
             
             let event = TelemetryEvent {
                 event: event_name,
