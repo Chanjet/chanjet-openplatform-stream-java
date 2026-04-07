@@ -279,8 +279,18 @@ async fn run() -> Result<()> {
     // 4. Check for Activation (First Run)
     let marker_path = app_dir.join(".telemetry_marker");
     if !marker_path.exists() {
+        // Ensure app_dir exists before creating marker
+        if !app_dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(&app_dir) {
+                tracing::error!(target: "sys", "Failed to create app directory {:?}: {}", app_dir, e);
+            }
+        }
         crate::core::telemetry::report_event(&config, "cli_first_run".to_string(), serde_json::json!({}));
-        let _ = std::fs::File::create(marker_path);
+        if let Err(e) = std::fs::File::create(&marker_path) {
+            tracing::error!(target: "sys", "Failed to create telemetry marker {:?}: {}", marker_path, e);
+        } else {
+            tracing::debug!(target: "sys", "Created telemetry marker at {:?}", marker_path);
+        }
     }
 
     // 5. Report Command Run
