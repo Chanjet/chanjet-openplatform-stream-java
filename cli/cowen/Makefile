@@ -71,7 +71,7 @@ impl-package-mac: build
 	@echo "🍎 Packaging for macOS Apple Silicon..."
 	mkdir -p pkg_root/usr/local/bin $(OUTPUT_DIR)/macos-arm64/release
 	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) pkg_root/usr/local/bin/
-	pkgbuild --identifier com.chanjet.$(BINARY).arm64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-macos-arm64.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).arm64 --version 0.1.3 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-macos-arm64.pkg
 	rm -rf pkg_root
 	@md5 -q $(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-macos-arm64.pkg > $(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-macos-arm64.pkg.md5
 
@@ -79,7 +79,7 @@ impl-package-mac-x64: build-mac-intel
 	@echo "🍎 Packaging for macOS Intel..."
 	mkdir -p pkg_root/usr/local/bin $(OUTPUT_DIR)/macos-x64/release
 	cp $(OUTPUT_DIR)/macos-x64/$(BINARY) pkg_root/usr/local/bin/
-	pkgbuild --identifier com.chanjet.$(BINARY).x64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-x64/release/$(BINARY)-macos-x64.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).x64 --version 0.1.3 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-x64/release/$(BINARY)-macos-x64.pkg
 	rm -rf pkg_root
 	@md5 -q $(OUTPUT_DIR)/macos-x64/release/$(BINARY)-macos-x64.pkg > $(OUTPUT_DIR)/macos-x64/release/$(BINARY)-macos-x64.pkg.md5
 
@@ -124,7 +124,7 @@ test:
 
 clean:
 	cargo clean
-	powershell -NoProfile -Command "Remove-Item -Recurse -Force $(OUTPUT_DIR)/macos-arm64, $(OUTPUT_DIR)/macos-x64, $(OUTPUT_DIR)/windows-x64, $(OUTPUT_DIR)/linux-x64, $(OUTPUT_DIR)/linux-arm64, $(OUTPUT_DIR)/test -ErrorAction Ignore; exit 0"
+	rm -rf $(OUTPUT_DIR)/macos-arm64 $(OUTPUT_DIR)/macos-x64 $(OUTPUT_DIR)/windows-x64 $(OUTPUT_DIR)/linux-x64 $(OUTPUT_DIR)/linux-arm64 $(OUTPUT_DIR)/test
 
 install: build
 	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) /usr/local/bin/$(BINARY)
