@@ -6,3 +6,4 @@ pub mod vault;
 pub mod search;
 pub mod telemetry;
 pub mod utils;
+pub mod network;

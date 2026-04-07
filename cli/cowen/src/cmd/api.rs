@@ -62,7 +62,7 @@ pub async fn call(
         }
 
         // 3. Perform Request
-        let client = reqwest::Client::new();
+        let client = crate::core::network::create_client(cfg)?;
         let url = if path.starts_with("http") {
             path.to_string()
         } else {

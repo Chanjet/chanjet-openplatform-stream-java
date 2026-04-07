@@ -248,6 +248,9 @@ async fn main() {
         eprintln!("❌ Error: {}", e);
         std::process::exit(1);
     }
+    
+    // Give a tiny grace period for background telemetry tasks to finish
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 }
 
 async fn run() -> Result<()> {
@@ -272,6 +275,29 @@ async fn run() -> Result<()> {
     let _guards = crate::core::telemetry::init_telemetry(log_dir, &config.log)?;
     tracing::info!(target: "sys", "{} starting (version {})", bin_name, env!("CARGO_PKG_VERSION"));
     tracing::info!(target: "sys", profile = %active_profile, "active profile loaded");
+
+    // 4. Check for Activation (First Run)
+    let marker_path = app_dir.join(".telemetry_marker");
+    if !marker_path.exists() {
+        crate::core::telemetry::report_event(&config, "cli_first_run".to_string(), serde_json::json!({}));
+        let _ = std::fs::File::create(marker_path);
+    }
+
+    // 5. Report Command Run
+    let cmd_name = match &cli.command {
+        Commands::Api { .. } => "api",
+        Commands::Auth { .. } => "auth",
+        Commands::Daemon { .. } => "daemon",
+        Commands::Init { .. } => "init",
+        Commands::Status => "status",
+        Commands::Config => "config",
+        Commands::Reset => "reset",
+        Commands::Completion { .. } => "completion",
+        Commands::Profile { .. } => "profile",
+        Commands::Dlq { .. } => "dlq",
+        Commands::Log { .. } => "log",
+    };
+    crate::core::telemetry::report_event(&config, "command_run".to_string(), serde_json::json!({ "cmd": cmd_name }));
 
     let fingerprint = security::get_machine_fingerprint()?;
     let seal_path = app_dir.join(".seal");

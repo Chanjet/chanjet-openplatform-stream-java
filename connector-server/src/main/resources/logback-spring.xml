@@ -57,11 +57,30 @@
         </filter>
     </appender>
 
+    <!-- 4. 遥测日志文件 (Telemetry Log) -->
+    <appender name="TELEMETRY_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/telemetry.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/history/telemetry-%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>90</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
     <!-- 异步写入以提升性能 -->
     <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
         <discardingThreshold>0</discardingThreshold>
         <queueSize>512</queueSize>
         <appender-ref ref="FILE" />
+    </appender>
+
+    <appender name="ASYNC_TELEMETRY" class="ch.qos.logback.classic.AsyncAppender">
+        <discardingThreshold>0</discardingThreshold>
+        <queueSize>1024</queueSize>
+        <appender-ref ref="TELEMETRY_FILE" />
     </appender>
 
     <!-- 运行环境配置 -->
@@ -70,6 +89,11 @@
         <appender-ref ref="ASYNC_FILE" />
         <appender-ref ref="ERROR_FILE" />
     </root>
+
+    <!-- 遥测日志：独立 Logger, additivity="false" 确保不进入 ROOT 日志 -->
+    <logger name="telemetry" level="INFO" additivity="false">
+        <appender-ref ref="ASYNC_TELEMETRY" />
+    </logger>
 
     <!-- 特定包的日志级别控制 -->
     <logger name="com.chanjet.streaming" level="DEBUG" />

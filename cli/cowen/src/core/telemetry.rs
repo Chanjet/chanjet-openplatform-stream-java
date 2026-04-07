@@ -6,37 +6,45 @@ use tracing_subscriber::{
     EnvFilter,
 };
 use anyhow::{Result, Context};
+use serde::{Serialize, Deserialize};
+use chrono::{DateTime, Utc};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TelemetryEvent {
+    pub event: String,
+    pub fingerprint: String,
+    pub app_key: String,
+    pub version: String,
+    pub os: String,
+    pub arch: String,
+    pub timestamp: DateTime<Utc>,
+    pub payload: serde_json::Value,
+}
 
 pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
     let log_level = &config.level;
     let bin_name = crate::core::utils::get_bin_name();
     
-    // 1. Create log directory if it doesn't exist
     if !log_dir.exists() {
         std::fs::create_dir_all(&log_dir)?;
     }
 
     let mut guards = Vec::new();
 
-    // 2. Prepare Filters
-    // Global filter allows INFO for all internal targets to ensure they reach file layers for traceability.
     let global_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(format!("warn,{}=info,connector_sdk=info,sys=info,audit=info,stream=info,dlq=info", bin_name)));
 
-    // Console specific filter follows the user-provided log_level (defaults to ERROR).
     let console_filter = EnvFilter::new(format!(
         "warn,{}={},connector_sdk={},sys={},audit={},stream={},dlq={}",
         bin_name, log_level, log_level, log_level, log_level, log_level, log_level
     ));
 
-    // 3. Setup Console Layer
     let console_layer = fmt::layer()
         .with_target(false)
         .with_ansi(true)
         .with_writer(std::io::stderr)
         .with_filter(console_filter);
 
-    // 4. Determine Rotation setting
     let rotation = if config.max_size_mb > 0 {
         Rotation::SizeBased(RotationSize::MB(config.max_size_mb))
     } else {
@@ -47,12 +55,10 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
         }
     };
 
-    // 5. Initialize global subscriber with domain-specific layers
     let registry = tracing_subscriber::registry()
         .with(global_filter)
         .with(console_layer);
 
-    // Helper macro to create and add a domain layer
     macro_rules! add_domain_layer {
         ($reg:expr, $filename:expr, $filter_fn:expr) => {{
             let appender = LogRollerBuilder::new(log_dir.as_path(), Path::new($filename))
@@ -81,4 +87,64 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
     registry.init();
 
     Ok(guards)
+}
+
+/// 异步上报遥测事件 (静默失败，非阻塞)
+pub fn report_event(config: &crate::core::config::Config, event_name: String, payload: serde_json::Value) {
+    let config = config.clone();
+    
+    tokio::spawn(async move {
+        let result: Result<()> = async {
+            let client = crate::core::network::create_client(&config)?;
+            let fingerprint = crate::core::security::get_machine_fingerprint()?;
+            
+            let url = format!("{}/v1/telemetry/events", config.openapi_url.trim_end_matches('/'));
+            
+            let event = TelemetryEvent {
+                event: event_name,
+                fingerprint,
+                app_key: if config.app_key.is_empty() { "uninitialized".to_string() } else { config.app_key.clone() },
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                os: std::env::consts::OS.to_string(),
+                arch: std::env::consts::ARCH.to_string(),
+                timestamp: Utc::now(),
+                payload,
+            };
+
+            client.post(&url)
+                .json(&event)
+                .send()
+                .await?;
+            
+            Ok(())
+        }.await;
+
+        if let Err(e) = result {
+            tracing::debug!(target: "sys", "Telemetry report failed (silently ignored): {}", e);
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn test_telemetry_event_serialization() {
+        let event = TelemetryEvent {
+            event: "test_event".to_string(),
+            fingerprint: "abc".to_string(),
+            app_key: "key".to_string(),
+            version: "0.1.0".to_string(),
+            os: "macos".to_string(),
+            arch: "arm64".to_string(),
+            timestamp: Utc::now(),
+            payload: json!({"cmd": "test"}),
+        };
+
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"event\":\"test_event\""));
+        assert!(json.contains("\"fingerprint\":\"abc\""));
+    }
 }
