@@ -17,18 +17,19 @@ public class TelemetryController {
 
     @PostMapping("/events")
     public ResponseEntity<Void> receiveEvents(@RequestBody String rawJson) {
-        // 1. 基本判空
-        if (!StringUtils.hasText(rawJson)) {
+        // 1. 基本判空与长度限制 (防止超大报文攻击)
+        if (!StringUtils.hasText(rawJson) || rawJson.length() > 2048) {
             return ResponseEntity.badRequest().build();
         }
 
-        // 2. 极致性能：清洗换行符以防止日志注入 (Log Injection)
-        // 直接操作原始字符串，不涉及昂贵的 Jackson 反序列化
+        // 2. 极致性能：清洗换行符以防止日志注入
         String sanitized = rawJson.replace('\n', ' ').replace('\r', ' ').trim();
 
-        // 3. 轻量级合法性检查 (极速模式)
-        // 确保它像个 JSON 对象且包含核心关键字
-        if (!sanitized.startsWith("{") || !sanitized.endsWith("}") || !sanitized.contains("\"event\"")) {
+        // 3. 增强版轻量级合法性检查
+        // 必须以 { 开始 } 结束，且必须包含 event 和 fingerprint 关键字（以 JSON Key 形式）
+        if (!sanitized.startsWith("{") || !sanitized.endsWith("}") 
+                || !sanitized.contains("\"event\"") 
+                || !sanitized.contains("\"fingerprint\"")) {
             return ResponseEntity.badRequest().build();
         }
 
