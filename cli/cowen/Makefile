@@ -42,11 +42,10 @@ build-mac-intel:
 
 build-win64:
 	@echo "🪟 Building for Windows Intel (x86_64)..."
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	cargo build --release --target x86_64-pc-windows-gnu
-	mkdir -p $(OUTPUT_DIR)/windows-x64
-	cp target/x86_64-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x64/$(BINARY).exe
-	@md5 -q $(OUTPUT_DIR)/windows-x64/$(BINARY).exe > $(OUTPUT_DIR)/windows-x64/$(BINARY).exe.md5
+	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; cargo build --release --target x86_64-pc-windows-msvc"
+	powershell -NoProfile -Command "if (-Not (Test-Path $(OUTPUT_DIR)/windows-x64)) { New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x64 | Out-Null }"
+	powershell -NoProfile -Command "Copy-Item target/x86_64-pc-windows-msvc/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x64/$(BINARY).exe -Force"
+	powershell -NoProfile -Command "$$hash = (Get-FileHash -Algorithm MD5 $(OUTPUT_DIR)/windows-x64/$(BINARY).exe).Hash.ToLower(); Set-Content -Path $(OUTPUT_DIR)/windows-x64/$(BINARY).exe.md5 -Value $$hash"
 	@echo "✅ Windows Build complete: $(OUTPUT_DIR)/windows-x64/$(BINARY).exe"
 
 build-linux-x64:
@@ -70,40 +69,42 @@ build-linux-arm64:
 # Internal targets without clean
 impl-package-mac: build
 	@echo "🍎 Packaging for macOS Apple Silicon..."
-	mkdir -p pkg_root/usr/local/bin
+	mkdir -p pkg_root/usr/local/bin $(OUTPUT_DIR)/macos-arm64/release
 	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) pkg_root/usr/local/bin/
-	pkgbuild --identifier com.chanjet.$(BINARY).arm64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-arm64/$(BINARY)-macos-arm64.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).arm64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-macos-arm64.pkg
 	rm -rf pkg_root
-	@md5 -q $(OUTPUT_DIR)/macos-arm64/$(BINARY)-macos-arm64.pkg > $(OUTPUT_DIR)/macos-arm64/$(BINARY)-macos-arm64.pkg.md5
+	@md5 -q $(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-macos-arm64.pkg > $(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-macos-arm64.pkg.md5
 
 impl-package-mac-x64: build-mac-intel
 	@echo "🍎 Packaging for macOS Intel..."
-	mkdir -p pkg_root/usr/local/bin
+	mkdir -p pkg_root/usr/local/bin $(OUTPUT_DIR)/macos-x64/release
 	cp $(OUTPUT_DIR)/macos-x64/$(BINARY) pkg_root/usr/local/bin/
-	pkgbuild --identifier com.chanjet.$(BINARY).x64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-x64/$(BINARY)-macos-x64.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).x64 --version 0.1.2 --root pkg_root --install-location / $(OUTPUT_DIR)/macos-x64/release/$(BINARY)-macos-x64.pkg
 	rm -rf pkg_root
-	@md5 -q $(OUTPUT_DIR)/macos-x64/$(BINARY)-macos-x64.pkg > $(OUTPUT_DIR)/macos-x64/$(BINARY)-macos-x64.pkg.md5
+	@md5 -q $(OUTPUT_DIR)/macos-x64/release/$(BINARY)-macos-x64.pkg > $(OUTPUT_DIR)/macos-x64/release/$(BINARY)-macos-x64.pkg.md5
 
 impl-package-win64: build-win64
-	@echo "🪟 Packaging for Windows..."
-	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x64/
-	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x64/README.txt
-	cd $(OUTPUT_DIR)/windows-x64 && zip -r $(BINARY)-windows-x64.zip $(BINARY).exe install.ps1 README.txt
-	@md5 -q $(OUTPUT_DIR)/windows-x64/$(BINARY)-windows-x64.zip > $(OUTPUT_DIR)/windows-x64/$(BINARY)-windows-x64.zip.md5
+	@echo "🪟 Packaging for Windows (Building Installer)..."
+	powershell -NoProfile -Command "if (-Not (Test-Path $(OUTPUT_DIR)/windows-x64/release)) { New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x64/release | Out-Null }"
+	powershell -NoProfile -Command "cd ../cowen_setup; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; cargo build --release --target x86_64-pc-windows-msvc"
+	powershell -NoProfile -Command "Copy-Item ../cowen_setup/target/x86_64-pc-windows-msvc/release/cowen_setup.exe $(OUTPUT_DIR)/windows-x64/release/setup.exe -Force"
+	powershell -NoProfile -Command "$$hash = (Get-FileHash -Algorithm MD5 $(OUTPUT_DIR)/windows-x64/release/setup.exe).Hash.ToLower(); Set-Content -Path $(OUTPUT_DIR)/windows-x64/release/setup.exe.md5 -Value $$hash"
 
 impl-package-linux-x64: build-linux-x64
 	@echo "🐧 Packaging for Linux x64..."
+	mkdir -p $(OUTPUT_DIR)/linux-x64/release
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x64/README.txt
-	cd $(OUTPUT_DIR)/linux-x64 && tar -czf $(BINARY)-linux-x64.tar.gz $(BINARY) install.sh README.txt
-	@md5 -q $(OUTPUT_DIR)/linux-x64/$(BINARY)-linux-x64.tar.gz > $(OUTPUT_DIR)/linux-x64/$(BINARY)-linux-x64.tar.gz.md5
+	cd $(OUTPUT_DIR)/linux-x64 && tar -czf release/$(BINARY)-linux-x64.tar.gz $(BINARY) install.sh README.txt
+	@md5 -q $(OUTPUT_DIR)/linux-x64/release/$(BINARY)-linux-x64.tar.gz > $(OUTPUT_DIR)/linux-x64/release/$(BINARY)-linux-x64.tar.gz.md5
 
 impl-package-linux-arm64: build-linux-arm64
 	@echo "🐧 Packaging for Linux ARM64..."
+	mkdir -p $(OUTPUT_DIR)/linux-arm64/release
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-arm64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-arm64/README.txt
-	cd $(OUTPUT_DIR)/linux-arm64 && tar -czf $(BINARY)-linux-arm64.tar.gz $(BINARY) install.sh README.txt
-	@md5 -q $(OUTPUT_DIR)/linux-arm64/$(BINARY)-linux-arm64.tar.gz > $(OUTPUT_DIR)/linux-arm64/$(BINARY)-linux-arm64.tar.gz.md5
+	cd $(OUTPUT_DIR)/linux-arm64 && tar -czf release/$(BINARY)-linux-arm64.tar.gz $(BINARY) install.sh README.txt
+	@md5 -q $(OUTPUT_DIR)/linux-arm64/release/$(BINARY)-linux-arm64.tar.gz > $(OUTPUT_DIR)/linux-arm64/release/$(BINARY)-linux-arm64.tar.gz.md5
 
 # Public targets with clean
 package-mac: clean impl-package-mac
@@ -123,7 +124,7 @@ test:
 
 clean:
 	cargo clean
-	rm -rf $(OUTPUT_DIR)/macos-arm64 $(OUTPUT_DIR)/macos-x64 $(OUTPUT_DIR)/windows-x64 $(OUTPUT_DIR)/linux-x64 $(OUTPUT_DIR)/linux-arm64 $(OUTPUT_DIR)/test
+	powershell -NoProfile -Command "Remove-Item -Recurse -Force $(OUTPUT_DIR)/macos-arm64, $(OUTPUT_DIR)/macos-x64, $(OUTPUT_DIR)/windows-x64, $(OUTPUT_DIR)/linux-x64, $(OUTPUT_DIR)/linux-arm64, $(OUTPUT_DIR)/test -ErrorAction Ignore; exit 0"
 
 install: build
 	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) /usr/local/bin/$(BINARY)
