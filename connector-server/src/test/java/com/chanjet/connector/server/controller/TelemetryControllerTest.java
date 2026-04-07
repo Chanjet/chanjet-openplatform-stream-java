@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "spring.cloud.nacos.discovery.enabled=false",
     "spring.cloud.nacos.config.import-check.enabled=false",
     "spring.config.import=optional:nacos:",
-    "spring.application.cid=SECURITY_FIX_TEST"
+    "spring.application.cid=OPTIMIZE_TEST"
 })
 public class TelemetryControllerTest {
 
@@ -32,36 +32,35 @@ public class TelemetryControllerTest {
     private MockMvc mockMvc;
 
     @Test
-    public void testInjectedPayloadShouldBeRejected() throws Exception {
-        // 发送非法 JSON（包含换行符尝试破坏格式）
-        // Jackson 在反序列化 DTO 时会直接报错或将换行符作为字段内容处理
-        String maliciousJson = "{\"event\":\"valid\"}\n{\"event\":\"injected\"}";
+    public void testInjectedPayloadShouldBeSanitizedToSingleLine() throws Exception {
+        // 包含换行符的输入
+        String rawJson = "{\"event\":\"test\"}\n{\"info\":\"injected\"}";
+        Path logPath = Paths.get("target/logs/OPTIMIZE_TEST/telemetry.log");
+        if (Files.exists(logPath)) Files.delete(logPath);
 
         mockMvc.perform(post("/v1/telemetry/events")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(maliciousJson))
-                .andExpect(status().isBadRequest()); // 预期 Jackson 会因为非法 JSON 结构返回 400
-    }
-
-    @Test
-    public void testMissingMandatoryFieldsShouldBeRejected() throws Exception {
-        // 缺少 event 字段
-        String invalidJson = "{\"fingerprint\":\"test-fp\"}";
-
-        mockMvc.perform(post("/v1/telemetry/events")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(invalidJson))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    public void testValidPayloadWithOptionalAppKey() throws Exception {
-        // app_key 为空时依然应该成功
-        String validJson = "{\"event\":\"cmd\",\"fingerprint\":\"fp-123\",\"app_key\":\"\"}";
-
-        mockMvc.perform(post("/v1/telemetry/events")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(validJson))
+                .content(rawJson))
                 .andExpect(status().isOk());
+
+        // 等待异步写入
+        Thread.sleep(500);
+
+        List<String> lines = Files.readAllLines(logPath);
+        
+        // 验证：虽然输入有换行，但日志中必须只有 1 行
+        assertThat(lines.size()).isEqualTo(1);
+        assertThat(lines.get(0)).doesNotContain("\n").doesNotContain("\r");
+    }
+
+    @Test
+    public void testInvalidFormatShouldBeRejected() throws Exception {
+        // 显然不是 JSON 的垃圾数据
+        String garbage = "hello world";
+
+        mockMvc.perform(post("/v1/telemetry/events")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(garbage))
+                .andExpect(status().isBadRequest());
     }
 }

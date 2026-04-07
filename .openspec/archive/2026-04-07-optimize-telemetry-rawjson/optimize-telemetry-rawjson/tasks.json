@@ -1,0 +1,22 @@
+[
+  {
+    "number": 1,
+    "category": "Phase 1: 测试适配",
+    "task": "更新测试用例以匹配 Raw String 处理逻辑",
+    "steps": [
+      { "step": "修改 TelemetryControllerTest, 确保它依然能拦截注入攻击并验证清洗效果", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "Phase 2: 核心实现",
+    "task": "实现高性能的 Raw String 清洗与记录",
+    "steps": [
+      { "step": "重构 TelemetryController#receiveEvents 接收原始 String", "completed": false },
+      { "step": "实现换行符转义逻辑与轻量级内容校验", "completed": false },
+      { "step": "清理项目：移除 TelemetryEventDTO 类", "completed": false }
+    ],
+    "passes": false
+  }
+]

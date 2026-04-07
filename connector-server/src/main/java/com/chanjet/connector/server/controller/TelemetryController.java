@@ -1,8 +1,5 @@
 package com.chanjet.connector.server.controller;
 
-import com.chanjet.connector.server.dto.TelemetryEventDTO;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -17,24 +14,26 @@ import org.springframework.web.bind.annotation.RestController;
 public class TelemetryController {
 
     private static final Logger telemetryLogger = LoggerFactory.getLogger("telemetry");
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping("/events")
-    public ResponseEntity<Void> receiveEvents(@RequestBody TelemetryEventDTO eventDTO) {
-        // 核心字段基本校验
-        if (eventDTO == null || !StringUtils.hasText(eventDTO.getEvent()) || !StringUtils.hasText(eventDTO.getFingerprint())) {
+    public ResponseEntity<Void> receiveEvents(@RequestBody String rawJson) {
+        // 1. 基本判空
+        if (!StringUtils.hasText(rawJson)) {
             return ResponseEntity.badRequest().build();
         }
 
-        try {
-            // 通过重新序列化 DTO，彻底解决 Payload 中包含换行符导致的日志注入问题
-            // Jackson 会自动处理并转义非法字符
-            String safeJson = objectMapper.writeValueAsString(eventDTO);
-            telemetryLogger.info(safeJson);
-        } catch (JsonProcessingException e) {
-            // 记录原始错误，但不影响接口返回
+        // 2. 极致性能：清洗换行符以防止日志注入 (Log Injection)
+        // 直接操作原始字符串，不涉及昂贵的 Jackson 反序列化
+        String sanitized = rawJson.replace('\n', ' ').replace('\r', ' ').trim();
+
+        // 3. 轻量级合法性检查 (极速模式)
+        // 确保它像个 JSON 对象且包含核心关键字
+        if (!sanitized.startsWith("{") || !sanitized.endsWith("}") || !sanitized.contains("\"event\"")) {
             return ResponseEntity.badRequest().build();
         }
+
+        // 4. 异步记录
+        telemetryLogger.info(sanitized);
 
         return ResponseEntity.ok().build();
     }
