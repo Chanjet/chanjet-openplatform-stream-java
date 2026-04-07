@@ -2,6 +2,19 @@ BINARY=cowen
 PKG=cli/cowen
 OUTPUT_DIR=../../bin
 
+# --- 跨平台兼容性配置 (Cross-platform config) ---
+ifeq ($(OS),Windows_NT)
+    # Windows 环境 (PowerShell)
+    RM = powershell -NoProfile -Command "ForEach($$p in '$(1)'.Split(' ')){ if(Test-Path $$p){ Remove-Item -Recurse -Force $$p } }"
+else
+    # macOS / Linux 环境
+    RM = rm -rf $(1)
+endif
+
+# 需要清理的目录列表
+DIRS_TO_CLEAN = $(OUTPUT_DIR)/macos-arm64 $(OUTPUT_DIR)/macos-x64 $(OUTPUT_DIR)/windows-x64 $(OUTPUT_DIR)/linux-x64 $(OUTPUT_DIR)/linux-arm64 $(OUTPUT_DIR)/test
+# ----------------------------------------------
+
 # 生产环境默认值
 PROD_OPENAPI = https://openapi.chanjet.com
 PROD_STREAM  = https://stream-open.chanapp.chanjet.com
@@ -124,7 +137,7 @@ test:
 
 clean:
 	cargo clean
-	rm -rf $(OUTPUT_DIR)/macos-arm64 $(OUTPUT_DIR)/macos-x64 $(OUTPUT_DIR)/windows-x64 $(OUTPUT_DIR)/linux-x64 $(OUTPUT_DIR)/linux-arm64 $(OUTPUT_DIR)/test
+	$(call RM,$(DIRS_TO_CLEAN))
 
 install: build
 	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY) /usr/local/bin/$(BINARY)
