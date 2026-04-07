@@ -394,15 +394,41 @@ impl<'a> Client for AuthClient<'a> {
             
             if let Some(list) = value.get("resultList").and_then(|l| l.as_array()) {
                 for item in list {
-                    if let Some(mut item_spec) = item.get("openApi").cloned() {
-                        Self::clean_non_standard_fields(&mut item_spec);
-                        
-                        if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
-                            for (path, methods) in item_paths {
-                                combined_paths.insert(path.clone(), methods.clone());
+                    let mut parsed_paths = None;
+
+                    // 1. Try to extract paths from openApi field
+                    if let Some(open_api_val) = item.get("openApi") {
+                        if !open_api_val.is_null() {
+                            let mut item_spec = if let Some(s) = open_api_val.as_str() {
+                                serde_json::from_str(s).unwrap_or(serde_json::json!({}))
+                            } else {
+                                open_api_val.clone()
+                            };
+
+                            Self::clean_non_standard_fields(&mut item_spec);
+                            if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
+                                parsed_paths = Some(item_paths.clone());
+                            } else {
+                                tracing::debug!(target: "sys", "openApi field exists but no paths found for item");
+                            }
+                        }
+                    }
+
+                    // 2. Merge paths or use fallback
+                    if let Some(item_paths) = parsed_paths {
+                        for (path, methods) in item_paths {
+                            if let Some(existing) = combined_paths.get_mut(&path) {
+                                if let (Some(e_obj), Some(m_obj)) = (existing.as_object_mut(), methods.as_object()) {
+                                    for (k, v) in m_obj {
+                                        e_obj.insert(k.clone(), v.clone());
+                                    }
+                                }
+                            } else {
+                                combined_paths.insert(path, methods);
                             }
                         }
                     } else {
+                        // Fallback: manually construct from requestPath and requestHttpMethod
                         let path = item.get("requestPath").and_then(|v| v.as_str()).unwrap_or("");
                         let name = item.get("interfaceName").and_then(|v| v.as_str()).unwrap_or("No Name");
                         let method = item.get("requestHttpMethod").and_then(|v| v.as_str()).unwrap_or("GET").to_lowercase();
@@ -414,7 +440,16 @@ impl<'a> Client for AuthClient<'a> {
                                 "description": format!("Authorized Interface: {}", name),
                                 "responses": { "200": { "description": "OK" } }
                             }));
-                            combined_paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
+
+                            if let Some(existing) = combined_paths.get_mut(path) {
+                                if let Some(e_obj) = existing.as_object_mut() {
+                                    for (k, v) in methods_obj {
+                                        e_obj.insert(k, v);
+                                    }
+                                }
+                            } else {
+                                combined_paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
+                            }
                         }
                     }
                 }
