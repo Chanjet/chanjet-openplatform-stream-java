@@ -133,11 +133,9 @@ pub enum ApiCommands {
     List {
         #[arg(short, long, help = "基于您的意图语义搜索 API 接口")]
         search: Option<String>,
-        #[arg(short = 'n', long, default_value_t = 5, help = "返回语义搜索结果的 Top-N 数量")]
-        top: usize,
         #[arg(long, default_value_t = 1, help = "分页页码")]
         page: usize,
-        #[arg(long, default_value_t = 20, help = "每页数量")]
+        #[arg(short = 'n', long, default_value_t = 20, help = "每页数量")]
         page_size: usize,
         #[arg(short, long, help = "强制从云端同步最新的 OpenAPI 规约")]
         refresh: bool,
@@ -366,8 +364,8 @@ async fn run() -> Result<()> {
         Commands::Api { method, path, data, data_file, action } => {
             if let Some(act) = action {
                 match act {
-                    ApiCommands::List { search, top, page, page_size, refresh } => {
-                        cmd::api::list(&active_profile, &config, &auth_cli, search, *top, *page, *page_size, &cli.format, *refresh).await?;
+                    ApiCommands::List { search, page, page_size, refresh } => {
+                        cmd::api::list(&active_profile, &config, &auth_cli, search, *page, *page_size, &cli.format, *refresh).await?;
                     }
                     ApiCommands::Spec { method, path, raw } => {
                         cmd::api::spec(&active_profile, &config, &auth_cli, method, path, *raw).await?;
