@@ -294,82 +294,72 @@ impl<'a> Client for AuthClient<'a> {
         let app_dir = crate::core::config::get_app_dir();
         let cache_path = app_dir.join(format!("{}_openapi.yaml", profile));
 
-        // 1. Load Cache if exists and not forcing
-        let cached_data = if cache_path.exists() && !force_refresh {
+        // 1. Try Load Cache ONLY if not forcing refresh
+        if !force_refresh && cache_path.exists() {
             if let Ok(data) = std::fs::read_to_string(&cache_path) {
-                serde_yaml::from_str::<serde_json::Value>(&data).ok()
-            } else { None }
-        } else { None };
-
-        // 2. Evaluation Logic
-        if let Some(spec) = cached_data {
-            let metadata = std::fs::metadata(&cache_path)?;
-            let elapsed = metadata.modified()?.elapsed()?.as_secs();
-
-            if elapsed < 3600 {
-                return Ok(spec);
-            }
-            
-            // ... (rest of automatic refresh logic)
-
-            if !cfg.openapi_url.is_empty() {
-                let spec_url = format!("{}/v1/common/openapi/spec", cfg.openapi_url.trim_end_matches('/'));
-                if let Ok(token) = self.get_app_access_token(profile, cfg).await {
-                    let mut headers = reqwest::header::HeaderMap::new();
-                    headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-                    headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-
-                    match self.http_sender.get(&spec_url, headers).await {
-                        Ok(resp) if resp.is_success() => {
-                            if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
-                                Self::clean_non_standard_fields(&mut fresh_spec);
-                                let _ = self.save_spec_to_cache(&cache_path, &fresh_spec);
-                                return Ok(fresh_spec);
-                            }
-                        }
-                        _ => {}
+                if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
+                    let metadata = std::fs::metadata(&cache_path)?;
+                    let elapsed = metadata.modified()?.elapsed()?.as_secs();
+                    
+                    // Cache is fresh (less than 1 hour)
+                    if elapsed < 3600 {
+                        return Ok(spec);
                     }
+                    
+                    // Cache expired but we have it as fallback if network fails
+                    tracing::info!(target: "sys", "Local spec cache expired ({}s), attempting refresh...", elapsed);
                 }
             }
-            
-            if let Ok(dynamic_spec) = self.get_dynamic_interface_list(profile, cfg).await {
-                let _ = self.save_spec_to_cache(&cache_path, &dynamic_spec);
-                return Ok(dynamic_spec);
-            }
-
-            return Ok(spec);
         }
 
-        // 3. No Cache: Must Pull Spec
+        if force_refresh {
+            tracing::info!(target: "sys", "Force refresh requested, bypassing local cache.");
+        }
+
+        // 2. Fetch fresh spec from Platform
         if !cfg.openapi_url.is_empty() {
             let spec_url = format!("{}/v1/common/openapi/spec", cfg.openapi_url.trim_end_matches('/'));
-             if let Ok(token) = self.get_app_access_token(profile, cfg).await {
+            if let Ok(token) = self.get_app_access_token(profile, cfg).await {
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
                 headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
 
-                if let Ok(resp) = self.http_sender.get(&spec_url, headers).await {
-                    if resp.is_success() {
+                match self.http_sender.get(&spec_url, headers).await {
+                    Ok(resp) if resp.is_success() => {
                         if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
                             Self::clean_non_standard_fields(&mut fresh_spec);
-                            let _ = self.save_spec_to_cache(&cache_path, &fresh_spec);
+                            if let Err(e) = self.save_spec_to_cache(&cache_path, &fresh_spec) {
+                                tracing::warn!(target: "sys", "Failed to save spec cache: {}", e);
+                            }
                             return Ok(fresh_spec);
                         }
                     }
+                    _ => {}
                 }
-             }
+            }
         }
 
-        // 4. Pull Spec Failed: Try Dynamic Interface List
-        tracing::info!(target: "sys", "Full OpenAPI spec unavailable. Fetching real authorized interface list...");
+        // 3. Fallback: Dynamic Discovery
+        tracing::info!(target: "sys", "Full OpenAPI spec unavailable or refresh needed. Fetching real authorized interface list...");
         match self.get_dynamic_interface_list(profile, cfg).await {
             Ok(dynamic_spec) => {
-                let _ = self.save_spec_to_cache(&cache_path, &dynamic_spec);
-                return Ok(dynamic_spec);
+                if let Err(e) = self.save_spec_to_cache(&cache_path, &dynamic_spec) {
+                    tracing::warn!(target: "sys", "Failed to save dynamic spec cache: {}", e);
+                }
+                Ok(dynamic_spec)
             }
             Err(e) => {
-                tracing::error!(target: "sys", "Live discovery failed: {}", e);
-                Err(anyhow!("Could not fetch real API list. Fallback unavailable."))
+                // If refresh failed but we have OLD cache, return OLD cache as last resort
+                if cache_path.exists() {
+                    if let Ok(data) = std::fs::read_to_string(&cache_path) {
+                        if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
+                            tracing::warn!(target: "sys", "Refresh failed, falling back to expired local cache: {}", e);
+                            return Ok(spec);
+                        }
+                    }
+                }
+                tracing::error!(target: "sys", "API list refresh failed: {}", e);
+                Err(anyhow!("Could not refresh API list: {}", e))
             }
         }
     }
