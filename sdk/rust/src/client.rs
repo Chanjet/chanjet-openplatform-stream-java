@@ -130,68 +130,83 @@ impl GatewayClient {
         let (mut write, mut read) = ws_stream.split();
         let encrypt_key = options.encrypt_key.clone().unwrap_or_else(|| options.app_secret.clone());
 
-        while let Some(msg) = read.next().await {
-            match msg {
-                Ok(Message::Text(text)) => {
-                    let root: serde_json::Value = match serde_json::from_str(&text) {
-                        Ok(v) => v,
+        loop {
+            // 每 10 秒服务端发送一次 ping，如果 25 秒没有收到任何消息（包括 ping），则判定连接已死
+            let next_msg = tokio::time::timeout(Duration::from_secs(25), read.next()).await;
+
+            match next_msg {
+                Ok(Some(msg)) => {
+                    match msg {
+                        Ok(Message::Text(text)) => {
+                            let root: serde_json::Value = match serde_json::from_str(&text) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    tracing::error!("Failed to parse incoming WebSocket message as JSON: {}. Raw: {}", e, text);
+                                    continue;
+                                }
+                            };
+                            let msg_type = root.get("msg_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                            if msg_type == "event" {
+                                let frame: EventFrame = match serde_json::from_str(&text) {
+                                    Ok(f) => f,
+                                    Err(e) => {
+                                        tracing::error!("Failed to parse EventFrame: {}. Raw: {}", e, text);
+                                        continue;
+                                    }
+                                };
+                                
+                                let success = {
+                                    let dispatcher_lock = dispatcher.lock().unwrap();
+                                    match dispatcher_lock.dispatch(&frame, &encrypt_key) {
+                                        Ok(s) => s,
+                                        Err(e) => {
+                                            tracing::error!("Error dispatching event {}: {}", frame.msg_id, e);
+                                            false
+                                        }
+                                    }
+                                };
+                                Self::send_ack(&mut write, frame.msg_id, success).await?;
+                            } else if msg_type == "ping" {
+                                write.send(Message::Text("{\"msg_type\":\"pong\"}".to_string())).await?;
+                            } else if !msg_type.is_empty() {
+                                // Handle top-level system messages (e.g. APP_TICKET)
+                                let msg_id = root.get("msg_id").or_else(|| root.get("msgId")).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                                
+                                let success = {
+                                    let dispatcher_lock = dispatcher.lock().unwrap();
+                                    match dispatcher_lock.dispatch_value(root, None) {
+                                        Ok(s) => s,
+                                        Err(e) => {
+                                            tracing::error!("Error dispatching raw message type {}: {}", msg_type, e);
+                                            false
+                                        }
+                                    }
+                                };
+
+                                if msg_id != "unknown" {
+                                    Self::send_ack(&mut write, msg_id, success).await?;
+                                }
+                            }
+                        }
+                        Ok(Message::Close(_)) => {
+                            tracing::info!("WebSocket closed by server.");
+                            break;
+                        }
                         Err(e) => {
-                            tracing::error!("Failed to parse incoming WebSocket message as JSON: {}. Raw: {}", e, text);
-                            continue;
+                            return Err(anyhow!("WebSocket read error: {}", e));
                         }
-                    };
-                    let msg_type = root.get("msg_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-                    if msg_type == "event" {
-                        let frame: EventFrame = match serde_json::from_str(&text) {
-                            Ok(f) => f,
-                            Err(e) => {
-                                tracing::error!("Failed to parse EventFrame: {}. Raw: {}", e, text);
-                                continue;
-                            }
-                        };
-                        
-                        let success = {
-                            let dispatcher_lock = dispatcher.lock().unwrap();
-                            match dispatcher_lock.dispatch(&frame, &encrypt_key) {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    tracing::error!("Error dispatching event {}: {}", frame.msg_id, e);
-                                    false
-                                }
-                            }
-                        };
-                        Self::send_ack(&mut write, frame.msg_id, success).await?;
-                    } else if msg_type == "ping" {
-                        write.send(Message::Text("{\"msg_type\":\"pong\"}".to_string())).await?;
-                    } else if !msg_type.is_empty() {
-                        // Handle top-level system messages (e.g. APP_TICKET)
-                        let msg_id = root.get("msg_id").or_else(|| root.get("msgId")).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                        
-                        let success = {
-                            let dispatcher_lock = dispatcher.lock().unwrap();
-                            match dispatcher_lock.dispatch_value(root, None) {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    tracing::error!("Error dispatching raw message type {}: {}", msg_type, e);
-                                    false
-                                }
-                            }
-                        };
-
-                        if msg_id != "unknown" {
-                            Self::send_ack(&mut write, msg_id, success).await?;
-                        }
+                        _ => {}
                     }
                 }
-                Ok(Message::Close(_)) => {
-                    tracing::info!("WebSocket closed by server.");
+                Ok(None) => {
+                    tracing::info!("WebSocket stream ended.");
                     break;
                 }
-                Err(e) => {
-                    return Err(anyhow!("WebSocket read error: {}", e));
+                Err(_) => {
+                    // Timeout occurred
+                    return Err(anyhow!("WebSocket read timeout (no heartbeats from server for 25s). Triggering reconnect."));
                 }
-                _ => {}
             }
         }
 
