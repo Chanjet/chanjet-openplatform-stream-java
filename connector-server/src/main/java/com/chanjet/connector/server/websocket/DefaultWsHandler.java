@@ -75,8 +75,15 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     @Override
     protected void handleTextMessage(WebSocketSession session, org.springframework.web.socket.TextMessage message) {
         String clientId = (String) session.getAttributes().get("clientId");
+        String appKey = (String) session.getAttributes().get("appKey");
         if (clientId != null) {
+            // 1. 更新本地活跃时间
             sessionRegistry.updateActiveTime(clientId);
+            
+            // 2. 刷新分布式路由 TTL (Redis)
+            if (appKey != null) {
+                routeStore.add(appKey, nodeId, clientId);
+            }
         }
     }
 
