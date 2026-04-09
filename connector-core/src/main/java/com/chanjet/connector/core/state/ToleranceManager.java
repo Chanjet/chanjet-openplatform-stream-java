@@ -29,7 +29,6 @@ public class ToleranceManager {
 
     /**
      * 处理推送失败（无在线客户端）事件。
-     * @return 当前应用应处于的状态
      */
     public PushStatus handleFailure(String appKey, long now) {
         long failStart = failStore.getOrSet(appKey, now);
@@ -50,16 +49,26 @@ public class ToleranceManager {
     }
 
     /**
-     * 处理客户端重连或成功投递事件。
+     * 业务投递成功时的清理（带脏检查，高性能）。
      */
     public void handleReconnect(String appKey) {
-        // 脏检查：只有当本地记录过失败，或者本地还没记录（冷启动首条消息）时，才尝试清理 Redis
-        // 这能过滤掉 99.9% 正常在线状态下的高频消息冲击
         if (dirtyKeys.containsKey(appKey)) {
-            log.info("Client active for AppKey [{}]. Clearing fail timer and enabling push.", appKey);
-            failStore.clear(appKey);
-            pushControl.setPushEnabled(appKey, true);
-            dirtyKeys.remove(appKey);
+            log.info("Optimized clearing fail timer for AppKey [{}] (State: Dirty).", appKey);
+            doClear(appKey);
         }
+    }
+
+    /**
+     * 强力重置状态（不检查本地缓存，给 WebSocket 上线等低频事件使用）。
+     */
+    public void resetFailureState(String appKey) {
+        log.info("Force resetting fail state for AppKey [{}].", appKey);
+        doClear(appKey);
+    }
+
+    private void doClear(String appKey) {
+        failStore.clear(appKey);
+        pushControl.setPushEnabled(appKey, true);
+        dirtyKeys.remove(appKey);
     }
 }

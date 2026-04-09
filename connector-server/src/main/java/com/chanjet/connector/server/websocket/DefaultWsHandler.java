@@ -46,8 +46,8 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             // 2. 注册物理路由 (Redis)
             routeStore.add(appKey, nodeId, clientId);
             
-            // 3. 触发领域层自愈逻辑 (恢复推送)
-            toleranceManager.handleReconnect(appKey);
+            // 3. 强力重置领域层失败计时 (确保分布式环境下的绝对一致性)
+            toleranceManager.resetFailureState(appKey);
             
             log.info("Client connected and registered: {} (App: {})", clientId, appKey);
         } else {
