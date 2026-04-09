@@ -15,7 +15,11 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(WebhookController.class)
+@WebMvcTest(value = WebhookController.class, properties = {
+    "spring.cloud.nacos.config.enabled=false",
+    "spring.cloud.nacos.discovery.enabled=false",
+    "spring.config.import="
+})
 class WebhookControllerTest {
 
     @Autowired
@@ -64,5 +68,25 @@ class WebhookControllerTest {
                         .header("X-MSG-ID", "msg-1")
                         .content("data"))
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void shouldEvictP2PClientWhenTokenValid() throws Exception {
+        org.mockito.Mockito.when(connectorProperties.isValidToken("valid-token")).thenReturn(true);
+
+        mockMvc.perform(post("/internal/v1/p2p/evict/client-123")
+                        .header("X-Internal-Token", "valid-token"))
+                .andExpect(status().isOk());
+
+        verify(connectionManager).close("client-123", "Conflict: Reconnected to another node");
+    }
+
+    @Test
+    void shouldReturn4xxWhenTokenInvalidForEvict() throws Exception {
+        org.mockito.Mockito.when(connectorProperties.isValidToken("invalid-token")).thenReturn(false);
+
+        mockMvc.perform(post("/internal/v1/p2p/evict/client-123")
+                        .header("X-Internal-Token", "invalid-token"))
+                .andExpect(status().is4xxClientError());
     }
 }

@@ -78,7 +78,7 @@ public class WebhookController {
     @PostMapping("/internal/v1/p2p/evict/{clientId}")
     public Map<String, String> evictP2P(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
-            @PathVariable String clientId) {
+            @PathVariable("clientId") String clientId) {
         
         // 校验令牌
         if (!properties.isValidToken(token)) {
