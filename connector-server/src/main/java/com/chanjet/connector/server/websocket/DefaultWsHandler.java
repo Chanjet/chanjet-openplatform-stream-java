@@ -80,10 +80,9 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             // 1. 更新本地活跃时间
             sessionRegistry.updateActiveTime(clientId);
             
-            // 2. 刷新分布式路由 TTL (Redis) 及清理失败计时
+            // 2. 刷新分布式路由 TTL (Redis)
             if (appKey != null) {
                 routeStore.add(appKey, nodeId, clientId);
-                toleranceManager.handleReconnect(appKey);
             }
         }
     }
