@@ -26,16 +26,23 @@ impl VaultTokenPool {
 impl TokenPool for VaultTokenPool {
     fn get_app_ticket(&self, profile: &str) -> Result<Ticket> {
         let val = self.v.get(profile, "app_ticket")?;
-        // For now, we don't have a reliable receive time in vault, so we use now as proxy
-        // Better: store as JSON in vault.
+        let created_at = if let Ok(ts_str) = self.v.get(profile, "app_ticket_created") {
+            chrono::DateTime::parse_from_rfc3339(&ts_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or(Utc::now())
+        } else {
+            Utc::now()
+        };
+
         Ok(Ticket {
             value: val,
-            created_at: Utc::now(),
+            created_at,
         })
     }
 
     fn set_app_ticket(&self, profile: &str, ticket: &Ticket) -> Result<()> {
-        self.v.set(profile, "app_ticket", &ticket.value)
+        self.v.set(profile, "app_ticket", &ticket.value)?;
+        self.v.set(profile, "app_ticket_created", &ticket.created_at.to_rfc3339())
     }
 
     fn get_access_token(&self, profile: &str) -> Result<Token> {

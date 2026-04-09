@@ -109,9 +109,16 @@ pub async fn status(
 
     // 4. Ticket
     let ticket_status = if let Ok(_ticket_raw) = vault.get(profile, "app_ticket") {
+        let created_at = if let Ok(ts_str) = vault.get(profile, "app_ticket_created") {
+            chrono::DateTime::parse_from_rfc3339(&ts_str)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or(Utc::now())
+        } else {
+            Utc::now()
+        };
         Some(TicketStatus {
             status: "CACHED".to_string(),
-            created_at: Utc::now(),
+            created_at,
         })
     } else { None };
 

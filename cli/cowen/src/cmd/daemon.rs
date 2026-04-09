@@ -175,14 +175,12 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy
     // 2. Task: Stream Bridge
     let stream_client = client.clone();
     let stream_task = tokio::spawn(async move {
-        match stream_client.start().await {
-            Ok(_) => {
-                tracing::info!(target: "sys", "Stream Bridge started. Entering message loop...");
-                std::future::pending::<()>().await;
-            }
-            Err(e) => {
-                tracing::error!(target: "sys", error = %e, "Stream Bridge failed to start");
-            }
+        if let Err(e) = stream_client.start().await {
+            tracing::error!(target: "sys", error = %e, "Stream Bridge loop terminated with error");
+            Err(e)
+        } else {
+            tracing::info!(target: "sys", "Stream Bridge loop finished normally");
+            Ok(())
         }
     });
 
@@ -217,29 +215,29 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy
     // 4. WAIT FOR ANY TASK OR SIGNAL
     tracing::info!(target: "sys", "All daemon tasks initialized. Entering watchdog mode.");
     
-    if std::io::stdout().is_terminal() {
+    let result = if std::io::stdout().is_terminal() {
         println!("🚀 Stream Bridge running in foreground. Press Ctrl+C to stop.");
         tokio::select! {
-            _ = proxy_task => tracing::error!(target: "sys", "Proxy task exited unexpectedly"),
-            _ = stream_task => tracing::error!(target: "sys", "Stream task exited unexpectedly"),
-            _ = maintenance_task => tracing::error!(target: "sys", "Maintenance task exited unexpectedly"),
-            _ = signal::ctrl_c() => tracing::info!(target: "sys", "Interrupted by user"),
+            _ = proxy_task => { tracing::error!(target: "sys", "Proxy task exited unexpectedly"); Err(anyhow::anyhow!("Proxy task crashed")) },
+            _ = stream_task => { tracing::error!(target: "sys", "Stream task exited unexpectedly"); Err(anyhow::anyhow!("Stream task crashed")) },
+            _ = maintenance_task => { tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); Err(anyhow::anyhow!("Maintenance task crashed")) },
+            _ = signal::ctrl_c() => { tracing::info!(target: "sys", "Interrupted by user"); Ok(()) },
         }
     } else {
         // Background child process: Entering persistent loop
         tracing::info!(target: "sys", "Daemon running in managed background mode. Entering persistent loop...");
         tokio::select! {
-            _ = proxy_task => tracing::error!(target: "sys", "Proxy task exited unexpectedly"),
-            _ = stream_task => tracing::error!(target: "sys", "Stream task exited unexpectedly"),
-            _ = maintenance_task => tracing::error!(target: "sys", "Maintenance task exited unexpectedly"),
-            _ = wait_for_termination() => tracing::info!(target: "sys", "Termination signal received"),
+            _ = proxy_task => { tracing::error!(target: "sys", "Proxy task exited unexpectedly"); Err(anyhow::anyhow!("Proxy task crashed")) },
+            _ = stream_task => { tracing::error!(target: "sys", "Stream task exited unexpectedly"); Err(anyhow::anyhow!("Stream task crashed")) },
+            _ = maintenance_task => { tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); Err(anyhow::anyhow!("Maintenance task crashed")) },
+            _ = wait_for_termination() => { tracing::info!(target: "sys", "Termination signal received"); Ok(()) },
         }
-    }
+    };
 
     tracing::info!(target: "sys", "Daemon process shutting down...");
     client.stop();
     let _ = fs::remove_file(pid_file);
-    Ok(())
+    result
 }
 
 async fn wait_for_termination() {

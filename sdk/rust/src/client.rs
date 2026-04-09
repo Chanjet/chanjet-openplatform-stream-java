@@ -53,6 +53,7 @@ impl GatewayClient {
             return Ok(());
         }
         *running = true;
+        drop(running); // 释放锁以允许 stop() 修改状态
 
         let options = self.options.clone();
         let client_id = self.client_id.clone();
@@ -60,33 +61,30 @@ impl GatewayClient {
         let mut stop_rx = self.stop_tx.subscribe();
         let running_flag = self.running.clone();
 
-        tokio::spawn(async move {
-            let mut attempt = 0;
-            loop {
-                tokio::select! {
-                    _ = stop_rx.recv() => {
-                        tracing::info!("GatewayClient stopping...");
-                        break;
-                    }
-                    _ = async {
-                        tracing::info!("Attempting to connect (Attempt: {})...", attempt + 1);
-                        if let Err(e) = Self::connect_and_loop(&options, &client_id, &dispatcher).await {
-                            tracing::error!("Connection error: {}", e);
-                            let delay = Self::calculate_backoff(attempt);
-                            tracing::info!("Reconnecting in {:?}", delay);
-                            sleep(delay).await;
-                            attempt += 1;
-                        } else {
-                            attempt = 0;
-                        }
-                    } => {}
-                }
-
-                if !*running_flag.lock().unwrap() {
+        let mut attempt = 0;
+        loop {
+            tokio::select! {
+                _ = stop_rx.recv() => {
+                    tracing::info!("GatewayClient stopping...");
                     break;
                 }
+                res = Self::connect_and_loop(&options, &client_id, &dispatcher) => {
+                    if let Err(e) = res {
+                        tracing::error!("Connection error: {}", e);
+                        let delay = Self::calculate_backoff(attempt);
+                        tracing::info!("Reconnecting in {:?}", delay);
+                        sleep(delay).await;
+                        attempt += 1;
+                    } else {
+                        attempt = 0;
+                    }
+                }
             }
-        });
+
+            if !*running_flag.lock().unwrap() {
+                break;
+            }
+        }
 
         Ok(())
     }
