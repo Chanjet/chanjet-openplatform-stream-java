@@ -54,4 +54,27 @@ class DefaultWsHandlerUnitTest {
         // 目前的代码只会验证失败，因为 handleTextMessage 里没写这个逻辑
         verify(routeStore, times(2)).add("app-1", "node-1", "client-1");
     }
+
+    @Test
+    void shouldProactivelyEvictConflictingSessionsOnOtherNodes() throws Exception {
+        WebSocketSession session = mock(WebSocketSession.class);
+        Map<String, Object> attrs = new HashMap<>();
+        attrs.put("clientId", "client-1");
+        attrs.put("appKey", "app-1");
+        when(session.getAttributes()).thenReturn(attrs);
+
+        java.util.Set<String> existingRoutes = new java.util.HashSet<>();
+        existingRoutes.add("node-old:client-1");
+        existingRoutes.add("node-2:client-2");
+        when(routeStore.getNodes("app-1")).thenReturn(existingRoutes);
+
+        handler.afterConnectionEstablished(session);
+
+        // 稍微等待异步线程执行
+        Thread.sleep(100);
+
+        verify(p2pClient, times(1)).evict("node-old", "client-1");
+        verify(p2pClient, never()).evict("node-2", "client-2");
+        verify(p2pClient, never()).evict("node-old", "client-2");
+    }
 }

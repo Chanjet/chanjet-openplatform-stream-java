@@ -34,4 +34,14 @@ class RestP2PClientTest {
 
         verify(httpClient).post(contains("/internal/v1/p2p/push"), eq(frame), any(), any());
     }
+
+    @Test
+    void shouldEvictClientOnRemoteNode() {
+        String targetNode = "localhost:8080";
+        String clientId = "client-1";
+
+        p2pClient.evict(targetNode, clientId);
+
+        verify(httpClient).post(contains("/internal/v1/p2p/evict/client-1"), isNull(), eq(Void.class), any());
+    }
 }

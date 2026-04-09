@@ -58,7 +58,20 @@ class ToleranceManagerTest {
 
     @Test
     void shouldEnablePushAndClearTimerOnReconnect() {
+        // 先触发一次失败，让本地产生 Dirty 标记
+        when(failStore.getOrSet(APP_KEY, 1000L)).thenReturn(1000L);
+        toleranceManager.handleFailure(APP_KEY, 1000L);
+        
         toleranceManager.handleReconnect(APP_KEY);
+
+        verify(pushControl).setPushEnabled(APP_KEY, true);
+        verify(failStore).clear(APP_KEY);
+    }
+
+    @Test
+    void shouldForceClearTimerOnReset() {
+        // 直接重置，不需要前置失败条件
+        toleranceManager.resetFailureState(APP_KEY);
 
         verify(pushControl).setPushEnabled(APP_KEY, true);
         verify(failStore).clear(APP_KEY);
