@@ -9,9 +9,12 @@
 ### 🏗️ 架构重构 (Architectural Changes)
 - **SDK 运行模式调整**: 将 Rust SDK 的启动模式从异步后台任务重构为阻塞式循环（Blocking Loop），确保宿主守护进程能通过同步 Watchdog 实时监控连接的生命周期。
 - **分布式清理策略**: 实现了“低频强一致 + 高频脏检查”的分层清理逻辑，确保在多节点集群环境下 `fail_start` 状态的精准重置，同时避免了高频消息对 Redis 的 IO 冲击。
-
 ### 🤖 构建与自动化 (DevOps & Build)
+- **版本元数据注入**: 
+  - 增强了 `build.rs` 的逻辑，实现了对当前源码 Git Hash 的实时提取。
+  - 将 Git Hash 注入编译期环境变量，并集成到 CLI 的版本显示中。
 - **Makefile 标准化**: 
+...
   - 实现了从 `Cargo.toml` 动态提取版本号。
   - 构建产物强制遵循 `binary-v{ver}-{platform}-{arch}` 命名规范。
   - 集成 Podman 容器化构建流，支持在 macOS 下一键交叉编译 Linux amd64 满血版。
