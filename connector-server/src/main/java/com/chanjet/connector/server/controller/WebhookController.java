@@ -5,6 +5,7 @@ import com.chanjet.connector.api.exception.InvalidInternalTokenException;
 import com.chanjet.connector.common.protocol.EventFrame;
 import com.chanjet.connector.core.dispatcher.MessageDispatcher;
 import com.chanjet.connector.api.config.ConnectorProperties;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -72,5 +73,24 @@ public class WebhookController {
             connectionManager.getClientsByAppKey(frame.appKey())
                 .forEach(clientId -> connectionManager.push(clientId, frame));
         }
+    }
+
+    @PostMapping("/internal/v1/p2p/evict/{clientId}")
+    public Map<String, String> evictP2P(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @PathVariable String clientId) {
+        
+        // 校验令牌
+        if (!properties.isValidToken(token)) {
+            org.slf4j.LoggerFactory.getLogger(WebhookController.class)
+                .error("P2P Auth Failed for Eviction. Expected one of: {}", properties.getInternalTokens());
+            throw new InvalidInternalTokenException();
+        }
+
+        org.slf4j.LoggerFactory.getLogger(WebhookController.class)
+            .info("Received P2P eviction request for client: {}", clientId);
+            
+        connectionManager.close(clientId, "Conflict: Reconnected to another node");
+        return Map.of("result", "success");
     }
 }

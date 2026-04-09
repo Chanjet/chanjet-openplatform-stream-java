@@ -1,5 +1,6 @@
 package com.chanjet.connector.server.websocket;
 
+import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.core.state.ToleranceManager;
 import com.chanjet.connector.server.config.NodeIdResolver;
@@ -20,6 +21,7 @@ class DefaultWsHandlerUnitTest {
     private WsSessionRegistry sessionRegistry;
     private ToleranceManager toleranceManager;
     private NodeIdResolver nodeIdResolver;
+    private IP2PClient p2pClient;
 
     @BeforeEach
     void setUp() {
@@ -27,9 +29,10 @@ class DefaultWsHandlerUnitTest {
         sessionRegistry = mock(WsSessionRegistry.class);
         toleranceManager = mock(ToleranceManager.class);
         nodeIdResolver = mock(NodeIdResolver.class);
+        p2pClient = mock(IP2PClient.class);
         when(nodeIdResolver.getResolvedNodeId()).thenReturn("node-1");
 
-        handler = new DefaultWsHandler(nodeIdResolver, sessionRegistry, routeStore, toleranceManager);
+        handler = new DefaultWsHandler(nodeIdResolver, sessionRegistry, routeStore, toleranceManager, p2pClient);
     }
 
     @Test

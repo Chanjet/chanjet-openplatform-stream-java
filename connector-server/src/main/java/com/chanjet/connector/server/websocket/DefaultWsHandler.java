@@ -1,5 +1,6 @@
 package com.chanjet.connector.server.websocket;
 
+import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.core.state.ToleranceManager;
 import com.chanjet.connector.server.config.NodeIdResolver;
@@ -9,6 +10,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import java.util.Set;
 
 /**
  * WebSocket 连接处理器，集成领域层逻辑。
@@ -22,15 +25,18 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     private final WsSessionRegistry sessionRegistry;
     private final IRouteStore routeStore;
     private final ToleranceManager toleranceManager;
+    private final IP2PClient p2pClient;
 
     public DefaultWsHandler(NodeIdResolver nodeIdResolver,
                             WsSessionRegistry sessionRegistry,
                             IRouteStore routeStore,
-                            ToleranceManager toleranceManager) {
+                            ToleranceManager toleranceManager,
+                            IP2PClient p2pClient) {
         this.nodeId = nodeIdResolver.getResolvedNodeId();
         this.sessionRegistry = sessionRegistry;
         this.routeStore = routeStore;
         this.toleranceManager = toleranceManager;
+        this.p2pClient = p2pClient;
     }
 
     @Override
@@ -40,6 +46,23 @@ public class DefaultWsHandler extends TextWebSocketHandler {
         String appKey = (String) session.getAttributes().get("appKey");
 
         if (clientId != null && appKey != null) {
+            // 0. 抢占式下线探测 (Proactive Eviction)
+            // 检查 Redis 中是否已经存在其他节点持有该 clientId 的连接
+            Set<String> existingRoutes = routeStore.getNodes(appKey);
+            if (existingRoutes != null) {
+                for (String route : existingRoutes) {
+                    if (route.endsWith(":" + clientId)) {
+                        String oldNodeId = route.substring(0, route.lastIndexOf(":"));
+                        if (!oldNodeId.equals(this.nodeId)) {
+                            log.info("Proactive Eviction: Notifying remote node [{}] to close conflicting session for [{}]", oldNodeId, clientId);
+                            // 异步执行，不阻塞当前连接的建立
+                            String finalClientId = clientId;
+                            new Thread(() -> p2pClient.evict(oldNodeId, finalClientId)).start();
+                        }
+                    }
+                }
+            }
+
             // 1. 注册本地会话
             sessionRegistry.register(clientId, session);
             

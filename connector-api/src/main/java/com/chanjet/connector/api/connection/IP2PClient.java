@@ -13,5 +13,13 @@ public interface IP2PClient {
      * @return 转发是否成功（目标节点成功接收并响应 200）
      */
     boolean forward(String targetNodeId, EventFrame frame);
-    }
+
+    /**
+     * 强行驱逐指定节点的指定客户端连接。
+     * @param targetNodeId 目标节点 ID (ip:port)
+     * @param clientId 待驱逐的客户端 ID
+     * @return 驱逐请求是否成功送达
+     */
+    boolean evict(String targetNodeId, String clientId);
+}
 

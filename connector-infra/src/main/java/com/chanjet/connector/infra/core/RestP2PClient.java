@@ -45,4 +45,25 @@ public class RestP2PClient implements IP2PClient {
             return false;
         }
     }
+
+    @Override
+    public boolean evict(String targetNodeId, String clientId) {
+        String host = targetNodeId;
+        if (!host.startsWith("http")) {
+            host = "http://" + host;
+        }
+        String url = host + "/internal/v1/p2p/evict/" + clientId;
+
+        log.info("Initiating P2P Evict: Client [{}] on Node [{}]", clientId, url);
+
+        try {
+            httpClient.post(url, null, Void.class, Map.of(
+                    "X-Internal-Token", properties.getPrimaryToken()
+            ));
+            return true;
+        } catch (Exception e) {
+            log.warn("P2P Evict failed to {}: {}", targetNodeId, e.getMessage());
+            return false;
+        }
+    }
 }
