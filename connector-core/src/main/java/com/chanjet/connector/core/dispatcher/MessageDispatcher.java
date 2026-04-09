@@ -69,6 +69,7 @@ public class MessageDispatcher {
         if (localClients != null && !localClients.isEmpty()) {
             log.debug("Local-First: Found {} clients on current node {}. Pushing locally.", localClients.size(), nodeId);
             localClients.forEach(clientId -> connectionManager.push(clientId, frame));
+            toleranceManager.handleReconnect(appKey);
             return true;
         }
 
@@ -119,6 +120,7 @@ public class MessageDispatcher {
 
             log.info("Dispatching attempt {}: [{}] -> remote node [{}]", i + 1, frame.msgId(), targetNodeId);
             if (p2pClient.forward(targetNodeId, targetedFrame)) {
+                toleranceManager.handleReconnect(appKey);
                 return true; // 转发成功，流程结束
             }
             log.warn("P2P attempt {} failed for node {}, trying next...", i + 1, targetNodeId);
