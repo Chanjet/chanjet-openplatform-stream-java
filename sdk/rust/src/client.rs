@@ -48,12 +48,13 @@ impl GatewayClient {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let mut running = self.running.lock().unwrap();
-        if *running {
-            return Ok(());
+        {
+            let mut running = self.running.lock().unwrap();
+            if *running {
+                return Ok(());
+            }
+            *running = true;
         }
-        *running = true;
-        drop(running); // 释放锁以允许 stop() 修改状态
 
         let options = self.options.clone();
         let client_id = self.client_id.clone();
