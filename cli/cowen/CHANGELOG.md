@@ -7,6 +7,7 @@
 ## [0.1.5] - 2026-04-10
 
 ### 🚀 新特性 (Features)
+- **全局环境管理 (Global Profile Management)**: 为 `status` 和 `daemon start/stop/restart` 命令新增 `--all` 参数，支持一键扫描并批量管理所有已配置环境的系统状态与守护进程，大幅提升多环境场景下的运维效率。
 - **守护进程自动拉起 (Auto-Heal)**: 实现了“静默守卫”逻辑。如果电脑重启或守护进程因意外停止，用户在执行任意业务命令（如 `api list`, `status`）时，工具会自动在后台重新拉起守护进程，无需手动干预。
 
 ### 🔧 改进与修复 (Improvements & Fixes)
