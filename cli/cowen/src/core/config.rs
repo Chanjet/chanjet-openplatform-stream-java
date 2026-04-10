@@ -10,7 +10,9 @@ pub struct Config {
     pub stream_url: String,
     pub webhook_target: String,
     pub log: LogConfig,
+    #[serde(default = "default_true")]
     pub telemetry_enabled: bool,
+    #[serde(default = "default_true")]
     pub ai_enabled: bool,
     // Note: Secrets like app_secret are now in Vault, not Config file
     #[serde(skip)]
@@ -19,6 +21,10 @@ pub struct Config {
     pub certificate: String,
     #[serde(skip)]
     pub encrypt_key: String,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl std::fmt::Debug for Config {
