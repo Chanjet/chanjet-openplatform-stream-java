@@ -39,8 +39,10 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
         String nonce = params.get("nonce");
         String sign = params.get("sign");
 
-        if (appKey == null || nonce == null || sign == null) {
-            log.warn("Missing handshake parameters for AppKey: {}", appKey);
+        if (!org.springframework.util.StringUtils.hasText(appKey) || 
+            !org.springframework.util.StringUtils.hasText(nonce) || 
+            !org.springframework.util.StringUtils.hasText(sign)) {
+            log.warn("Handshake rejected: missing or empty parameters (AppKey: {}, Nonce: {}, Sign: {})", appKey, nonce, sign);
             return false;
         }
 
