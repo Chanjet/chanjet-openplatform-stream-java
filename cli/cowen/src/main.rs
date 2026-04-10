@@ -11,7 +11,7 @@ use crate::core::utils::get_bin_name;
 use anyhow::Result;
 
 #[derive(Parser)]
-#[command(name = env!("CARGO_BIN_NAME_OVERRIDE"))]
+#[command(name = option_env!("CARGO_BIN_NAME_OVERRIDE").unwrap_or("cowen"))]
 #[command(version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " / ", env!("BUILD_ID"), " / ", env!("BUILD_TIME"), ")"))]
 #[command(
     about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
@@ -77,7 +77,11 @@ pub enum Commands {
         action: DaemonCommands,
     },
     /// 检查 CLI 的整体运行状态
-    Status,
+    Status {
+        /// 扫描并输出所有存在的 Profile 的状态
+        #[arg(short, long)]
+        all: bool,
+    },
     /// 查看当前环境的配置详情
     Config,
     /// 重置当前环境的配置状态
@@ -179,9 +183,17 @@ pub enum DaemonCommands {
         /// 在前台运行 (阻塞模式)
         #[arg(long)]
         foreground: bool,
+
+        /// 启动所有未运行的守护进程
+        #[arg(short, long)]
+        all: bool,
     },
     /// 停止正在运行的守护进程
-    Stop,
+    Stop {
+        /// 停止所有正在运行的守护进程
+        #[arg(short, long)]
+        all: bool,
+    },
     /// 重启守护进程
     Restart {
         #[arg(long, default_value_t = 8080)]
@@ -297,7 +309,7 @@ async fn run() -> Result<()> {
         Commands::Auth { .. } => "auth",
         Commands::Daemon { .. } => "daemon",
         Commands::Init { .. } => "init",
-        Commands::Status => "status",
+        Commands::Status { .. } => "status",
         Commands::Config => "config",
         Commands::Reset => "reset",
         Commands::Completion { .. } => "completion",
@@ -380,10 +392,10 @@ async fn run() -> Result<()> {
 
         Commands::Auth { action } => match action {
             AuthCommands::Status => {
-                cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format).await?;
+                cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format, false).await?;
             }
             AuthCommands::Reset => {
-                cmd::system::reset(&active_profile, Some(vault.as_ref())).await?;
+                cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr).await?;
             }
             AuthCommands::Login { force } => {
                 cmd::auth::login(&active_profile, &config, &auth_cli, *force).await?;
@@ -393,24 +405,24 @@ async fn run() -> Result<()> {
             }
         },
         Commands::Daemon { action } => match action {
-            DaemonCommands::Start { proxy_port, enable_proxy, foreground } => {
-                cmd::daemon::start(&active_profile, &config, *proxy_port, *enable_proxy, *foreground).await?;
+            DaemonCommands::Start { proxy_port, enable_proxy, foreground, all } => {
+                cmd::daemon::start(&active_profile, &config, *proxy_port, *enable_proxy, *foreground, *all, &cfg_mgr).await?;
             }
-            DaemonCommands::Stop => {
-                cmd::daemon::stop(&active_profile).await?;
+            DaemonCommands::Stop { all } => {
+                cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?;
             }
             DaemonCommands::Restart { proxy_port, enable_proxy, all } => {
                 cmd::daemon::restart(&active_profile, &config, *proxy_port, *enable_proxy, *all, &cfg_mgr).await?;
             }
         },
-        Commands::Status => {
-            cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format).await?;
+        Commands::Status { all } => {
+            cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format, *all).await?;
         }
         Commands::Config => {
             cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?;
         }
         Commands::Reset => {
-            cmd::system::reset(&active_profile, Some(vault.as_ref())).await?;
+            cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr).await?;
         }
         Commands::Completion { shell, install, uninstall } => {
             if *uninstall {

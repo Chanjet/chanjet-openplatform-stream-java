@@ -53,11 +53,54 @@ pub struct DaemonStatus {
 }
 
 pub async fn status(
-    profile: &str,
+    active_profile: &str,
     cfg_mgr: &crate::core::config::ConfigManager,
     vault: &dyn Vault,
     format: &str,
+    all: bool,
 ) -> Result<()> {
+    let profiles = if all {
+        cfg_mgr.list_profiles()?
+    } else {
+        vec![active_profile.to_string()]
+    };
+
+    let mut statuses = Vec::new();
+    for profile in &profiles {
+        if let Ok(s) = get_system_status(profile, cfg_mgr, vault).await {
+            statuses.push(s);
+        }
+    }
+
+    if format == "json" || format == "yaml" {
+        if all {
+            return crate::core::utils::render(&statuses, format);
+        } else if let Some(s) = statuses.first() {
+            return crate::core::utils::render(s, format);
+        }
+        return Ok(());
+    }
+
+    let bin_name = crate::core::utils::get_bin_name().to_uppercase();
+    if all {
+        println!("🔍 {} System Status Diagnostics (All Profiles)", bin_name);
+        println!("==================================================");
+    }
+    
+    for full_status in statuses {
+        print_single_status(&bin_name, &full_status, all);
+        if all {
+            println!();
+        }
+    }
+    Ok(())
+}
+
+async fn get_system_status(
+    profile: &str,
+    cfg_mgr: &crate::core::config::ConfigManager,
+    vault: &dyn Vault,
+) -> Result<SystemStatus> {
     let cfg = cfg_mgr.load(profile)?;
     
     // 1. Config
@@ -134,23 +177,23 @@ pub async fn status(
         build_id: found_build_id,
     };
 
-    let full_status = SystemStatus {
+    Ok(SystemStatus {
         profile: profile.to_string(),
         config: config_status,
         security: security_status,
         token: token_status,
         ticket: ticket_status,
         daemon: daemon_status,
-    };
+    })
+}
 
-    if format == "json" || format == "yaml" {
-        return crate::core::utils::render(&full_status, format);
+fn print_single_status(bin_name: &str, full_status: &SystemStatus, all: bool) {
+    if !all {
+        println!("🔍 {} System Status Diagnostics (Profile: '{}')", bin_name, full_status.profile);
+        println!("--------------------------------------------------");
+    } else {
+        println!("▶ Profile: '{}'", full_status.profile);
     }
-
-    // Default Text Output
-    let bin_name = crate::core::utils::get_bin_name().to_uppercase();
-    println!("🔍 {} System Status Diagnostics (Profile: '{}')", bin_name, profile);
-    println!("--------------------------------------------------");
 
     if !full_status.config.app_key.is_empty() {
         println!("  ⚙️  Configuration: [OK] AppKey: {}", full_status.config.app_key);
@@ -166,14 +209,14 @@ pub async fn status(
         println!("  🛡️  Security (Vault): [PARTIAL] Missing: {}", full_status.security.missing_secrets.join(", "));
     }
 
-    if let Some(token) = full_status.token {
+    if let Some(token) = &full_status.token {
         let real_expiry = token.real_expires_at.with_timezone(&Local);
         println!("  🔑 AccessToken: [{}] (Expires: {})", token.status, real_expiry.format("%Y-%m-%d %H:%M:%S"));
     } else {
         println!("  🔑 AccessToken: [NONE] (未获取到有效令牌)");
     }
 
-    if let Some(ticket) = full_status.ticket {
+    if let Some(ticket) = &full_status.ticket {
         let created = ticket.created_at.with_timezone(&Local);
         println!("  🎫 AppTicket:   [{}] (Received: {})", ticket.status, created.format("%Y-%m-%d %H:%M:%S"));
     } else {
@@ -182,15 +225,16 @@ pub async fn status(
 
     if full_status.daemon.running {
         println!("  📟 Daemon Process: [RUNNING] (PID: {})", full_status.daemon.pid.unwrap());
-        if let Some(log) = full_status.daemon.log_path {
+        if let Some(log) = &full_status.daemon.log_path {
             println!("     - Logs: {}", log);
         }
     } else {
         println!("  📟 Daemon Process: [OFFLINE] (未检测到活跃后台进程)");
     }
     
-    println!("--------------------------------------------------");
-    Ok(())
+    if !all {
+        println!("--------------------------------------------------");
+    }
 }
 
 fn app_dir() -> std::path::PathBuf {
@@ -224,30 +268,42 @@ async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) 
 }
 
 pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
-    let (pid, build_id) = get_active_daemon_info(profile).await;
+    let profiles = cfg_mgr.list_profiles().unwrap_or_else(|_| vec![profile.to_string()]);
+    
+    for p in profiles {
+        let (pid, build_id) = get_active_daemon_info(&p).await;
+        let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&p)) };
+        
+        match pid {
+            Some(pid_val) => {
+                // 进程存在，检查版本
+                let current_build_id = env!("BUILD_ID");
+                let needs_restart = match build_id {
+                    Some(bid) => bid != current_build_id,
+                    None => true,
+                };
 
-    match pid {
-        Some(p) => {
-            // 进程存在，检查版本
-            let current_build_id = env!("BUILD_ID");
-            let needs_restart = match build_id {
-                Some(bid) => bid != current_build_id,
-                None => true,
-            };
-
-            if needs_restart {
-                println!("🔄 Detecting outdated daemon (PID: {}). Automatically restarting...", p);
-                crate::cmd::daemon::restart(profile, config, 8080, true, false, cfg_mgr).await?;
+                if needs_restart {
+                    println!("🔄 Detecting outdated daemon (PID: {}) for profile '{}'. Automatically restarting...", pid_val, p);
+                    let _ = crate::cmd::daemon::restart(&p, &p_cfg, 8080, true, false, cfg_mgr).await;
+                }
             }
-        }
-        None => {
-            // 进程不存在（如重启后），静默拉起
-            if !config.app_key.is_empty() && !config.app_secret.is_empty() {
-                tracing::info!(target: "sys", "Daemon offline for profile '{}'. Auto-launching...", profile);
-                println!("🚀 Daemon is offline. Automatically launching in background...");
-                crate::cmd::daemon::start(profile, config, 8080, true, false).await?;
-                // 缓冲
-                tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            None => {
+                // 进程不存在（如重启后），静默拉起
+                let pid_file = app_dir().join(format!("{}_daemon.pid", p));
+                if pid_file.exists() || p == profile {
+                    if !p_cfg.app_key.is_empty() && !p_cfg.app_secret.is_empty() {
+                        tracing::info!(target: "sys", "Daemon offline for profile '{}'. Auto-launching...", p);
+                        if p == profile {
+                            println!("🚀 Daemon is offline. Automatically launching in background...");
+                        } else {
+                            println!("🚀 Recovering offline daemon for profile '{}'...", p);
+                        }
+                        let _ = crate::cmd::daemon::start(&p, &p_cfg, 8080, true, false, false, cfg_mgr).await;
+                        // 缓冲
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
             }
         }
     }
@@ -264,9 +320,9 @@ pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Re
     Ok(())
 }
 
-pub async fn reset(_profile: &str, vault: Option<&dyn Vault>) -> Result<()> {
+pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigManager) -> Result<()> {
     println!("Resetting profile '{}'...", _profile);
-    if let Err(e) = crate::cmd::daemon::stop(_profile).await {
+    if let Err(e) = crate::cmd::daemon::stop(_profile, false, cfg_mgr).await {
         tracing::warn!(target: "sys", profile = %_profile, error = %e, "Failed to stop daemon during reset");
     }
     if let Some(v) = vault {

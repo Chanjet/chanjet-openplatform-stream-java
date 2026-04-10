@@ -14,11 +14,34 @@ use crate::core::security;
 use crate::auth::{VaultTokenPool, AuthClient, pool::TokenPool, client::Client};
 use crate::auth::models::Ticket;
 use chrono::Utc;
-use sysinfo::{System, SystemExt, ProcessExt, PidExt};
 
 use std::io::IsTerminal;
 
-pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool) -> Result<()> {
+pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+    let target_profiles = if all && !foreground {
+        cfg_mgr.list_profiles()?
+    } else {
+        vec![profile.to_string()]
+    };
+
+    for p in target_profiles {
+        let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| Config::default_with_profile(&p)) };
+        
+        let pid_file = crate::core::config::get_app_dir().join(format!("{}_daemon.pid", p));
+        if all && pid_file.exists() {
+            println!("ℹ️ Daemon for profile '{}' is already running. Skipping.", p);
+            continue;
+        }
+
+        do_start(&p, &p_cfg, proxy_port, enable_proxy, foreground).await?;
+        if all && !foreground {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    }
+    Ok(())
+}
+
+async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
@@ -261,74 +284,63 @@ async fn wait_for_termination() {
 }
 
 pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
-    let mut s = System::new_all();
-    s.refresh_processes();
-    let current_pid = std::process::id();
-    
-    let mut targets: Vec<(u32, String, u16, bool)> = Vec::new();
-    for (pid, process) in s.processes() {
-        let pid_u32 = pid.as_u32();
-        if pid_u32 == current_pid { continue; }
-        
-        let cmd = process.cmd();
-        let cmdline = cmd.join(" ");
-        if cmdline.contains("daemon") && cmdline.contains("start") {
-            let mut p_profile = "default".to_string();
-            let mut p_port = 8080;
-            let mut p_enable_proxy = false;
-            
-            for i in 0..cmd.len() {
-                if cmd[i] == "--profile" && i + 1 < cmd.len() {
-                    p_profile = cmd[i+1].clone();
-                } else if cmd[i] == "--proxy-port" && i + 1 < cmd.len() {
-                    p_port = cmd[i+1].parse().unwrap_or(8080);
-                } else if cmd[i] == "--enable-proxy" {
-                    p_enable_proxy = true;
-                }
-            }
-            
-            if all || p_profile == profile {
-                targets.push((pid_u32, p_profile, p_port, p_enable_proxy));
-            }
-        }
-    }
+    let target_profiles = if all {
+        cfg_mgr.list_profiles()?
+    } else {
+        vec![profile.to_string()]
+    };
 
-    if targets.is_empty() {
-        if !all {
-            println!("📂 Daemon for profile '{}' is not running. Starting it now...", profile);
-            start(profile, config, proxy_port, enable_proxy, false).await?;
-        }
-        return Ok(());
-    }
-
-    let mut profiles_to_start = std::collections::HashSet::new();
-
-    for (pid, p_profile, p_port, p_enable_proxy) in targets {
-        println!("🔄 Restarting daemon for profile '{}' (PID: {}, Port: {})...", p_profile, pid, p_port);
-        
-        #[cfg(unix)]
-        let _ = Command::new("kill").arg("-15").arg(pid.to_string()).status();
-        #[cfg(windows)]
-        let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
-
-        profiles_to_start.insert((p_profile, p_port, p_enable_proxy));
-    }
-    
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    for (p_profile, p_port, p_enable_proxy) in profiles_to_start {
+    for p in target_profiles {
+        let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| Config::default_with_profile(&p)) };
         let app_dir = crate::core::config::get_app_dir();
-        let pid_file = app_dir.join(format!("{}_daemon.pid", p_profile));
-        let _ = fs::remove_file(&pid_file);
-
-        let p_config = cfg_mgr.load(&p_profile).unwrap_or_else(|_| Config::default_with_profile(&p_profile));
-        start(&p_profile, &p_config, p_port, p_enable_proxy, false).await?;
+        let pid_file = app_dir.join(format!("{}_daemon.pid", p));
+        
+        let is_running = pid_file.exists();
+        
+        if is_running {
+            println!("🔄 Restarting daemon for profile '{}'...", p);
+            let _ = do_stop(&p).await;
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let _ = do_start(&p, &p_cfg, proxy_port, enable_proxy, false).await;
+        } else if !all {
+            println!("📂 Daemon for profile '{}' is not running. Starting it now...", p);
+            let _ = do_start(&p, &p_cfg, proxy_port, enable_proxy, false).await;
+        }
+        
+        if all {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
     }
     
     Ok(())
 }
 
-pub async fn stop(profile: &str) -> Result<()> {
+pub async fn stop(profile: &str, all: bool, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+    let target_profiles = if all {
+        cfg_mgr.list_profiles()?
+    } else {
+        vec![profile.to_string()]
+    };
+
+    for p in target_profiles {
+        let app_dir = crate::core::config::get_app_dir();
+        let pid_file = app_dir.join(format!("{}_daemon.pid", p));
+        
+        if all && !pid_file.exists() {
+            continue;
+        }
+        
+        let _ = do_stop(&p).await;
+        
+        if all {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+    }
+    
+    Ok(())
+}
+
+async fn do_stop(profile: &str) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
     if pid_file.exists() {
