@@ -45,19 +45,24 @@ public class DefaultWsHandler extends TextWebSocketHandler {
         String clientId = (String) session.getAttributes().get("clientId");
         String appKey = (String) session.getAttributes().get("appKey");
 
-        if (clientId != null && appKey != null) {
+        if (clientId != null) {
             // 0. 抢占式下线探测 (Proactive Eviction)
-            // 检查 Redis 中是否已经存在其他节点持有该 clientId 的连接
-            Set<String> existingRoutes = routeStore.getNodes(appKey);
-            if (existingRoutes != null) {
-                for (String route : existingRoutes) {
-                    if (route.endsWith(":" + clientId)) {
-                        String oldNodeId = route.substring(0, route.lastIndexOf(":"));
-                        if (!oldNodeId.equals(this.nodeId)) {
-                            log.info("Proactive Eviction: Notifying remote node [{}] to close conflicting session for [{}]", oldNodeId, clientId);
-                            // 异步执行，不阻塞当前连接的建立
-                            String finalClientId = clientId;
-                            new Thread(() -> p2pClient.evict(oldNodeId, finalClientId)).start();
+            // 无论 appKey 是否存在，clientId 必须唯一
+            // 遍历 Redis 中的该 clientId（如果存在某种全局映射）
+            // 目前 routeStore 是基于 appKey 组织的，为了解决没有 appKey 也能连接的问题，
+            // 我们需要确保 clientId 的唯一性。
+            
+            if (appKey != null) {
+                Set<String> existingRoutes = routeStore.getNodes(appKey);
+                if (existingRoutes != null) {
+                    for (String route : existingRoutes) {
+                        if (route.endsWith(":" + clientId)) {
+                            String oldNodeId = route.substring(0, route.lastIndexOf(":"));
+                            if (!oldNodeId.equals(this.nodeId)) {
+                                log.info("Proactive Eviction: Notifying remote node [{}] to close conflicting session for [{}]", oldNodeId, clientId);
+                                String finalClientId = clientId;
+                                new Thread(() -> p2pClient.evict(oldNodeId, finalClientId)).start();
+                            }
                         }
                     }
                 }
@@ -66,15 +71,15 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             // 1. 注册本地会话
             sessionRegistry.register(clientId, session);
             
-            // 2. 注册物理路由 (Redis)
-            routeStore.add(appKey, nodeId, clientId);
+            // 2. 如果提供了 appKey，则注册物理路由并重置失败计时
+            if (appKey != null) {
+                routeStore.add(appKey, nodeId, clientId);
+                toleranceManager.resetFailureState(appKey);
+            }
             
-            // 3. 强力重置领域层失败计时 (确保分布式环境下的绝对一致性)
-            toleranceManager.resetFailureState(appKey);
-            
-            log.info("Client connected and registered: {} (App: {})", clientId, appKey);
+            log.info("Client connected and registered: {} (App: {})", clientId, appKey != null ? appKey : "NONE");
         } else {
-            log.warn("Missing connection parameters, closing session.");
+            log.warn("Missing clientId, closing session.");
             closeSilently(session);
         }
     }
@@ -83,15 +88,12 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String clientId = (String) session.getAttributes().get("clientId");
         String appKey = (String) session.getAttributes().get("appKey");
-
-        if (clientId != null && appKey != null) {
-            // 1. 注销本地会话
+        if (clientId != null) {
             sessionRegistry.unregister(clientId);
-            
-            // 2. 清理物理路由
-            routeStore.remove(appKey, nodeId, clientId);
-            
-            log.info("Client disconnected and cleaned: {}", clientId);
+            if (appKey != null) {
+                routeStore.remove(appKey, nodeId, clientId);
+            }
+            log.info("Client disconnected: {} (App: {})", clientId, appKey != null ? appKey : "NONE");
         }
     }
 
@@ -100,10 +102,7 @@ public class DefaultWsHandler extends TextWebSocketHandler {
         String clientId = (String) session.getAttributes().get("clientId");
         String appKey = (String) session.getAttributes().get("appKey");
         if (clientId != null) {
-            // 1. 更新本地活跃时间
             sessionRegistry.updateActiveTime(clientId);
-            
-            // 2. 刷新分布式路由 TTL (Redis)
             if (appKey != null) {
                 routeStore.add(appKey, nodeId, clientId);
             }
