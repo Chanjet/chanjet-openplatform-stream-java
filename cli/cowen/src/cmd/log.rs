@@ -13,15 +13,23 @@ pub async fn list(profile: &str) -> Result<()> {
     }
 
     println!("\n📂 Log Files for profile '{}':", profile);
+    let global_logs = ["sys.log", "audit.log", "stream.log", "dlq.log"];
+    let profile_log_prefix = format!("{}.log", profile);
+
     for entry in std::fs::read_dir(log_dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_file() {
-            let metadata = std::fs::metadata(&path)?;
-            println!("- {:<20} ({:>10} bytes)", 
-                path.file_name().and_then(|s| s.to_str()).unwrap_or(""),
-                metadata.len()
-            );
+            let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            
+            // Only show global logs OR logs starting with current profile name
+            let is_global = global_logs.iter().any(|&g| filename.starts_with(g));
+            let is_profile = filename.starts_with(&profile_log_prefix);
+
+            if is_global || is_profile {
+                let metadata = std::fs::metadata(&path)?;
+                println!("- {:<20} ({:>10} bytes)", filename, metadata.len());
+            }
         }
     }
     println!();

@@ -134,7 +134,9 @@ impl ConfigManager {
             let path = entry.path();
             if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    profiles.push(name.to_string());
+                    if !name.contains("_openapi") {
+                        profiles.push(name.to_string());
+                    }
                 }
             }
         }

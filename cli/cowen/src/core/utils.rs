@@ -61,6 +61,26 @@ pub fn mask_sensitive_json(input: &str) -> String {
     }
     output
 }
+
+pub fn mask_url_query(url: &str) -> String {
+    use regex::Regex;
+    let mut output = url.to_string();
+    
+    // Obfuscated keys to prevent static string scanning in binary
+    let patterns = [
+        obfs!(r#"(?i)([?&](accessToken|access_token|token|openToken|appSecret|appTicket|encryptKey)=)([^&]+)"#),
+    ];
+
+    for p in &patterns {
+        if let Ok(re) = Regex::new(p) {
+            output = re.replace_all(&output, |caps: &regex::Captures| {
+                let secret = &caps[3];
+                format!("{}{}", &caps[1], mask_string(secret))
+            }).to_string();
+        }
+    }
+    output
+}
 pub fn mask_tail(val: &str, show_len: usize) -> String {
     if val.len() <= show_len {
         return val.to_string();

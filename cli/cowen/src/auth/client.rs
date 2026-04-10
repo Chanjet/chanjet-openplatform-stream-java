@@ -181,7 +181,7 @@ impl<'a> AuthClient<'a> {
 
         tracing::info!(
             target: "sys", 
-            url = %url, 
+            url = %crate::core::utils::mask_url_query(&url), 
             app_key = %app_key,
             "Outgoing platform auth request"
         );
@@ -263,7 +263,7 @@ impl<'a> Client for AuthClient<'a> {
 
         tracing::info!(
             target: "sys", 
-            url = %url, 
+            url = %crate::core::utils::mask_url_query(&url), 
             app_key = %app_key,
             "Outgoing platform auth request"
         );

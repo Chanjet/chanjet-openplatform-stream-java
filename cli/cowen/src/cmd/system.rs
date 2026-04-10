@@ -66,14 +66,17 @@ pub async fn status(
     };
 
     let mut statuses = Vec::new();
+    let mut errors = Vec::new();
     for profile in &profiles {
-        if let Ok(s) = get_system_status(profile, cfg_mgr, vault).await {
-            statuses.push(s);
+        match get_system_status(profile, cfg_mgr, vault).await {
+            Ok(s) => statuses.push(s),
+            Err(e) => errors.push((profile.clone(), e)),
         }
     }
 
     if format == "json" || format == "yaml" {
         if all {
+            // Include errors in JSON/YAML if needed, but for now just the successful ones
             return crate::core::utils::render(&statuses, format);
         } else if let Some(s) = statuses.first() {
             return crate::core::utils::render(s, format);
@@ -91,6 +94,13 @@ pub async fn status(
         print_single_status(&bin_name, &full_status, all);
         if all {
             println!();
+        }
+    }
+
+    if all && !errors.is_empty() {
+        println!("⚠️  Profiles with Errors:");
+        for (profile, err) in errors {
+            println!("  - {}: {}", profile, err);
         }
     }
     Ok(())
@@ -329,17 +339,40 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
         let _ = v.clear_profile(_profile);
     }
     let app_dir = app_dir();
+    
+    // 1. Clear regular profile-specific files
     let targets = vec![
         app_dir.join(format!("{}.yaml", _profile)),
         app_dir.join(format!("{}_openapi.json", _profile)),
         app_dir.join(format!("{}_openapi.yaml", _profile)),
         app_dir.join(format!("{}_openapi.idx", _profile)),
         app_dir.join(format!("{}_daemon.pid", _profile)),
-        app_dir.join("logs").join(format!("{}.log", _profile)),
     ];
     for path in targets {
         if path.exists() { let _ = std::fs::remove_file(&path); }
     }
+
+    // 2. Clear DLQ directory for this profile
+    let dlq_dir = app_dir.join("dlq").join(_profile);
+    if dlq_dir.exists() {
+        let _ = std::fs::remove_dir_all(&dlq_dir);
+    }
+
+    // 3. Clear all related logs (including rotated ones like prod.log.1)
+    let log_dir = app_dir.join("logs");
+    if log_dir.exists() {
+        let prefix = format!("{}.log", _profile);
+        if let Ok(entries) = std::fs::read_dir(log_dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with(&prefix) {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
+    
     println!("✨ Profile '{}' reset complete.", _profile);
     Ok(())
 }

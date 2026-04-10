@@ -97,9 +97,9 @@ pub async fn call(
         tracing::info!(
             target: "sys",
             method = %method,
-            url = %url,
+            url = %crate::core::utils::mask_url_query(&url),
             content_type = %content_type,
-            body = %body_option.as_deref().unwrap_or(""),
+            body = %crate::core::utils::mask_sensitive_json(body_option.as_deref().unwrap_or("")),
             "Sending platform API request"
         );
 
@@ -141,7 +141,7 @@ pub async fn call(
             target: "audit", 
             profile = %profile, 
             method = %method, 
-            path = %path, 
+            path = %crate::core::utils::mask_url_query(path), 
             status = %status.as_u16(), 
             trace_id = %trace_id, 
             "API request completed"
