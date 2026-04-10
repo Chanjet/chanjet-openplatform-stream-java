@@ -5,6 +5,10 @@ OUTPUT_DIR=../../bin
 # 从 Cargo.toml 自动提取版本号
 VERSION=$(shell grep '^version =' Cargo.toml | cut -d '"' -f 2)
 
+# 缓存目录与镜像定义
+CARGO_CACHE_DIR=$(HOME)/.cache/cowen-cargo
+BUILDER_IMAGE=cowen-builder
+
 # 检测当前主机环境
 ifeq ($(OS),Windows_NT)
     HOST_OS := windows
@@ -41,7 +45,7 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: macos-arm64 macos-x64 linux-x64 linux-x64-with-podman linux-arm64 windows-x64 test-macos-arm64 \
         package-macos-arm64 package-macos-x64 package-linux-x64 package-linux-x64-with-podman \
-        package-linux-arm64 package-windows-x64 clean install run
+        package-linux-arm64 package-windows-x64 clean install run prepare-podman-image
 
 # --- 核心构建目标 ---
 
@@ -77,13 +81,25 @@ linux-x64:
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x64/$(BINARY)-v$(VERSION)-linux-x64
 	@$(call MD5,$(OUTPUT_DIR)/linux-x64/$(BINARY)-v$(VERSION)-linux-x64)
 
-linux-x64-with-podman:
+# 准备 Podman 编译镜像 (固化系统依赖)
+prepare-podman-image:
+	@if ! podman image exists $(BUILDER_IMAGE); then \
+		echo "🛠️ Creating custom builder image $(BUILDER_IMAGE)..."; \
+		printf "FROM docker.io/library/rust:latest\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
+	fi
+
+# 提速版 Podman 构建 (系统依赖 + Rust 依赖双缓存)
+linux-x64-with-podman: prepare-podman-image
 	@echo "🐧 Building Linux x64 [FULL VERSION] via Podman v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-x64
-	podman run --rm -v "$$(pwd)/../..:/workspace" -w /workspace/cli/cowen docker.io/library/rust:latest \
-		bash -c "apt-get update && apt-get install -y g++-x86-64-linux-gnu && \
-			rustup target add x86_64-unknown-linux-gnu && \
-			export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc && \
+	mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
+	podman run --rm \
+		-v "$$(pwd)/../..:/workspace" \
+		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
+		-v "$(CARGO_CACHE_DIR)/git:/usr/local/cargo/git" \
+		-w /workspace/cli/cowen \
+		$(BUILDER_IMAGE) \
+		bash -c "export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc && \
 			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 			cargo build --release --target x86_64-unknown-linux-gnu && \
@@ -108,16 +124,18 @@ windows-x64:
 
 package-macos-arm64: clean macos-arm64
 	@echo "📦 Packaging macOS Apple Silicon..."
-	mkdir -p pkg_root/usr/local/bin $(OUTPUT_DIR)/macos-arm64/release
+	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-arm64/release
 	cp $(OUTPUT_DIR)/macos-arm64/$(BINARY)-v$(VERSION)-macos-arm64 pkg_root/usr/local/bin/$(BINARY)
+	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
 	pkgbuild --identifier com.chanjet.$(BINARY).arm64 --version $(VERSION) --root pkg_root --install-location / $(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-v$(VERSION)-macos-arm64.pkg
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/macos-arm64/release/$(BINARY)-v$(VERSION)-macos-arm64.pkg)
 
 package-macos-x64: clean macos-x64
 	@echo "📦 Packaging macOS Intel..."
-	mkdir -p pkg_root/usr/local/bin $(OUTPUT_DIR)/macos-x64/release
+	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-x64/release
 	cp $(OUTPUT_DIR)/macos-x64/$(BINARY)-v$(VERSION)-macos-x64 pkg_root/usr/local/bin/$(BINARY)
+	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
 	pkgbuild --identifier com.chanjet.$(BINARY).x64 --version $(VERSION) --root pkg_root --install-location / $(OUTPUT_DIR)/macos-x64/release/$(BINARY)-v$(VERSION)-macos-x64.pkg
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/macos-x64/release/$(BINARY)-v$(VERSION)-macos-x64.pkg)
@@ -135,12 +153,14 @@ package-linux-arm64: clean linux-arm64
 	mkdir -p $(OUTPUT_DIR)/linux-arm64/release
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-arm64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-arm64/README.txt
-	cd $(OUTPUT_DIR)/linux-arm64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-arm64.tar.gz $(BINARY)-v$(VERSION)-linux-arm64 install.sh README.txt
+	cp CHANGELOG.md $(OUTPUT_DIR)/linux-arm64/
+	cd $(OUTPUT_DIR)/linux-arm64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-arm64.tar.gz $(BINARY)-v$(VERSION)-linux-arm64 install.sh README.txt CHANGELOG.md
 	@$(call MD5,$(OUTPUT_DIR)/linux-arm64/release/$(BINARY)-v$(VERSION)-linux-arm64.tar.gz)
 
 package-windows-x64: clean windows-x64
 	@echo "📦 Packaging Windows x64..."
 	mkdir -p $(OUTPUT_DIR)/windows-x64/release
+	cp CHANGELOG.md ../cowen_setup/
 	cd ../cowen_setup && cargo build --release --target x86_64-pc-windows-msvc
 	cp ../cowen_setup/target/x86_64-pc-windows-msvc/release/cowen_setup.exe $(OUTPUT_DIR)/windows-x64/release/$(BINARY)-v$(VERSION)-windows-x64-setup.exe
 	@$(call MD5,$(OUTPUT_DIR)/windows-x64/release/$(BINARY)-v$(VERSION)-windows-x64-setup.exe)
@@ -150,7 +170,8 @@ impl-package-linux-x64:
 	mkdir -p $(OUTPUT_DIR)/linux-x64/release
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x64/README.txt
-	cd $(OUTPUT_DIR)/linux-x64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x64.tar.gz $(BINARY)-v$(VERSION)-linux-x64 install.sh README.txt
+	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x64/
+	cd $(OUTPUT_DIR)/linux-x64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x64.tar.gz $(BINARY)-v$(VERSION)-linux-x64 install.sh README.txt CHANGELOG.md
 	@$(call MD5,$(OUTPUT_DIR)/linux-x64/release/$(BINARY)-v$(VERSION)-linux-x64.tar.gz)
 
 # --- 其他 ---
