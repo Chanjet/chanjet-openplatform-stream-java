@@ -332,9 +332,9 @@ async fn run() -> Result<()> {
         let _ = crate::cmd::completion::install_completion(None);
     }
 
-    // 5. Ensure daemon is up to date with this CLI binary
+    // 5. Ensure daemon is running and up to date with this CLI binary
     if !matches!(&cli.command, Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. }) {
-        crate::cmd::system::ensure_daemon_version(&active_profile, &config, &cfg_mgr).await;
+        let _ = crate::cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr).await;
     }
 
     // 6. Execute Command

@@ -122,40 +122,14 @@ pub async fn status(
         })
     } else { None };
 
-    // 5. Daemon detection: PID file based (More reliable for renamed binaries)
-    let app_dir = crate::core::config::get_app_dir();
-    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
-    let mut found_daemon_pid = None;
-    let mut found_build_id = None;
-
-    if pid_file.exists() {
-        if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
-            let mut lines = pid_content.lines();
-            if let Some(pid_str) = lines.next() {
-                if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
-                    let mut s = System::new_all();
-                    s.refresh_processes();
-                    
-                    // Check if process exists and is actually a daemon belonging to this package
-                    if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
-                        let cmdline = process.cmd().join(" ");
-                        let name = process.name().to_lowercase();
-                        // Match if name contains base package name OR command line contains 'daemon'
-                        if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
-                            found_daemon_pid = Some(pid_val);
-                            found_build_id = lines.next().map(|s| s.trim().to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // 5. Daemon detection
+    let (found_daemon_pid, found_build_id) = get_active_daemon_info(profile).await;
 
     let daemon_status = DaemonStatus {
         running: found_daemon_pid.is_some(),
         pid: found_daemon_pid,
         log_path: found_daemon_pid.map(|_| {
-            app_dir.join("logs").join(format!("{}.log", profile)).to_string_lossy().to_string()
+            app_dir().join("logs").join(format!("{}.log", profile)).to_string_lossy().to_string()
         }),
         build_id: found_build_id,
     };
@@ -219,11 +193,68 @@ pub async fn status(
     Ok(())
 }
 
-pub async fn config(
-    _profile: &str,
-    cfg_mgr: &ConfigManager,
-    format: &str,
-) -> Result<()> {
+fn app_dir() -> std::path::PathBuf {
+    crate::core::config::get_app_dir()
+}
+
+async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) {
+    let pid_file = app_dir().join(format!("{}_daemon.pid", profile));
+    if !pid_file.exists() {
+        return (None, None);
+    }
+
+    if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
+        let mut lines = pid_content.lines();
+        if let Some(pid_str) = lines.next() {
+            if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+                let mut s = System::new_all();
+                s.refresh_processes();
+                if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
+                    let cmdline = process.cmd().join(" ");
+                    let name = process.name().to_lowercase();
+                    if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
+                        let build_id = lines.next().map(|s| s.trim().to_string());
+                        return (Some(pid_val), build_id);
+                    }
+                }
+            }
+        }
+    }
+    (None, None)
+}
+
+pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+    let (pid, build_id) = get_active_daemon_info(profile).await;
+
+    match pid {
+        Some(p) => {
+            // 进程存在，检查版本
+            let current_build_id = env!("BUILD_ID");
+            let needs_restart = match build_id {
+                Some(bid) => bid != current_build_id,
+                None => true,
+            };
+
+            if needs_restart {
+                println!("🔄 Detecting outdated daemon (PID: {}). Automatically restarting...", p);
+                crate::cmd::daemon::restart(profile, config, 8080, true, false, cfg_mgr).await?;
+            }
+        }
+        None => {
+            // 进程不存在（如重启后），静默拉起
+            if !config.app_key.is_empty() && !config.app_secret.is_empty() {
+                tracing::info!(target: "sys", "Daemon offline for profile '{}'. Auto-launching...", profile);
+                println!("🚀 Daemon is offline. Automatically launching in background...");
+                crate::cmd::daemon::start(profile, config, 8080, true, false).await?;
+                // 缓冲
+                tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Result<()> {
     let cfg = cfg_mgr.load(_profile)?;
     if format == "json" || format == "yaml" {
         crate::core::utils::render(&cfg, format)?;
@@ -233,30 +264,15 @@ pub async fn config(
     Ok(())
 }
 
-pub async fn reset(
-    _profile: &str,
-    vault: Option<&dyn Vault>,
-) -> Result<()> {
+pub async fn reset(_profile: &str, vault: Option<&dyn Vault>) -> Result<()> {
     println!("Resetting profile '{}'...", _profile);
-    
-    // 1. Stop daemon if running
     if let Err(e) = crate::cmd::daemon::stop(_profile).await {
         tracing::warn!(target: "sys", profile = %_profile, error = %e, "Failed to stop daemon during reset");
     }
-
-    // 2. Clear Vault if available
     if let Some(v) = vault {
-        if let Err(e) = v.clear_profile(_profile) {
-            eprintln!("⚠️ Warning: Failed to clear vault for profile '{}': {}", _profile, e);
-        } else {
-            println!("✅ Vault secrets cleared.");
-        }
+        let _ = v.clear_profile(_profile);
     }
-
-    // 3. Physical file cleanup
-    let app_dir = crate::core::config::get_app_dir();
-    
-    // Files to remove
+    let app_dir = app_dir();
     let targets = vec![
         app_dir.join(format!("{}.yaml", _profile)),
         app_dir.join(format!("{}_openapi.json", _profile)),
@@ -265,58 +281,9 @@ pub async fn reset(
         app_dir.join(format!("{}_daemon.pid", _profile)),
         app_dir.join("logs").join(format!("{}.log", _profile)),
     ];
-
     for path in targets {
-        if path.exists() {
-            if let Err(e) = std::fs::remove_file(&path) {
-                eprintln!("⚠️ Failed to delete {:?}: {}", path, e);
-            } else {
-                println!("✅ Deleted {:?}", path.file_name().unwrap_or_default());
-            }
-        }
+        if path.exists() { let _ = std::fs::remove_file(&path); }
     }
-
-    println!("✨ Profile '{}' reset complete. You can run 'init' to start fresh.", _profile);
+    println!("✨ Profile '{}' reset complete.", _profile);
     Ok(())
-}
-
-pub async fn ensure_daemon_version(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager) {
-    let app_dir = crate::core::config::get_app_dir();
-    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
-    let mut found_daemon_pid = None;
-    let mut found_build_id = None;
-
-    if pid_file.exists() {
-        if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
-            let mut lines = pid_content.lines();
-            if let Some(pid_str) = lines.next() {
-                if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
-                    let mut s = System::new_all();
-                    s.refresh_processes();
-                    if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
-                        let cmdline = process.cmd().join(" ");
-                        let name = process.name().to_lowercase();
-                        if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
-                            found_daemon_pid = Some(pid_val);
-                            found_build_id = lines.next().map(|s| s.trim().to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if found_daemon_pid.is_some() {
-        let current_build_id = env!("BUILD_ID");
-        let needs_restart = match &found_build_id {
-            Some(daemon_build_id) => daemon_build_id != current_build_id,
-            None => true, // Old daemon without build_id support
-        };
-
-        if needs_restart {
-            tracing::info!(target: "sys", "Detected outdated daemon running in background. Automatically restarting to new version...");
-            println!("🔄 Detecting outdated daemon running in background. Automatically restarting to new version...");
-            let _ = crate::cmd::daemon::restart(profile, config, 8080, false, false, cfg_mgr).await;
-        }
-    }
 }
