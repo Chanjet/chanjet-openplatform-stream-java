@@ -4,43 +4,43 @@
     "category": "定义规范",
     "task": "编写规范差异",
     "steps": [
-      { "step": "起草 spec-delta.md", "completed": false }
+      { "step": "起草 spec-delta.md", "completed": true }
     ],
-    "passes": false
+    "passes": true
   },
   {
     "number": 2,
     "category": "CLI 接口",
     "task": "更新参数解析",
     "steps": [
-      { "step": "修改 main.rs 中的 Commands::Status 添加 --all 参数", "completed": false },
-      { "step": "修改 main.rs 中的 DaemonCommands::Start 添加 --all 参数", "completed": false },
-      { "step": "修改 main.rs 中的 DaemonCommands::Stop 添加 --all 参数", "completed": false },
-      { "step": "更新 main.rs 中相应命令调用并传递 all 标志", "completed": false }
+      { "step": "修改 main.rs 中的 Commands::Status 添加 --all 参数", "completed": true },
+      { "step": "修改 main.rs 中的 DaemonCommands::Start 添加 --all 参数", "completed": true },
+      { "step": "修改 main.rs 中的 DaemonCommands::Stop 添加 --all 参数", "completed": true },
+      { "step": "更新 main.rs 中相应命令调用并传递 all 标志", "completed": true }
     ],
-    "passes": false
+    "passes": true
   },
   {
     "number": 3,
     "category": "核心逻辑",
     "task": "实现 cowen status --all",
     "steps": [
-      { "step": "修改 cmd::system::status 签名以接受 all 标志", "completed": false },
-      { "step": "提取公共的 profile 扫描逻辑 (从 ~/.cowen/*.yaml 获取)", "completed": false },
-      { "step": "循环调用各 profile 的状态查询，并优化多节点输出", "completed": false }
+      { "step": "修改 cmd::system::status 签名以接受 all 标志", "completed": true },
+      { "step": "提取公共的 profile 扫描逻辑 (从 ~/.cowen/*.yaml 获取)", "completed": true },
+      { "step": "循环调用各 profile 的状态查询，并优化多节点输出", "completed": true }
     ],
-    "passes": false
+    "passes": true
   },
   {
     "number": 4,
     "category": "核心逻辑",
     "task": "实现 cowen daemon 生命周期 --all",
     "steps": [
-      { "step": "修改 cmd::daemon::start 处理 --all 逻辑（忽略 active_profile，扫描所有并启动）", "completed": false },
-      { "step": "修改 cmd::daemon::stop 处理 --all 逻辑（扫描所有并停止）", "completed": false },
-      { "step": "修改 cmd::daemon::restart 完善 --all 逻辑", "completed": false },
-      { "step": "在循环操作时添加微小延迟防抖动", "completed": false }
+      { "step": "修改 cmd::daemon::start 处理 --all 逻辑（忽略 active_profile，扫描所有并启动）", "completed": true },
+      { "step": "修改 cmd::daemon::stop 处理 --all 逻辑（扫描所有并停止）", "completed": true },
+      { "step": "修改 cmd::daemon::restart 完善 --all 逻辑", "completed": true },
+      { "step": "在循环操作时添加微小延迟防抖动", "completed": true }
     ],
-    "passes": false
+    "passes": true
   }
 ]
