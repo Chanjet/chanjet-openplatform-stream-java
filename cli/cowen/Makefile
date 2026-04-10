@@ -53,7 +53,7 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
         package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
-        package-linux-aarch64 package-windows-x86_64 clean install run prepare-podman-image
+        package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image
 
 # --- 核心构建目标 ---
 
@@ -218,3 +218,12 @@ install:
 
 run:
 	cargo run -- --help
+
+explore:
+	@echo "🔍 Running exploratory ready tests for $(HOST_OS)-$(HOST_ARCH)..."
+	@if [ "$(HOST_OS)" = "windows" ]; then \
+		./tests/exploratory_ready_test.sh $(OUTPUT_DIR)/$(HOST_OS)-$(HOST_ARCH)/$(BINARY).exe; \
+	else \
+		./tests/exploratory_ready_test.sh $(OUTPUT_DIR)/$(HOST_OS)-$(HOST_ARCH)/$(BINARY); \
+	fi
+
