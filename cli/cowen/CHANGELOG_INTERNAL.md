@@ -4,6 +4,22 @@
 
 ---
 
+## [0.1.6] - 2026-04-10
+
+### 🛡️ 安全硬化与自愈 (Security & Resilience)
+- **认证指数退避 (Auth Backoff)**: 在 `AuthClient` 中实现了基于持久化存储的指数退避逻辑。通过读取/写入 `Vault` 中的 `push_backoff_level` 和 `push_last_attempt_ts`，实现了跨进程、跨重启的请求频率限制。
+- **配置系统持久化扩展**: 重构了 `Config` 结构体及 `default_with_profile` 初始化逻辑，支持 `proxy_port` 和 `proxy_enabled` 的物理持久化，彻底消除了守护进程自愈时的端口硬编码（Hardcoded Core Port）风险。
+- **输出流重定向与噪音消除**: 修改了 `daemon` 和 `system` 模块的 `eprintln!` 逻辑，将非业务结果的状态类输出（如自动拉起通知、进程停止确认等）强行剥离至 `stderr`，确保 CLI 的管道友好性。
+
+### 🤖 测试与自动化 (Testing & Automation)
+- **边界值精密测试 (Boundary Testing)**: 补全了 `Auth::models` 中令牌刷新缓冲逻辑（10% 或 5min 最小边界）的单元测试，确保在时间跳秒等边界条件下认证状态的稳定性。
+- **探索性测试矩阵扩展**: 将 `exploratory_ready_test.sh` 脚本从 7 步扩展为 11 步，新增了针对本地代理审计、强制环境清理及 AI 搜索索引新鲜度的专项验证步骤。
+
+### 🏗️ 架构重构 (Architectural Changes)
+- **性能优化 (Cache Matching)**: 修复了 AI 语义搜索在匹配缓存文件后缀时的逻辑错误。原本匹配 `.json` 现已修正为 `.yaml`，显著提升了接口语义索引的复用率，避免了昂贵的神经网络索引重复构建。
+
+---
+
 ## [0.1.5] - 2026-04-10
 
 ### 🛡️ 安全硬化与自愈 (Security & Resilience)

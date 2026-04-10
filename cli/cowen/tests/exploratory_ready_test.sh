@@ -22,7 +22,7 @@ fi
 echo -e "${BLUE}🚀 启动就绪态功能探索性测试 (Target: $BINARY_PATH)...${NC}"
 
 # 获取并保存初始 Profile，设置退出后的清理陷阱
-INITIAL_PROFILE=$("$BINARY_PATH" profile current | awk '{print $NF}')
+INITIAL_PROFILE=$("$BINARY_PATH" profile current | tail -n 1 | awk '{print $NF}')
 TMP_PROF="exploratory_tmp"
 
 cleanup() {
@@ -117,6 +117,9 @@ else
     exit 1
 fi
 
+# 预置一个极简的本地 Spec 缓存，防止 Proxy 因为获取规约失败而报 500
+echo '{"openapi":"3.0.0","paths":{"/v1/user":{"get":{"responses":{"200":{"description":"OK"}}}}}}' > "$HOME/.cowen/${TMP_PROF}_openapi.yaml"
+
 # 6. 安全模块与日志管理检查
 echo -e "${YELLOW}Step 6: 安全模块与日志管理系统检查...${NC}"
 if "$BINARY_PATH" auth status > /dev/null 2>&1; then
@@ -148,8 +151,56 @@ else
     exit 1
 fi
 
-# 8. 探索 Reset 彻底性 (DLQ & 滚动日志清理)
-echo -e "${YELLOW}Step 8: 验证 Reset 清理彻底性 (DLQ & 滚动日志)...${NC}"
+# 8. 验证本地代理服务器 (Local Proxy) 功能...
+echo -e "${YELLOW}Step 8: 验证本地代理 (Local Proxy) 功能...${NC}"
+# 开启后台代理
+"$BINARY_PATH" daemon stop --profile "$TMP_PROF" > /dev/null 2>&1 || true
+"$BINARY_PATH" daemon start --profile "$TMP_PROF" --enable-proxy --proxy-port 9091 > /dev/null 2>&1
+
+# 循环等待代理端口就绪 (最多等待 5s)
+MAX_WAIT=10
+COUNT=0
+echo -n "   [WAIT] 等待代理服务器启动..."
+while ! nc -z 127.0.0.1 9091 >/dev/null 2>&1; do
+    sleep 0.5
+    echo -n "."
+    COUNT=$((COUNT + 1))
+    if [ $COUNT -ge $MAX_WAIT ]; then
+        echo -e "\n${RED}   [FAIL] 代理服务器启动超时 (9091)${NC}"
+        # 记录下最后的系统日志查看原因
+        tail -n 10 "$HOME/.cowen/logs/sys.log"
+        exit 1
+    fi
+done
+echo -e " [READY]"
+
+# 验证 1: 访问非法路径 (应被 403 拦截)
+PROXY_403=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9091/invalid/path)
+if [ "$PROXY_403" == "403" ]; then
+    echo -e "${GREEN}   [OK] Proxy 拦截逻辑正常 (403 Forbidden for non-whitelist)${NC}"
+else
+    echo -e "${RED}   [FAIL] Proxy 未能正确拦截非法路径 (Code: $PROXY_403)${NC}"
+    exit 1
+fi
+
+# 验证 2: 访问合法路径但无凭据 (应尝试注入并返回 401/200 取决于环境，此处验证是否透出了 Proxy 的审计日志)
+curl -s http://127.0.0.1:9091/v1/user > /dev/null 2>&1 || true
+if grep -q "Proxy Rejected" "$HOME/.cowen/logs/audit.log"; then
+    echo -e "${GREEN}   [OK] Proxy 审计日志记录正常${NC}"
+else
+    # 如果是因为没有 Token 导致的 401，也会有日志
+    if grep -q "Failed to get access token for proxy" "$HOME/.cowen/logs/audit.log"; then
+         echo -e "${GREEN}   [OK] Proxy 审计日志记录正常 (Token 缺失链路已触达)${NC}"
+    else
+         echo -e "${YELLOW}   [WARN] Proxy 审计日志未找到匹配项，请检查日志域配置${NC}"
+    fi
+fi
+
+# 停止后台代理
+"$BINARY_PATH" daemon stop --profile "$TMP_PROF" > /dev/null 2>&1 || true
+
+# 9. 探索 Reset 彻底性 (DLQ & 滚动日志清理)
+echo -e "${YELLOW}Step 9: 验证 Reset 清理彻底性 (DLQ & 滚动日志)...${NC}"
 # 模拟产生 DLQ 目录和滚动日志
 DLQ_PROF_DIR="$HOME/.cowen/dlq/$TMP_PROF"
 mkdir -p "$DLQ_PROF_DIR"
@@ -170,8 +221,8 @@ if [ -f "$LOG_DIR/${TMP_PROF}.log.1" ]; then
 fi
 echo -e "${GREEN}   [OK] Reset 逻辑通过：已彻底物理粉碎临时 Profile 的所有痕迹${NC}"
 
-# 9. 安全日志脱敏专项验证 (Log Masking)
-echo -e "${YELLOW}Step 9: 验证安全日志脱敏 (Body & URL)...${NC}"
+# 10. 安全日志脱敏专项验证 (Log Masking)
+echo -e "${YELLOW}Step 10: 验证安全日志脱敏 (Body & URL)...${NC}"
 TEST_SECRET="SUPER_SECRET_TOKEN_999"
 # 触发一个带敏感参数的 API 调用 (即使失败，日志也应产生)
 "$BINARY_PATH" api GET "/v1/test?accessToken=$TEST_SECRET" --data "{\"password\": \"$TEST_SECRET\"}" --profile "$TMP_PROF" >/dev/null 2>&1 || true
@@ -186,8 +237,8 @@ else
     echo -e "${GREEN}   [OK] 日志脱敏验证通过 (URL 与 Body 均已成功掩码)${NC}"
 fi
 
-# 10. 命令行补全能力检查 (Shell Completion)
-echo -e "${YELLOW}Step 10: 验证本地命令行补全脚本生成...${NC}"
+# 11. 命令行补全能力检查 (Shell Completion)
+echo -e "${YELLOW}Step 11: 验证本地命令行补全脚本生成...${NC}"
 COMP_ZSH=$("$BINARY_PATH" completion zsh)
 if echo "$COMP_ZSH" | grep -q "compdef cowen"; then
     echo -e "${GREEN}   [OK] ZSH 补全脚本生成正常${NC}"
@@ -196,7 +247,6 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎉 所有就绪态探索性测试项已顺利执行完毕！${NC}"
+echo -e "\n${GREEN}🎉 所有探索性测试项 (Step 1-11) 已顺利执行完毕！${NC}"
 echo -e "${BLUE}环境功能完整，可以开始正式业务作业。${NC}"
-
 

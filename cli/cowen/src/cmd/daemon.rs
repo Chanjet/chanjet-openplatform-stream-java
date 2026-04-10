@@ -89,7 +89,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         // Give the OS a tiny moment to stabilize the session
         std::thread::sleep(std::time::Duration::from_millis(200));
         
-        println!("🚀 Stream Bridge daemon launched in background (PID: {}).", pid);
+        eprintln!("🚀 Stream Bridge daemon launched in background (PID: {}).", pid);
         return Ok(());
     }
 
@@ -219,7 +219,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         // Proactively request a ticket push if we don't have one cached
         if p_pool_task.get_app_ticket(&p_profile_task).is_err() {
             tracing::info!(target: "sys", "Initial AppTicket missing. Proactively requesting platform push...");
-            let _ = auth.trigger_push(&p_profile_task, &p_config_task).await;
+            let _ = auth.trigger_push(&p_profile_task, &p_config_task, false).await;
         }
 
         loop {
@@ -228,7 +228,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
                 Ok(_) => tracing::info!(target: "sys", "Credential check: AccessToken is valid"),
                 Err(e) => {
                     tracing::warn!(target: "sys", error = %e, "Credential check failed. Triggering platform push...");
-                    let _ = auth.trigger_push(&p_profile_task, &p_config_task).await;
+                    let _ = auth.trigger_push(&p_profile_task, &p_config_task, false).await;
                 }
             }
             tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
@@ -239,7 +239,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     tracing::info!(target: "sys", "All daemon tasks initialized. Entering watchdog mode.");
     
     let result = if std::io::stdout().is_terminal() {
-        println!("🚀 Stream Bridge running in foreground. Press Ctrl+C to stop.");
+        eprintln!("🚀 Stream Bridge running in foreground. Press Ctrl+C to stop.");
         tokio::select! {
             _ = proxy_task => { tracing::error!(target: "sys", "Proxy task exited unexpectedly"); Err(anyhow::anyhow!("Proxy task crashed")) },
             _ = stream_task => { tracing::error!(target: "sys", "Stream task exited unexpectedly"); Err(anyhow::anyhow!("Stream task crashed")) },
@@ -298,12 +298,12 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_pro
         let is_running = pid_file.exists();
         
         if is_running {
-            println!("🔄 Restarting daemon for profile '{}'...", p);
+            eprintln!("🔄 Restarting daemon for profile '{}'...", p);
             let _ = do_stop(&p).await;
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             let _ = do_start(&p, &p_cfg, proxy_port, enable_proxy, false).await;
         } else if !all {
-            println!("📂 Daemon for profile '{}' is not running. Starting it now...", p);
+            eprintln!("📂 Daemon for profile '{}' is not running. Starting it now...", p);
             let _ = do_start(&p, &p_cfg, proxy_port, enable_proxy, false).await;
         }
         
@@ -347,7 +347,7 @@ async fn do_stop(profile: &str) -> Result<()> {
         if let Ok(pid_content) = fs::read_to_string(&pid_file) {
             if let Some(pid_str) = pid_content.lines().next() {
                 let pid_str = pid_str.trim();
-                println!("🛑 Stopping daemon (PID: {})...", pid_str);
+                eprintln!("🛑 Stopping daemon (PID: {})...", pid_str);
 
                 #[cfg(unix)]
                 let _ = Command::new("kill").arg("-15").arg(pid_str).status();
@@ -358,7 +358,7 @@ async fn do_stop(profile: &str) -> Result<()> {
             let _ = fs::remove_file(&pid_file);
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             let _ = fs::remove_file(&pid_file);
-            println!("✅ Daemon stopped for profile '{}'.", profile);
+            eprintln!("✅ Daemon stopped for profile '{}'.", profile);
             return Ok(());
         }
     }

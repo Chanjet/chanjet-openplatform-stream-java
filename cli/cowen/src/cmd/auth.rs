@@ -29,7 +29,7 @@ pub async fn login(
             } else {
                 println!("⚠️  Refresh failed: {}", err_msg);
                 println!("📡 Triggering a fresh platform push to recover...");
-                auth_cli.trigger_push(_profile, cfg).await?;
+                auth_cli.trigger_push(_profile, cfg, force).await?;
             }
         }
     }

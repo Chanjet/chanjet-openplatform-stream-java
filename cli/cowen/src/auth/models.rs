@@ -61,42 +61,45 @@ mod tests {
     fn test_is_expired_with_10_percent_buffer() {
         let now = Utc::now();
         
-        // 1. Long lived token (24h)
-        // 10% is 2.4 hours. If we are 2 hours before real expiry, it should be expired.
-        let token_long = Token {
+        // 1. Long lived token (24h = 1440 min)
+        // 10% buffer is 144 min (2.4h)
+        let token_long_safe = Token {
             value: "mock".to_string(),
-            created_at: now - Duration::hours(10),
-            expires_at: now + Duration::hours(14), // Total 24h
+            created_at: now - Duration::hours(10), // Used 10h
+            expires_at: now + Duration::hours(14) + Duration::minutes(5), // Remaining 14h5m. 14h5m > 2.4h. OK.
         };
-        // Now is 10h after created. Buffer is 2.4h.
-        // Expires in 14h. now + 2.4h < now + 14h? Yes, not expired yet.
-        assert!(!token_long.is_expired());
+        assert!(!token_long_safe.is_expired());
 
-        let token_expiring = Token {
+        let token_long_near = Token {
             value: "mock".to_string(),
-            created_at: now - Duration::hours(22),
-            expires_at: now + Duration::hours(2), // Total 24h
+            created_at: now - Duration::hours(22), // Used 22h
+            expires_at: now + Duration::hours(2) - Duration::minutes(1), // Remaining 1h59m. 1h59m < 2.4h. Expired.
         };
-        // Expires in 2h. Buffer is 2.4h. now + 2.4h > now + 2h. Should be expired.
-        assert!(token_expiring.is_expired());
+        assert!(token_long_near.is_expired());
 
         // 2. Short lived token (10 min)
-        // 10% is 1 min. But min buffer is 5 min.
-        let token_short = Token {
+        // 10% is 1 min. BUT safety buffer is 5 min (300s).
+        let token_short_safe = Token {
             value: "mock".to_string(),
             created_at: now - Duration::minutes(2),
-            expires_at: now + Duration::minutes(8), // Total 10m
+            expires_at: now + Duration::minutes(6), // Remaining 6m. 6m > 5m. OK.
         };
-        // Expires in 8 min. Buffer is 5 min. 
-        assert!(!token_short.is_expired());
+        assert!(!token_short_safe.is_expired());
 
-        let token_short_expiring = Token {
+        let token_short_buffer_hit = Token {
             value: "mock".to_string(),
             created_at: now - Duration::minutes(6),
-            expires_at: now + Duration::minutes(4), // Total 10m
+            expires_at: now + Duration::minutes(4), // Remaining 4m. 4m < 5m. Expired.
         };
-        // Expires in 4 min. Buffer is 5 min. 
-        assert!(token_short_expiring.is_expired());
+        assert!(token_short_buffer_hit.is_expired());
+
+        // 3. Buffer boundary check (Remaining 5m 1s should be safe)
+        let token_just_safe = Token {
+            value: "mock".to_string(),
+            created_at: now - Duration::minutes(10),
+            expires_at: now + Duration::minutes(5) + Duration::seconds(1), 
+        };
+        assert!(!token_just_safe.is_expired());
     }
 
     #[test]

@@ -268,7 +268,7 @@ pub async fn list(
         #[cfg(feature = "ai")]
         {
             let cache_dir = crate::core::config::get_app_dir();
-            let spec_path = cache_dir.join(format!("{}_openapi.json", profile));
+            let spec_path = cache_dir.join(format!("{}_openapi.yaml", profile));
             let index_path = cache_dir.join(format!("{}_openapi.idx", profile));
 
             // 1. Check if index needs rebuild
@@ -676,7 +676,7 @@ mod tests {
         async fn refresh_app_access_token(&self, _profile: &str, _cfg: &Config) -> Result<Token> {
             Ok(self.token.clone())
         }
-        async fn trigger_push(&self, _profile: &str, _cfg: &Config) -> Result<()> {
+        async fn trigger_push(&self, _profile: &str, _cfg: &Config, _force: bool) -> Result<()> {
             Ok(())
         }
         async fn get_openapi_spec(&self, _profile: &str, _cfg: &Config, _force_refresh: bool) -> Result<serde_json::Value> {

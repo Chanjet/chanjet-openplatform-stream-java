@@ -294,8 +294,8 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
                 };
 
                 if needs_restart {
-                    println!("🔄 Detecting outdated daemon (PID: {}) for profile '{}'. Automatically restarting...", pid_val, p);
-                    let _ = crate::cmd::daemon::restart(&p, &p_cfg, 8080, true, false, cfg_mgr).await;
+                    eprintln!("🔄 Detecting outdated daemon (PID: {}) for profile '{}'. Automatically restarting...", pid_val, p);
+                    let _ = crate::cmd::daemon::restart(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr).await;
                 }
             }
             None => {
@@ -305,11 +305,11 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
                     if !p_cfg.app_key.is_empty() && !p_cfg.app_secret.is_empty() {
                         tracing::info!(target: "sys", "Daemon offline for profile '{}'. Auto-launching...", p);
                         if p == profile {
-                            println!("🚀 Daemon is offline. Automatically launching in background...");
+                            eprintln!("🚀 Daemon is offline. Automatically launching in background...");
                         } else {
-                            println!("🚀 Recovering offline daemon for profile '{}'...", p);
+                            eprintln!("🚀 Recovering offline daemon for profile '{}'...", p);
                         }
-                        let _ = crate::cmd::daemon::start(&p, &p_cfg, 8080, true, false, false, cfg_mgr).await;
+                        let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr).await;
                         // 缓冲
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     }
@@ -331,7 +331,7 @@ pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Re
 }
 
 pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigManager) -> Result<()> {
-    println!("Resetting profile '{}'...", _profile);
+    eprintln!("Resetting profile '{}'...", _profile);
     if let Err(e) = crate::cmd::daemon::stop(_profile, false, cfg_mgr).await {
         tracing::warn!(target: "sys", profile = %_profile, error = %e, "Failed to stop daemon during reset");
     }
@@ -373,6 +373,6 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
         }
     }
     
-    println!("✨ Profile '{}' reset complete.", _profile);
+    eprintln!("✨ Profile '{}' reset complete.", _profile);
     Ok(())
 }

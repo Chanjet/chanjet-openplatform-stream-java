@@ -77,7 +77,7 @@ impl HttpSender for ReqwestSender {
 pub trait Client: Send + Sync {
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
-    async fn trigger_push(&self, profile: &str, cfg: &Config) -> Result<()>;
+    async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> Result<()>;
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value>;
     async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value>;
     async fn clear_token(&self, profile: &str) -> Result<()>;
@@ -135,8 +135,8 @@ impl<'a> AuthClient<'a> {
                     }
                     if attempts == 0 {
                         eprintln!("⏳ AppTicket missing. Proactively triggering a platform push...");
-                        // Proactively trigger push on first failure
-                        if let Err(push_err) = self.trigger_push(profile, cfg).await {
+                        // Proactively trigger push on first failure (throttle handled inside trigger_push)
+                        if let Err(push_err) = self.trigger_push(profile, cfg, false).await {
                             let err_str = push_err.to_string();
                             if err_str.contains("HTTP 401") || err_str.contains("50003") {
                                 return Err(push_err).context("Fatal configuration error from platform. Please check your AppKey, AppSecret, and OpenAPI URL settings.");
@@ -250,7 +250,36 @@ impl<'a> Client for AuthClient<'a> {
         self.pool.delete_access_token(profile)
     }
 
-    async fn trigger_push(&self, _profile: &str, cfg: &Config) -> Result<()> {
+    async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> Result<()> {
+        let vault = self.pool.as_vault();
+        
+        // 1. Check Throttling & Backoff (unless forced)
+        if !force {
+            let now = Utc::now();
+            let last_attempt = if let Some(ts_str) = vault.get(profile, "push_last_attempt_ts").ok() {
+                chrono::DateTime::parse_from_rfc3339(&ts_str)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now() - Duration::hours(1))
+            } else {
+                Utc::now() - Duration::hours(1)
+            };
+            
+            let level: u32 = vault.get(profile, "push_backoff_level")
+                .unwrap_or_else(|_| "0".to_string())
+                .parse()
+                .unwrap_or(0);
+                
+            // Backoff strategy: 1m * 2^level, capped at 24h
+            let wait_secs = std::cmp::min(86400, 60 * (1 << std::cmp::min(level, 10)));
+            let elapsed = now.signed_duration_since(last_attempt).num_seconds();
+            
+            if elapsed < wait_secs as i64 {
+                tracing::info!(target: "sys", "Proactive push throttled for profile '{}'. Level: {}, Needs wait: {}s, Elapsed: {}s. Skipping.", profile, level, wait_secs, elapsed);
+                return Ok(());
+            }
+        }
+
+        // 2. Perform Network Request
         let url = format!("{}{}", cfg.openapi_url, obfs!("/auth/appTicket/resend"));
         let app_key = cfg.app_key.trim();
         let app_secret = cfg.app_secret.trim();
@@ -273,8 +302,20 @@ impl<'a> Client for AuthClient<'a> {
         if !resp.is_success() {
             let status = resp.status;
             let err_text = resp.text();
+            
+            // On failure: Update attempt timestamp and potentially increase backoff level for 409
+            let level: u32 = vault.get(profile, "push_backoff_level").unwrap_or_else(|_| "0".to_string()).parse().unwrap_or(0);
+            if status == 409 {
+                let _ = vault.set(profile, "push_backoff_level", &(level + 1).to_string());
+            }
+            let _ = vault.set(profile, "push_last_attempt_ts", &Utc::now().to_rfc3339());
+            
             return Err(anyhow!("Failed to trigger push (HTTP {}): {}", status, err_text));
         }
+
+        // On success: Reset backoff level and update last attempt timestamp
+        let _ = vault.set(profile, "push_backoff_level", "0");
+        let _ = vault.set(profile, "push_last_attempt_ts", &Utc::now().to_rfc3339());
 
         #[derive(Deserialize)]
         struct ResendResp {
@@ -575,11 +616,36 @@ mod tests {
     use super::*;
     use serde_json::json;
     use crate::auth::models::{Token, Ticket};
+    use crate::core::vault::Vault;
+    use std::collections::HashMap;
     use std::sync::Mutex;
 
     struct MockPool {
         ticket: Mutex<Option<Ticket>>,
         token: Mutex<Option<Token>>,
+        vault: Arc<dyn Vault>,
+    }
+
+    struct MockVault {
+        data: Mutex<HashMap<String, String>>,
+    }
+
+    impl Vault for MockVault {
+        fn get(&self, _profile: &str, key: &str) -> Result<String> {
+            self.data.lock().unwrap().get(key).cloned().ok_or_else(|| anyhow!("Not found"))
+        }
+        fn set(&self, _profile: &str, key: &str, value: &str) -> Result<()> {
+            self.data.lock().unwrap().insert(key.to_string(), value.to_string());
+            Ok(())
+        }
+        fn delete(&self, _profile: &str, key: &str) -> Result<()> {
+            self.data.lock().unwrap().remove(key);
+            Ok(())
+        }
+        fn clear_profile(&self, _profile: &str) -> Result<()> {
+            self.data.lock().unwrap().clear();
+            Ok(())
+        }
     }
 
     impl MockPool {
@@ -587,6 +653,7 @@ mod tests {
             Self {
                 ticket: Mutex::new(None),
                 token: Mutex::new(None),
+                vault: Arc::new(MockVault { data: Mutex::new(HashMap::new()) }),
             }
         }
     }
@@ -611,6 +678,9 @@ mod tests {
             Ok(())
         }
         fn clear_cache(&self, _profile: &str) {}
+        fn as_vault(&self) -> Arc<dyn Vault> {
+            self.vault.clone()
+        }
     }
 
     struct MockHttpSender {

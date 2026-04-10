@@ -201,12 +201,17 @@ pub enum AuthCommands {
 pub enum DaemonCommands {
     /// 启动后台服务 (包括 Stream 桥接、反向代理与转发器)
     Start {
-        #[arg(long, default_value_t = 8080)]
-        proxy_port: u16,
+        /// 指定本地 OpenAPI 反向代理端口 (也可以通过 config 设置)
+        #[arg(long)]
+        proxy_port: Option<u16>,
 
         /// 启用本地 OpenAPI 反向代理服务器
         #[arg(long)]
         enable_proxy: bool,
+
+        /// 禁用本地 OpenAPI 反向代理服务器 (覆盖 config)
+        #[arg(long)]
+        no_proxy: bool,
         
         /// 在前台运行 (阻塞模式)
         #[arg(long)]
@@ -224,12 +229,17 @@ pub enum DaemonCommands {
     },
     /// 重启守护进程
     Restart {
-        #[arg(long, default_value_t = 8080)]
-        proxy_port: u16,
+        /// 指定本地 OpenAPI 反向代理端口
+        #[arg(long)]
+        proxy_port: Option<u16>,
 
         /// 启用本地 OpenAPI 反向代理服务器
         #[arg(long)]
         enable_proxy: bool,
+
+        /// 禁用本地 OpenAPI 反向代理服务器
+        #[arg(long)]
+        no_proxy: bool,
 
         /// 重启所有正在运行的守护进程
         #[arg(short, long)]
@@ -477,14 +487,51 @@ async fn run() -> Result<()> {
             }
         },
         Commands::Daemon { action } => match action {
-            DaemonCommands::Start { proxy_port, enable_proxy, foreground, all } => {
-                cmd::daemon::start(&active_profile, &config, *proxy_port, *enable_proxy, *foreground, *all, &cfg_mgr).await?;
+            DaemonCommands::Start { proxy_port, enable_proxy, no_proxy, foreground, all } => {
+                let mut updated_config = config.clone();
+                let mut changed = false;
+                
+                if let Some(p) = proxy_port {
+                    updated_config.proxy_port = *p;
+                    changed = true;
+                }
+                if *enable_proxy {
+                    updated_config.proxy_enabled = true;
+                    changed = true;
+                } else if *no_proxy {
+                    updated_config.proxy_enabled = false;
+                    changed = true;
+                }
+                
+                if changed && !*all {
+                    cfg_mgr.save(&active_profile, &updated_config)?;
+                }
+
+                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr).await?;
             }
             DaemonCommands::Stop { all } => {
                 cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?;
             }
-            DaemonCommands::Restart { proxy_port, enable_proxy, all } => {
-                cmd::daemon::restart(&active_profile, &config, *proxy_port, *enable_proxy, *all, &cfg_mgr).await?;
+            DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {
+                let mut updated_config = config.clone();
+                let mut changed = false;
+                if let Some(p) = proxy_port {
+                    updated_config.proxy_port = *p;
+                    changed = true;
+                }
+                if *enable_proxy {
+                    updated_config.proxy_enabled = true;
+                    changed = true;
+                } else if *no_proxy {
+                    updated_config.proxy_enabled = false;
+                    changed = true;
+                }
+
+                if changed && !*all {
+                    cfg_mgr.save(&active_profile, &updated_config)?;
+                }
+
+                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr).await?;
             }
         },
         Commands::Status { all } => {

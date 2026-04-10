@@ -14,6 +14,10 @@ pub struct Config {
     pub telemetry_enabled: bool,
     #[serde(default = "default_true")]
     pub ai_enabled: bool,
+    #[serde(default = "default_8080")]
+    pub proxy_port: u16,
+    #[serde(default = "default_true")]
+    pub proxy_enabled: bool,
     // Note: Secrets like app_secret are now in Vault, not Config file
     #[serde(skip)]
     pub app_secret: String,
@@ -25,6 +29,10 @@ pub struct Config {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_8080() -> u16 {
+    8080
 }
 
 impl std::fmt::Debug for Config {
@@ -44,6 +52,8 @@ impl std::fmt::Debug for Config {
             .field("log", &self.log)
             .field("telemetry_enabled", &self.telemetry_enabled)
             .field("ai_enabled", &self.ai_enabled)
+            .field("proxy_port", &self.proxy_port)
+            .field("proxy_enabled", &self.proxy_enabled)
             .field("app_secret", &mask(&self.app_secret))
             .field("certificate", &mask(&self.certificate))
             .field("encrypt_key", &mask(&self.encrypt_key))
@@ -73,6 +83,8 @@ impl Config {
             encrypt_key: "".to_string(),
             telemetry_enabled: true,
             ai_enabled: true,
+            proxy_port: 8080,
+            proxy_enabled: true,
             log: LogConfig {
                 level: "error".to_string(),
                 rotation: "daily".to_string(),
