@@ -1,6 +1,6 @@
 # 畅捷通 Stream Gateway
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](RELEASE_NOTES_v0.1.0.md)
+[![Version](https://img.shields.io/badge/version-0.1.5-blue.svg)](RELEASE_NOTES_v0.1.0.md)
 [![JDK](https://img.shields.io/badge/JDK-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![Performance](https://img.shields.io/badge/Loom-Ready-brightgreen.svg)](https://openjdk.org/jeps/444)
 
@@ -29,7 +29,11 @@
 
 ### 1. 构建
 ```bash
+# 构建 Java 服务端
 make build-java
+
+# 构建 Rust 治理工具 (CLI)
+cd cli/cowen && make macos-aarch64
 ```
 
 ### 2. 核心配置 (最小集)
