@@ -30,4 +30,10 @@ fn main() {
     println!("cargo:rustc-env=BUILD_ID={}", build_id);
     println!("cargo:rustc-env=BUILD_TIME={}", build_time);
     println!("cargo:rustc-env=GIT_HASH={}", git_hash);
+
+    // Provide env vars for config if not present (Option A: Forced env injection)
+    let openapi_url = std::env::var("DEF_OPENAPI_URL").unwrap_or_else(|_| "https://openapi.chanjet.com".to_string());
+    let stream_url = std::env::var("DEF_STREAM_URL").unwrap_or_else(|_| "https://stream-open.chanapp.chanjet.com".to_string());
+    println!("cargo:rustc-env=DEF_OPENAPI_URL={}", openapi_url);
+    println!("cargo:rustc-env=DEF_STREAM_URL={}", stream_url);
 }

@@ -57,9 +57,10 @@ impl Config {
     pub fn default_with_profile(_profile: &str) -> Self {
         Self {
             app_key: "".to_string(),
-            // Use defaults from compile-time env if available, otherwise fallback (obfuscated)
-            openapi_url: option_env!("DEF_OPENAPI_URL").map(|s| s.to_string()).unwrap_or_else(|| obfs!("https://openapi.chanjet.com")),
-            stream_url: option_env!("DEF_STREAM_URL").map(|s| s.to_string()).unwrap_or_else(|| obfs!("https://stream-open.chanapp.chanjet.com")),
+            // Use compile-time injected environment variables which are now guaranteed by build.rs.
+            // The `env!` values are evaluated at compile time and then immediately obfuscated by `obfs!`.
+            openapi_url: obfs!(env!("DEF_OPENAPI_URL")),
+            stream_url: obfs!(env!("DEF_STREAM_URL")),
             webhook_target: "http://127.0.0.1:8080/webhook".to_string(),
             app_secret: "".to_string(),
             certificate: "".to_string(),
