@@ -33,10 +33,28 @@ public class WsSessionRegistry {
     }
 
     public void register(String clientId, WebSocketSession session) {
-        sessions.put(clientId, session);
+        WebSocketSession oldSession = sessions.put(clientId, session);
         updateActiveTime(clientId);
+        
+        // 如果存在旧连接，立即将其关闭，防止 Socket 泄漏
+        if (oldSession != null && oldSession.isOpen()) {
+            log.info("Client [{}] reconnected to same node. Closing previous ghost session.", clientId);
+            try {
+                oldSession.close();
+            } catch (IOException ignored) {}
+        }
     }
 
+    public void unregister(String clientId, WebSocketSession sessionToClose) {
+        // 仅当当前存储的 Session 和要关闭的 Session 是同一个实例时才移除。
+        // 这防止了“旧连接关闭事件”意外注销掉刚刚建立的“新连接”。
+        boolean removed = sessions.remove(clientId, sessionToClose);
+        if (removed) {
+            lastActiveTimes.remove(clientId);
+        }
+    }
+
+    // 兼容遗留的强制清理调用（如心跳超时）
     public void unregister(String clientId) {
         sessions.remove(clientId);
         lastActiveTimes.remove(clientId);
