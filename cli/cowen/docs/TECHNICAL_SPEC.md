@@ -174,6 +174,20 @@ sequenceDiagram
 1. **白名单检查**：校验 Path 是否在加载的 OpenAPI 规约范围内。
 2. **规约校验**：根据 OpenAPI 定义，强制检查必填的 Query 参数 and Request Body，非法请求在到达网络层前即被拦截。
 
+### 2.6 动态 OpenAPI 发现 (Dynamic OpenAPI Discovery)
+为了降低 CLI 维护成本并实时同步平台能力，系统实现了服务驱动的 Spec 动态发现机制：
+
+- **二级加载策略**：
+    1. **静态/完整 Spec 加载**：首先尝试从 `/v1/common/openapi/spec` 下载完整的标准 OpenAPI 定义。
+    2. **动态权限发现 (Fallback)**：若完整 Spec 不可用，CLI 将调用 `/developer/api/apiPermissions/isv/open/getInterfaceList` 接口。
+- **分页合并逻辑**：
+    - 由于权限列表可能非常庞大，系统通过分页（每页 100 条）抓取所有已授权接口。
+    - 将散落在各页中的 `openApi` 对象或 `requestPath/method` 信息聚合，动态重建出一个标准的 OpenAPI 3.0.1 描述文件。
+- **缓存机制**：
+    - 结果存储在 `~/.owenc/{profile}_openapi.yaml`。
+    - **TTL 1 小时**：本地缓存有效期为 1 小时。过期后或用户强制执行 `api list --refresh` 时触发更新。
+- **环境驱动过滤**：平台服务端会根据当前的 `AppKey` 和 `AccessToken` 自动过滤出当前应用在特定主应用环境（如 T+ 或好业财）下的可用接口集合。
+
 ---
 
 ## 3. 日志规则 (Logging Standards)
