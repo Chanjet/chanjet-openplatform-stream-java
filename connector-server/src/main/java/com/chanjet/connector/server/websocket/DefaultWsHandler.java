@@ -94,7 +94,9 @@ public class DefaultWsHandler extends TextWebSocketHandler {
         String clientId = (String) session.getAttributes().get("clientId");
         String appKey = (String) session.getAttributes().get("appKey");
         if (clientId != null) {
-            sessionRegistry.unregister(clientId);
+            // 使用带有 session 引用的安全注销方法
+            // 防止在同节点重连引发的 "旧连接关闭事件" 意外注销掉刚刚被放进 registry 的 "新连接"
+            sessionRegistry.unregister(clientId, session);
             if (appKey != null) {
                 routeStore.remove(appKey, nodeId, clientId);
             }
