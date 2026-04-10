@@ -43,6 +43,8 @@ else
     SHA1 = (shasum -a 1 $(1) 2>/dev/null || sha1sum $(1) | cut -d ' ' -f 1) > $(1).sha1
 endif
 
+VERIFY_BIN = ./tests/verify-binary.sh $(1)
+
 # 生产/测试环境配置
 PROD_OPENAPI = https://openapi.chanjet.com
 PROD_STREAM  = https://stream-open.chanapp.chanjet.com
@@ -63,6 +65,7 @@ macos-aarch64:
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
+	@$(call VERIFY_BIN,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
 
 test-macos-aarch64:
 	@echo "🧪 Building macOS Apple Silicon (TEST ENV) v$(VERSION)..."
@@ -72,6 +75,7 @@ test-macos-aarch64:
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/test/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/test/$(BINARY))
+	@$(call VERIFY_BIN,$(OUTPUT_DIR)/test/$(BINARY))
 
 macos-x86_64:
 	@echo "🍎 Building macOS Intel v$(VERSION)..."
@@ -81,6 +85,7 @@ macos-x86_64:
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
+	@$(call VERIFY_BIN,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
 
 linux-x86_64:
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] natively v$(VERSION)..."
@@ -90,6 +95,7 @@ linux-x86_64:
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
+	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
 # 准备 Podman 编译镜像 (固化系统依赖)
 prepare-podman-image:
@@ -116,6 +122,7 @@ linux-x86_64-with-podman: prepare-podman-image
 			cp target/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY)"
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
+	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
 linux-aarch64:
 	@echo "🐧 Building Linux aarch64 v$(VERSION)..."
@@ -124,6 +131,7 @@ linux-aarch64:
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
+	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 
 windows-x86_64:
 	@echo "🪟 Building Windows x86_64 v$(VERSION)..."
@@ -132,6 +140,7 @@ windows-x86_64:
 	cp target/x86_64-pc-windows-msvc/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
+	@$(call VERIFY_BIN,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 
 # --- 打包目标 ---
 

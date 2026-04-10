@@ -82,4 +82,38 @@ mod tests {
         assert_eq!(mask_tail("123", 4), "123");
         assert_eq!(mask_tail("", 4), "");
     }
+
+    #[test]
+    fn test_mask_string() {
+        // Empty
+        assert_eq!(mask_string(""), "********");
+        // Less than or equal to 12 chars
+        assert_eq!(mask_string("123456789012"), "********");
+        assert_eq!(mask_string("short"), "********");
+        // More than 12 chars: first 8 ... last 4
+        assert_eq!(mask_string("1234567890123"), "12345678...0123");
+        assert_eq!(mask_string("ABCDEFGHIJKLMNOP"), "ABCDEFGH...MNOP");
+    }
+
+    #[test]
+    fn test_mask_sensitive_json() {
+        let input_json = r#"{
+            "accessToken": "very_secret_token_123456789",
+            "normalField": "visible_data",
+            "appSecret": "another_secret_987654321",
+            "certificate": "cert_1234_long_string"
+        }"#;
+
+        let output_json = mask_sensitive_json(input_json);
+
+        assert!(output_json.contains("\"normalField\": \"visible_data\""));
+        assert!(!output_json.contains("very_secret_token_123456789"));
+        assert!(output_json.contains("very_sec...6789"));
+        assert!(!output_json.contains("another_secret_987654321"));
+        assert!(output_json.contains("another_...4321"));
+        
+        let mask = mask_string("cert_1234_long_string");
+        assert!(output_json.contains(&mask));
+        assert!(!output_json.contains("cert_1234_long_string"));
+    }
 }

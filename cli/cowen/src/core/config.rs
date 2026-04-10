@@ -146,3 +146,64 @@ pub fn get_app_dir() -> PathBuf {
     
     home.home_dir().join(dir_name)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_config_default() {
+        let config = Config::default_with_profile("test_profile");
+        assert_eq!(config.app_key, "");
+        assert_eq!(config.webhook_target, "http://127.0.0.1:8080/webhook");
+        assert_eq!(config.log.level, "error");
+        assert!(config.telemetry_enabled);
+    }
+
+    #[test]
+    fn test_config_manager_save_and_load() {
+        let dir = tempdir().unwrap();
+        let manager = ConfigManager {
+            app_dir: dir.path().to_path_buf(),
+        };
+
+        // Initialize a config
+        let mut config = Config::default_with_profile("dev");
+        config.app_key = "test_key".to_string();
+        
+        // Save
+        assert!(manager.save("dev", &config).is_ok());
+
+        // Load
+        let loaded = manager.load("dev").unwrap();
+        assert_eq!(loaded.app_key, "test_key");
+        assert_eq!(loaded.webhook_target, "http://127.0.0.1:8080/webhook");
+    }
+
+    #[test]
+    fn test_config_manager_profiles() {
+        let dir = tempdir().unwrap();
+        let manager = ConfigManager {
+            app_dir: dir.path().to_path_buf(),
+        };
+
+        // Initially no profiles, list_profiles should return ["default"]
+        let profiles = manager.list_profiles().unwrap();
+        assert_eq!(profiles, vec!["default"]);
+
+        // Save a couple of profiles
+        let config = Config::default_with_profile("p1");
+        manager.save("p1", &config).unwrap();
+        manager.save("p2", &config).unwrap();
+
+        let mut profiles = manager.list_profiles().unwrap();
+        profiles.sort();
+        assert_eq!(profiles, vec!["p1", "p2"]);
+
+        // Default profile
+        assert_eq!(manager.get_default_profile(), "default");
+        manager.set_default_profile("p1").unwrap();
+        assert_eq!(manager.get_default_profile(), "p1");
+    }
+}
