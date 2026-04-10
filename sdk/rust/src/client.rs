@@ -121,7 +121,7 @@ impl GatewayClient {
         );
 
         let url = Url::parse(&full_url)?;
-        let (ws_stream, _) = connect_async(url).await
+        let (ws_stream, _) = connect_async(url.to_string()).await
             .map_err(|e| anyhow!("WebSocket connect failed: {}", e))?;
 
         tracing::info!("WebSocket connected.");
@@ -167,7 +167,7 @@ impl GatewayClient {
                                 };
                                 Self::send_ack(&mut write, frame.msg_id, success).await?;
                             } else if msg_type == "ping" {
-                                write.send(Message::Text("{\"msg_type\":\"pong\"}".to_string())).await?;
+                                write.send(Message::Text("{\"msg_type\":\"pong\"}".into())).await?;
                             } else if !msg_type.is_empty() {
                                 // Handle top-level system messages (e.g. APP_TICKET)
                                 let msg_id = root.get("msg_id").or_else(|| root.get("msgId")).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
@@ -260,7 +260,7 @@ impl GatewayClient {
             timestamp,
         };
 
-        write.send(Message::Text(serde_json::to_string(&ack)?)).await
+        write.send(Message::Text(serde_json::to_string(&ack)?.into())).await
             .map_err(|e| anyhow!("Failed to send ACK: {}", e))
     }
 

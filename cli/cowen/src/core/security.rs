@@ -5,7 +5,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use anyhow::{Result, anyhow};
-use rand::{Rng, thread_rng};
+use rand::RngExt;
 
 pub fn get_machine_fingerprint() -> Result<String> {
     let os = env::consts::OS;
@@ -18,7 +18,7 @@ pub fn get_machine_fingerprint() -> Result<String> {
     hasher.update(base.as_bytes());
     let result = hasher.finalize();
     
-    Ok(format!("{:x}", result))
+    Ok(hex::encode(result))
 }
 
 pub fn derive_key(fingerprint: &str) -> [u8; 32] {
@@ -33,7 +33,7 @@ pub fn derive_key(fingerprint: &str) -> [u8; 32] {
 pub fn encrypt(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
     let cipher = Aes256Gcm::new(key.into());
     let mut nonce_bytes = [0u8; 12];
-    thread_rng().fill(&mut nonce_bytes);
+    rand::rng().fill(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher

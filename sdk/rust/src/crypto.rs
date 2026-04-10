@@ -1,14 +1,14 @@
-use aes::cipher::{BlockDecrypt, KeyInit, generic_array::GenericArray};
+use aes::cipher::{BlockDecrypt, KeyInit as AesKeyInit, generic_array::GenericArray};
 use aes::Aes128;
 use base64::{engine::general_purpose, Engine as _};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, Mac, KeyInit as HmacKeyInit};
 use sha2::Sha256;
 use anyhow::{Result, anyhow};
 
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn hmac_sha256(data: &str, secret: &str) -> String {
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(secret.as_bytes())
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
         .expect("HMAC can take key of any size");
     mac.update(data.as_bytes());
     let result = mac.finalize();

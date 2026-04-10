@@ -3,7 +3,7 @@ use crate::core::config::ConfigManager;
 use anyhow::Result;
 use serde::Serialize;
 use chrono::{Local, DateTime, Utc};
-use sysinfo::{ProcessExt, System, SystemExt, PidExt};
+use sysinfo::System;
 
 #[derive(Serialize)]
 pub struct SystemStatus {
@@ -252,10 +252,10 @@ async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) 
         if let Some(pid_str) = lines.next() {
             if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
                 let mut s = System::new_all();
-                s.refresh_processes();
+                s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
                 if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
-                    let cmdline = process.cmd().join(" ");
-                    let name = process.name().to_lowercase();
+                    let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+                    let name = process.name().to_string_lossy().to_lowercase();
                     if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
                         let build_id = lines.next().map(|s| s.trim().to_string());
                         return (Some(pid_val), build_id);
