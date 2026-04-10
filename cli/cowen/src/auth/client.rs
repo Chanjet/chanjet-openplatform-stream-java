@@ -153,7 +153,7 @@ impl<'a> AuthClient<'a> {
             }
         };
 
-        let url = format!("{}/v1/common/auth/selfBuiltApp/generateToken", cfg.openapi_url);
+        let url = format!("{}{}", cfg.openapi_url, obfs!("/v1/common/auth/selfBuiltApp/generateToken"));
         let app_key = cfg.app_key.trim();
         let app_secret = cfg.app_secret.trim();
         
@@ -251,7 +251,7 @@ impl<'a> Client for AuthClient<'a> {
     }
 
     async fn trigger_push(&self, _profile: &str, cfg: &Config) -> Result<()> {
-        let url = format!("{}/auth/appTicket/resend", cfg.openapi_url);
+        let url = format!("{}{}", cfg.openapi_url, obfs!("/auth/appTicket/resend"));
         let app_key = cfg.app_key.trim();
         let app_secret = cfg.app_secret.trim();
         
@@ -318,7 +318,7 @@ impl<'a> Client for AuthClient<'a> {
 
         // 2. Fetch fresh spec from Platform
         if !cfg.openapi_url.is_empty() {
-            let spec_url = format!("{}/v1/common/openapi/spec", cfg.openapi_url.trim_end_matches('/'));
+            let spec_url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/openapi/spec"));
             if let Ok(token) = self.get_app_access_token(profile, cfg).await {
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
@@ -366,7 +366,7 @@ impl<'a> Client for AuthClient<'a> {
 
     async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value> {
         let token = self.get_app_access_token(profile, cfg).await?;
-        let base_url = format!("{}/developer/api/apiPermissions/isv/open/getInterfaceList", cfg.openapi_url.trim_end_matches('/'));
+        let base_url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/developer/api/apiPermissions/isv/open/getInterfaceList"));
         
         let mut current_page = 1;
         let mut total_pages = 1;

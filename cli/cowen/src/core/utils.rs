@@ -38,20 +38,20 @@ pub fn mask_sensitive_json(input: &str) -> String {
     use regex::Regex;
     let mut output = input.to_string();
     
-    // Pattern for JSON keys
+    // Pattern for JSON keys (obfuscated to prevent binary string extraction)
     let patterns = [
-        r#"(?i)("accessToken"\s*:\s*")([^"]+)(")"#,
-        r#"(?i)("access_token"\s*:\s*")([^"]+)(")"#,
-        r#"(?i)("appSecret"\s*:\s*")([^"]+)(")"#,
-        r#"(?i)("app_secret"\s*:\s*")([^"]+)(")"#,
-        r#"(?i)("certificate"\s*:\s*")([^"]+)(")"#,
-        r#"(?i)("appTicket"\s*:\s*")([^"]+)(")"#,
-        r#"(?i)("app_ticket"\s*:\s*")([^"]+)(")"#,
-        r#"(?i)("encryptKey"\s*:\s*")([^"]+)(")"#,
-        r#"(?i)("encrypt_key"\s*:\s*")([^"]+)(")"#,
+        obfs!(r#"(?i)("accessToken"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("access_token"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("appSecret"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("app_secret"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("certificate"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("appTicket"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("app_ticket"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("encryptKey"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("encrypt_key"\s*:\s*")([^"]+)(")"#),
     ];
 
-    for p in patterns {
+    for p in &patterns {
         if let Ok(re) = Regex::new(p) {
             output = re.replace_all(&output, |caps: &regex::Captures| {
                 let secret = &caps[2];

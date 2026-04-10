@@ -1,3 +1,25 @@
+/// Compile-time string obfuscation macro. Stores XOR-obfuscated bytes
+/// in the binary, deobfuscating at runtime. Prevents `strings` extraction.
+macro_rules! obfs {
+    ($s:expr) => {{
+        const _LEN: usize = $s.len();
+        const fn _obfs_bytes(s: &[u8]) -> [u8; 256] {
+            let seed = (s.len() as u8).wrapping_mul(0x37).wrapping_add(0x5A);
+            let mut out = [0u8; 256];
+            let mut i = 0;
+            while i < s.len() {
+                let key = seed.wrapping_add(i as u8).wrapping_mul(0x6D);
+                out[i] = s[i] ^ key;
+                i += 1;
+            }
+            out
+        }
+        const _OBFS: [u8; 256] = _obfs_bytes($s.as_bytes());
+        const _SEED: u8 = ($s.len() as u8).wrapping_mul(0x37).wrapping_add(0x5A);
+        $crate::core::obfs::deobfs(&_OBFS[.._LEN], _SEED)
+    }};
+}
+
 mod core;
 mod auth;
 mod cmd;
@@ -26,6 +48,12 @@ pub struct Cli {
 
     #[arg(long, default_value = "error", global = true, help = "日志输出级别 (debug, info, warn, error)")]
     pub log_level: String,
+
+    #[arg(long, global = true, help = "禁用遥测数据上报")]
+    pub no_telemetry: bool,
+
+    #[arg(long, global = true, help = "禁用 AI/语义搜索功能")]
+    pub no_ai: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -253,14 +281,42 @@ async fn main() {
         tracing::error!(target: "sys", "FATAL PANIC: {}", payload);
     }));
 
-    if let Err(e) = run().await {
-        tracing::error!(target: "sys", error = %e, "CLI execution failed");
-        eprintln!("❌ Error: {}", e);
-        std::process::exit(1);
+    // CAPTURE SIGNALS: Ensure graceful shutdown
+    let shutdown_handle = tokio::spawn(async move {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                println!("\n\x1b[33mReceived CTRL-C, shutting down gracefully...\x1b[0m");
+                tracing::warn!(target: "sys", "Received SIGINT, shutting down");
+            }
+            _ = async {
+                #[cfg(unix)]
+                {
+                    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+                    sigterm.recv().await;
+                    println!("\n\x1b[33mReceived SIGTERM, shutting down gracefully...\x1b[0m");
+                    tracing::warn!(target: "sys", "Received SIGTERM, shutting down");
+                }
+                #[cfg(not(unix))]
+                {
+                    std::future::pending::<()>().await;
+                }
+            } => {}
+        }
+    });
+
+    tokio::select! {
+        res = run() => {
+            if let Err(e) = res {
+                tracing::error!(target: "sys", error = %e, "CLI execution failed");
+                eprintln!("❌ Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        _ = shutdown_handle => {
+            // Give a tiny grace period for background tasks to cleanup
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
     }
-    
-    // Give a tiny grace period for background telemetry tasks to finish
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 }
 
 async fn run() -> Result<()> {
@@ -278,8 +334,13 @@ async fn run() -> Result<()> {
     // Load config partially or use default if it fails
     let mut config = cfg_mgr.load(&active_profile).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&active_profile));
 
-    // Override config log level if CLI provides one
-    config.log.level = cli.log_level.clone();
+    // Override config flags if CLI provides them
+    if cli.no_telemetry {
+        config.telemetry_enabled = false;
+    }
+    if cli.no_ai {
+        config.ai_enabled = false;
+    }
 
     // 3. Initialize Telemetry (Structured & Rotated Logging)
     let _guards = crate::core::telemetry::init_telemetry(log_dir, &config.log)?;
@@ -289,6 +350,17 @@ async fn run() -> Result<()> {
     // 4. Check for Activation (First Run)
     let marker_path = app_dir.join(".telemetry_marker");
     if !marker_path.exists() {
+        // --- 隐私声明 / Privacy Notice ---
+        println!("\n\x1b[1;36m🛡️  安全与隐私提示 (Security & Privacy Notice)\x1b[0m");
+        println!("--------------------------------------------------");
+        println!("欢迎使用 cowen CLI！为了提供更好的服务，本工具包含以下特性：");
+        println!("- \x1b[1m遥测数据 (Telemetry)\x1b[0m: 我们会收集匿名指纹、OS/Arch 及命令运行情况以优化产品。");
+        println!("- \x1b[1mAI 语义搜索 (AI Search)\x1b[0m: 内置极轻量 ONNX 引擎，通过本地向量化实现 API 快速检索。");
+        println!("\n您可以随时通过以下方式禁用这些功能：");
+        println!("1. 在命令中添加 \x1b[33m--no-telemetry\x1b[0m 或 \x1b[33m--no-ai\x1b[0m");
+        println!("2. 修改配置文件 (yaml) 中的 \x1b[33mtelemetry_enabled\x1b[0m 或 \x1b[33mai_enabled\x1b[0m 为 false");
+        println!("--------------------------------------------------\n");
+
         // Ensure app_dir exists before creating marker
         if !app_dir.exists() {
             if let Err(e) = std::fs::create_dir_all(&app_dir) {

@@ -91,6 +91,9 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
 
 /// 异步上报遥测事件 (静默失败，非阻塞)
 pub fn report_event(config: &crate::core::config::Config, event_name: String, payload: serde_json::Value) {
+    if !config.telemetry_enabled {
+        return;
+    }
     let config = config.clone();
     
     tokio::spawn(async move {
@@ -98,7 +101,7 @@ pub fn report_event(config: &crate::core::config::Config, event_name: String, pa
             let client = crate::core::network::create_client(&config)?;
             let fingerprint = crate::core::security::get_machine_fingerprint()?;
             
-            let url = format!("{}/v1/telemetry/events", config.stream_url.trim_end_matches('/'));
+            let url = format!("{}{}", config.stream_url.trim_end_matches('/'), obfs!("/v1/telemetry/events"));
             
             let event = TelemetryEvent {
                 event: event_name,

@@ -16,6 +16,8 @@ pub fn get_user_agent() -> String {
 pub fn create_client(_config: &Config) -> Result<Client> {
     Client::builder()
         .user_agent(get_user_agent())
+        .use_rustls_tls() // Ensure rustls is used
+        .tls_built_in_root_certs(true) // reqwest 0.11 with rustls-tls-native-roots uses this
         .build()
         .map_err(|e| anyhow!("Failed to build http client: {}", e))
 }

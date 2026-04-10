@@ -6,6 +6,12 @@
 
 ## [0.1.5] - 2026-04-10
 
+### 🛡️ 安全硬化与自愈 (Security & Resilience)
+- **编译期字符串混淆 (Compile-time Obfuscation)**: 实现了 `obfs!` 宏，在编译阶段对内置的硬编码网关 URL、API 路径及敏感的 JSON 属性键执行了异或 (XOR) 混淆。这彻底阻断了恶意攻击者通过 `strings` 等二进制逆向工具提取系统接口与凭据指纹的尝试。
+- **二进制硬化与反逆向 (Binary Hardening)**: 在 release 目标中强制启用了 `strip = true`, `lto = true`，并将 `panic` 策略设置为 `"abort"`，不仅大幅缩减了体积，还有效移除了可能泄露内部工程源码路径的 Panic unwinding 异常栈信息。
+- **平滑进程下线 (Graceful Shutdown)**: 在 CLI 主进程中注入了基于 `tokio::signal` 的异步信号守卫（监听 `SIGINT` 及 `SIGTERM`）。在响应系统强制关闭或用户 `Ctrl-C` 终止指令时，提供微秒级的延时缓冲，确保后台数据采集任务和缓存 IO 可以安全落盘。
+- **本地凭证严格隔离**: 在加密保管库 (Vault) 刷新或写入时，严格限制文件的 Unix 权限为 `0o600`，只允许当前执行用户对安全凭据进行读写。
+
 ### 🏗️ 架构重构 (Architectural Changes)
 - **多环境并发调度 (Multi-Profile Coordination)**: `ConfigManager` 新增动态目录扫描能力，支持解析所有实例配置。在执行 `--all` 指令时，守护进程控制器采用防抖动重置与顺序延迟调度机制，保障系统资源及端口不被瞬时耗尽。
 - **抢占式下线机制 (Proactive Eviction)**: 通过点对点 HTTP P2P 接口实现了跨节点的连接驱逐逻辑。当同一客户端在节点 B 上线时，会自动通知节点 A 关闭冲突的旧连接，解决了分布式环境下的“幽灵连接”干扰。

@@ -794,7 +794,7 @@ mod tests {
         let config = Config::default_with_profile("test");
         
         // Just verify it doesn't crash and returns Ok
-        let result = list("default", &config, &mock_auth, &None, 5, 1, 20, "text", false).await;
+        let result = list("default", &config, &mock_auth, &None, 1, 20, "text", false).await;
         assert!(result.is_ok());
 
         Ok(())

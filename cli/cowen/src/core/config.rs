@@ -10,6 +10,8 @@ pub struct Config {
     pub stream_url: String,
     pub webhook_target: String,
     pub log: LogConfig,
+    pub telemetry_enabled: bool,
+    pub ai_enabled: bool,
     // Note: Secrets like app_secret are now in Vault, not Config file
     #[serde(skip)]
     pub app_secret: String,
@@ -34,6 +36,8 @@ impl std::fmt::Debug for Config {
             .field("stream_url", &self.stream_url)
             .field("webhook_target", &self.webhook_target)
             .field("log", &self.log)
+            .field("telemetry_enabled", &self.telemetry_enabled)
+            .field("ai_enabled", &self.ai_enabled)
             .field("app_secret", &mask(&self.app_secret))
             .field("certificate", &mask(&self.certificate))
             .field("encrypt_key", &mask(&self.encrypt_key))
@@ -53,13 +57,15 @@ impl Config {
     pub fn default_with_profile(_profile: &str) -> Self {
         Self {
             app_key: "".to_string(),
-            // Use defaults from compile-time env if available, otherwise fallback
-            openapi_url: option_env!("DEF_OPENAPI_URL").unwrap_or("https://openapi.chanjet.com").to_string(),
-            stream_url: option_env!("DEF_STREAM_URL").unwrap_or("https://stream-open.chanapp.chanjet.com").to_string(),
+            // Use defaults from compile-time env if available, otherwise fallback (obfuscated)
+            openapi_url: option_env!("DEF_OPENAPI_URL").map(|s| s.to_string()).unwrap_or_else(|| obfs!("https://openapi.chanjet.com")),
+            stream_url: option_env!("DEF_STREAM_URL").map(|s| s.to_string()).unwrap_or_else(|| obfs!("https://stream-open.chanapp.chanjet.com")),
             webhook_target: "http://127.0.0.1:8080/webhook".to_string(),
             app_secret: "".to_string(),
             certificate: "".to_string(),
             encrypt_key: "".to_string(),
+            telemetry_enabled: true,
+            ai_enabled: true,
             log: LogConfig {
                 level: "error".to_string(),
                 rotation: "daily".to_string(),

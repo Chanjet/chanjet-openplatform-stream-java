@@ -67,8 +67,7 @@ impl MultiVault {
         let decrypted = match security::decrypt(&encrypted, &self.key) {
             Ok(d) => d,
             Err(e) => {
-                tracing::warn!(target: "sys", error = %e, "Vault decryption failed. Data might be from an incompatible version. Starting fresh.");
-                return Ok(HashMap::new());
+                return Err(anyhow::anyhow!("Vault decryption failed: {}. 可能是由于机器指纹变更或数据损坏。请尝试 'cowen auth reset' 重置环境。", e));
             }
         };
 
@@ -92,6 +91,17 @@ impl MultiVault {
             .open(&self.path)?;
             
         file.write_all(&encrypted)?;
+
+        // Set file permissions to 0600 (Unix only)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = file.metadata()?;
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o600);
+            std::fs::set_permissions(&self.path, permissions)?;
+        }
+
         Ok(())
     }
 }
