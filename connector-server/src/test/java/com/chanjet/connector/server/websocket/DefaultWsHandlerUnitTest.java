@@ -73,6 +73,10 @@ class DefaultWsHandlerUnitTest {
         // 稍微等待异步线程执行
         Thread.sleep(100);
 
+        // 验证是否移除了远端的僵尸路由
+        verify(routeStore, times(1)).remove("app-1", "node-old", "client-1");
+
+        // 验证是否发送了驱逐请求
         verify(p2pClient, times(1)).evict("node-old", "client-1");
         verify(p2pClient, never()).evict("node-2", "client-2");
         verify(p2pClient, never()).evict("node-old", "client-2");

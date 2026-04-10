@@ -59,7 +59,12 @@ public class DefaultWsHandler extends TextWebSocketHandler {
                         if (route.endsWith(":" + clientId)) {
                             String oldNodeId = route.substring(0, route.lastIndexOf(":"));
                             if (!oldNodeId.equals(this.nodeId)) {
-                                log.info("Proactive Eviction: Notifying remote node [{}] to close conflicting session for [{}]", oldNodeId, clientId);
+                                log.info("Proactive Eviction: Removing zombie route and notifying remote node [{}] to close conflicting session for [{}]", oldNodeId, clientId);
+                                
+                                // 主动从 Redis 中移除这个僵尸/冲突路由
+                                // 防止目标节点已崩溃导致 P2P 驱逐请求失败，进而导致旧路由像僵尸一样一直残留在 Redis 中
+                                routeStore.remove(appKey, oldNodeId, clientId);
+
                                 String finalClientId = clientId;
                                 new Thread(() -> p2pClient.evict(oldNodeId, finalClientId)).start();
                             }
