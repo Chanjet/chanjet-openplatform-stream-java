@@ -45,6 +45,10 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
+    if config.app_key.trim().is_empty() || config.app_secret.trim().is_empty() {
+        anyhow::bail!("Cannot start daemon: AppKey or AppSecret is empty for profile '{}'. Please run 'cowen init' first.", profile);
+    }
+
     // Fast-fail: Check if proxy port is available before launching the daemon
     if enable_proxy && !foreground {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], proxy_port));

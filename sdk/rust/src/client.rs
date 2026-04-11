@@ -48,6 +48,13 @@ impl GatewayClient {
     }
 
     pub async fn start(&self) -> Result<()> {
+        if self.options.app_key.trim().is_empty() {
+            return Err(anyhow::anyhow!("AppKey cannot be empty"));
+        }
+        if self.options.app_secret.trim().is_empty() {
+            return Err(anyhow::anyhow!("AppSecret cannot be empty"));
+        }
+
         {
             let mut running = self.running.lock().unwrap();
             if *running {
