@@ -277,12 +277,19 @@ async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) 
     (None, None)
 }
 
-pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().unwrap_or_else(|_| vec![profile.to_string()]);
     
     for p in profiles {
         let (pid, build_id) = get_active_daemon_info(&p).await;
-        let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&p)) };
+        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&p)) };
+        
+        // VITAL: For non-active profiles, inject secrets from vault to pass the startup check
+        if p != profile {
+            if let Ok(as_val) = vault.get(&p, "app_secret") { p_cfg.app_secret = as_val; }
+            if let Ok(cert) = vault.get(&p, "certificate") { p_cfg.certificate = cert; }
+            if let Ok(ek) = vault.get(&p, "encrypt_key") { p_cfg.encrypt_key = ek; }
+        }
         
         match pid {
             Some(pid_val) => {
