@@ -1,5 +1,5 @@
 use crate::core::config::Config;
-use sysinfo::{System, ProcessRefreshKind};
+use sysinfo::System;
 use connector_sdk::{GatewayClient, ClientOptions};
 use anyhow::{Result, Context};
 use tokio::signal;
@@ -18,7 +18,7 @@ use chrono::Utc;
 
 use std::io::IsTerminal;
 
-pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
+pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
     let target_profiles = if all && !foreground {
         cfg_mgr.list_profiles()?
     } else {
@@ -41,7 +41,7 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
             continue;
         }
 
-        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground).await {
+        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, vault.clone()).await {
             eprintln!("⚠️ Failed to start daemon for profile '{}': {}", p, e);
         }
         if all && !foreground {
@@ -51,14 +51,18 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
     Ok(())
 }
 
-async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool) -> Result<()> {
+async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, vault: Arc<dyn Vault>) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
     if config.app_key.trim().is_empty() || config.app_secret.trim().is_empty() {
         anyhow::bail!("Cannot start daemon: AppKey or AppSecret is empty for profile '{}'. Please run 'cowen init' first.", profile);
     }
-
+    
+    if config.encrypt_key.trim().is_empty() {
+        anyhow::bail!("Cannot start daemon: Missing required configuration 'encrypt_key' for profile '{}'. Please run 'cowen init' or use 'cowen vault set' to provide it.", profile);
+    }
+    
     // Fast-fail: Check if proxy port is available before launching the daemon
     if enable_proxy && !foreground {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], proxy_port));
@@ -66,6 +70,32 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
             let err_msg = format!("Cannot start daemon: Proxy port {} is already in use or unavailable. Details: {}", proxy_port, e);
             tracing::error!(target: "sys", profile = %profile, port = %proxy_port, error = %e, "Port conflict detected");
             anyhow::bail!(err_msg);
+        }
+    }
+
+    // Pre-flight Authentication Check (only for parent process in background mode or foreground start)
+    if !foreground || std::io::stdout().is_terminal() {
+        eprintln!("🔐 Verifying credentials for profile '{}'...", profile);
+        let pool = VaultTokenPool::new(vault.clone());
+        let auth = AuthClient::new(&pool);
+        
+        // Use trigger_push as a lightweight credential probe
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), auth.trigger_push(profile, config, true)).await {
+            Ok(Ok(_)) => {
+                tracing::info!(target: "sys", "Pre-flight authentication probe successful");
+            }
+            Ok(Err(e)) => {
+                let err_str = e.to_string();
+                if err_str.contains("HTTP 401") || err_str.contains("Unauthorized") || err_str.contains("50003") {
+                    anyhow::bail!("Authentication failed: Invalid AppKey or AppSecret for profile '{}'. Please check your credentials.", profile);
+                }
+                tracing::warn!(target: "sys", error = %err_str, "Pre-flight authentication probe failed (non-fatal)");
+                eprintln!("⚠️ Warning: Connectivity probe failed: {}. Continuing anyway...", err_str);
+            }
+            Err(_) => {
+                tracing::warn!(target: "sys", "Pre-flight authentication probe timed out");
+                eprintln!("⚠️ Warning: Authentication probe timed out. Continuing anyway...");
+            }
         }
     }
 
@@ -232,22 +262,32 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         let auth = AuthClient::new(p_pool_task.as_ref());
 
-        // Proactively request a ticket push if we don't have one cached
+        // Proactively request a ticket push if we don't have one cached.
+        // The background daemon is allowed to FORCE the first push to bypass race conditions with parent CLI.
         if p_pool_task.get_app_ticket(&p_profile_task).is_err() {
-            tracing::info!(target: "sys", "Initial AppTicket missing. Proactively requesting platform push...");
-            let _ = auth.trigger_push(&p_profile_task, &p_config_task, false).await;
+            tracing::info!(target: "sys", "Initial AppTicket missing. Proactively requesting platform push (forced)...");
+            let _ = auth.trigger_push(&p_profile_task, &p_config_task, true).await;
         }
 
         loop {
             tracing::info!(target: "sys", "Running daemon credential maintenance check...");
+            let mut has_credentials = false;
             match auth.get_app_access_token(&p_profile_task, &p_config_task).await {
-                Ok(_) => tracing::info!(target: "sys", "Credential check: AccessToken is valid"),
+                Ok(_) => {
+                    tracing::info!(target: "sys", "Credential check: AccessToken is valid");
+                    has_credentials = true;
+                }
                 Err(e) => {
                     tracing::warn!(target: "sys", error = %e, "Credential check failed. Triggering platform push...");
                     let _ = auth.trigger_push(&p_profile_task, &p_config_task, false).await;
                 }
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+            
+            // Dynamic maintenance interval:
+            // - If healthy: Sleep for 1 hour.
+            // - If unhealthy: Retry every 60 seconds to recover as fast as possible.
+            let sleep_secs = if has_credentials { 3600 } else { 60 };
+            tokio::time::sleep(tokio::time::Duration::from_secs(sleep_secs)).await;
         }
     });
 
@@ -328,7 +368,7 @@ async fn wait_for_termination() {
     }
 }
 
-pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
+pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
     let target_profiles = if all {
         cfg_mgr.list_profiles()?
     } else {
@@ -347,16 +387,34 @@ pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_p
         let app_dir = crate::core::config::get_app_dir();
         let pid_file = app_dir.join(format!("{}_daemon.pid", p));
         
-        let is_running = pid_file.exists();
+        let mut is_alive = false;
+        if pid_file.exists() {
+            if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
+                if let Some(pid_str) = pid_content.lines().next() {
+                    if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+                        let mut s = System::new_all();
+                        s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                        if s.process(sysinfo::Pid::from_u32(pid_val)).is_some() {
+                            is_alive = true;
+                        }
+                    }
+                }
+            }
+        }
         
-        if is_running {
-            eprintln!("🔄 Restarting daemon for profile '{}'...", p);
+        if is_alive {
+            eprintln!("🔄 Restarting active daemon for profile '{}'...", p);
             let _ = do_stop(&p).await;
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false).await;
+        } else if pid_file.exists() {
+            eprintln!("🩹 Recovering crashed daemon for profile '{}'...", p);
         } else if !all {
             eprintln!("📂 Daemon for profile '{}' is not running. Starting it now...", p);
-            let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false).await;
+        }
+        
+        // do_start will handle PID file creation/update
+        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, vault.clone()).await {
+            eprintln!("⚠️ Failed to restart/start daemon for profile '{}': {}", p, e);
         }
         
         if all {

@@ -1,11 +1,12 @@
 use crate::core::config::ConfigManager;
 use crate::core::vault::Vault;
 use anyhow::Result;
+use std::sync::Arc;
 
 pub async fn execute(
     profile: &str,
     cfg_mgr: &ConfigManager,
-    vault: &dyn Vault,
+    vault: Arc<dyn Vault>,
     app_key: &Option<String>,
     app_secret: &Option<String>,
     certificate: &Option<String>,
@@ -77,7 +78,7 @@ pub async fn execute(
 
     // Automatically start the daemon in background
     let _ = crate::cmd::daemon::stop(profile, false, cfg_mgr).await;
-    if let Err(e) = crate::cmd::daemon::start(profile, &config, config.proxy_port, false, false, false, cfg_mgr, vault).await {
+    if let Err(e) = crate::cmd::daemon::start(profile, &config, config.proxy_port, false, false, false, cfg_mgr, vault.clone()).await {
         eprintln!("⚠️ Failed to auto-start daemon: {}", e);
     } else {
         println!("💡 Security handshake is running in background. First API call may take a few seconds to authorize.");

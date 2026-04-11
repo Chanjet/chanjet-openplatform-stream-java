@@ -128,7 +128,7 @@ impl<'a> AuthClient<'a> {
         }
 
         let mut attempts = 0;
-        let max_attempts = 30; // Wait up to 30 seconds for cloud push
+        let max_attempts = 65; // Wait up to 65 seconds for cloud push (survives 60s throttle)
         
         let ticket = loop {
             match self.pool.get_app_ticket(profile) {

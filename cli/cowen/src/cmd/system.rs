@@ -4,6 +4,7 @@ use anyhow::Result;
 use serde::Serialize;
 use chrono::{Local, DateTime, Utc};
 use sysinfo::System;
+use std::sync::Arc;
 
 #[derive(Serialize)]
 pub struct SystemStatus {
@@ -55,7 +56,7 @@ pub struct DaemonStatus {
 pub async fn status(
     active_profile: &str,
     cfg_mgr: &crate::core::config::ConfigManager,
-    vault: &dyn Vault,
+    vault: Arc<dyn Vault>,
     format: &str,
     all: bool,
 ) -> Result<()> {
@@ -68,7 +69,7 @@ pub async fn status(
     let mut statuses = Vec::new();
     let mut errors = Vec::new();
     for profile in &profiles {
-        match get_system_status(profile, cfg_mgr, vault).await {
+        match get_system_status(profile, cfg_mgr, vault.clone()).await {
             Ok(s) => statuses.push(s),
             Err(e) => errors.push((profile.clone(), e)),
         }
@@ -109,7 +110,7 @@ pub async fn status(
 async fn get_system_status(
     profile: &str,
     cfg_mgr: &crate::core::config::ConfigManager,
-    vault: &dyn Vault,
+    vault: Arc<dyn Vault>,
 ) -> Result<SystemStatus> {
     let cfg = cfg_mgr.load(profile)?;
     
@@ -277,7 +278,7 @@ async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) 
     (None, None)
 }
 
-pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
+pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().unwrap_or_else(|_| vec![profile.to_string()]);
     
     for p in profiles {
@@ -293,41 +294,42 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
         
         match pid {
             Some(pid_val) => {
-                // 进程存在，检查版本
+                // Active daemon - Check for version updates
                 let current_build_id = env!("BUILD_ID");
                 let needs_restart = match build_id {
                     Some(bid) => bid != current_build_id,
-                    None => true,
+                    None => true, // Conservatively restart if build_id is missing
                 };
 
                 if needs_restart {
-                    eprintln!("🔄 Detecting outdated daemon (PID: {}) for profile '{}'. Automatically restarting...", pid_val, p);
-                    let _ = crate::cmd::daemon::restart(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault).await;
+                    eprintln!("🔄 Profile '{}' daemon is active (PID: {}) but outdated. Restarting...", p, pid_val);
+                    // Harden restart logic will handle graceful transition
+                    let _ = crate::cmd::daemon::restart(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault.clone()).await;
                 }
             }
             None => {
-                // 进程不存在（如重启后），静默拉起
+                // Daemon is missing or crashed - Check for user intent (PID file)
                 let pid_file = app_dir().join(format!("{}_daemon.pid", p));
-                if pid_file.exists() || p == profile {
+                if pid_file.exists() {
+                    // INTENT DETECTED: Process should be running
                     if !p_cfg.app_key.is_empty() && !p_cfg.app_secret.is_empty() {
-                        tracing::info!(target: "sys", "Daemon offline for profile '{}'. Auto-launching...", p);
+                        tracing::info!(target: "sys", profile = %p, "Daemon crash detected. Auto-recovering...");
                         if p == profile {
-                            eprintln!("🚀 Daemon is offline. Automatically launching in background...");
+                            eprintln!("🩹 Active profile daemon '{}' is offline but intent persists. Recovering...", p);
                         } else {
-                            eprintln!("🚀 Recovering offline daemon for profile '{}'...", p);
+                            eprintln!("🩹 Recovering crashed background daemon for profile '{}'...", p);
                         }
                         
-                        // ISOLATION: A failure in one profile should not stop others
-                        if let Err(e) = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault).await {
-                            tracing::error!(target: "sys", profile = %p, error = %e, "Failed to auto-launch daemon");
-                            eprintln!("⚠️ [Error] Failed to launch daemon for '{}': {}", p, e);
+                        // Use daemon::start to attempt recovery. 
+                        // It will NOT delete the intent file if starting fails.
+                        if let Err(e) = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault.clone()).await {
+                            tracing::error!(target: "sys", profile = %p, error = %e, "Self-healing failed to recover daemon");
+                            eprintln!("⚠️ [Auto-Heal Failed] Could not recover daemon for '{}': {}", p, e);
                         } else {
-                            // Give a small stabilization delay only if successful
                             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                         }
                     } else if p == profile {
-                        // If it's the requested profile but lacks config, warn the user
-                        eprintln!("⚠️ Profile '{}' is missing AppKey/AppSecret. Daemon cannot start.", p);
+                        eprintln!("⚠️ Profile '{}' is marked to run but configuration is incomplete. Auto-heal aborted.", p);
                     }
                 }
             }

@@ -9,8 +9,6 @@ fn main() {
     let now = SystemTime::now();
     let since_the_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
 
-    let build_id = since_the_epoch.as_millis();
-
     // Get formatted build time (UTC and Local for clarity)
     let datetime: DateTime<Utc> = now.into();
     let build_time = datetime
@@ -26,6 +24,12 @@ fn main() {
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "unknown".to_string());
+
+    let build_id = if git_hash != "unknown" {
+        git_hash.clone()
+    } else {
+        since_the_epoch.as_millis().to_string()
+    };
 
     println!("cargo:rustc-env=BUILD_ID={}", build_id);
     println!("cargo:rustc-env=BUILD_TIME={}", build_time);

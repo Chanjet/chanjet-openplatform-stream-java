@@ -428,7 +428,7 @@ async fn run() -> Result<()> {
 
     // 5. Ensure daemon is running and up to date with this CLI binary
     if !matches!(&cli.command, Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. }) {
-        let _ = crate::cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.as_ref()).await;
+        let _ = crate::cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone()).await;
     }
 
     // 6. Execute Command
@@ -445,7 +445,7 @@ async fn run() -> Result<()> {
             cmd::init::execute(
                 &active_profile, 
                 &cfg_mgr, 
-                vault.as_ref(), 
+                vault.clone(), 
                 app_key, 
                 app_secret, 
                 certificate,
@@ -474,10 +474,10 @@ async fn run() -> Result<()> {
 
         Commands::Auth { action } => match action {
             AuthCommands::Status => {
-                cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format, false).await?;
+                cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, false).await?;
             }
             AuthCommands::Reset => {
-                cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr).await?;
+                cmd::system::reset(&active_profile, Some(&*vault), &cfg_mgr).await?;
             }
             AuthCommands::Login { force } => {
                 cmd::auth::login(&active_profile, &config, &auth_cli, *force).await?;
@@ -507,7 +507,7 @@ async fn run() -> Result<()> {
                     cfg_mgr.save(&active_profile, &updated_config)?;
                 }
 
-                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.as_ref()).await?;
+                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone()).await?;
             }
             DaemonCommands::Stop { all } => {
                 cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?;
@@ -531,11 +531,11 @@ async fn run() -> Result<()> {
                     cfg_mgr.save(&active_profile, &updated_config)?;
                 }
 
-                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.as_ref()).await?;
+                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone()).await?;
             }
         },
         Commands::Status { all } => {
-            cmd::system::status(&active_profile, &cfg_mgr, vault.as_ref(), &cli.format, *all).await?;
+            cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?;
         }
         Commands::Config => {
             cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?;
