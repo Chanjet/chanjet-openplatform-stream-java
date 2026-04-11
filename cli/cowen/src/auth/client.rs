@@ -123,6 +123,10 @@ impl<'a> AuthClient<'a> {
     }
 
     async fn perform_network_refresh(&self, profile: &str, cfg: &Config) -> Result<Token> {
+        if cfg.app_key.trim().is_empty() || cfg.app_secret.trim().is_empty() {
+            return Err(anyhow!("Credential Missing: AppKey or AppSecret is empty for profile '{}'. Please run 'cowen init' to configure your environment.", profile));
+        }
+
         let mut attempts = 0;
         let max_attempts = 30; // Wait up to 30 seconds for cloud push
         
@@ -280,10 +284,14 @@ impl<'a> Client for AuthClient<'a> {
         }
 
         // 2. Perform Network Request
-        let url = format!("{}{}", cfg.openapi_url, obfs!("/auth/appTicket/resend"));
         let app_key = cfg.app_key.trim();
         let app_secret = cfg.app_secret.trim();
-        
+
+        if app_key.is_empty() || app_secret.is_empty() {
+            return Err(anyhow!("Missing AppKey or AppSecret for profile '{}'. Please run 'cowen init' first.", profile));
+        }
+
+        let url = format!("{}{}", cfg.openapi_url, obfs!("/auth/appTicket/resend"));
         let body = serde_json::json!({});
 
         let mut headers = reqwest::header::HeaderMap::new();
@@ -724,7 +732,9 @@ mod tests {
         });
 
         let client = AuthClient::with_sender(&pool, mock_http);
-        let cfg = Config::default_with_profile("test");
+        let mut cfg = Config::default_with_profile("test");
+        cfg.app_key = "test_app_key".to_string();
+        cfg.app_secret = "test_app_secret".to_string();
         
         let token = client.perform_network_refresh("test", &cfg).await.unwrap();
         assert_eq!(token.value, "new_token");
