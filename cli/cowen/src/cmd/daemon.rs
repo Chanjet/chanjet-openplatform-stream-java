@@ -1,4 +1,5 @@
 use crate::core::config::Config;
+use sysinfo::{System, ProcessRefreshKind};
 use connector_sdk::{GatewayClient, ClientOptions};
 use anyhow::{Result, Context};
 use tokio::signal;
@@ -374,15 +375,65 @@ pub async fn stop(profile: &str, all: bool, cfg_mgr: &crate::core::config::Confi
     };
 
     for p in target_profiles {
-        let app_dir = crate::core::config::get_app_dir();
-        let _pid_file = app_dir.join(format!("{}_daemon.pid", p));
-        
-        // Removed silent skip: Let do_stop handle reporting if it's already offline
+        // Double punch: Standard stop + Ghost cleanup
         let _ = do_stop(&p).await;
+        let _ = kill_ghost_processes(&p).await;
         
         if all {
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
+    }
+    
+    Ok(())
+}
+
+/// Polls for process exit with timeout and SIGKILL fallback
+async fn wait_for_death(pid: u32, timeout_ms: u64) -> bool {
+    let mut sys = System::new_all();
+    let start = std::time::Instant::now();
+    let pid_obj = sysinfo::Pid::from(pid as usize);
+
+    while start.elapsed().as_millis() < timeout_ms as u128 {
+        sys.refresh_all();
+        if sys.process(pid_obj).is_none() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    false
+}
+
+/// Scans the system process list for cowen processes belonging to the profile
+async fn kill_ghost_processes(profile: &str) -> Result<()> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    
+    let pattern = format!("--profile {}", profile);
+    let mut killed_any = false;
+    
+    for (pid, process) in sys.processes() {
+        let cmd = process.cmd()
+            .iter()
+            .map(|s| s.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        if cmd.contains("cowen") && cmd.contains(&pattern) && cmd.contains("daemon") && cmd.contains("start") {
+            tracing::warn!(target: "sys", profile = %profile, pid = %pid, "Killing ghost/foreground daemon process");
+            eprintln!("🧹 Cleaning up ghost/foreground daemon for profile '{}' (PID: {})...", profile, pid);
+            
+            #[cfg(unix)]
+            let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
+            
+            #[cfg(windows)]
+            let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
+
+            killed_any = true;
+        }
+    }
+    
+    if killed_any {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
     
     Ok(())
@@ -395,19 +446,30 @@ async fn do_stop(profile: &str) -> Result<()> {
         if let Ok(pid_content) = fs::read_to_string(&pid_file) {
             if let Some(pid_str) = pid_content.lines().next() {
                 let pid_str = pid_str.trim();
-                eprintln!("🛑 Stopping daemon (PID: {}) for profile '{}'...", pid_str, profile);
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    eprintln!("🛑 Stopping daemon (PID: {}) for profile '{}'...", pid, profile);
 
-                #[cfg(unix)]
-                let _ = Command::new("kill").arg("-15").arg(pid_str).status();
+                    #[cfg(unix)]
+                    let _ = Command::new("kill").arg("-15").arg(pid_str).status();
 
-                #[cfg(windows)]
-                let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid_str).status();
-                
-                // Give OS a moment to kill it
-                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    #[cfg(windows)]
+                    let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid_str).status();
+                    
+                    // Wait for it to die gracefully
+                    if !wait_for_death(pid, 2000).await {
+                        eprintln!("⚠️  Daemon (PID: {}) timed out. Escaling to SIGKILL...", pid);
+                        #[cfg(unix)]
+                        let _ = Command::new("kill").arg("-9").arg(pid_str).status();
+                        
+                        // Final check
+                        if !wait_for_death(pid, 1000).await {
+                            tracing::error!(target: "sys", profile = %profile, pid = %pid, "Failed to kill process even with SIGKILL");
+                        }
+                    }
+                }
             }
             if let Err(_) = fs::remove_file(&pid_file) {
-                // Ignore errors if it was already deleted by the daemon itself
+                // Ignore errors if it was already deleted
             }
             eprintln!("✅ Daemon stopped for profile '{}'.", profile);
             return Ok(());
