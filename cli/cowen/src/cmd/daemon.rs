@@ -17,7 +17,7 @@ use chrono::Utc;
 
 use std::io::IsTerminal;
 
-pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
+pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
     let target_profiles = if all && !foreground {
         cfg_mgr.list_profiles()?
     } else {
@@ -40,7 +40,7 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy
             continue;
         }
 
-        if let Err(e) = do_start(&p, &p_cfg, proxy_port, enable_proxy, foreground).await {
+        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground).await {
             eprintln!("⚠️ Failed to start daemon for profile '{}': {}", p, e);
         }
         if all && !foreground {
@@ -327,7 +327,7 @@ async fn wait_for_termination() {
     }
 }
 
-pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
+pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
     let target_profiles = if all {
         cfg_mgr.list_profiles()?
     } else {
@@ -352,10 +352,10 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_pro
             eprintln!("🔄 Restarting daemon for profile '{}'...", p);
             let _ = do_stop(&p).await;
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let _ = do_start(&p, &p_cfg, proxy_port, enable_proxy, false).await;
+            let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false).await;
         } else if !all {
             eprintln!("📂 Daemon for profile '{}' is not running. Starting it now...", p);
-            let _ = do_start(&p, &p_cfg, proxy_port, enable_proxy, false).await;
+            let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false).await;
         }
         
         if all {
@@ -375,12 +375,9 @@ pub async fn stop(profile: &str, all: bool, cfg_mgr: &crate::core::config::Confi
 
     for p in target_profiles {
         let app_dir = crate::core::config::get_app_dir();
-        let pid_file = app_dir.join(format!("{}_daemon.pid", p));
+        let _pid_file = app_dir.join(format!("{}_daemon.pid", p));
         
-        if all && !pid_file.exists() {
-            continue;
-        }
-        
+        // Removed silent skip: Let do_stop handle reporting if it's already offline
         let _ = do_stop(&p).await;
         
         if all {
@@ -398,22 +395,25 @@ async fn do_stop(profile: &str) -> Result<()> {
         if let Ok(pid_content) = fs::read_to_string(&pid_file) {
             if let Some(pid_str) = pid_content.lines().next() {
                 let pid_str = pid_str.trim();
-                eprintln!("🛑 Stopping daemon (PID: {})...", pid_str);
+                eprintln!("🛑 Stopping daemon (PID: {}) for profile '{}'...", pid_str, profile);
 
                 #[cfg(unix)]
                 let _ = Command::new("kill").arg("-15").arg(pid_str).status();
 
                 #[cfg(windows)]
                 let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid_str).status();
+                
+                // Give OS a moment to kill it
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
             }
-            let _ = fs::remove_file(&pid_file);
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let _ = fs::remove_file(&pid_file);
+            if let Err(_) = fs::remove_file(&pid_file) {
+                // Ignore errors if it was already deleted by the daemon itself
+            }
             eprintln!("✅ Daemon stopped for profile '{}'.", profile);
             return Ok(());
         }
     }
     
-    println!("⚠️ Daemon is not running for profile '{}'.", profile);
+    println!("ℹ️  Daemon is already offline for profile '{}'.", profile);
     Ok(())
 }
