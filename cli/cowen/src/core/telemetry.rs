@@ -21,7 +21,7 @@ pub struct TelemetryEvent {
     pub payload: serde_json::Value,
 }
 
-pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
+pub fn init_telemetry(log_dir: PathBuf, profile: &str, config: &crate::core::config::LogConfig) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
     let log_level = &config.level;
     let bin_name = crate::core::utils::get_bin_name();
     
@@ -79,10 +79,15 @@ pub fn init_telemetry(log_dir: PathBuf, config: &crate::core::config::LogConfig)
     }
 
     let bin_name_clone = bin_name.clone();
-    let registry = add_domain_layer!(registry, "sys.log", move |m| m.target().starts_with("sys") || m.target().starts_with(&bin_name_clone));
-    let registry = add_domain_layer!(registry, "audit.log", |m| m.target() == "audit");
-    let registry = add_domain_layer!(registry, "stream.log", |m| m.target() == "stream" || m.target().starts_with("connector_sdk"));
-    let registry = add_domain_layer!(registry, "dlq.log", |m| m.target() == "dlq");
+    let sys_log = format!("{}_sys.log", profile);
+    let audit_log = format!("{}_audit.log", profile);
+    let stream_log = format!("{}_stream.log", profile);
+    let dlq_log = format!("{}_dlq.log", profile);
+
+    let registry = add_domain_layer!(registry, &sys_log, move |m| m.target().starts_with("sys") || m.target().starts_with(&bin_name_clone));
+    let registry = add_domain_layer!(registry, &audit_log, |m| m.target() == "audit");
+    let registry = add_domain_layer!(registry, &stream_log, |m| m.target() == "stream" || m.target().starts_with("connector_sdk"));
+    let registry = add_domain_layer!(registry, &dlq_log, |m| m.target() == "dlq");
 
     registry.init();
 
@@ -132,6 +137,25 @@ pub fn report_event(config: &crate::core::config::Config, event_name: String, pa
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn test_profile_specific_log_creation() {
+        let temp_dir = std::env::temp_dir().join(format!("telemetry_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros()));
+        let config = crate::core::config::Config::default_with_profile("testprof");
+        
+        let _guards = init_telemetry(temp_dir.clone(), "testprof", &config.log).unwrap();
+        
+        // Tracing appender creates files lazily upon first write OR immediately depending on the exact LogRoller configuration
+        // In logroller, they are usually created right away if the builder creates the file.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        
+        assert!(temp_dir.join("testprof_sys.log").exists());
+        assert!(temp_dir.join("testprof_audit.log").exists());
+        assert!(temp_dir.join("testprof_stream.log").exists());
+        assert!(temp_dir.join("testprof_dlq.log").exists());
+        
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 
     #[tokio::test]
     async fn test_telemetry_event_serialization() {

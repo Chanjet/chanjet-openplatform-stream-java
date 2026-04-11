@@ -13,8 +13,7 @@ pub async fn list(profile: &str) -> Result<()> {
     }
 
     println!("\n📂 Log Files for profile '{}':", profile);
-    let global_logs = ["sys.log", "audit.log", "stream.log", "dlq.log"];
-    let profile_log_prefix = format!("{}.log", profile);
+    let profile_log_prefix = format!("{}_", profile);
 
     for entry in std::fs::read_dir(log_dir)? {
         let entry = entry?;
@@ -22,11 +21,8 @@ pub async fn list(profile: &str) -> Result<()> {
         if path.is_file() {
             let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
             
-            // Only show global logs OR logs starting with current profile name
-            let is_global = global_logs.iter().any(|&g| filename.starts_with(g));
-            let is_profile = filename.starts_with(&profile_log_prefix);
-
-            if is_global || is_profile {
+            // Only show logs starting with current profile name
+            if filename.starts_with(&profile_log_prefix) {
                 let metadata = std::fs::metadata(&path)?;
                 println!("- {:<20} ({:>10} bytes)", filename, metadata.len());
             }
@@ -36,27 +32,33 @@ pub async fn list(profile: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn view(_profile: &str, domain: &str, follow: bool, lines: usize) -> Result<()> {
+pub async fn view(profile: &str, domain: &str, follow: bool, lines: usize) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let log_dir = app_dir.join("logs");
     
-    let log_path = log_dir.join(format!("{}.log", domain));
+    let log_path = log_dir.join(format!("{}_{}.log", profile, domain));
     if !log_path.exists() {
-        println!("❌ Log file not found: {}.log", domain);
+        println!("❌ Log file not found for profile '{}': {}_{}.log", profile, profile, domain);
         
         // List available files to help the user
+        let prefix = format!("{}_", profile);
         if let Ok(entries) = std::fs::read_dir(log_dir) {
             let available: Vec<String> = entries.filter_map(|e| {
                 let p = e.ok()?.path();
                 if p.extension()? == "log" {
-                    Some(p.file_stem()?.to_string_lossy().to_string())
+                    let stem = p.file_stem()?.to_string_lossy().to_string();
+                    if stem.starts_with(&prefix) {
+                        Some(stem[prefix.len()..].to_string())
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
             }).collect();
             
             if !available.is_empty() {
-                println!("💡 Available domains/profiles: {}", available.join(", "));
+                println!("💡 Available domains for profile '{}': {}", profile, available.join(", "));
             }
         }
         return Ok(());

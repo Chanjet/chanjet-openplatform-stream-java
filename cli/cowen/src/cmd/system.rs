@@ -182,7 +182,7 @@ async fn get_system_status(
         running: found_daemon_pid.is_some(),
         pid: found_daemon_pid,
         log_path: found_daemon_pid.map(|_| {
-            app_dir().join("logs").join(format!("{}.log", profile)).to_string_lossy().to_string()
+            app_dir().join("logs").join(format!("{}_sys.log", profile)).to_string_lossy().to_string()
         }),
         build_id: found_build_id,
     };
@@ -361,7 +361,7 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
     // 3. Clear all related logs (including rotated ones like prod.log.1)
     let log_dir = app_dir.join("logs");
     if log_dir.exists() {
-        let prefix = format!("{}.log", _profile);
+        let prefix = format!("{}_", _profile);
         if let Ok(entries) = std::fs::read_dir(log_dir) {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {

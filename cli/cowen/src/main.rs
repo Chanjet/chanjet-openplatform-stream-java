@@ -353,7 +353,7 @@ async fn run() -> Result<()> {
     }
 
     // 3. Initialize Telemetry (Structured & Rotated Logging)
-    let _guards = crate::core::telemetry::init_telemetry(log_dir, &config.log)?;
+    let _guards = crate::core::telemetry::init_telemetry(log_dir, &active_profile, &config.log)?;
     tracing::info!(target: "sys", "{} starting (version {})", bin_name, env!("CARGO_PKG_VERSION"));
     tracing::info!(target: "sys", profile = %active_profile, "active profile loaded");
 
