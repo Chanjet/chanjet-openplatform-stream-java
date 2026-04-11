@@ -17,7 +17,7 @@ use chrono::Utc;
 
 use std::io::IsTerminal;
 
-pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
     let target_profiles = if all && !foreground {
         cfg_mgr.list_profiles()?
     } else {
@@ -25,7 +25,14 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy
     };
 
     for p in target_profiles {
-        let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| Config::default_with_profile(&p)) };
+        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| Config::default_with_profile(&p)) };
+        
+        // VITAL: Inject secrets from vault for non-active profiles
+        if p != profile {
+            if let Ok(as_val) = vault.get(&p, "app_secret") { p_cfg.app_secret = as_val; }
+            if let Ok(cert) = vault.get(&p, "certificate") { p_cfg.certificate = cert; }
+            if let Ok(ek) = vault.get(&p, "encrypt_key") { p_cfg.encrypt_key = ek; }
+        }
         
         let pid_file = crate::core::config::get_app_dir().join(format!("{}_daemon.pid", p));
         if all && pid_file.exists() {
@@ -33,7 +40,9 @@ pub async fn start(profile: &str, config: &Config, proxy_port: u16, enable_proxy
             continue;
         }
 
-        do_start(&p, &p_cfg, proxy_port, enable_proxy, foreground).await?;
+        if let Err(e) = do_start(&p, &p_cfg, proxy_port, enable_proxy, foreground).await {
+            eprintln!("⚠️ Failed to start daemon for profile '{}': {}", p, e);
+        }
         if all && !foreground {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
@@ -53,7 +62,9 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     if enable_proxy && !foreground {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], proxy_port));
         if let Err(e) = std::net::TcpListener::bind(addr) {
-            anyhow::bail!("Cannot start daemon: Proxy port {} is already in use or unavailable ({})", proxy_port, e);
+            let err_msg = format!("Cannot start daemon: Proxy port {} is already in use or unavailable. Details: {}", proxy_port, e);
+            tracing::error!(target: "sys", profile = %profile, port = %proxy_port, error = %e, "Port conflict detected");
+            anyhow::bail!(err_msg);
         }
     }
 
@@ -316,7 +327,7 @@ async fn wait_for_termination() {
     }
 }
 
-pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, all: bool, cfg_mgr: &crate::core::config::ConfigManager, vault: &dyn Vault) -> Result<()> {
     let target_profiles = if all {
         cfg_mgr.list_profiles()?
     } else {
@@ -324,7 +335,14 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_pro
     };
 
     for p in target_profiles {
-        let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| Config::default_with_profile(&p)) };
+        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| Config::default_with_profile(&p)) };
+        
+        // VITAL: Inject secrets from vault for non-active profiles
+        if p != profile {
+            if let Ok(as_val) = vault.get(&p, "app_secret") { p_cfg.app_secret = as_val; }
+            if let Ok(cert) = vault.get(&p, "certificate") { p_cfg.certificate = cert; }
+            if let Ok(ek) = vault.get(&p, "encrypt_key") { p_cfg.encrypt_key = ek; }
+        }
         let app_dir = crate::core::config::get_app_dir();
         let pid_file = app_dir.join(format!("{}_daemon.pid", p));
         

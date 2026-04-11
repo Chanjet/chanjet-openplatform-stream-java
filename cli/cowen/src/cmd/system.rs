@@ -302,7 +302,7 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
 
                 if needs_restart {
                     eprintln!("🔄 Detecting outdated daemon (PID: {}) for profile '{}'. Automatically restarting...", pid_val, p);
-                    let _ = crate::cmd::daemon::restart(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr).await;
+                    let _ = crate::cmd::daemon::restart(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault).await;
                 }
             }
             None => {
@@ -318,7 +318,7 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
                         }
                         
                         // ISOLATION: A failure in one profile should not stop others
-                        if let Err(e) = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr).await {
+                        if let Err(e) = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault).await {
                             tracing::error!(target: "sys", profile = %p, error = %e, "Failed to auto-launch daemon");
                             eprintln!("⚠️ [Error] Failed to launch daemon for '{}': {}", p, e);
                         } else {

@@ -83,7 +83,7 @@ impl Config {
             encrypt_key: "".to_string(),
             telemetry_enabled: true,
             ai_enabled: true,
-            proxy_port: 8080,
+            proxy_port: 0, // Flag to be overwritten during init
             proxy_enabled: true,
             log: LogConfig {
                 level: "error".to_string(),
@@ -141,13 +141,16 @@ impl ConfigManager {
 
     pub fn list_profiles(&self) -> Result<Vec<String>> {
         let mut profiles = Vec::new();
-        for entry in fs::read_dir(&self.app_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    if !name.contains("_openapi") {
-                        profiles.push(name.to_string());
+        if let Ok(entries) = fs::read_dir(&self.app_dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
+                        if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                            if !name.contains("_openapi") && name != "current_profile" {
+                                profiles.push(name.to_string());
+                            }
+                        }
                     }
                 }
             }
@@ -156,6 +159,40 @@ impl ConfigManager {
             profiles.push("default".to_string());
         }
         Ok(profiles)
+    }
+
+    /// Finds a free port that is not in use by any other profile configuration
+    /// and is not currently being listened to by the system.
+    pub fn find_free_port(&self) -> u16 {
+        let profiles = self.list_profiles().unwrap_or_default();
+        let used_ports: std::collections::HashSet<u16> = profiles.iter()
+            .filter_map(|p| self.load(p).ok())
+            .map(|cfg| cfg.proxy_port)
+            .collect();
+
+        // Range: 10000 -> 60000
+        for _ in 0..100 {
+            let port = if used_ports.is_empty() {
+                // Try a common starting point if nothing is used
+                8081
+            } else {
+                // OS assigned free port
+                match std::net::TcpListener::bind("127.0.0.1:0") {
+                    Ok(listener) => listener.local_addr().unwrap().port(),
+                    Err(_) => continue,
+                }
+            };
+
+            if !used_ports.contains(&port) && port != 8080 {
+                // Final check: can we actually bind to it?
+                if std::net::TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
+                    return port;
+                }
+            }
+        }
+        
+        // Final fallback
+        8081
     }
 }
 

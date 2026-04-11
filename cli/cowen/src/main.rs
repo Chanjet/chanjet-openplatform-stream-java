@@ -507,7 +507,7 @@ async fn run() -> Result<()> {
                     cfg_mgr.save(&active_profile, &updated_config)?;
                 }
 
-                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr).await?;
+                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.as_ref()).await?;
             }
             DaemonCommands::Stop { all } => {
                 cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?;
@@ -531,7 +531,7 @@ async fn run() -> Result<()> {
                     cfg_mgr.save(&active_profile, &updated_config)?;
                 }
 
-                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr).await?;
+                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.as_ref()).await?;
             }
         },
         Commands::Status { all } => {

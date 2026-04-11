@@ -22,6 +22,11 @@ pub async fn execute(
     }
 
     let mut config = cfg_mgr.load(profile)?;
+    
+    // Assign a unique port if this is a new profile or it's currently 0 or 8080 (the old default)
+    if config.proxy_port == 0 || config.proxy_port == 8080 {
+        config.proxy_port = cfg_mgr.find_free_port();
+    }
 
     if let Some(ak) = app_key {
         config.app_key = ak.clone();
@@ -72,7 +77,7 @@ pub async fn execute(
 
     // Automatically start the daemon in background
     let _ = crate::cmd::daemon::stop(profile, false, cfg_mgr).await;
-    if let Err(e) = crate::cmd::daemon::start(profile, &config, 8080, false, false, false, cfg_mgr).await {
+    if let Err(e) = crate::cmd::daemon::start(profile, &config, config.proxy_port, false, false, false, cfg_mgr, vault).await {
         eprintln!("⚠️ Failed to auto-start daemon: {}", e);
     } else {
         println!("💡 Security handshake is running in background. First API call may take a few seconds to authorize.");
