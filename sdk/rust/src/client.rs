@@ -115,13 +115,23 @@ impl GatewayClient {
             ws_url_str = ws_url_str.replace("https://", "wss://");
         }
 
-        let full_url = format!(
-            "{}/connect?app_key={}&nonce={}&sign={}&client_id={}",
-            ws_url_str, options.app_key, nonce, sign, client_id
-        );
+        let mut url = Url::parse(&ws_url_str)?;
+        if url.path() == "/" || url.path().is_empty() {
+            url.set_path("/connect");
+        } else if !url.path().ends_with("/connect") {
+            let new_path = format!("{}/connect", url.path().trim_end_matches('/'));
+            url.set_path(&new_path);
+        }
 
-        let url = Url::parse(&full_url)?;
-        let (ws_stream, _) = connect_async(url.to_string()).await
+        url.query_pairs_mut()
+            .append_pair("app_key", &options.app_key)
+            .append_pair("nonce", &nonce)
+            .append_pair("sign", &sign)
+            .append_pair("client_id", client_id);
+
+        let full_url = url.to_string();
+
+        let (ws_stream, _) = connect_async(&full_url).await
             .map_err(|e| anyhow!("WebSocket connect failed: {}", e))?;
 
         tracing::info!("WebSocket connected.");
@@ -220,11 +230,19 @@ impl GatewayClient {
             base_url = base_url.replace("wss://", "https://");
         }
 
-        let url = format!("{}/v1/ws/challenge?app_key={}", base_url, options.app_key);
+        let mut url = Url::parse(&base_url)?;
+        if url.path() == "/" || url.path().is_empty() {
+            url.set_path("/v1/ws/challenge");
+        } else if !url.path().ends_with("/v1/ws/challenge") {
+            let new_path = format!("{}/v1/ws/challenge", url.path().trim_end_matches('/'));
+            url.set_path(&new_path);
+        }
+        url.query_pairs_mut().append_pair("app_key", &options.app_key);
+
         let sign_prefix = &crypto::hmac_sha256(&options.app_key, &options.app_secret)[..16];
 
         let client = reqwest::Client::new();
-        let resp = client.get(&url)
+        let resp = client.get(url.to_string())
             .header("X-CJT-PreAuth", sign_prefix)
             .header("User-Agent", "cjtCli-Rust-SDK/0.1.0")
             .send()
