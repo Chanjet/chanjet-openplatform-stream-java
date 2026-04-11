@@ -309,9 +309,18 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
                         } else {
                             eprintln!("🚀 Recovering offline daemon for profile '{}'...", p);
                         }
-                        let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr).await;
-                        // 缓冲
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        
+                        // ISOLATION: A failure in one profile should not stop others
+                        if let Err(e) = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr).await {
+                            tracing::error!(target: "sys", profile = %p, error = %e, "Failed to auto-launch daemon");
+                            eprintln!("⚠️ [Error] Failed to launch daemon for '{}': {}", p, e);
+                        } else {
+                            // Give a small stabilization delay only if successful
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        }
+                    } else if p == profile {
+                        // If it's the requested profile but lacks config, warn the user
+                        eprintln!("⚠️ Profile '{}' is missing AppKey/AppSecret. Daemon cannot start.", p);
                     }
                 }
             }

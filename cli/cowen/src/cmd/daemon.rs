@@ -1,6 +1,6 @@
 use crate::core::config::Config;
 use connector_sdk::{GatewayClient, ClientOptions};
-use anyhow::Result;
+use anyhow::{Result, Context};
 use tokio::signal;
 use std::process::{Command, Stdio};
 use std::env;
@@ -245,25 +245,54 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     let result = if std::io::stdout().is_terminal() {
         eprintln!("🚀 Stream Bridge running in foreground. Press Ctrl+C to stop.");
         tokio::select! {
-            _ = proxy_task => { tracing::error!(target: "sys", "Proxy task exited unexpectedly"); Err(anyhow::anyhow!("Proxy task crashed")) },
-            _ = stream_task => { tracing::error!(target: "sys", "Stream task exited unexpectedly"); Err(anyhow::anyhow!("Stream task crashed")) },
-            _ = maintenance_task => { tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); Err(anyhow::anyhow!("Maintenance task crashed")) },
+            res = proxy_task => { 
+                tracing::error!(target: "sys", "Proxy task exited unexpectedly"); 
+                res.map_err(|e| anyhow::anyhow!("Proxy task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Proxy task stopped")))
+            },
+            res = stream_task => { 
+                tracing::error!(target: "sys", "Stream task exited unexpectedly"); 
+                res.map_err(|e| anyhow::anyhow!("Stream task panicked: {}", e))
+                   .and_then(|r| r.context("Stream client crashed"))
+            },
+            res = maintenance_task => { 
+                tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); 
+                res.map_err(|e| anyhow::anyhow!("Maintenance task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Maintenance task stopped")))
+            },
             _ = signal::ctrl_c() => { tracing::info!(target: "sys", "Interrupted by user"); Ok(()) },
         }
     } else {
         // Background child process: Entering persistent loop
         tracing::info!(target: "sys", "Daemon running in managed background mode. Entering persistent loop...");
         tokio::select! {
-            _ = proxy_task => { tracing::error!(target: "sys", "Proxy task exited unexpectedly"); Err(anyhow::anyhow!("Proxy task crashed")) },
-            _ = stream_task => { tracing::error!(target: "sys", "Stream task exited unexpectedly"); Err(anyhow::anyhow!("Stream task crashed")) },
-            _ = maintenance_task => { tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); Err(anyhow::anyhow!("Maintenance task crashed")) },
+            res = proxy_task => { 
+                tracing::error!(target: "sys", "Proxy task exited unexpectedly"); 
+                res.map_err(|e| anyhow::anyhow!("Proxy task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Proxy task stopped")))
+            },
+            res = stream_task => { 
+                tracing::error!(target: "sys", "Stream task exited unexpectedly"); 
+                res.map_err(|e| anyhow::anyhow!("Stream task panicked: {}", e))
+                   .and_then(|r| r.context("Stream client crashed"))
+            },
+            res = maintenance_task => { 
+                tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); 
+                res.map_err(|e| anyhow::anyhow!("Maintenance task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Maintenance task stopped")))
+            },
             _ = wait_for_termination() => { tracing::info!(target: "sys", "Termination signal received"); Ok(()) },
         }
     };
 
     tracing::info!(target: "sys", "Daemon process shutting down...");
+    
+    // Safety: Ensure client is stopped
     client.stop();
-    let _ = fs::remove_file(pid_file);
+    
+    // CRITICAL: Always remove PID file before exit to prevent phantom status
+    if let Err(e) = fs::remove_file(&pid_file) {
+        tracing::error!(target: "sys", error = %e, "Failed to remove PID file during shutdown");
+    } else {
+        tracing::info!(target: "sys", "PID file removed safely");
+    }
+
     result
 }
 
