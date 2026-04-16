@@ -31,6 +31,7 @@ use crate::core::vault::{MultiVault, Vault};
 use crate::core::security;
 use crate::core::utils::get_bin_name;
 use anyhow::Result;
+use std::io::Write;
 
 #[derive(Parser)]
 #[command(name = option_env!("CARGO_BIN_NAME_OVERRIDE").unwrap_or("cowen"))]
@@ -555,9 +556,13 @@ async fn run() -> Result<()> {
                     Err(e) => eprintln!("❌ Failed to install auto-completion: {}", e),
                 }
             } else if let Some(s) = shell {
-                use clap::CommandFactory;
-                let mut cmd = Cli::command();
-                clap_complete::generate(*s, &mut cmd, &bin_name, &mut std::io::stdout());
+                let mut buf = Vec::new();
+                match crate::cmd::completion::generate_completion(*s, &mut buf) {
+                    Ok(_) => {
+                        let _ = std::io::stdout().write_all(&buf);
+                    },
+                    Err(e) => eprintln!("❌ Failed to generate completion: {}", e),
+                }
             } else {
                 println!("Usage: {} completion [SHELL] or {} completion --install", bin_name, bin_name);
             }
