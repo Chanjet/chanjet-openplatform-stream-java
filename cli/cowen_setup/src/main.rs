@@ -6,7 +6,7 @@ fn main() {
     println!("🚀 Starting cowen installation...");
     
     // Embed the binary
-    let bytes = include_bytes!(r#"..\..\..\bin\windows-x64\cowen.exe"#);
+    let bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen.exe"#);
     
     let home = std::env::var("USERPROFILE").expect("Failed to find USERPROFILE");
     let install_dir = PathBuf::from(&home).join(".cowen").join("bin");
