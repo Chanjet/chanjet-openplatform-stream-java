@@ -7,25 +7,43 @@ use std::path::PathBuf;
 
 use crate::Cli;
 
+pub fn generate_completion(shell: clap_complete::Shell, buf: &mut Vec<u8>) -> Result<()> {
+    let bin_name = crate::core::utils::get_bin_name();
+    let mut cmd = Cli::command();
+    
+    let mut tmp_buf = Vec::new();
+    clap_complete::generate(shell, &mut cmd, &bin_name, &mut tmp_buf);
+
+    if shell == clap_complete::Shell::PowerShell {
+        // Strip non-ASCII to prevent PowerShell encoding/syntax issues with Chinese descriptions
+        let sanitized: Vec<u8> = tmp_buf.into_iter().filter(|&b| b < 128).collect();
+        buf.extend_from_slice(&sanitized);
+    } else {
+        buf.extend_from_slice(&tmp_buf);
+    }
+    
+    Ok(())
+}
+
 pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Result<()> {
     let bin_name = crate::core::utils::get_bin_name();
-    let home = directories::UserDirs::new()
-        .context("Could not find home directory")?
-        .home_dir()
-        .to_path_buf();
-
+    
     let shell = match requested_shell {
         Some(s) => s,
         None => {
-            let shell_path = env::var("SHELL").unwrap_or_default();
-            if shell_path.ends_with("zsh") {
-                clap_complete::Shell::Zsh
-            } else if shell_path.ends_with("bash") {
-                clap_complete::Shell::Bash
-            } else if shell_path.ends_with("fish") {
-                clap_complete::Shell::Fish
+            if cfg!(windows) {
+                clap_complete::Shell::PowerShell
             } else {
-                return Err(anyhow::anyhow!("Unsupported or unknown shell ({}). Please specify shell with '{} completion <SHELL> --install'", shell_path, bin_name));
+                let shell_path = env::var("SHELL").unwrap_or_default();
+                if shell_path.ends_with("zsh") {
+                    clap_complete::Shell::Zsh
+                } else if shell_path.ends_with("bash") {
+                    clap_complete::Shell::Bash
+                } else if shell_path.ends_with("fish") {
+                    clap_complete::Shell::Fish
+                } else {
+                    return Err(anyhow::anyhow!("Unsupported or unknown shell ({}). Please specify shell with '{} completion <SHELL> --install'", shell_path, bin_name));
+                }
             }
         }
     };
@@ -34,24 +52,28 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
     let comp_dir = app_dir.join("completions");
     fs::create_dir_all(&comp_dir)?;
 
-    let mut cmd = Cli::command();
     let mut script_buf = Vec::new();
-    clap_complete::generate(shell, &mut cmd, &bin_name, &mut script_buf);
+    generate_completion(shell, &mut script_buf)?;
 
     let script_name = match shell {
         clap_complete::Shell::Zsh => format!("{}.zsh", bin_name),
         clap_complete::Shell::Bash => format!("{}.bash", bin_name),
         clap_complete::Shell::Fish => format!("{}.fish", bin_name),
+        clap_complete::Shell::PowerShell => format!("{}.ps1", bin_name),
         _ => format!("{}.sh", bin_name),
     };
 
     let script_path = comp_dir.join(script_name);
     fs::write(&script_path, script_buf).context("Failed to write completion script")?;
 
-    // Append source command to RC file
+    // Append source command to RC file or Profile
     match shell {
-        clap_complete::Shell::Zsh => append_to_rc(home.join(".zshrc"), &script_path, shell),
+        clap_complete::Shell::Zsh => {
+            let home = get_home()?;
+            append_to_rc(home.join(".zshrc"), &script_path, shell)
+        },
         clap_complete::Shell::Bash => {
+            let home = get_home()?;
             if home.join(".bashrc").exists() {
                 append_to_rc(home.join(".bashrc"), &script_path, shell)
             } else {
@@ -59,17 +81,84 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
             }
         },
         clap_complete::Shell::Fish => {
+            let home = get_home()?;
             let fish_comp_dir = home.join(".config").join("fish").join("completions");
             fs::create_dir_all(&fish_comp_dir).unwrap_or_default();
             let dest = fish_comp_dir.join(format!("{}.fish", bin_name));
             let _ = fs::copy(&script_path, &dest);
             println!("✅ Auto-completion installed to {:?}", dest);
         },
+        clap_complete::Shell::PowerShell => {
+            install_powershell_completion(&script_path)?;
+        },
         _ => {}
     }
 
     // Mark as installed
     let _ = fs::write(app_dir.join(".completion_installed"), "");
+
+    Ok(())
+}
+
+fn get_home() -> Result<PathBuf> {
+    directories::UserDirs::new()
+        .context("Could not find home directory")
+        .map(|u| u.home_dir().to_path_buf())
+}
+
+fn install_powershell_completion(script_path: &PathBuf) -> Result<()> {
+    let bin_name = crate::core::utils::get_bin_name();
+    let script_path_str = script_path.display().to_string();
+    
+    // We try to find the PowerShell profile
+    // PS 5.1: $HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1
+    // PS 7: $HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1
+    // A safer way is to use the user's documents folder if available.
+    
+    let docs = directories::UserDirs::new()
+        .and_then(|u| u.document_dir().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| {
+            // Fallback to $HOME\Documents
+            get_home().unwrap_or_default().join("Documents")
+        });
+
+    let profiles = vec![
+        docs.join("WindowsPowerShell").join("Microsoft.PowerShell_profile.ps1"),
+        docs.join("PowerShell").join("Microsoft.PowerShell_profile.ps1"),
+    ];
+
+    let marker = format!("# {} autocomplete", bin_name);
+    let source_cmd = format!(
+        "\n{}\nif (Test-Path \"{}\") {{ . \"{}\" }}\n",
+        marker,
+        script_path_str,
+        script_path_str
+    );
+
+    let mut success = false;
+    for profile_path in profiles {
+        // Create directory if not exists
+        if let Some(parent) = profile_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&profile_path) {
+            if file.write_all(source_cmd.as_bytes()).is_ok() {
+                println!("✅ Auto-completion configuration injected into {:?}", profile_path);
+                success = true;
+            }
+        }
+    }
+
+    if success {
+        println!("\n\x1b[1;33m⚠️  ACTION REQUIRED: Activate completion for your current session\x1b[0m");
+        println!("Please restart your PowerShell or run:");
+        println!("   \x1b[32m. \"{}\"\x1b[0m", script_path_str);
+    } else {
+        println!("⚠️ Could not automatically find or write to PowerShell profile.");
+        println!("💡 Please manually add the following line to your $PROFILE:");
+        println!("   \x1b[32m. \"{}\"\x1b[0m", script_path_str);
+    }
 
     Ok(())
 }
@@ -88,16 +177,21 @@ pub fn uninstall_completion() -> Result<()> {
     let _ = fs::remove_file(app_dir.join(".completion_installed"));
 
     // 3. Clean RC files
-    let home = directories::UserDirs::new()
-        .context("Could not find home directory")?
-        .home_dir()
-        .to_path_buf();
+    let home = get_home()?;
 
-    let rc_files = vec![
+    let mut rc_files = vec![
         home.join(".zshrc"),
         home.join(".bashrc"),
         home.join(".bash_profile"),
     ];
+    
+    // Add PowerShell profiles
+    let docs = directories::UserDirs::new()
+        .and_then(|u| u.document_dir().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| home.join("Documents"));
+    
+    rc_files.push(docs.join("WindowsPowerShell").join("Microsoft.PowerShell_profile.ps1"));
+    rc_files.push(docs.join("PowerShell").join("Microsoft.PowerShell_profile.ps1"));
 
     let marker = format!("# {} autocomplete", bin_name);
 
@@ -115,8 +209,9 @@ pub fn uninstall_completion() -> Result<()> {
                         continue;
                     }
                     if skipping {
-                        // The injection block ends with 'fi' for zsh/bash
-                        if line.trim() == "fi" {
+                        // The injection block ends with 'fi' for zsh/bash or a blank line/closing brace for PS
+                        // For simplicity, we just look for the next line that doesn't look like part of our injection
+                        if line.trim().is_empty() || line.trim() == "fi" || line.contains("}") {
                             skipping = false;
                             continue;
                         }
