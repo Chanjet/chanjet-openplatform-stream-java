@@ -57,7 +57,7 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
         package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
-        package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image
+        package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # --- 核心构建目标 ---
 
@@ -101,18 +101,35 @@ linux-x86_64:
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
+# 确保 Podman 虚拟机已启动 (仅 macOS/Windows)
+prepare-podman-machine:
+ifeq ($(HOST_OS),macos)
+	@if podman machine list --format '{{.Default}} {{.Running}}' 2>/dev/null | grep -q '^true false'; then \
+		echo "🚀 Starting Podman machine..."; \
+		podman machine start; \
+	fi
+endif
+
+# 停止 Podman 虚拟机 (仅 macOS)
+stop-podman-machine:
+ifeq ($(HOST_OS),macos)
+	@echo "🛑 Stopping Podman machine to recycle resources..."
+	@podman machine stop 2>/dev/null || true
+endif
+
 # 准备 Podman 编译镜像 (固化系统依赖)
-prepare-podman-image:
+prepare-podman-image: prepare-podman-machine
 	@if ! podman image exists $(BUILDER_IMAGE); then \
 		echo "🛠️ Creating custom builder image $(BUILDER_IMAGE)..."; \
-		printf "FROM docker.io/library/rust:latest\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
+		printf "FROM docker.io/library/rust:latest\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu libc6-amd64-cross && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
 	fi
 
 # 提速版 Podman 构建 (系统依赖 + Rust 依赖双缓存)
 linux-x86_64-with-podman: prepare-podman-image
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] via Podman v$(VERSION)..."
-	mkdir -p $(OUTPUT_DIR)/linux-x86_64
-	mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
+	@mkdir -p $(OUTPUT_DIR)/linux-x86_64
+	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
+	@trap '$(MAKE) stop-podman-machine' EXIT; \
 	podman run --rm \
 		-v "$$(pwd)/../..:/workspace" \
 		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
@@ -123,10 +140,10 @@ linux-x86_64-with-podman: prepare-podman-image
 			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 			cargo build --release --target x86_64-unknown-linux-gnu && \
-			cp target/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY)"
-	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
-	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
-	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
+			cp target/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY)" && \
+	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
+	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
+	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
 linux-aarch64:
 	@echo "🐧 Building Linux aarch64 v$(VERSION)..."
