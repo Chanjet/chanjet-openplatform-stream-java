@@ -3,7 +3,11 @@ PKG=cli/cowen
 OUTPUT_DIR=../../bin
 
 # 从 Cargo.toml 自动提取版本号
-VERSION=$(shell grep '^version =' Cargo.toml | cut -d '"' -f 2)
+ifeq ($(OS),Windows_NT)
+    VERSION := $(shell powershell -NoProfile -Command "(Get-Content Cargo.toml | Select-String '^version =').ToString().Split('\"')[1].Trim()")
+else
+    VERSION := $(shell grep '^version =' Cargo.toml | cut -d '"' -f 2)
+endif
 
 # 缓存目录与镜像定义
 CARGO_CACHE_DIR=$(HOME)/.cache/cowen-cargo
@@ -34,7 +38,7 @@ endif
 
 # --- 跨平台兼容性宏 ---
 ifeq ($(OS),Windows_NT)
-    RM = powershell -NoProfile -Command "ForEach($$p in '$(1)'.Split(' ')){ if(Test-Path $$p){ Remove-Item -Recurse -Force $$p } }"
+    RM = powershell -NoProfile -Command "$(foreach d,$(1),if(Test-Path $(d)){ Remove-Item -Recurse -Force $(d) };)"
     MD5 = powershell -NoProfile -Command "$$hash = (Get-FileHash -Algorithm MD5 $(1)).Hash.ToLower(); Set-Content -Path $(1).md5 -Value $$hash"
     SHA1 = powershell -NoProfile -Command "$$hash = (Get-FileHash -Algorithm SHA1 $(1)).Hash.ToLower(); Set-Content -Path $(1).sha1 -Value $$hash"
 else
@@ -135,12 +139,11 @@ linux-aarch64:
 
 windows-x86_64:
 	@echo "🪟 Building Windows x86_64 v$(VERSION)..."
-	mkdir -p $(OUTPUT_DIR)/windows-x86_64
-	cargo build --release --target x86_64-pc-windows-msvc
-	cp target/x86_64-pc-windows-msvc/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe
+	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
+	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; cargo build --release --target x86_64-pc-windows-msvc"
+	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
-	@$(call VERIFY_BIN,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 
 # --- 打包目标 ---
 
@@ -186,10 +189,10 @@ package-linux-aarch64: clean linux-aarch64
 
 package-windows-x86_64: clean windows-x86_64
 	@echo "📦 Packaging Windows x86_64..."
-	mkdir -p $(OUTPUT_DIR)/windows-x86_64/release
-	cp CHANGELOG.md ../cowen_setup/
-	cd ../cowen_setup && cargo build --release --target x86_64-pc-windows-msvc
-	cp ../cowen_setup/target/x86_64-pc-windows-msvc/release/cowen_setup.exe $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe
+	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64/release"
+	powershell -NoProfile -Command "Copy-Item -Path CHANGELOG.md -Destination ../cowen_setup/ -Force"
+	powershell -NoProfile -Command "cd ../cowen_setup; $$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; cargo build --release --target x86_64-pc-windows-msvc"
+	powershell -NoProfile -Command "Copy-Item -Path ../cowen_setup/target/x86_64-pc-windows-msvc/release/cowen_setup.exe -Destination $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe -Force"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe)
 
