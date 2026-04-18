@@ -83,10 +83,10 @@ sequenceDiagram
 **标准化回吐结构约定 (Standard Agent Payload)：**
 ```json
 {
-  "code": "OK",                      // 全局统筹的业务错误编码
-  "success": true,                   // 严格的布尔标识
-  "data": { ... },                   // 具体的执行结果包（例如 API 回包实体、搜索集）
-  "recover_suggestion": ""           // 【高光特性】当且仅当 success=false 时必须附带极具语义化的纠错动作建议文本
+  "code": "OK",
+  "success": true,
+  "data": { "result": "sample_data" },
+  "recover_suggestion": ""
 }
 ```
 

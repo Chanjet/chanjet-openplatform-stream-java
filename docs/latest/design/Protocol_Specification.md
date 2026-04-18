@@ -16,7 +16,7 @@ ISV 客户端首先请求网关获取一个具有时效性的 Nonce。
     {
       "code": "GW-0000",
       "data": {
-        "nonce": "random-uuid-v4",
+        "nonce": "<NONCE>",
         "expires_in": 30
       }
     }
@@ -58,12 +58,12 @@ ISV 客户端首先请求网关获取一个具有时效性的 Nonce。
   "trace_id": "Core 侧透传的 TraceID",
   "timestamp": 1704067200000,
   "headers": {
-    "X-C-APP_KEY": "...",
-    "X-C-ORG_ID": "...",
+    "X-C-APP_KEY": "<APP_KEY>",
+    "X-C-ORG_ID": "org_zzz",
     "X-MSG-ID": "Core 侧原始消息ID",
     "Content-Type": "application/json"
   },
-  "payload": "{"biz_data":"..."}"
+  "payload": "{\"biz_data\":\"...\"}"
 }
 ```
 

@@ -16,7 +16,7 @@
     "code": "GW-0000",
     "message": "success",
     "data": {
-      "nonce": "uuid-v4-string",
+      "nonce": "<NONCE>",
       "expires_in": 30
     }
   }

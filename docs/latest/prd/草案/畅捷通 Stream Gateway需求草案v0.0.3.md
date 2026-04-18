@@ -91,7 +91,7 @@
 
 ```json
 {
- "nonce": "r4nd0m-f8a2-4b1c-9e3d-0c7f6a5b",
+ "nonce": "<NONCE>",
  "expires_in": 30
 }
 
@@ -101,7 +101,7 @@
 
 `wss://gateway.cjt.com/connect?app_key={AppKey}&nonce={nonce}&sign={sign}&client_id={client_id}`
 
-*   **sign 计算**: `HMAC_SHA256(app_key + "&" + nonce, AppSecret).hex().toLowerCase()`
+*   **sign 计算**: `HMAC_SHA256(app_key + "&" +nonce, AppSecret).hex().toLowerCase()`
     
 
 #### Step 3 — 建连成功确认帧（网关 → 客户端）
@@ -164,7 +164,7 @@ _注：客户端收到 connected 帧后才进入就绪状态。_
 "timestamp": 1704067200000, 
 "headers": {
  "X-C-APP_ID": "app_xxx",
- "X-C-APP_KEY": "cjt_live_xxxxx",
+ "X-C-APP_KEY": "<APP_KEY>",
  "X-C-ORG_ID": "org_zzz",
  "Content-Type": "application/json; charset=utf-8",
  "X-MSG-ID": "msg_abc123" 

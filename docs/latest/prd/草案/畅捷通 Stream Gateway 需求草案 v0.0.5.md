@@ -98,7 +98,7 @@
 {
 "msg_type": "event", 
 "msg_id": "UUID-v4", 
-"headers": { "X-MSG-ID": "msg_abc123", "X-C-APP_KEY": "..." },
+"headers": { "X-MSG-ID": "msg_abc123", "X-C-APP_KEY": "<APP_KEY>" },
 "payload": "{\"event_type\":\"order.paid\",\"data\":{...}}"
 }
 
@@ -114,7 +114,7 @@
 {
   "msg_type": "ack",
   "msg_id": "UUID-v4",      // 必须与推送消息中的 msg_id 严格一致
-  "code": 200,              // 处理状态码：仅 200 表示成功
+  "code": 200,              // 200/4xx 代表成功；5xx 代表失败
   "message": "success",     // 描述信息
   "timestamp": 1704067200500 // 客户端处理完成的时间戳
 }
@@ -346,9 +346,7 @@ stateDiagram-v2
         Waiting --> Timer: 消息持续到达
         Waiting --> Disabled: >= 30min (调用DisablePush)
     }
-    Disabled --> Active: 客户端重连 (调用EnablePush)
-    Pending --> Active: 客户端重连
-
+    Pending --> Active: 客户端重连 (调用EnablePush)
 ```
 ---
 

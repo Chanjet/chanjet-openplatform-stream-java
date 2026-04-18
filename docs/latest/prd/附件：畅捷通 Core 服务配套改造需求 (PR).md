@@ -13,8 +13,8 @@
 - **请求体 (JSON)**:
   ```json
   {
-    "app_key": "string",
-    "pre_auth_prefix": "string" // ISV 提供的 HMAC 前缀
+    "app_key": "<APP_KEY>",
+    "pre_auth_prefix": "<PRE_AUTH_PREFIX>" // ISV 提供的 HMAC 前缀
   }
   ```
 - **响应体 (JSON)**: `{"valid": boolean}`
@@ -26,9 +26,9 @@
 - **请求体 (JSON)**:
   ```json
   {
-    "app_key": "string",
-    "nonce": "string",
-    "sign": "string"
+    "app_key": "<APP_KEY>",
+    "nonce": "<NONCE>",
+    "sign": "<SIGNATURE>"
   }
   ```
 - **签名算法**: `HMAC_SHA256(app_key + "&" + nonce, AppSecret).hex().toLowerCase()`

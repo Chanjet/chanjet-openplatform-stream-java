@@ -84,7 +84,7 @@ mindmap
         "running": true,
         "stream_connected": true,
         "webhook_target_url": "http://localhost:8080/api/webhook",
-        "proxy_listening_port": 3000
+        "proxy_listening_port": 8081
       }
     }
     ```
