@@ -9,5 +9,9 @@
 - **Polyglot Ready**: 协议定义必须位于 `proto/` 目录下，且由 Protobuf 驱动。
 - **Open-Closed Principle**: 未来开发必须严格遵守开闭原则（对扩展开放，对修改关闭），务必保证原有功能不受损。
 
+## 📝 文档规范 (Documentation Standards)
+- **Doc Sanitization Mandatory**: 文档（Markdown, PRD, API 规范等）中涉及 Token、Secret、密钥等敏感数据的示例值 **必须** 使用 `<VALUE_NAME>` 占位符展示（如 `"appTicket": "<APP_TICKET>"`）。严禁在文档中出现真实或随机生成的敏感字面量。
+- **Readability First**: 非敏感的业务数据（如 `msg_id`, `timestamp`, `id`, `name`）建议使用易读的字面量示例，以增强文档的参考价值。
+
 ---
 **提示**：本规范具有最高优先级，所有 AI 代理及人类开发者应严格遵守。
