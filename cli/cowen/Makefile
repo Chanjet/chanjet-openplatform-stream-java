@@ -67,7 +67,7 @@ INTE_APP_KEY ?= rle1Onds
 macos-aarch64:
 	@echo "🍎 Building macOS Apple Silicon v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/macos-aarch64
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) cargo build --release
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) BUILTIN_CLIENT_ID=$(INTE_APP_KEY) cargo build --release
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/macos-aarch64/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
@@ -87,7 +87,7 @@ test-macos-aarch64:
 macos-x86_64:
 	@echo "🍎 Building macOS Intel v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/macos-x86_64
-	cargo build --release --target x86_64-apple-darwin --no-default-features
+	BUILTIN_CLIENT_ID=$(INTE_APP_KEY) cargo build --release --target x86_64-apple-darwin --no-default-features
 	cp target/x86_64-apple-darwin/release/$(BINARY) $(OUTPUT_DIR)/macos-x86_64/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
@@ -98,7 +98,7 @@ linux-x86_64:
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] natively v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	cargo build --release --target x86_64-unknown-linux-gnu
+	BUILTIN_CLIENT_ID=$(INTE_APP_KEY) cargo build --release --target x86_64-unknown-linux-gnu
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -142,6 +142,7 @@ linux-x86_64-with-podman: prepare-podman-image
 		bash -c "export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc && \
 			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+			BUILTIN_CLIENT_ID=$(INTE_APP_KEY) \
 			cargo build --release --target x86_64-unknown-linux-gnu && \
 			cp target/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY)" && \
 	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
@@ -151,7 +152,7 @@ linux-x86_64-with-podman: prepare-podman-image
 linux-aarch64:
 	@echo "🐧 Building Linux aarch64 v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64
-	cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features
+	BUILTIN_CLIENT_ID=$(INTE_APP_KEY) cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
@@ -160,7 +161,7 @@ linux-aarch64:
 windows-x86_64:
 	@echo "🪟 Building Windows x86_64 v$(VERSION)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
-	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; cargo build --release --target x86_64-pc-windows-msvc"
+	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(INTE_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
