@@ -7,46 +7,114 @@ pub async fn login(
     cfg: &Config,
     auth_cli: &dyn AuthClientTrait,
     force: bool,
+    finalize: Option<&str>,
 ) -> Result<()> {
-    if force {
-        println!("🔄 Force refresh requested. Attempting immediate Token refresh using existing Ticket...");
-    } else {
-        println!("📡 Checking current credentials for profile '{}'...", _profile);
+    // 1. Finalizer Implementation (Background flow)
+    if let Some(_session_id) = finalize {
+        return finalize_login(_profile, cfg, auth_cli).await;
     }
 
-    // 1. Attempt immediate refresh (it will loop for 30s internally if ticket is missing)
-    match auth_cli.refresh_app_access_token(_profile, cfg).await {
-        Ok(_) => {
-            println!("✅ Success! AccessToken has been refreshed and saved to Vault.");
-            return Ok(());
+    // 2. Regular Login flow based on AuthMode
+    match cfg.app_mode {
+        crate::auth::models::AuthMode::Oauth2 => {
+            println!("🔄 [OAuth2] Attempting to refresh token pair for profile '{}'...", _profile);
+            match auth_cli.refresh_app_access_token(_profile, cfg).await {
+                Ok(_) => {
+                    println!("✅ Success! OAuth2 Token Pair has been rotated.");
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("❌ Refresh failed: {}", e);
+                    println!("💡 Suggestion: If the session has expired, please run \x1b[33mowenc init\x1b[0m to re-authorize.");
+                    Err(e)
+                }
+            }
         }
-        Err(e) => {
-            let err_msg = e.to_string();
-            if err_msg.contains("Missing app_ticket") {
-                println!("⚠️  Local AppTicket missing or expired. Requesting a new one from platform...");
-                // Note: perform_network_refresh already triggers a push on first attempt, 
-                // but we can be explicit here if it returned error immediately (which it shouldn't per impl)
+        crate::auth::models::AuthMode::SelfBuilt => {
+            if force {
+                println!("🔄 Force refresh requested. Attempting immediate Token refresh using existing Ticket...");
             } else {
-                println!("⚠️  Refresh failed: {}", err_msg);
-                println!("📡 Triggering a fresh platform push to recover...");
-                auth_cli.trigger_push(_profile, cfg, force).await?;
+                println!("📡 Checking current credentials for profile '{}'...", _profile);
+            }
+
+            // Attempt immediate refresh
+            match auth_cli.refresh_app_access_token(_profile, cfg).await {
+                Ok(_) => {
+                    println!("✅ Success! AccessToken has been refreshed.");
+                    Ok(())
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    if err_msg.contains("Missing app_ticket") {
+                        println!("⚠️  Local AppTicket missing or expired. Requesting a new one...");
+                    } else {
+                        println!("⚠️  Refresh failed: {}", err_msg);
+                    }
+                    println!("📡 Triggering a fresh platform push...");
+                    auth_cli.trigger_push(_profile, cfg, force).await?;
+                    
+                    println!("⏳ Waiting for platform (AppTicket) push...");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    match auth_cli.refresh_app_access_token(_profile, cfg).await {
+                        Ok(_) => {
+                            println!("✅ Success! AccessToken obtained.");
+                            Ok(())
+                        }
+                        Err(e) => Err(anyhow::anyhow!("Failed to obtain token: {}", e))
+                    }
+                }
             }
         }
     }
+}
 
-    // 2. If we reach here, the internal 30s loop in refresh_app_access_token might have failed,
-    // or we are doing a manual retry. Let's give it one more guided wait.
-    println!("⏳ Waiting for platform to push security handshake (AppTicket)...");
-    println!("(TIP: Ensure the daemon is running to receive the push)");
+async fn finalize_login(profile: &str, cfg: &Config, auth_cli: &dyn AuthClientTrait) -> Result<()> {
+    tracing::info!(target: "sys", profile = %profile, "Finalizer started for background auth");
     
-    // We try one more time with a fresh wait
-    match auth_cli.refresh_app_access_token(_profile, cfg).await {
-        Ok(_) => {
-            println!("✅ Success! AccessToken obtained.");
-            Ok(())
+    let _vault = crate::core::config::ConfigManager::new()?.load(profile).map(|_| ())?; // Ensure env is OK
+    // Note: Re-acquiring vault via wrapper
+    let fingerprint = crate::core::security::get_machine_fingerprint()?;
+    let seal_path = crate::core::config::get_app_dir().join(".seal");
+    let multi_vault = crate::core::vault::MultiVault::new(seal_path, &fingerprint)?;
+    
+    let token_pool = crate::auth::VaultTokenPool::new(std::sync::Arc::new(multi_vault));
+    let session_manager = crate::auth::lifecycle::AuthSessionManager::new(&token_pool);
+
+    // 1. Get Session
+    let session = session_manager.get_session(profile)?;
+    
+    // 2. Start Listener
+    let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port).await;
+    tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
+
+    // 3. Wait for result with timeout
+    tokio::select! {
+        result = rx => {
+            match result {
+                Ok(res) => {
+                    tracing::info!(target: "sys", "Callback received, saving code...");
+                    session_manager.save_code(profile, &res.code, &res.state)?;
+                    
+                    // Trigger exchange
+                    match auth_cli.get_app_access_token(profile, cfg).await {
+                        Ok(_) => {
+                            tracing::info!(target: "sys", "Token exchange successful, cleaning up.");
+                            let _ = session_manager.clear(profile);
+                            Ok(())
+                        }
+                        Err(e) => {
+                            tracing::error!(target: "sys", error = %e, "Token exchange failed");
+                            Err(e)
+                        }
+                    }
+                }
+                Err(e) => Err(anyhow::anyhow!("Listener channel closed: {}", e))
+            }
         }
-        Err(e) => {
-            Err(anyhow::anyhow!("Failed to obtain token after waiting: {}. \nSuggestion: Check if 'owenc daemon start' is running and your network/firewall allows WebSocket connections to {}", e, cfg.stream_url))
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(300)) => {
+            tracing::warn!(target: "sys", "Finalizer timed out after 5 minutes");
+            let _ = session_manager.clear(profile);
+            Err(anyhow::anyhow!("Background authorization timed out"))
         }
     }
 }
@@ -83,5 +151,11 @@ pub async fn token(
             println!("  Reason: {}", e);
         }
     }
+    Ok(())
+}
+pub async fn logout(profile: &str, _cfg: &Config, auth_cli: &dyn AuthClientTrait) -> Result<()> {
+    auth_cli.clear_token(profile).await?;
+    println!("✅ Successfully logged out from profile '{}'.", profile);
+    println!("💡 All session credentials (Tokens/Tickets) have been cleared.");
     Ok(())
 }

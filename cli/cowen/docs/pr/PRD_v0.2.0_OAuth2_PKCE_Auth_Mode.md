@@ -5,7 +5,7 @@
 | **项目名称** | Cowen CLI (owenc) |
 | **版本号** | v0.2.0 |
 | **特性名称** | OAuth2 (PKCE) 认证模式集成 |
-| **状态** | 草案 (Draft) |
+| **状态** | 已结项 (Closed) |
 
 ---
 
@@ -72,7 +72,7 @@
 | 步骤 | 操作方 | 交互描述 | 结果期望 |
 | :--- | :--- | :--- | :--- |
 | 1 | 用户 | 执行 `owenc init` | **默认**进入 OAuth2 初始化流程 |
-| 2 | CLI | 生成 PKCE 凭据，持久化 `AuthSession` 上下文，并派生 **脱离主终端的后台 Finalizer 进程** | 进程分离成功，终端显示“授权会话已启动” |
+| 2 | CLI | 生成 PKCE 凭据，持久化 `AuthSession` 上下文至 Vault (加密)，并派生 **脱离主终端的后台 Finalizer 进程** | 进程分离成功，终端显示“授权会话已启动” |
 | 3 | CLI | 构造授权链接，自动调用系统浏览器打开 | 浏览器弹出授权页面 |
 | 4 | CLI | **即刻退出并返回控制台** | **用户可立即继续在终端执行其他操作**，无需等待授权完成 |
 | 5 | 用户 | 在浏览器完成登录授权 | 浏览器接收到 Code 并重定向至 **后台 Finalizer** 监听地址 |
@@ -89,7 +89,7 @@ sequenceDiagram
 
     User->>CLI: 1. 执行 init
     Note over CLI: 生成 PKCE & 授权 ID
-    CLI->>CLI: 2. 持久化上下文至 .owenc/auth/xxx.json
+    CLI->>CLI: 2. 持久化上下文至 Vault (key: pending_auth_session)
     CLI->>Finalizer: 3. 派生独立后台进程 (Detached)
     Finalizer->>Finalizer: 4. 监听动态端口
     CLI->>Browser: 5. 打开授权 URL
@@ -103,7 +103,7 @@ sequenceDiagram
     Browser->>Finalizer: 9. 回传 Code
     Finalizer->>Auth: 10. POST /oauth2/token (换票)
     Auth-->>Finalizer: 11. 返回令牌对
-    Finalizer->>Finalizer: 12. 更新 Vault 并清理临时文件
+    Finalizer->>Finalizer: 12. 更新 Vault 并清理 Vault 中的待处理会话数据
     Note over Finalizer: 自毁退出
 ```
 
@@ -153,3 +153,6 @@ struct OAuth2TokenPair {
 > **安全红线**：
 > 1. `refresh_token` 在本地落地必须经过 AES-256-GCM 物理指纹加密。
 > 2. 日志中严禁打印任何 `refresh_token` 或 `code_verifier` 的明文或部分掩码。
+---
+> [!NOTE]
+> **结项归档**：本特性开发工作已于 2026-04-20 完成。详细影响评估及验证结论详见：[v0.2.0_Closing_Report.md](v0.2.0_Closing_Report.md)

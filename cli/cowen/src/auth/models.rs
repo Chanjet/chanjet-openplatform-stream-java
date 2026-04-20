@@ -52,10 +52,91 @@ pub struct Ticket {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthMode {
+    SelfBuilt,
+    Oauth2,
+}
+
+impl Default for AuthMode {
+    fn default() -> Self {
+        Self::Oauth2
+    }
+}
+
+/// 内置的 OAuth2 Client ID (AppKey)
+pub const BUILTIN_CLIENT_ID: &str = "<BUILTIN_CLIENT_ID>";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuth2TokenPair {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at: DateTime<Utc>,
+    pub refresh_expires_at: DateTime<Utc>,
+    #[serde(default = "Utc::now")]
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthSession {
+    pub profile: String,
+    pub code_verifier: String,
+    pub state: String,
+    pub redirect_uri: String,
+    pub redirect_port: u16,
+    pub expires_at: DateTime<Utc>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    #[test]
+    fn test_oauth2_token_pair_serialization() {
+        let now = Utc::now();
+        let pair = OAuth2TokenPair {
+            access_token: "at".to_string(),
+            refresh_token: "rt".to_string(),
+            expires_at: now + Duration::hours(2),
+            refresh_expires_at: now + Duration::days(7),
+            created_at: now,
+        };
+        let json = serde_json::to_string(&pair).unwrap();
+        let decoded: OAuth2TokenPair = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.access_token, "at");
+        assert_eq!(decoded.refresh_token, "rt");
+    }
+
+    #[test]
+    fn test_auth_session_serialization() {
+        let now = Utc::now();
+        let session = AuthSession {
+            profile: "default".to_string(),
+            code_verifier: "cv".to_string(),
+            state: "st".to_string(),
+            redirect_uri: "http://localhost:8080".to_string(),
+            redirect_port: 8080,
+            expires_at: now + Duration::minutes(5),
+        };
+        let json = serde_json::to_string(&session).unwrap();
+        let decoded: AuthSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.profile, "default");
+        assert_eq!(decoded.code_verifier, "cv");
+    }
+
+    #[test]
+    fn test_authmode_serialization() {
+        assert_eq!(serde_json::to_string(&AuthMode::SelfBuilt).unwrap(), "\"self-built\"");
+        assert_eq!(serde_json::to_string(&AuthMode::Oauth2).unwrap(), "\"oauth2\"");
+        
+        let mode: AuthMode = serde_json::from_str("\"self-built\"").unwrap();
+        assert_eq!(mode, AuthMode::SelfBuilt);
+        
+        let mode: AuthMode = serde_json::from_str("\"oauth2\"").unwrap();
+        assert_eq!(mode, AuthMode::Oauth2);
+    }
 
     #[test]
     fn test_is_expired_with_10_percent_buffer() {

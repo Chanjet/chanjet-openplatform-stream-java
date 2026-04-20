@@ -18,6 +18,8 @@ pub struct Config {
     pub proxy_port: u16,
     #[serde(default = "default_true")]
     pub proxy_enabled: bool,
+    #[serde(default)]
+    pub app_mode: crate::auth::models::AuthMode,
     // Note: Secrets like app_secret are now in Vault, not Config file
     #[serde(skip)]
     pub app_secret: String,
@@ -85,6 +87,7 @@ impl Config {
             ai_enabled: true,
             proxy_port: 0, // Flag to be overwritten during init
             proxy_enabled: true,
+            app_mode: crate::auth::models::AuthMode::Oauth2,
             log: LogConfig {
                 level: "error".to_string(),
                 rotation: "daily".to_string(),
@@ -262,5 +265,12 @@ mod tests {
         assert_eq!(manager.get_default_profile(), "default");
         manager.set_default_profile("p1").unwrap();
         assert_eq!(manager.get_default_profile(), "p1");
+    }
+
+    #[test]
+    fn test_config_app_mode_default() {
+        let yaml = "app_key: test\nopenapi_url: test\nstream_url: test\nwebhook_target: test\nlog:\n  level: info\n  rotation: daily\n  max_files: 1\n  max_size_mb: 1";
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.app_mode, crate::auth::models::AuthMode::Oauth2);
     }
 }

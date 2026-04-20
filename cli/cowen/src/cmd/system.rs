@@ -24,6 +24,7 @@ pub struct ConfigStatus {
     pub encrypt_key: String,
     pub openapi_url: String,
     pub stream_url: String,
+    pub app_mode: String,
 }
 
 #[derive(Serialize)]
@@ -37,6 +38,7 @@ pub struct TokenStatus {
     pub status: String,
     pub expires_at: DateTime<Utc>,
     pub real_expires_at: DateTime<Utc>,
+    pub refresh_expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize)]
@@ -122,6 +124,7 @@ async fn get_system_status(
         encrypt_key: crate::core::utils::mask_string(&cfg.encrypt_key),
         openapi_url: cfg.openapi_url.clone(),
         stream_url: cfg.stream_url.clone(),
+        app_mode: serde_json::to_string(&cfg.app_mode).unwrap_or_default().trim_matches('"').to_string(),
     };
 
     // 2. Vault
@@ -158,6 +161,17 @@ async fn get_system_status(
             status: if token.is_expired() { "EXPIRED".to_string() } else { "VALID".to_string() },
             expires_at: token.expires_at,
             real_expires_at: token.real_expires_at(),
+            refresh_expires_at: None, // Will be filled below for OAuth2
+        })
+    } else if let Ok(pair_raw) = vault.get(profile, "oauth2_token_pair") {
+        let pair: crate::auth::models::OAuth2TokenPair = serde_json::from_str(&pair_raw)?;
+        let is_expired = Utc::now() > pair.expires_at;
+        
+        Some(TokenStatus {
+            status: if is_expired { "EXPIRED".to_string() } else { "VALID".to_string() },
+            expires_at: pair.expires_at,
+            real_expires_at: pair.expires_at,
+            refresh_expires_at: Some(pair.refresh_expires_at),
         })
     } else { None };
 
@@ -207,7 +221,7 @@ fn print_single_status(bin_name: &str, full_status: &SystemStatus, all: bool) {
     }
 
     if !full_status.config.app_key.is_empty() {
-        println!("  ⚙️  Configuration: [OK] AppKey: {}", full_status.config.app_key);
+        println!("  ⚙️  Configuration: [OK] AppKey: {} (Mode: \x1b[36m{}\x1b[0m)", full_status.config.app_key, full_status.config.app_mode);
     } else {
         println!("  ⚙️  Configuration: [MISSING] Profile not initialized or AppKey empty.");
     }
@@ -223,6 +237,11 @@ fn print_single_status(bin_name: &str, full_status: &SystemStatus, all: bool) {
     if let Some(token) = &full_status.token {
         let real_expiry = token.real_expires_at.with_timezone(&Local);
         println!("  🔑 AccessToken: [{}] (Expires: {})", token.status, real_expiry.format("%Y-%m-%d %H:%M:%S"));
+        
+        if let Some(ref_exp) = token.refresh_expires_at {
+            let ref_expiry = ref_exp.with_timezone(&Local);
+            println!("  🔄 RefreshToken: [VALID] (Expires: {})", ref_expiry.format("%Y-%m-%d %H:%M:%S"));
+        }
     } else {
         println!("  🔑 AccessToken: [NONE] (未获取到有效令牌)");
     }
@@ -230,8 +249,10 @@ fn print_single_status(bin_name: &str, full_status: &SystemStatus, all: bool) {
     if let Some(ticket) = &full_status.ticket {
         let created = ticket.created_at.with_timezone(&Local);
         println!("  🎫 AppTicket:   [{}] (Received: {})", ticket.status, created.format("%Y-%m-%d %H:%M:%S"));
-    } else {
+    } else if full_status.config.app_mode == "self-built" {
         println!("  🎫 AppTicket:   [NONE] (等待 Daemon 接收推送)");
+    } else {
+        println!("  🎫 AppTicket:   [N/A] (OAuth2 模式无需 AppTicket)");
     }
 
     if full_status.daemon.running {

@@ -1,9 +1,7 @@
 use crate::core::config::Config;
 use crate::auth::pool::TokenPool;
 use crate::auth::models::Token;
-use anyhow::{Result, anyhow, Context};
-use serde::Deserialize;
-use chrono::{Utc, Duration};
+use anyhow::{Result, anyhow};
 use reqwest::Client as HttpClient;
 use std::sync::Arc;
 
@@ -18,7 +16,7 @@ impl SimpleResponse {
         self.status >= 200 && self.status < 300
     }
 
-    pub async fn json<T: for<'de> Deserialize<'de>>(&self) -> Result<T> {
+    pub async fn json<T: for<'de> serde::Deserialize<'de>>(&self) -> Result<T> {
         serde_json::from_str(&self.body).map_err(|e| anyhow!("JSON parse error: {}", e))
     }
 
@@ -83,33 +81,27 @@ pub trait Client: Send + Sync {
     async fn clear_token(&self, profile: &str) -> Result<()>;
 }
 
+use crate::auth::provider::self_built::SelfBuiltProvider;
+use crate::auth::provider::AuthProvider;
+use crate::auth::models::AuthMode;
+
+use crate::auth::provider::oauth2::OAuth2Provider;
+
 pub struct AuthClient<'a> {
     pool: &'a (dyn TokenPool + Send + Sync),
     http_sender: Arc<dyn HttpSender>,
-    refresh_lock: Arc<tokio::sync::Mutex<()>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PlatformTokenResponse {
-    result: bool,
-    error: Option<serde_json::Value>,
-    value: Option<TokenValue>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TokenValue {
-    #[serde(rename = "accessToken")]
-    access_token: String,
-    #[serde(rename = "expiresIn")]
-    expires_in: i64,
+    self_built: SelfBuiltProvider<'a>,
+    oauth2: OAuth2Provider<'a>,
 }
 
 impl<'a> AuthClient<'a> {
     pub fn new(pool: &'a (dyn TokenPool + Send + Sync)) -> Self {
+        let http_sender = Arc::new(ReqwestSender::new());
         Self {
             pool,
-            http_sender: Arc::new(ReqwestSender::new()),
-            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+            http_sender: http_sender.clone(),
+            self_built: SelfBuiltProvider::with_sender(pool, http_sender.clone()),
+            oauth2: OAuth2Provider::new(pool, http_sender),
         }
     }
 
@@ -117,226 +109,53 @@ impl<'a> AuthClient<'a> {
     pub fn with_sender(pool: &'a (dyn TokenPool + Send + Sync), sender: Arc<dyn HttpSender>) -> Self {
         Self {
             pool,
-            http_sender: sender,
-            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+            http_sender: sender.clone(),
+            self_built: SelfBuiltProvider::with_sender(pool, sender.clone()),
+            oauth2: OAuth2Provider::new(pool, sender),
         }
     }
 
-    async fn perform_network_refresh(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        if cfg.app_key.trim().is_empty() || cfg.app_secret.trim().is_empty() {
-            return Err(anyhow!("Credential Missing: AppKey or AppSecret is empty for profile '{}'. Please run 'cowen init' to configure your environment.", profile));
+    fn provider(&self, mode: &AuthMode) -> &dyn AuthProvider {
+        match mode {
+            AuthMode::SelfBuilt => &self.self_built,
+            AuthMode::Oauth2 => &self.oauth2,
         }
-
-        let mut attempts = 0;
-        let max_attempts = 65; // Wait up to 65 seconds for cloud push (survives 60s throttle)
-        
-        let ticket = loop {
-            match self.pool.get_app_ticket(profile) {
-                Ok(t) => break t,
-                Err(e) => {
-                    if attempts >= max_attempts {
-                        return Err(e).context("Missing app_ticket. The background daemon is running but hasn't received a push from the platform yet. Please wait a moment or check your network/firewall.");
-                    }
-                    if attempts == 0 {
-                        eprintln!("⏳ AppTicket missing. Proactively triggering a platform push...");
-                        // Proactively trigger push on first failure (throttle handled inside trigger_push)
-                        if let Err(push_err) = self.trigger_push(profile, cfg, false).await {
-                            let err_str = push_err.to_string();
-                            if err_str.contains("HTTP 401") || err_str.contains("50003") {
-                                return Err(push_err).context("Fatal configuration error from platform. Please check your AppKey, AppSecret, and OpenAPI URL settings.");
-                            }
-                            tracing::warn!(target: "sys", error = %push_err, "Failed to trigger proactive push");
-                        }
-                    }
-                    if attempts % 5 == 0 {
-                        eprintln!("⏳ Waiting for security handshake (AppTicket) from platform ({}s)...", attempts);
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    attempts += 1;
-                }
-            }
-        };
-
-        let url = format!("{}{}", cfg.openapi_url, obfs!("/v1/common/auth/selfBuiltApp/generateToken"));
-        let app_key = cfg.app_key.trim();
-        let app_secret = cfg.app_secret.trim();
-        
-        let ticket_val = ticket.value.trim();
-        let prefix = if ticket_val.len() > 8 { &ticket_val[..8] } else { ticket_val };
-        tracing::info!(
-            target: "sys", 
-            profile = %profile, 
-            "Performing network token refresh using AppTicket (prefix: {}, created_at: {})...", 
-            prefix, 
-            ticket.created_at
-        );
-        
-        let body = serde_json::json!({
-            "appKey": app_key,
-            "appSecret": app_secret,
-            "appTicket": ticket.value,
-            "certificate": cfg.certificate.trim(),
-            "authCertificate": cfg.certificate.trim(),
-        });
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("appKey", app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-        headers.insert("appSecret", app_secret.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-
-        tracing::info!(
-            target: "sys", 
-            url = %crate::core::utils::mask_url_query(&url), 
-            app_key = %app_key,
-            "Outgoing platform auth request"
-        );
-
-        let resp = self.http_sender.post(&url, headers, body).await?;
-
-        if !resp.is_success() {
-            let status = resp.status;
-            let err_text = resp.text();
-            let safe_err = crate::core::utils::mask_sensitive_json(&err_text);
-            return Err(anyhow!("Platform auth failed (HTTP {}): {}", status, safe_err));
-        }
-
-        let token_resp: PlatformTokenResponse = resp.json().await?;
-        
-        if !token_resp.result {
-            return Err(anyhow!("Platform error: {:?}", token_resp.error));
-        }
-
-        let val = token_resp.value.context("Platform returned success but value is empty")?;
-        
-        let now = Utc::now();
-        let new_token = Token {
-            value: val.access_token,
-            expires_at: now + Duration::seconds(val.expires_in),
-            created_at: now,
-        };
-
-        // Save to pool (and vault)
-        self.pool.set_access_token(profile, &new_token)?;
-        Ok(new_token)
     }
 }
 
 #[async_trait::async_trait]
 impl<'a> Client for AuthClient<'a> {
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        // 1. Fast path: check pool
-        if let Ok(token) = self.pool.get_access_token(profile) {
-            if !token.is_expired() {
-                return Ok(token);
-            }
-        }
-
-        // 2. Slow path: barrier refresh
-        let _guard = self.refresh_lock.lock().await;
-        
-        // Re-check after acquiring lock
-        if let Ok(token) = self.pool.get_access_token(profile) {
-            if !token.is_expired() {
-                return Ok(token);
-            }
-        }
-
-        self.pool.clear_cache(profile);
-        self.perform_network_refresh(profile, cfg).await
+        self.provider(&cfg.app_mode).get_token(profile, cfg).await
     }
 
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        let _guard = self.refresh_lock.lock().await;
-        self.pool.clear_cache(profile);
-        self.perform_network_refresh(profile, cfg).await
+        self.provider(&cfg.app_mode).refresh(profile, cfg).await
     }
 
     async fn clear_token(&self, profile: &str) -> Result<()> {
-        self.pool.delete_access_token(profile)
+        // 1. Clear Access Tokens (Generic pool)
+        self.pool.delete_access_token(profile)?;
+        
+        // 2. Clear AppTickets (Self-Built specific)
+        let vault = self.pool.as_vault();
+        let _ = vault.delete(profile, "app_ticket");
+        let _ = vault.delete(profile, "app_ticket_created");
+        
+        // 3. Clear OAuth2 Session & Tokens (OAuth2 specific)
+        let _ = vault.delete(profile, "oauth2_token_pair");
+        let _ = vault.delete(profile, "pending_auth_session");
+        let _ = vault.delete(profile, "captured_auth_code");
+        
+        // 4. Clear Auth related transient states
+        let _ = vault.delete(profile, "push_backoff_level");
+        let _ = vault.delete(profile, "push_last_attempt_ts");
+        
+        Ok(())
     }
 
     async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> Result<()> {
-        let vault = self.pool.as_vault();
-        
-        // 1. Check Throttling & Backoff (unless forced)
-        if !force {
-            let now = Utc::now();
-            let last_attempt = if let Some(ts_str) = vault.get(profile, "push_last_attempt_ts").ok() {
-                chrono::DateTime::parse_from_rfc3339(&ts_str)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now() - Duration::hours(1))
-            } else {
-                Utc::now() - Duration::hours(1)
-            };
-            
-            let level: u32 = vault.get(profile, "push_backoff_level")
-                .unwrap_or_else(|_| "0".to_string())
-                .parse()
-                .unwrap_or(0);
-                
-            // Backoff strategy: 1m * 2^level, capped at 24h
-            let wait_secs = std::cmp::min(86400, 60 * (1 << std::cmp::min(level, 10)));
-            let elapsed = now.signed_duration_since(last_attempt).num_seconds();
-            
-            if elapsed < wait_secs as i64 {
-                tracing::info!(target: "sys", "Proactive push throttled for profile '{}'. Level: {}, Needs wait: {}s, Elapsed: {}s. Skipping.", profile, level, wait_secs, elapsed);
-                return Ok(());
-            }
-        }
-
-        // 2. Perform Network Request
-        let app_key = cfg.app_key.trim();
-        let app_secret = cfg.app_secret.trim();
-
-        if app_key.is_empty() || app_secret.is_empty() {
-            return Err(anyhow!("Missing AppKey or AppSecret for profile '{}'. Please run 'cowen init' first.", profile));
-        }
-
-        let url = format!("{}{}", cfg.openapi_url, obfs!("/auth/appTicket/resend"));
-        let body = serde_json::json!({});
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("appKey", app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-        headers.insert("appSecret", app_secret.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-
-        tracing::info!(
-            target: "sys", 
-            url = %crate::core::utils::mask_url_query(&url), 
-            app_key = %app_key,
-            "Outgoing platform auth request"
-        );
-
-        let resp = self.http_sender.post(&url, headers, body).await?;
-
-        if !resp.is_success() {
-            let status = resp.status;
-            let err_text = resp.text();
-            
-            // On failure: Update attempt timestamp and potentially increase backoff level for 409
-            let level: u32 = vault.get(profile, "push_backoff_level").unwrap_or_else(|_| "0".to_string()).parse().unwrap_or(0);
-            if status == 409 {
-                let _ = vault.set(profile, "push_backoff_level", &(level + 1).to_string());
-            }
-            let _ = vault.set(profile, "push_last_attempt_ts", &Utc::now().to_rfc3339());
-            
-            return Err(anyhow!("Failed to trigger push (HTTP {}): {}", status, err_text));
-        }
-
-        // On success: Reset backoff level and update last attempt timestamp
-        let _ = vault.set(profile, "push_backoff_level", "0");
-        let _ = vault.set(profile, "push_last_attempt_ts", &Utc::now().to_rfc3339());
-
-        #[derive(Deserialize)]
-        struct ResendResp {
-            code: String,
-            message: Option<String>,
-        }
-
-        let resend_resp: ResendResp = resp.json().await?;
-        if resend_resp.code != "200" {
-            return Err(anyhow!("Platform error: {} - {:?}", resend_resp.code, resend_resp.message));
-        }
-
-        Ok(())
+        self.self_built.trigger_push(profile, cfg, force).await
     }
 
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value> {
@@ -627,6 +446,7 @@ mod tests {
     use crate::core::vault::Vault;
     use std::collections::HashMap;
     use std::sync::Mutex;
+    use chrono::Utc;
 
     struct MockPool {
         ticket: Mutex<Option<Ticket>>,
@@ -681,8 +501,11 @@ mod tests {
             *self.token.lock().unwrap() = Some(token.clone());
             Ok(())
         }
-        fn delete_access_token(&self, _profile: &str) -> Result<()> {
+        fn delete_access_token(&self, profile: &str) -> Result<()> {
             *self.token.lock().unwrap() = None;
+            let _ = self.vault.delete(profile, "access_token");
+            let _ = self.vault.delete(profile, "access_token_expires");
+            let _ = self.vault.delete(profile, "access_token_created");
             Ok(())
         }
         fn clear_cache(&self, _profile: &str) {}
@@ -735,8 +558,9 @@ mod tests {
         let mut cfg = Config::default_with_profile("test");
         cfg.app_key = "test_app_key".to_string();
         cfg.app_secret = "test_app_secret".to_string();
+        cfg.app_mode = AuthMode::SelfBuilt;
         
-        let token = client.perform_network_refresh("test", &cfg).await.unwrap();
+        let token = client.get_app_access_token("test", &cfg).await.unwrap();
         assert_eq!(token.value, "new_token");
         
         let saved_token = pool.get_access_token("test").unwrap();
@@ -775,5 +599,31 @@ mod tests {
         let parameters = spec["paths"]["/test"]["post"]["parameters"].as_array().unwrap();
         assert_eq!(parameters.len(), 1);
         assert_eq!(parameters[0]["name"], "Authorization");
+    }
+
+    #[tokio::test]
+    async fn test_clear_token_removes_all_dynamic_keys() {
+        let pool = MockPool::new();
+        let vault = pool.as_vault();
+        let profile = "test";
+        
+        // 1. Setup initial dynamic data
+        vault.set(profile, "access_token", "abc").unwrap();
+        vault.set(profile, "app_ticket", "tkt").unwrap();
+        vault.set(profile, "oauth2_token_pair", "{}").unwrap();
+        vault.set(profile, "push_backoff_level", "1").unwrap();
+        vault.set(profile, "app_secret", "STAY").unwrap(); // This should NOT be cleared
+        
+        let client = AuthClient::new(&pool);
+        client.clear_token(profile).await.unwrap();
+        
+        // 2. Verify dynamic keys are gone
+        assert!(vault.get(profile, "access_token").is_err());
+        assert!(vault.get(profile, "app_ticket").is_err());
+        assert!(vault.get(profile, "oauth2_token_pair").is_err());
+        assert!(vault.get(profile, "push_backoff_level").is_err());
+        
+        // 3. Verify static config remains
+        assert_eq!(vault.get(profile, "app_secret").unwrap(), "STAY");
     }
 }

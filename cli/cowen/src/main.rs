@@ -79,6 +79,8 @@ pub enum Commands {
         openapi_url: Option<String>,
         #[arg(long, help = "Stream Gateway 基础 URL 覆盖")]
         stream_url: Option<String>,
+        #[arg(long, help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用)")]
+        app_mode: Option<String>,
     },
     /// 调用开放平台 API 或管理接口规范
     #[command(long_about = "调用开放平台 API 或管理接口规范。\n\n此命令支持两种模式：\n1. 直接调用 API: 提供 [METHOD] (如 GET, POST) 和 [PATH] (如 /v1/user) 直接发起请求。\n   CLI 会自动处理鉴权 Token 注入、请求签名与审计记录。\n2. 子命令管理: 使用 'list' 或 'spec' 进行 API 的检索、语义搜索与文档查看。")]
@@ -186,13 +188,18 @@ pub enum ApiCommands {
 pub enum AuthCommands {
     /// 检查当前环境的身份认证状态
     Status,
-    /// 重置当前配置环境的所有凭据与安全设置
+    /// 重置当前配置环境的所有凭据与安全设置 (非破坏性)
     Reset,
+    /// 注销当前会话并清理所有凭证 (与 Reset 行为一致)
+    Logout,
     /// 触发 AppTicket 推送与令牌刷新
     Login {
         /// 强制清除本地 AccessToken 缓存并重新触发网络刷新
         #[arg(short, long)]
         force: bool,
+        /// 内部使用：后台 Finalizer 的会话 UUID，终端用户不可见
+        #[arg(long, hide = true)]
+        finalize: Option<String>,
     },
     /// 查看令牌
     Token,
@@ -442,6 +449,7 @@ async fn run() -> Result<()> {
             webhook_target,
             openapi_url,
             stream_url,
+            app_mode,
         } => {
             cmd::init::execute(
                 &active_profile, 
@@ -454,6 +462,7 @@ async fn run() -> Result<()> {
                 webhook_target,
                 openapi_url,
                 stream_url,
+                app_mode,
             ).await?;
         }
         Commands::Api { method, path, data, data_file, action } => {
@@ -477,11 +486,11 @@ async fn run() -> Result<()> {
             AuthCommands::Status => {
                 cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, false).await?;
             }
-            AuthCommands::Reset => {
-                cmd::system::reset(&active_profile, Some(&*vault), &cfg_mgr).await?;
+            AuthCommands::Reset | AuthCommands::Logout => {
+                cmd::auth::logout(&active_profile, &config, &auth_cli).await?;
             }
-            AuthCommands::Login { force } => {
-                cmd::auth::login(&active_profile, &config, &auth_cli, *force).await?;
+            AuthCommands::Login { force, finalize } => {
+                cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref()).await?;
             }
             AuthCommands::Token => {
                 cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format).await?;

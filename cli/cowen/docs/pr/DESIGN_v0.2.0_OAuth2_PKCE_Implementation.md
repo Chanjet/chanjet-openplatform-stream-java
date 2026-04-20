@@ -90,7 +90,7 @@ struct OAuth2TokenPair {
 **文件位置**：`src/auth/oauth2/`
 
 - **`AuthSession` 模式 (Schema)**：
-  存储路径：`~/.owenc/auth/auth_<UUID>.json` (权限 0600)
+  存储方式：Vault 键 `pending_auth_session` (加密存储)
   ```rust
   struct AuthSession {
       profile: String,       // 绑定的 Profile 名称
@@ -106,7 +106,7 @@ struct OAuth2TokenPair {
   执行入口：`owenc auth login --finalize <UUID>` （隐藏参数，用户不可见）
   - 使用 `process_group(0)` 脱离终端。
   - 绑定随机端口并监听 `/callback` 路径。成功后读取 Session JSON 还原上下文。
-  - 完成换票后更新 Vault 并清理临时文件。
+  - 完成换票后更新 Vault 并清理 Vault 中的 Session 键。
 
 ### 3.4 Finalizer 的 Clap 注册方案
 Finalizer 作为 `AuthCommands::Login` 的隐藏参数注册，不暴露给用户：
@@ -140,6 +140,10 @@ Init {
     app_secret: Option<String>,
     // ... 其余参数保持不变 ...
 }
+```
+
+> [!NOTE]
+> 对于 0.1.x 的存量配置文件，若缺失 `app_mode` 字段，解析时将遵循全局默认值 `oauth2`。若需维持旧有行为，需显式执行 `owenc init --app-mode self-built` 重置。
 ```
 
 > [!IMPORTANT]
@@ -177,13 +181,13 @@ Init {
 | `owenc api *` | 无感。调用 `AuthProvider` 获取令牌。 | 无感。自动执行 Refresh Token 轮换逻辑。 | `AuthProvider` 为上层装饰器提供统一 `Token` 结构。 |
 | `owenc auth status`| 输出原有的 Ticket/Token 状态。 | 输出 Access/Refresh Token 的双效期状态。 | 界面布局保持一致，增强模式标记。 |
 | `owenc auth login` | 触发云端重发 Ticket。 | 触发一次强制的被动刷新 (Refresh Grant)。 | 指法与语义保持一致，底层逻辑按模式分发。 |
-| `owenc auth reset` | 清理 Vault 中原有 Key。 | 清理 `oauth2_token_pair` 键值及 Session 文件。 | 物理隔离 Key，互相清理不干扰。 |
+| `owenc auth reset` | 清理 Vault 中原有 Key。 | 清理 `oauth2_token_pair` 键值及 Vault 中的 Session 键。 | 物理隔离 Key，互相清理不干扰。 |
 | `owenc daemon` | 继续执行旧有的 Ticket 预热。 | 执行 Proactive Refresh 轮换。 | 守护进程由于只调用 Trait 接口，代码逻辑几乎零变动。 |
 | `owenc status` | 报告已有 Profile 的健康度。 | 报告 OAuth2 会话的有效性。 | 对各版本的 Profile 均能准确识别并汇报。 |
 
 ### 5.2 配置与存储兼容性
-- **配置层 (Config)**：新增 `app_mode` 字段，默认为 `self-built` (通过 `serde(default)`)，确保 0.1.x 的 YAML 无需任何修改即可运行。
-- **存储层 (Vault)**：通过不同的 Key (`app_ticket`/`access_token` vs `oauth2_token_pair`) 物理隔离两种模式的数据，防止版本切换导致的数据损毁。
+- **配置层 (Config)**：新增 `app_mode` 字段，默认为 `oauth2` (通过 `serde(default)`)。针对 0.1.x 用户，建议在升级文档中说明默认值变更。
+- **存储层 (Vault)**：通过不同的 Key (`app_ticket`/`access_token` vs `oauth2_token_pair` / `pending_auth_session`) 物理隔离两种模式的数据，防止版本切换导致的数据损毁。所有 OAuth2 敏感元数据均落地于 Vault 的加密区位。
 
 ---
 
@@ -204,7 +208,7 @@ Init {
 
 ### PDU 0: 核心抽象与基建 (Foundation)
 - **交付物**：
-    - `AuthMode` 枚举与 `Config` 字段适配（含 `serde(default)`）。
+    - `AuthMode` 枚举与 `Config` 字段适配（含 `serde(default)` 设为 `oauth2`）。
     - `AuthProvider` Trait 定义与 `AuthClient` 分发逻辑。
     - `OAuth2TokenPair` 结构体及 Vault 序列化/反序列化辅助方法。
     - `AuthSession` 结构体定义。
@@ -215,7 +219,7 @@ Init {
     - 迁移后 `AuthClient` 仅保留 Facade 分发逻辑（根据 `AuthMode` 选择 Provider）。
     - 原 `AuthClient` 的 `Client` Trait 对外接口保持不变。
 - **验收要求 (AC)**：
-    1. 不携带 `app_mode` 的旧配置文件能被成功解析为 `SelfBuilt`。
+    1. 配置解析默认指向 `oauth2`。
     2. `RequestDecorator` 在切换底层模式时，无需修改任何代码即可正常调用 `Client` 接口。
     3. `SelfBuiltProvider` 通过全部原有单元测试（等价于回归验证）。
 
@@ -231,13 +235,13 @@ Init {
 
 ### PDU 2: 后台 Finalizer 与生命周期 (Lifecycle)
 - **交付物**：
-    - `AuthSessionManager`：Session JSON 加密读写服务。
+    - `AuthSessionManager`：Vault 键值状态管理服务。
     - `LocalCallbackServer`：轻量级 `tiny_http` 监听程序，监听 `/callback` 路径。
     - Finalizer 隐藏命令处理逻辑 (`auth login --finalize`)。
     - 子进程脱离终端的 Detachment 封装。
 - **验收要求 (AC)**：
     1. 启动 Finalizer 后，主进程退出，通过 `ps` 确认后台进程存活。
-    2. 无论授权成功或超时失败，必须物理删除 `~/.owenc/auth/` 下对应的临时 JSON 文件。
+    2. 无论授权成功或超时失败，必须物理删除 Vault 中对应的 `pending_auth_session` 键。
     3. 5 分钟超时后进程必须自动退出并清理资源。
 
 ### PDU 3: init 链路组装 (UI/UX)
