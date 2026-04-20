@@ -246,13 +246,13 @@ fn print_single_status(bin_name: &str, full_status: &SystemStatus, all: bool) {
         println!("  🔑 AccessToken: [NONE] (未获取到有效令牌)");
     }
 
-    if let Some(ticket) = &full_status.ticket {
-        let created = ticket.created_at.with_timezone(&Local);
-        println!("  🎫 AppTicket:   [{}] (Received: {})", ticket.status, created.format("%Y-%m-%d %H:%M:%S"));
-    } else if full_status.config.app_mode == "self-built" {
-        println!("  🎫 AppTicket:   [NONE] (等待 Daemon 接收推送)");
-    } else {
-        println!("  🎫 AppTicket:   [N/A] (OAuth2 模式无需 AppTicket)");
+    if full_status.config.app_mode == "self-built" {
+        if let Some(ticket) = &full_status.ticket {
+            let created = ticket.created_at.with_timezone(&Local);
+            println!("  🎫 AppTicket:   [{}] (Received: {})", ticket.status, created.format("%Y-%m-%d %H:%M:%S"));
+        } else {
+            println!("  🎫 AppTicket:   [NONE] (等待 Daemon 接收推送)");
+        }
     }
 
     if full_status.daemon.running {
