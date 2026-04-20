@@ -19,8 +19,8 @@ help:
 	@echo "  test-nodejs  Run Node.js unit tests"
 	@echo "  test-go      Run Go unit tests"
 	@echo "  clean        Clean all build artifacts"
-	@echo "  build-cli-inte  Build CLI with integration feature and validation appKey (rle1Onds)"
-	@echo "  build-cli-prod  Build CLI release version"
+	@echo "  build-cli-inte  Build CLI with integration feature (delegated)"
+	@echo "  build-cli-prod  Build CLI production version (delegated)"
 
 build-all:
 	@echo "Building all modules..."
@@ -28,21 +28,15 @@ build-all:
 	@cd sdk/nodejs && npm install && npm run build
 	@cd sdk/go && go build ./...
 	@echo "Building CLI..."
-	@cd cli/cowen && cargo build --release
+	@$(MAKE) -C cli/cowen build-prod
 	@echo "Done."
 
-# CLI Build Targets
-INTE_APP_KEY ?= rle1Onds
-
+# CLI Build Targets (Delegated to cli/cowen/Makefile)
 build-cli-inte:
-	@echo "Building CLI (Integration)..."
-	@cd cli/cowen && BUILTIN_CLIENT_ID=$(INTE_APP_KEY) cargo build --features inte
-	@echo "Done."
+	@$(MAKE) -C cli/cowen build-inte
 
 build-cli-prod:
-	@echo "Building CLI (Production)..."
-	@cd cli/cowen && cargo build --release
-	@echo "Done."
+	@$(MAKE) -C cli/cowen build-prod
 
 test: test-java test-nodejs test-go
 
