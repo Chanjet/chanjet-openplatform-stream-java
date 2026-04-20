@@ -35,7 +35,7 @@ impl OAuth2CallbackListener {
         let shared_shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
 
         let app = Router::new()
-            .route("/oauth2/callback", get(move |query: Query<CallbackQuery>, 
+            .route("/callback", get(move |query: Query<CallbackQuery>, 
                                                State((res_tx, sdn_tx)): State<(SharedState, ShutdownState)>| {
                 async move {
                     let res = CallbackResult {
@@ -82,7 +82,7 @@ mod tests {
         let (port, rx) = OAuth2CallbackListener::start(0).await;
         assert!(port > 0);
 
-        let url = format!("http://127.0.0.1:{}/oauth2/callback?code=test_code&state=test_state", port);
+        let url = format!("http://127.0.0.1:{}/callback?code=test_code&state=test_state", port);
         let client = Client::new();
         let resp = client.get(&url).send().await.unwrap();
         assert!(resp.status().is_success());

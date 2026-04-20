@@ -383,7 +383,7 @@ mod tests {
         
         // 3. Simulate Callback (e.g. from Browser)
         let client = reqwest::Client::new();
-        let callback_url = format!("http://127.0.0.1:{}/oauth2/callback?code=captured_code&state={}", actual_port, session.state);
+        let callback_url = format!("http://127.0.0.1:{}/callback?code=captured_code&state={}", actual_port, session.state);
         client.get(&callback_url).send().await.unwrap();
 
         // 4. Capture result and save to Vault

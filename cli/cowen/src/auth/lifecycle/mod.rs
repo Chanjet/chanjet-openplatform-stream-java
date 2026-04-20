@@ -24,7 +24,7 @@ impl<'a> AuthSessionManager<'a> {
             profile: profile.to_string(),
             code_verifier: pkce.verifier.clone(), // This is the secret for later
             state: state.clone(),
-            redirect_uri: format!("http://127.0.0.1:{}", redirect_port),
+            redirect_uri: format!("http://127.0.0.1:{}/callback", redirect_port),
             redirect_port,
             expires_at: Utc::now() + Duration::minutes(5),
         };
