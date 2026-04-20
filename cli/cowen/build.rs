@@ -6,6 +6,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=DEF_OPENAPI_URL");
     println!("cargo:rerun-if-env-changed=DEF_STREAM_URL");
     println!("cargo:rerun-if-env-changed=DEF_MARKET_URL");
+    println!("cargo:rerun-if-env-changed=BUILTIN_CLIENT_ID");
 
     let now = SystemTime::now();
     let since_the_epoch = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -40,7 +41,9 @@ fn main() {
     let openapi_url = std::env::var("DEF_OPENAPI_URL").unwrap_or_else(|_| "https://openapi.chanjet.com".to_string());
     let stream_url = std::env::var("DEF_STREAM_URL").unwrap_or_else(|_| "https://stream-open.chanapp.chanjet.com".to_string());
     let market_url = std::env::var("DEF_MARKET_URL").unwrap_or_else(|_| "https://market.chanjet.com".to_string());
+    let builtin_client_id = std::env::var("BUILTIN_CLIENT_ID").unwrap_or_else(|_| "<BUILTIN_CLIENT_ID>".to_string());
     println!("cargo:rustc-env=DEF_OPENAPI_URL={}", openapi_url);
     println!("cargo:rustc-env=DEF_STREAM_URL={}", stream_url);
     println!("cargo:rustc-env=DEF_MARKET_URL={}", market_url);
+    println!("cargo:rustc-env=BUILTIN_CLIENT_ID={}", builtin_client_id);
 }

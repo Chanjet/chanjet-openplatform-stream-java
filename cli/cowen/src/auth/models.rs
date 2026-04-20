@@ -66,7 +66,7 @@ impl Default for AuthMode {
 }
 
 /// 内置的 OAuth2 Client ID (AppKey)
-pub const BUILTIN_CLIENT_ID: &str = "<BUILTIN_CLIENT_ID>";
+pub const BUILTIN_CLIENT_ID: &str = env!("BUILTIN_CLIENT_ID");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuth2TokenPair {

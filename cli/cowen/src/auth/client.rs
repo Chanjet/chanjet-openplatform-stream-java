@@ -35,6 +35,47 @@ pub struct ReqwestSender {
     client: HttpClient,
 }
 
+#[cfg(feature = "inte")]
+pub struct MockHttpSender {
+    pub real_sender: ReqwestSender,
+}
+
+#[cfg(feature = "inte")]
+#[async_trait::async_trait]
+impl HttpSender for MockHttpSender {
+    async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
+        if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
+            if url.contains("/oauth2/token") {
+                return Ok(SimpleResponse {
+                    status: 200,
+                    body: serde_json::json!({
+                        "access_token": "mock_access_token",
+                        "refresh_token": "mock_refresh_token",
+                        "expires_in": 7200,
+                        "refresh_token_expires_in": 604800
+                    }).to_string(),
+                });
+            }
+        }
+        self.real_sender.post(url, headers, body).await
+    }
+
+    async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
+        if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
+            if url.contains("/v1/common/openapi/spec") {
+                return Ok(SimpleResponse {
+                    status: 200,
+                    body: serde_json::json!({
+                        "openapi": "3.0.0",
+                        "paths": { "/mock-api": { "get": { "responses": { "200": { "description": "OK" } } } } }
+                    }).to_string(),
+                });
+            }
+        }
+        self.real_sender.get(url, headers).await
+    }
+}
+
 impl ReqwestSender {
     pub fn new() -> Self {
         Self {
@@ -96,7 +137,16 @@ pub struct AuthClient<'a> {
 
 impl<'a> AuthClient<'a> {
     pub fn new(pool: &'a (dyn TokenPool + Send + Sync)) -> Self {
-        let http_sender = Arc::new(ReqwestSender::new());
+        #[cfg(not(feature = "inte"))]
+        let http_sender: Arc<dyn HttpSender> = Arc::new(ReqwestSender::new());
+
+        #[cfg(feature = "inte")]
+        let http_sender: Arc<dyn HttpSender> = if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
+            Arc::new(MockHttpSender { real_sender: ReqwestSender::new() })
+        } else {
+            Arc::new(ReqwestSender::new())
+        };
+
         Self {
             pool,
             http_sender: http_sender.clone(),
@@ -607,23 +657,19 @@ mod tests {
         let vault = pool.as_vault();
         let profile = "test";
         
-        // 1. Setup initial dynamic data
         vault.set(profile, "access_token", "abc").unwrap();
         vault.set(profile, "app_ticket", "tkt").unwrap();
         vault.set(profile, "oauth2_token_pair", "{}").unwrap();
         vault.set(profile, "push_backoff_level", "1").unwrap();
-        vault.set(profile, "app_secret", "STAY").unwrap(); // This should NOT be cleared
+        vault.set(profile, "app_secret", "STAY").unwrap();
         
         let client = AuthClient::new(&pool);
         client.clear_token(profile).await.unwrap();
         
-        // 2. Verify dynamic keys are gone
         assert!(vault.get(profile, "access_token").is_err());
         assert!(vault.get(profile, "app_ticket").is_err());
         assert!(vault.get(profile, "oauth2_token_pair").is_err());
         assert!(vault.get(profile, "push_backoff_level").is_err());
-        
-        // 3. Verify static config remains
         assert_eq!(vault.get(profile, "app_secret").unwrap(), "STAY");
     }
 }
