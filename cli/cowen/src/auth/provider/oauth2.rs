@@ -1,18 +1,18 @@
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use sha2::{Digest, Sha256};
-use crate::auth::models::{Token, OAuth2TokenPair};
+use crate::auth::client::HttpSender;
+use crate::auth::lifecycle::AuthSessionManager;
+use crate::auth::models::{OAuth2TokenPair, Token};
 use crate::auth::pool::TokenPool;
 use crate::auth::provider::AuthProvider;
-use crate::auth::client::HttpSender;
 use crate::core::config::Config;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use chrono::{Utc, Duration};
-use serde::Deserialize;
-use std::sync::Arc;
-use std::fs::File;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chrono::{Duration, Utc};
 use fs2::FileExt;
-use crate::auth::lifecycle::AuthSessionManager;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use std::fs::File;
+use std::sync::Arc;
 
 pub struct Pkce {
     pub verifier: String,
@@ -26,9 +26,10 @@ pub struct OAuth2Provider<'a> {
 #[derive(Debug, Deserialize)]
 struct OAuth2TokenResponse {
     access_token: String,
-    refresh_token: String,
-    expires_in: i64,
-    refresh_token_expires_in: i64,
+    refresh_token: Option<String>,
+    expires_in: Option<i64>,
+    #[serde(alias = "refresh_token_expires_in")]
+    refresh_expires_in: Option<i64>,
 }
 
 impl<'a> OAuth2Provider<'a> {
@@ -36,22 +37,48 @@ impl<'a> OAuth2Provider<'a> {
         Self { pool, http_sender }
     }
 
-    async fn exchange_code(&self, profile: &str, cfg: &Config, code: &str, verifier: &str, redirect_uri: &str) -> Result<Token> {
-        let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/oauth2/token"));
-        let body = serde_json::json!({
+    async fn exchange_code(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        code: &str,
+        verifier: &str,
+        redirect_uri: &str,
+    ) -> Result<Token> {
+        let url = format!(
+            "{}{}",
+            cfg.openapi_url.trim_end_matches('/'),
+            obfs!("/oauth2/token")
+        );
+        let mut body = serde_json::json!({
             "grant_type": "authorization_code",
             "client_id": cfg.app_key.trim(),
-            "client_secret": cfg.app_secret.trim(),
             "code": code,
-            "code_verifier": verifier,
             "redirect_uri": redirect_uri,
+            "code_verifier": verifier,
         });
+
+        if !cfg.app_secret.trim().is_empty() {
+            body.as_object_mut().unwrap().insert(
+                "client_secret".to_string(),
+                serde_json::json!(cfg.app_secret.trim()),
+            );
+        }
 
         self.request_token(profile, &url, body).await
     }
 
-    async fn refresh_token(&self, profile: &str, cfg: &Config, refresh_token: &str) -> Result<Token> {
-        let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/oauth2/token"));
+    async fn refresh_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        refresh_token: &str,
+    ) -> Result<Token> {
+        let url = format!(
+            "{}{}",
+            cfg.openapi_url.trim_end_matches('/'),
+            obfs!("/oauth2/token")
+        );
         let body = serde_json::json!({
             "grant_type": "refresh_token",
             "client_id": cfg.app_key.trim(),
@@ -62,14 +89,19 @@ impl<'a> OAuth2Provider<'a> {
         self.request_token(profile, &url, body).await
     }
 
-    async fn request_token(&self, profile: &str, url: &str, body: serde_json::Value) -> Result<Token> {
+    async fn request_token(
+        &self,
+        profile: &str,
+        url: &str,
+        body: serde_json::Value,
+    ) -> Result<Token> {
         let headers = reqwest::header::HeaderMap::new();
-        let resp = self.http_sender.post(url, headers, body).await?;
+        let resp = self.http_sender.post_form(url, headers, body).await?;
 
         if !resp.is_success() {
             let status = resp.status;
             let err_text = resp.text();
-            
+
             tracing::error!(
                 target: "audit",
                 profile = %profile,
@@ -81,40 +113,59 @@ impl<'a> OAuth2Provider<'a> {
 
             // Handle specific platform error codes (Design §6)
             if err_text.contains("4029") {
-                return Err(anyhow!("登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})", status));
+                return Err(anyhow!(
+                    "登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})",
+                    status
+                ));
             }
             if err_text.contains("4007") || err_text.contains("invalid_grant") {
-                return Err(anyhow!("令牌已失效，请执行 `owenc auth login` 重新授权。 (Error: {})", status));
+                return Err(anyhow!(
+                    "令牌已失效，请执行 `owenc auth login` 重新授权。 (Error: {})",
+                    status
+                ));
             }
             if err_text.contains("4006") {
-                return Err(anyhow!("ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})", status));
+                return Err(anyhow!(
+                    "ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})",
+                    status
+                ));
             }
             if err_text.contains("4001") {
-                return Err(anyhow!("授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})", status));
+                return Err(anyhow!(
+                    "授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})",
+                    status
+                ));
             }
 
-            return Err(anyhow!("OAuth2 token request failed (HTTP {}): {}", status, err_text));
+            return Err(anyhow!(
+                "OAuth2 token request failed (HTTP {}): {}",
+                status,
+                err_text
+            ));
         }
 
         let token_resp: OAuth2TokenResponse = resp.json().await?;
         let now = Utc::now();
-        
+
         let token = Token {
             value: token_resp.access_token.clone(),
-            expires_at: now + Duration::seconds(token_resp.expires_in),
+            expires_at: now + Duration::seconds(token_resp.expires_in.unwrap_or(7200)),
             created_at: now,
         };
 
         let pair = OAuth2TokenPair {
             access_token: token_resp.access_token,
-            refresh_token: token_resp.refresh_token,
+            refresh_token: token_resp.refresh_token.unwrap_or_default(),
             expires_at: token.expires_at,
-            refresh_expires_at: now + Duration::seconds(token_resp.refresh_token_expires_in),
+            refresh_expires_at: now
+                + Duration::seconds(token_resp.refresh_expires_in.unwrap_or(604800)),
             created_at: now,
         };
 
         // Save to vault via pool
-        self.pool.as_vault().set(profile, "oauth2_token_pair", &serde_json::to_string(&pair)?)?;
+        self.pool
+            .as_vault()
+            .set(profile, "oauth2_token_pair", &serde_json::to_string(&pair)?)?;
         self.pool.set_access_token(profile, &token)?;
 
         tracing::info!(
@@ -144,10 +195,10 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         std::fs::create_dir_all(&lock_dir)?;
         let lock_file_path = lock_dir.join(format!("{}.lock", profile));
         let lock_file = File::create(&lock_file_path)?;
-        
+
         // Blocking lock (wait for other processes)
         lock_file.lock_exclusive()?;
-        
+
         let result = (|| async {
             // 3. Double-Check: Reload from Vault after acquiring lock
             // Another process might have refreshed the token while we were waiting
@@ -206,7 +257,8 @@ impl Pkce {
     }
 
     fn generate_verifier(len: usize) -> String {
-        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+        const CHARSET: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
         (0..len)
             .map(|_| {
                 let idx = rand::random_range(0..CHARSET.len());
@@ -232,11 +284,11 @@ mod tests {
     fn test_pkce_generation() {
         let pkce = Pkce::new();
         assert_eq!(pkce.verifier.len(), 64);
-        
+
         // Verify challenge can be computed from verifier
         let challenge = Pkce::generate_challenge(&pkce.verifier);
         assert!(!challenge.is_empty());
-        
+
         // Manual verification of challenge
         let mut hasher = Sha256::new();
         hasher.update(pkce.verifier.as_bytes());
@@ -264,10 +316,18 @@ mod tests {
 
     impl crate::core::vault::Vault for MockVault {
         fn get(&self, _profile: &str, key: &str) -> Result<String> {
-            self.data.lock().unwrap().get(key).cloned().ok_or_else(|| anyhow!("Not found"))
+            self.data
+                .lock()
+                .unwrap()
+                .get(key)
+                .cloned()
+                .ok_or_else(|| anyhow!("Not found"))
         }
         fn set(&self, _profile: &str, key: &str, value: &str) -> Result<()> {
-            self.data.lock().unwrap().insert(key.to_string(), value.to_string());
+            self.data
+                .lock()
+                .unwrap()
+                .insert(key.to_string(), value.to_string());
             Ok(())
         }
         fn delete(&self, _profile: &str, key: &str) -> Result<()> {
@@ -284,11 +344,19 @@ mod tests {
         fn get_app_ticket(&self, _profile: &str) -> Result<crate::auth::models::Ticket> {
             Err(anyhow!("Not implemented"))
         }
-        fn set_app_ticket(&self, _profile: &str, _ticket: &crate::auth::models::Ticket) -> Result<()> {
+        fn set_app_ticket(
+            &self,
+            _profile: &str,
+            _ticket: &crate::auth::models::Ticket,
+        ) -> Result<()> {
             Ok(())
         }
         fn get_access_token(&self, _profile: &str) -> Result<Token> {
-            self.token.lock().unwrap().clone().ok_or_else(|| anyhow!("No token"))
+            self.token
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or_else(|| anyhow!("No token"))
         }
         fn set_access_token(&self, _profile: &str, token: &Token) -> Result<()> {
             *self.token.lock().unwrap() = Some(token.clone());
@@ -311,13 +379,22 @@ mod tests {
 
     #[async_trait]
     impl HttpSender for MockHttpSender {
-        async fn post(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<crate::auth::client::SimpleResponse> {
+        async fn post(
+            &self,
+            _url: &str,
+            _headers: reqwest::header::HeaderMap,
+            _body: serde_json::Value,
+        ) -> Result<crate::auth::client::SimpleResponse> {
             Ok(crate::auth::client::SimpleResponse {
                 status: self.status,
                 body: self.response_body.clone(),
             })
         }
-        async fn get(&self, _url: &str, _headers: reqwest::header::HeaderMap) -> Result<crate::auth::client::SimpleResponse> {
+        async fn get(
+            &self,
+            _url: &str,
+            _headers: reqwest::header::HeaderMap,
+        ) -> Result<crate::auth::client::SimpleResponse> {
             Ok(crate::auth::client::SimpleResponse {
                 status: self.status,
                 body: self.response_body.clone(),
@@ -327,7 +404,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_refresh_token_success() {
-        let vault = Arc::new(MockVault { data: std::sync::Mutex::new(std::collections::HashMap::new()) });
+        let vault = Arc::new(MockVault {
+            data: std::sync::Mutex::new(std::collections::HashMap::new()),
+        });
         let pool = MockPool {
             token: std::sync::Mutex::new(None),
             vault: vault.clone(),
@@ -341,7 +420,13 @@ mod tests {
             refresh_expires_at: Utc::now() + Duration::hours(24),
             created_at: Utc::now() - Duration::hours(1),
         };
-        vault.set("test", "oauth2_token_pair", &serde_json::to_string(&initial_pair).unwrap()).unwrap();
+        vault
+            .set(
+                "test",
+                "oauth2_token_pair",
+                &serde_json::to_string(&initial_pair).unwrap(),
+            )
+            .unwrap();
 
         let mock_http = Arc::new(MockHttpSender {
             status: 200,
@@ -350,7 +435,8 @@ mod tests {
                 "refresh_token": "new_refresh",
                 "expires_in": 3600,
                 "refresh_token_expires_in": 7200
-            }).to_string(),
+            })
+            .to_string(),
         });
 
         let provider = OAuth2Provider::new(&pool, mock_http);
@@ -368,7 +454,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_oauth2_full_lifecycle_success() {
-        let vault = Arc::new(MockVault { data: std::sync::Mutex::new(std::collections::HashMap::new()) });
+        let vault = Arc::new(MockVault {
+            data: std::sync::Mutex::new(std::collections::HashMap::new()),
+        });
         let pool = MockPool {
             token: std::sync::Mutex::new(None),
             vault: vault.clone(),
@@ -379,16 +467,23 @@ mod tests {
         let session = session_manager.create_session("test", 0).unwrap(); // Port 0 for random
 
         // 2. Start Listener
-        let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port).await;
-        
+        let (actual_port, rx) =
+            crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port)
+                .await;
+
         // 3. Simulate Callback (e.g. from Browser)
         let client = reqwest::Client::new();
-        let callback_url = format!("http://127.0.0.1:{}/callback?code=captured_code&state={}", actual_port, session.state);
+        let callback_url = format!(
+            "http://127.0.0.1:{}/callback?code=captured_code&state={}",
+            actual_port, session.state
+        );
         client.get(&callback_url).send().await.unwrap();
 
         // 4. Capture result and save to Vault
         let result = rx.await.unwrap();
-        session_manager.save_code("test", &result.code, &result.state).unwrap();
+        session_manager
+            .save_code("test", &result.code, &result.state)
+            .unwrap();
 
         // 5. Finalize - Call get_token (which should trigger Finalizer)
         let mock_http = Arc::new(MockHttpSender {
@@ -398,9 +493,10 @@ mod tests {
                 "refresh_token": "final_refresh",
                 "expires_in": 3600,
                 "refresh_token_expires_in": 7200
-            }).to_string(),
+            })
+            .to_string(),
         });
-        
+
         let provider = OAuth2Provider::new(&pool, mock_http);
         let cfg = Config::default_with_profile("test");
 

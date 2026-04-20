@@ -3,6 +3,8 @@ use crate::core::config::ConfigManager;
 use crate::core::vault::Vault;
 use anyhow::Result;
 use std::sync::Arc;
+use std::io::{BufRead, Write};
+use std::time::{Duration, Instant};
 
 pub async fn execute(
     profile: &str,
@@ -120,14 +122,15 @@ pub async fn execute(
             println!("\n{}", string);
         }
 
-        // 5. Spawn Background Finalizer (Non-blocking)
-        println!("\n\x1b[32m⚙️  Background finalizer derived. You can continue using terminal.\x1b[0m");
-        println!("⏳ Waiting for browser authorization (Timeout: 5 minutes)...");
+        // 5. Spawn Background Finalizer
+        println!("\n\x1b[34m🚀 授权监听已启动。请在浏览器中确认...\x1b[0m");
 
         spawn_finalizer(profile, &session.state)?;
-
+        
+        // 6. Wait for Result (Closed Loop)
+        wait_for_token_exchange(profile, vault.clone()).await?;
     } else {
-        println!("Profile '{}' initialized successfully.", profile);
+        println!("✅ Profile '{}' initialized successfully.", profile);
     }
 
     // Automatically attempt to install shell completion
@@ -142,18 +145,6 @@ pub async fn execute(
         println!("✅ Set default profile to '{}'", profile);
     }
 
-    if mode != AuthMode::Oauth2 {
-        // Automatically start the daemon in background (only for self-built)
-        let _ = crate::cmd::daemon::stop(profile, false, cfg_mgr).await;
-        if let Err(e) = crate::cmd::daemon::start(profile, &config, config.proxy_port, false, false, false, cfg_mgr, vault.clone()).await {
-            eprintln!("⚠️ Failed to auto-start daemon: {}", e);
-        } else {
-            println!("💡 Security handshake is running in background. First API call may take a few seconds to authorize.");
-        }
-    } else {
-        println!("\n💡 授权完成后，您可以通过 \x1b[33mowenc daemon start\x1b[0m 启动本地反向代理服务。");
-    }
-
     Ok(())
 }
 
@@ -161,10 +152,19 @@ fn spawn_finalizer(profile: &str, session_id: &str) -> anyhow::Result<()> {
     let exe = std::env::current_exe()?;
     let mut cmd = std::process::Command::new(exe);
     
+    // Setup log file
+    let log_dir = crate::core::config::get_app_dir().join("logs");
+    std::fs::create_dir_all(&log_dir)?;
+    let log_file = log_dir.join(format!("{}_auth.log", profile));
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file)?;
+
     cmd.args(&["--profile", profile, "auth", "login", "--finalize", session_id])
        .stdin(std::process::Stdio::null())
-       .stdout(std::process::Stdio::null())
-       .stderr(std::process::Stdio::null());
+       .stdout(file.try_clone()?)
+       .stderr(file);
 
     #[cfg(unix)]
     {
@@ -173,5 +173,100 @@ fn spawn_finalizer(profile: &str, session_id: &str) -> anyhow::Result<()> {
     }
 
     cmd.spawn()?;
+    Ok(())
+}
+
+async fn wait_for_token_exchange(profile: &str, vault: Arc<dyn Vault>) -> anyhow::Result<()> {
+    let start_time = Instant::now();
+    let timeout = Duration::from_secs(300); // 5 minutes
+    let log_file = crate::core::config::get_app_dir().join("logs").join(format!("{}_auth.log", profile));
+    let mut last_log_size = if log_file.exists() {
+        std::fs::metadata(&log_file)?.len()
+    } else {
+        0
+    };
+    
+    print!("⏳ 正在等待浏览器授权并在后台交换令牌...");
+    std::io::stdout().flush()?;
+
+    loop {
+        if start_time.elapsed() > timeout {
+            println!("\n❌ 授权超时 (5 分钟)。请检查网络或重新运行 `init`。");
+            render_last_auth_error(profile)?;
+            return Err(anyhow::anyhow!("Authorization timeout"));
+        }
+
+        // 1. Success check: Token pair exists
+        if vault.get(profile, "oauth2_token_pair").is_ok() {
+            println!("\n✅ 授权成功！命令行已就绪。");
+            return Ok(());
+        }
+
+        // 2. Failure check: Log file growth + ERROR check
+        if log_file.exists() {
+            let metadata = std::fs::metadata(&log_file)?;
+            if metadata.len() > last_log_size {
+                // Read new content
+                let file = std::fs::File::open(&log_file)?;
+                let mut reader = std::io::BufReader::new(file);
+                reader.seek_relative(last_log_size as i64)?;
+                
+                for line in reader.lines() {
+                    if let Ok(l) = line {
+                        if l.contains("ERROR") {
+                            println!("\n❌ 令牌交换失败！");
+                            println!("\x1b[31m🔍 错误原因: {}\x1b[0m", l);
+                            return Err(anyhow::anyhow!("Token exchange failed"));
+                        }
+                    }
+                }
+                last_log_size = metadata.len();
+            }
+        }
+
+        // 3. State check: If code is cleared but no token pair
+        if vault.get(profile, "captured_auth_code").is_err() && vault.get(profile, "oauth2_token_pair").is_err() {
+            // Wait a small buffer for the final write
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            if vault.get(profile, "oauth2_token_pair").is_err() {
+                println!("\n❌ 授权码已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。");
+                render_last_auth_error(profile)?;
+                return Err(anyhow::anyhow!("Authorization state invalid"));
+            }
+        }
+        
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        print!(".");
+        std::io::stdout().flush()?;
+    }
+}
+
+fn render_last_auth_error(profile: &str) -> anyhow::Result<()> {
+    let log_file = crate::core::config::get_app_dir().join("logs").join(format!("{}_auth.log", profile));
+    if !log_file.exists() {
+        return Ok(());
+    }
+
+    let file = std::fs::File::open(log_file)?;
+    let reader = std::io::BufReader::new(file);
+    let mut errors = Vec::new();
+
+    for line in reader.lines() {
+        if let Ok(l) = line {
+            if l.contains("ERROR") {
+                errors.push(l);
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        println!("\n\x1b[31m🔍 诊断信息 (来自背景日志):\x1b[0m");
+        // Show last 3 errors
+        let start = if errors.len() > 3 { errors.len() - 3 } else { 0 };
+        for err in &errors[start..] {
+            println!("  {}", err);
+        }
+    }
+
     Ok(())
 }

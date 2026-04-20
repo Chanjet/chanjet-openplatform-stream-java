@@ -84,37 +84,46 @@ async fn finalize_login(profile: &str, cfg: &Config, auth_cli: &dyn AuthClientTr
     let session = session_manager.get_session(profile)?;
     
     // 2. Start Listener
-    let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port).await;
+    let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await;
     tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
 
     // 3. Wait for result with timeout
     tokio::select! {
         result = rx => {
             match result {
-                Ok(res) => {
-                    tracing::info!(target: "sys", "Callback received, saving code...");
-                    session_manager.save_code(profile, &res.code, &res.state)?;
-                    
-                    // Trigger exchange
-                    match auth_cli.get_app_access_token(profile, cfg).await {
-                        Ok(_) => {
-                            tracing::info!(target: "sys", "Token exchange successful, cleaning up.");
-                            let _ = session_manager.clear(profile);
-                            Ok(())
+                Ok(inner_res) => {
+                    match inner_res {
+                        Ok(res) => {
+                            tracing::info!(target: "sys", "Callback received, saving code...");
+                            session_manager.save_code(profile, &res.code, &res.state)?;
+                            
+                            // Trigger exchange
+                            match auth_cli.get_app_access_token(profile, cfg).await {
+                                Ok(_) => {
+                                    tracing::info!(target: "sys", "Token exchange successful");
+                                    Ok(())
+                                }
+                                Err(e) => {
+                                    tracing::error!(target: "sys", error = %e, "Token exchange failed");
+                                    Err(e)
+                                }
+                            }
                         }
                         Err(e) => {
-                            tracing::error!(target: "sys", error = %e, "Token exchange failed");
-                            Err(e)
+                            tracing::error!(target: "sys", error = %e, "Authorization rejected by provider or invalid state");
+                            Err(anyhow::anyhow!("Authorization failed: {}", e))
                         }
                     }
                 }
-                Err(e) => Err(anyhow::anyhow!("Listener channel closed: {}", e))
+                Err(e) => {
+                    tracing::error!(target: "sys", error = %e, "Finalizer channel dropped unexpectedly");
+                    Err(anyhow::anyhow!("Internal listener error: {}", e))
+                }
             }
-        }
-        _ = tokio::time::sleep(tokio::time::Duration::from_secs(300)) => {
-            tracing::warn!(target: "sys", "Finalizer timed out after 5 minutes");
-            let _ = session_manager.clear(profile);
-            Err(anyhow::anyhow!("Background authorization timed out"))
+        },
+        _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
+            tracing::error!(target: "sys", "Finalizer timed out waiting for callback");
+            Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
         }
     }
 }

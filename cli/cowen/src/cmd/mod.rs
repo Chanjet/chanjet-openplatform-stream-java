@@ -6,3 +6,4 @@ pub mod daemon;
 pub mod completion;
 pub mod dlq;
 pub mod log;
+pub mod status_models;

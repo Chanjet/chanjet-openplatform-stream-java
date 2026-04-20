@@ -5,7 +5,7 @@ use tracing_subscriber::{
     prelude::*,
     EnvFilter,
 };
-use anyhow::{Result, Context};
+use anyhow::Result;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
 
@@ -61,20 +61,27 @@ pub fn init_telemetry(log_dir: PathBuf, profile: &str, config: &crate::core::con
 
     macro_rules! add_domain_layer {
         ($reg:expr, $filename:expr, $filter_fn:expr) => {{
-            let appender = LogRollerBuilder::new(log_dir.as_path(), Path::new($filename))
+            let (layer, guard) = match LogRollerBuilder::new(log_dir.as_path(), Path::new($filename))
                 .rotation(rotation.clone())
                 .max_keep_files(config.max_files as u64)
-                .build()
-                .context(format!("Failed to build logroller for {}", $filename))?;
-            let (writer, guard) = tracing_appender::non_blocking(appender);
-            guards.push(guard);
-            $reg.with(fmt::layer()
-                .json()
-                .with_writer(writer)
-                .with_target(true)
-                .with_line_number(true)
-                .with_thread_ids(true)
-                .with_filter(tracing_subscriber::filter::filter_fn($filter_fn)))
+                .build() {
+                Ok(appender) => {
+                    let (writer, guard) = tracing_appender::non_blocking(appender);
+                    (Some(fmt::layer()
+                        .json()
+                        .with_writer(writer)
+                        .with_target(true)
+                        .with_line_number(true)
+                        .with_thread_ids(true)
+                        .with_filter(tracing_subscriber::filter::filter_fn($filter_fn))), Some(guard))
+                },
+                Err(e) => {
+                    eprintln!("⚠️ Warning: Failed to initialize file logger for {}: {}. Logging for this domain will be disabled but process will continue.", $filename, e);
+                    (None, None)
+                }
+            };
+            if let Some(g) = guard { guards.push(g); }
+            $reg.with(layer)
         }};
     }
 

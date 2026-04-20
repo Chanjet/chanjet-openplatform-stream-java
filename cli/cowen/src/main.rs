@@ -35,7 +35,7 @@ use std::io::Write;
 
 #[derive(Parser)]
 #[command(name = option_env!("CARGO_BIN_NAME_OVERRIDE").unwrap_or("cowen"))]
-#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " / ", env!("BUILD_ID"), " / ", env!("BUILD_TIME"), ")"))]
+#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " / ", env!("BUILD_TIME"), ")"))]
 #[command(
     about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
     long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。"
@@ -361,7 +361,13 @@ async fn run() -> Result<()> {
     }
 
     // 3. Initialize Telemetry (Structured & Rotated Logging)
-    let _guards = crate::core::telemetry::init_telemetry(log_dir, &active_profile, &config.log)?;
+    let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_profile, &config.log) {
+        Ok(g) => Some(g),
+        Err(e) => {
+            eprintln!("⚠️ Warning: Telemetry system failed to initialize: {}. Continuing without structured logging.", e);
+            None
+        }
+    };
     tracing::info!(target: "sys", "{} starting (version {})", bin_name, env!("CARGO_PKG_VERSION"));
     tracing::info!(target: "sys", profile = %active_profile, "active profile loaded");
 

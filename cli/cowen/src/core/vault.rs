@@ -45,7 +45,26 @@ impl MultiVault {
             .create(true)
             .open(&self.storage_lock_path)?;
             
-        lock_file.lock_exclusive().context("Failed to acquire vault storage lock")?;
+        let mut attempts = 0;
+        let max_attempts = 10;
+        let retry_interval = std::time::Duration::from_millis(50);
+
+        loop {
+            match lock_file.try_lock_exclusive() {
+                Ok(_) => break,
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= max_attempts {
+                        return Err(anyhow::anyhow!("Failed to acquire vault storage lock after {} attempts: {}. Please ensure no other cowen process is hung.", max_attempts, e));
+                    }
+                    if attempts == 1 {
+                        tracing::debug!(target: "sys", "Vault lock busy, retrying...");
+                    }
+                    std::thread::sleep(retry_interval);
+                }
+            }
+        }
+
         let res = f();
         let _ = lock_file.unlock();
         res

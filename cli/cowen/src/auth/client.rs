@@ -28,6 +28,7 @@ impl SimpleResponse {
 #[async_trait::async_trait]
 pub trait HttpSender: Send + Sync {
     async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse>;
+    async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse>;
     async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> Result<SimpleResponse>;
 }
 
@@ -60,6 +61,23 @@ impl HttpSender for MockHttpSender {
         self.real_sender.post(url, headers, body).await
     }
 
+    async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
+        if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
+            if url.contains("/oauth2/token") || url.contains("/user/v2/token") {
+                return Ok(SimpleResponse {
+                    status: 200,
+                    body: serde_json::json!({
+                        "access_token": "mock_access_token",
+                        "refresh_token": "mock_refresh_token",
+                        "expires_in": 7200,
+                        "refresh_token_expires_in": 604800
+                    }).to_string(),
+                });
+            }
+        }
+        self.real_sender.post_form(url, headers, body).await
+    }
+
     async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
         if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
             if url.contains("/v1/common/openapi/spec") {
@@ -90,6 +108,19 @@ impl HttpSender for ReqwestSender {
         let resp = self.client.post(url)
             .headers(headers)
             .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Network error: {}", e))?;
+        
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        Ok(SimpleResponse { status, body })
+    }
+
+    async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
+        let resp = self.client.post(url)
+            .headers(headers)
+            .form(&body)
             .send()
             .await
             .map_err(|e| anyhow!("Network error: {}", e))?;
@@ -572,6 +603,12 @@ mod tests {
     #[async_trait::async_trait]
     impl HttpSender for MockHttpSender {
         async fn post(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
+            Ok(SimpleResponse {
+                status: self.status,
+                body: self.response_body.clone(),
+            })
+        }
+        async fn post_form(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
             Ok(SimpleResponse {
                 status: self.status,
                 body: self.response_body.clone(),
