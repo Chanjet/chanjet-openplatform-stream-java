@@ -96,7 +96,7 @@ pub async fn execute(
         // 3. Generate Auth URL (Ref: PRD §4.1 / Design §3.1)
         let market_url = obfs!(env!("DEF_MARKET_URL"));
         let auth_url = format!(
-            "{}/v2/userAuth/authorize?client_id={}&response_type=code&scope=all&redirect_uri={}&state={}&code_challenge={}&code_challenge_method=S256",
+            "{}/user/v2/authorize?client_id={}&response_type=code&scope=all&redirect_uri={}&state={}&code_challenge={}&code_challenge_method=S256",
             market_url.trim_end_matches('/'),
             config.app_key, // Built-in ID was injected earlier
             urlencoding::encode(&session.redirect_uri),
