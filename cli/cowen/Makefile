@@ -57,19 +57,10 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
         package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
-        package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image prepare-podman-machine stop-podman-machine \
-        build-inte build-prod
+        package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # 验证/集成测试配置
 INTE_APP_KEY ?= rle1Onds
-
-build-inte:
-	@echo "🛠️ Building CLI with integration features (AppKey: $(INTE_APP_KEY))..."
-	BUILTIN_CLIENT_ID=$(INTE_APP_KEY) cargo build --features inte
-	@echo "✅ Done."
-
-build-prod: macos-aarch64
-	@echo "✅ Production build finished."
 
 # --- 核心构建目标 ---
 
@@ -86,7 +77,7 @@ macos-aarch64:
 test-macos-aarch64:
 	@echo "🧪 Building macOS Apple Silicon (TEST ENV) v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/test
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) cargo build --release
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) BUILTIN_CLIENT_ID=$(INTE_APP_KEY) cargo build --release --features inte
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/test/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/test/$(BINARY))
