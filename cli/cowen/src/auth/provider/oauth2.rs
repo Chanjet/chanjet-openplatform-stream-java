@@ -390,6 +390,17 @@ mod tests {
                 body: self.response_body.clone(),
             })
         }
+        async fn post_form(
+            &self,
+            _url: &str,
+            _headers: reqwest::header::HeaderMap,
+            _body: serde_json::Value,
+        ) -> Result<crate::auth::client::SimpleResponse> {
+            Ok(crate::auth::client::SimpleResponse {
+                status: self.status,
+                body: self.response_body.clone(),
+            })
+        }
         async fn get(
             &self,
             _url: &str,
@@ -468,7 +479,7 @@ mod tests {
 
         // 2. Start Listener
         let (actual_port, rx) =
-            crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port)
+            crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, "test".to_string())
                 .await;
 
         // 3. Simulate Callback (e.g. from Browser)
@@ -480,7 +491,7 @@ mod tests {
         client.get(&callback_url).send().await.unwrap();
 
         // 4. Capture result and save to Vault
-        let result = rx.await.unwrap();
+        let result = rx.await.unwrap().unwrap();
         session_manager
             .save_code("test", &result.code, &result.state)
             .unwrap();

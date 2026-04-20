@@ -113,7 +113,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_callback_capture() {
-        let (port, rx) = OAuth2CallbackListener::start(0).await;
+        let (port, rx) = OAuth2CallbackListener::start(0, "test_profile".to_string()).await;
         assert!(port > 0);
 
         let url = format!("http://127.0.0.1:{}/callback?code=test_code&state=test_state", port);
@@ -121,7 +121,7 @@ mod tests {
         let resp = client.get(&url).send().await.unwrap();
         assert!(resp.status().is_success());
 
-        let result = rx.await.unwrap();
+        let result = rx.await.unwrap().unwrap();
         assert_eq!(result.code, "test_code");
         assert_eq!(result.state, "test_state");
         

@@ -131,6 +131,8 @@ pub async fn execute(
         wait_for_token_exchange(profile, vault.clone()).await?;
     } else {
         println!("✅ Profile '{}' initialized successfully.", profile);
+        // Automatically start the daemon for Self-Built mode to avoid OFFLINE status on first check
+        let _ = crate::cmd::system::ensure_daemon_running(profile, &config, cfg_mgr, vault.clone()).await;
     }
 
     // Automatically attempt to install shell completion

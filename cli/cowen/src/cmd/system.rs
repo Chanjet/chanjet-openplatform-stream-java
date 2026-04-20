@@ -201,19 +201,28 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
         
         if pid.is_none() {
             let p_cfg_inner = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&p)) };
-            let is_oauth2 = p_cfg_inner.app_mode == crate::auth::models::AuthMode::Oauth2;
             let pid_file = app_dir().join(format!("{}_daemon.pid", p));
             
-            // Re-heal Logic: 
-            // 1. If it crashed (PID file exists but process missing)
-            // 2. OR IF OAuth2 and it's missing (Always-online policy)
-            if pid_file.exists() || is_oauth2 {
+            if should_recover_daemon(p_cfg_inner.app_mode, pid.is_some(), pid_file.exists()) {
                 tracing::info!(target: "sys", profile = %p, mode = ?p_cfg_inner.app_mode, "Daemon recovery triggered. Launching background worker...");
                 let _ = crate::cmd::daemon::start(&p, &p_cfg_inner, p_cfg_inner.proxy_port, p_cfg_inner.proxy_enabled, false, false, cfg_mgr, vault.clone()).await;
             }
         }
     }
     Ok(())
+}
+
+fn should_recover_daemon(_mode: crate::auth::models::AuthMode, has_pid: bool, pid_file_exists: bool) -> bool {
+    if has_pid {
+        return false;
+    }
+    
+    // Recovery Policy:
+    // 1. If it crashed (PID file exists but process missing)
+    // 2. OR IF offline (Always-online policy for ALL modes to ensure "秒级 API 响应")
+    // Note: p_cfg_inner.app_key check in calling function or daemon::start 
+    // ensures we don't start for uninitialized profiles.
+    true
 }
 
 pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Result<()> {
@@ -371,6 +380,32 @@ impl StatusCollector for TokenCollector {
             });
         }
 
+        // Fallback: Check for generic access_token (e.g. Self-Built mode)
+        if let Ok(access_token) = vault.get(profile, "access_token") {
+            if !access_token.trim().is_empty() {
+                let expires_at_str = vault.get(profile, "access_token_expires").unwrap_or_default();
+                let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_at_str)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .ok();
+                
+                let is_expired = expires_at.map(|exp| Utc::now() > exp).unwrap_or(false);
+                let exp_msg = expires_at
+                    .map(|exp| exp.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+
+                return Ok(StatusEntry {
+                    name: "AccessToken".to_string(),
+                    icon: "🔑".to_string(),
+                    level: if is_expired { StatusLevel::ERROR } else { StatusLevel::OK },
+                    message: format!("[{}] (Expires: {})", 
+                        if is_expired { "EXPIRED" } else { "VALID" },
+                        exp_msg),
+                    details: vec![],
+                    children: vec![],
+                });
+            }
+        }
+
         Ok(StatusEntry {
             name: "AccessToken".to_string(),
             icon: "🔑".to_string(),
@@ -428,6 +463,7 @@ impl StatusCollector for DaemonCollector {
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
         let (found_daemon_pid, found_build_id) = get_active_daemon_info(&ctx.profile).await;
         
+        let is_oauth2 = ctx.config.app_mode == crate::auth::models::AuthMode::Oauth2;
         let (level, msg, children) = if let Some(pid) = found_daemon_pid {
             (
                 StatusLevel::OK, 
@@ -452,7 +488,11 @@ impl StatusCollector for DaemonCollector {
                         name: "Efficiency Tip".to_string(),
                         icon: "💡".to_string(),
                         level: StatusLevel::WARN,
-                        message: "若需实现令牌主动续约与秒级 API 响应，请运行 'cowen daemon start'".to_string(),
+                        message: if is_oauth2 {
+                            "若需实现令牌主动续约与秒级 API 响应，请运行 'cowen daemon start'".to_string()
+                        } else {
+                            "若需实现实时消息同步与秒级 API 响应，请运行 'cowen daemon start'".to_string()
+                        },
                         details: vec![],
                         children: vec![],
                     }
@@ -465,7 +505,6 @@ impl StatusCollector for DaemonCollector {
             details.push(format!("Build ID: {}", bid));
         }
 
-        let is_oauth2 = ctx.config.app_mode == crate::auth::models::AuthMode::Oauth2;
         let display_name = if is_oauth2 { "Token Renewer (Daemon)" } else { "Stream Bridge (Daemon)" };
 
         Ok(StatusEntry {
@@ -476,5 +515,37 @@ impl StatusCollector for DaemonCollector {
             details,
             children,
         })
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::models::AuthMode;
+
+    #[test]
+    fn test_should_recover_daemon_policy() {
+        // Case 1: Already running - should NOT recover
+        assert!(!should_recover_daemon(AuthMode::Oauth2, true, true));
+        assert!(!should_recover_daemon(AuthMode::SelfBuilt, true, true));
+
+        // Case 2: Crashed (PID file exists but no process) - should ALWAYS recover
+        assert!(should_recover_daemon(AuthMode::Oauth2, false, true));
+        assert!(should_recover_daemon(AuthMode::SelfBuilt, false, true));
+
+        // Case 3: Offline (No PID, No PID file) - the core issue
+        // OAuth2: Always online policy -> should recover
+        assert!(should_recover_daemon(AuthMode::Oauth2, false, false));
+        
+        // SelfBuilt: Should also have always online policy (Fix for user reported issue)
+        assert!(should_recover_daemon(AuthMode::SelfBuilt, false, false), "Self-built mode SHOULD automatically start if offline");
+    }
+    
+    #[test]
+    fn test_should_recover_daemon_policy_future() {
+        // This is the target state for SelfBuilt offline
+        let target_state = true; 
+        let current_state = should_recover_daemon(AuthMode::SelfBuilt, false, false);
+        
+        assert_eq!(current_state, target_state, "SelfBuilt recovery policy needs to be enabled");
     }
 }
