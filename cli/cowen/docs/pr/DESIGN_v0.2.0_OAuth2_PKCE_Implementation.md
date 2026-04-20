@@ -144,7 +144,6 @@ Init {
 
 > [!NOTE]
 > 对于 0.1.x 的存量配置文件，若缺失 `app_mode` 字段，解析时将遵循全局默认值 `oauth2`。若需维持旧有行为，需显式执行 `owenc init --app-mode self-built` 重置。
-```
 
 > [!IMPORTANT]
 > **互斥校验规则**：当 `app_mode = "oauth2"` 时，若用户传入 `--app-key` 或 `--app-secret`，应立即报错："参数冲突：OAuth2 模式使用内置 ClientID，不支持手动指定 --app-key/--app-secret。"
