@@ -81,6 +81,7 @@ pub fn mask_url_query(url: &str) -> String {
     }
     output
 }
+#[allow(dead_code)]
 pub fn mask_tail(val: &str, show_len: usize) -> String {
     if val.len() <= show_len {
         return val.to_string();

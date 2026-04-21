@@ -9,6 +9,7 @@ pub enum StatusLevel {
     OK,
     WARN,
     ERROR,
+    #[allow(dead_code)]
     PENDING,
     NONE,
 }
@@ -31,6 +32,7 @@ pub struct StatusContext<'a> {
 
 #[async_trait::async_trait]
 pub trait StatusCollector: Send + Sync {
+    #[allow(dead_code)]
     fn name(&self) -> &str;
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry>;
 }
