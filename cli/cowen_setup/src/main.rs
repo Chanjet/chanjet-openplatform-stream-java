@@ -63,6 +63,12 @@ fn main() {
         }
     }
 
+    // Setup Autostart Service
+    println!("📟 Setting up autostart service...");
+    let _ = Command::new(&dest)
+        .args(&["daemon", "service", "install"])
+        .status();
+
     println!("\n🎉 Installation complete! Please RESTART your terminal.");
     Command::new("cmd").args(&["/c", "pause"]).status().unwrap();
 }

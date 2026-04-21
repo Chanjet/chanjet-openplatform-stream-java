@@ -555,6 +555,9 @@ mod tests {
             self.data.lock().unwrap().clear();
             Ok(())
         }
+        fn rename_profile(&self, _old: &str, _new: &str) -> Result<()> {
+            Ok(())
+        }
     }
 
     impl MockPool {

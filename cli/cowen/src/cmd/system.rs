@@ -212,7 +212,7 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
     Ok(())
 }
 
-fn should_recover_daemon(_mode: crate::auth::models::AuthMode, has_pid: bool, pid_file_exists: bool) -> bool {
+fn should_recover_daemon(_mode: crate::auth::models::AuthMode, has_pid: bool, _pid_file_exists: bool) -> bool {
     if has_pid {
         return false;
     }
@@ -243,26 +243,37 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
     if let Some(v) = vault {
         let _ = v.clear_profile(_profile);
     }
-    let app_dir = app_dir();
-    
+    let base_dir = app_dir();
     let targets = vec![
-        app_dir.join(format!("{}.yaml", _profile)),
-        app_dir.join(format!("{}_openapi.json", _profile)),
-        app_dir.join(format!("{}_openapi.yaml", _profile)),
-        app_dir.join(format!("{}_openapi.idx", _profile)),
-        app_dir.join(format!("{}_daemon.pid", _profile)),
+        base_dir.join(format!("{}.yaml", _profile)),
+        base_dir.join(format!("{}_openapi.json", _profile)),
+        base_dir.join(format!("{}_openapi.yaml", _profile)),
+        base_dir.join(format!("{}_openapi.idx", _profile)),
+        base_dir.join(format!("{}_daemon.pid", _profile)),
     ];
     for path in targets {
         if path.exists() { let _ = std::fs::remove_file(&path); }
     }
 
-    let dlq_dir = app_dir.join("dlq").join(_profile);
+    // Smart reset: switch to another available profile if the active one was deleted
+    if cfg_mgr.get_default_profile() == _profile {
+        let available_profiles = cfg_mgr.list_profiles().unwrap_or_default();
+        let next_profile = available_profiles.iter()
+            .find(|&p| p != _profile)
+            .cloned()
+            .unwrap_or_else(|| "default".to_string());
+        
+        let _ = cfg_mgr.set_default_profile(&next_profile);
+        eprintln!("🔄 Active profile deleted. Switched to '{}'.", next_profile);
+    }
+
+    let dlq_dir = base_dir.join("dlq").join(_profile);
     if dlq_dir.exists() { let _ = std::fs::remove_dir_all(&dlq_dir); }
 
-    let log_dir = app_dir.join("logs");
+    let log_dir = base_dir.join("logs");
     if log_dir.exists() {
         let prefix = format!("{}_", _profile);
-        if let Ok(entries) = std::fs::read_dir(log_dir) {
+        if let Ok(entries) = std::fs::read_dir(&log_dir) {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
                     if name.starts_with(&prefix) { let _ = std::fs::remove_file(entry.path()); }
@@ -272,6 +283,91 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
     }
     
     eprintln!("✨ Profile '{}' reset complete.", _profile);
+    Ok(())
+}
+
+pub async fn rename_profile(
+    old_name: &str,
+    new_name: &str,
+    cfg_mgr: &ConfigManager,
+    vault: Arc<dyn Vault>,
+) -> Result<()> {
+    if old_name == new_name {
+        return Err(anyhow::anyhow!("Old and new profile names are the same."));
+    }
+    if !cfg_mgr.exists(old_name) {
+        return Err(anyhow::anyhow!("Profile '{}' does not exist.", old_name));
+    }
+    if cfg_mgr.exists(new_name) {
+        return Err(anyhow::anyhow!("Profile '{}' already exists. Choose a different name.", new_name));
+    }
+
+    // 1. Stop Daemon if running
+    let (pid, _) = get_active_daemon_info(old_name).await;
+    let was_running = pid.is_some();
+    if was_running {
+        eprintln!("🛑 Stopping daemon for '{}' before rename...", old_name);
+        let _ = crate::cmd::daemon::stop(old_name, false, cfg_mgr).await;
+    }
+
+    // 2. Rename config and cache files
+    let base_dir = app_dir();
+    let file_map = vec![
+        ("", ".yaml"),
+        ("_openapi", ".json"),
+        ("_openapi", ".yaml"),
+        ("_openapi", ".idx"),
+        ("_daemon", ".pid"),
+    ];
+
+    for (suffix, ext) in file_map {
+        let old_path = base_dir.join(format!("{}{}{}", old_name, suffix, ext));
+        let new_path = base_dir.join(format!("{}{}{}", new_name, suffix, ext));
+        if old_path.exists() {
+            std::fs::rename(old_path, new_path)?;
+        }
+    }
+
+    // 3. Rename DLQ directory
+    let old_dlq = base_dir.join("dlq").join(old_name);
+    let new_dlq = base_dir.join("dlq").join(new_name);
+    if old_dlq.exists() {
+        std::fs::rename(old_dlq, new_dlq)?;
+    }
+
+    // 4. Rename log files
+    let log_dir = base_dir.join("logs");
+    if log_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&log_dir) {
+            for entry in entries.flatten() {
+                if let Some(filename) = entry.file_name().to_str() {
+                    let old_prefix = format!("{}_", old_name);
+                    if filename.starts_with(&old_prefix) {
+                        let new_filename = filename.replacen(&old_prefix, &format!("{}_", new_name), 1);
+                        let _ = std::fs::rename(entry.path(), log_dir.join(new_filename));
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Update Vault secrets
+    vault.rename_profile(old_name, new_name)?;
+
+    // 6. Update default profile pointer if it matched
+    if cfg_mgr.get_default_profile() == old_name {
+        cfg_mgr.set_default_profile(new_name)?;
+        eprintln!("✅ Global default profile pointer updated to '{}'.", new_name);
+    }
+
+    // 7. Restart daemon if it was running
+    if was_running {
+        eprintln!("🚀 Restarting daemon under new name '{}'...", new_name);
+        let config = cfg_mgr.load(new_name)?;
+        let _ = crate::cmd::daemon::start(new_name, &config, config.proxy_port, config.proxy_enabled, false, false, cfg_mgr, vault).await;
+    }
+
+    eprintln!("✨ Profile '{}' successfully renamed to '{}'.", old_name, new_name);
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 mod renewer;
 mod bridge;
+pub mod service;
 
 use crate::core::config::{Config, ConfigManager};
 use sysinfo::System;

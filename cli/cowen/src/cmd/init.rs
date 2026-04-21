@@ -20,6 +20,10 @@ pub async fn execute(
     app_mode: &Option<String>,
 ) -> Result<()> {
     let mut config = cfg_mgr.load(profile)?;
+    
+    // Logic Fix: Save early to ensure the .yaml file exists before we start any async or background processes.
+    // This anchors the profile identity.
+    cfg_mgr.save(profile, &config)?;
 
     // Determine Auth Mode
     let mode_str = app_mode.as_deref().unwrap_or("oauth2");
@@ -81,6 +85,7 @@ pub async fn execute(
         config.stream_url = su.clone();
     }
 
+    // 2. Persist configurations (Port, Mode, URLs, etc.)
     cfg_mgr.save(profile, &config)?;
 
     if mode == AuthMode::Oauth2 {
@@ -139,13 +144,9 @@ pub async fn execute(
     println!("⚙️ Configuring auto-completion...");
     let _ = crate::cmd::completion::install_completion(None);
 
-    // Set as default profile if no default exists yet
-    let app_dir = crate::core::config::get_app_dir();
-    let current_profile_path = app_dir.join("current_profile");
-    if !current_profile_path.exists() {
-        let _ = cfg_mgr.set_default_profile(profile);
-        println!("✅ Set default profile to '{}'", profile);
-    }
+    // Automatically set the new profile as the active one
+    let _ = cfg_mgr.set_default_profile(profile);
+    println!("✅ Active profile switched to '{}'", profile);
 
     Ok(())
 }

@@ -44,7 +44,7 @@ ifeq ($(OS),Windows_NT)
 else
     RM = rm -rf $(1)
     MD5 = (md5 -q $(1) 2>/dev/null || md5sum $(1) | cut -d ' ' -f 1) > $(1).md5
-    SHA1 = (shasum -a 1 $(1) 2>/dev/null || sha1sum $(1) | cut -d ' ' -f 1) > $(1).sha1
+    SHA1 = (shasum -a 1 $(1) 2>/dev/null || sha1sum $(1)) | cut -d ' ' -f 1 > $(1).sha1
 endif
 
 VERIFY_BIN = ./tests/verify-binary.sh $(1)
@@ -173,7 +173,8 @@ package-macos-aarch64: clean macos-aarch64
 	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-aarch64/release
 	cp $(OUTPUT_DIR)/macos-aarch64/$(BINARY) pkg_root/usr/local/bin/$(BINARY)
 	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
-	pkgbuild --identifier com.chanjet.$(BINARY).aarch64 --version $(VERSION) --root pkg_root --install-location / $(OUTPUT_DIR)/macos-aarch64/release/$(BINARY)-v$(VERSION)-macos-aarch64.pkg
+	@chmod +x dist_assets/macos/scripts/postinstall
+	pkgbuild --identifier com.chanjet.$(BINARY).aarch64 --version $(VERSION) --root pkg_root --install-location / --scripts dist_assets/macos/scripts $(OUTPUT_DIR)/macos-aarch64/release/$(BINARY)-v$(VERSION)-macos-aarch64.pkg
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/release/$(BINARY)-v$(VERSION)-macos-aarch64.pkg)
 	@$(call SHA1,$(OUTPUT_DIR)/macos-aarch64/release/$(BINARY)-v$(VERSION)-macos-aarch64.pkg)
@@ -183,7 +184,8 @@ package-macos-x86_64: clean macos-x86_64
 	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-x86_64/release
 	cp $(OUTPUT_DIR)/macos-x86_64/$(BINARY) pkg_root/usr/local/bin/$(BINARY)
 	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
-	pkgbuild --identifier com.chanjet.$(BINARY).x86_64 --version $(VERSION) --root pkg_root --install-location / $(OUTPUT_DIR)/macos-x86_64/release/$(BINARY)-v$(VERSION)-macos-x86_64.pkg
+	@chmod +x dist_assets/macos/scripts/postinstall
+	pkgbuild --identifier com.chanjet.$(BINARY).x86_64 --version $(VERSION) --root pkg_root --install-location / --scripts dist_assets/macos/scripts $(OUTPUT_DIR)/macos-x86_64/release/$(BINARY)-v$(VERSION)-macos-x86_64.pkg
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/macos-x86_64/release/$(BINARY)-v$(VERSION)-macos-x86_64.pkg)
 	@$(call SHA1,$(OUTPUT_DIR)/macos-x86_64/release/$(BINARY)-v$(VERSION)-macos-x86_64.pkg)
@@ -214,8 +216,10 @@ package-windows-x86_64: clean windows-x86_64
 	powershell -NoProfile -Command "Copy-Item -Path CHANGELOG.md -Destination ../cowen_setup/ -Force"
 	powershell -NoProfile -Command "cd ../cowen_setup; $$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; cargo build --release --target x86_64-pc-windows-msvc"
 	powershell -NoProfile -Command "Copy-Item -Path ../cowen_setup/target/x86_64-pc-windows-msvc/release/cowen_setup.exe -Destination $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe -Force"
-	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe)
-	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe)
+	@echo "🗜️ Zipping Windows package..."
+	powershell -NoProfile -Command "Compress-Archive -Path $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe -DestinationPath $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip -Force"
+	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
+	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@echo "🔍 Automating Windows package verification..."
 	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
 

@@ -143,25 +143,49 @@ impl ConfigManager {
     }
 
     pub fn list_profiles(&self) -> Result<Vec<String>> {
-        let mut profiles = Vec::new();
+        let mut profiles = std::collections::HashSet::new();
         if let Ok(entries) = fs::read_dir(&self.app_dir) {
             for entry in entries {
                 if let Ok(entry) = entry {
                     let path = entry.path();
                     if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
                         if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                            if !name.contains("_openapi") && name != "current_profile" {
-                                profiles.push(name.to_string());
+                            if !name.contains("_openapi") {
+                                profiles.insert(name.to_string());
                             }
                         }
                     }
                 }
             }
         }
+        
+        // Ensure 'default' is always an option even if the file hasn't been created yet,
+        // unless there are other profiles already existing.
         if profiles.is_empty() {
-            profiles.push("default".to_string());
+            profiles.insert("default".to_string());
         }
-        Ok(profiles)
+        
+        let mut result: Vec<String> = profiles.into_iter().collect();
+        result.sort();
+        Ok(result)
+    }
+
+    /// Checks if a profile configuration file exists
+    pub fn exists(&self, profile: &str) -> bool {
+        self.app_dir.join(format!("{}.yaml", profile)).exists()
+    }
+
+    /// Suggests the next available profile name (e.g., p1, p2, p3...)
+    pub fn get_next_profile_name(&self) -> String {
+        let profiles = self.list_profiles().unwrap_or_default();
+        let mut i = 1;
+        loop {
+            let name = format!("p{}", i);
+            if !profiles.contains(&name) {
+                return name;
+            }
+            i += 1;
+        }
     }
 
     /// Finds a free port that is not in use by any other profile configuration
@@ -272,5 +296,29 @@ mod tests {
         let yaml = "app_key: test\nopenapi_url: test\nstream_url: test\nwebhook_target: test\nlog:\n  level: info\n  rotation: daily\n  max_files: 1\n  max_size_mb: 1";
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.app_mode, crate::auth::models::AuthMode::Oauth2);
+    }
+
+    #[test]
+    fn test_get_next_profile_name() {
+        let dir = tempdir().unwrap();
+        let manager = ConfigManager {
+            app_dir: dir.path().to_path_buf(),
+        };
+
+        // Initially should suggest p1
+        assert_eq!(manager.get_next_profile_name(), "p1");
+
+        // Create p1.yaml
+        let config = Config::default_with_profile("p1");
+        manager.save("p1", &config).unwrap();
+
+        // Now should suggest p2
+        assert_eq!(manager.get_next_profile_name(), "p2");
+
+        // Create p2.yaml
+        manager.save("p2", &config).unwrap();
+
+        // Now should suggest p3
+        assert_eq!(manager.get_next_profile_name(), "p3");
     }
 }

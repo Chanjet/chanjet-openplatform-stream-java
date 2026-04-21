@@ -160,6 +160,13 @@ pub enum ProfileCommands {
     Current,
     /// 列出所有可用的 Profile
     List,
+    /// 重命名现有的 Profile
+    Rename {
+        /// 原 Profile 名称
+        old_name: String,
+        /// 新 Profile 名称
+        new_name: String,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -253,6 +260,21 @@ pub enum DaemonCommands {
         #[arg(short, long)]
         all: bool,
     },
+    /// 管理守护进程的系统服务 (实现开机自启动)
+    Service {
+        #[command(subcommand)]
+        action: ServiceCommands,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum ServiceCommands {
+    /// 安装自启动服务
+    Install,
+    /// 卸载自启动服务
+    Uninstall,
+    /// 查看服务注册状态
+    Status,
 }
 
 #[derive(clap::Subcommand)]
@@ -347,9 +369,23 @@ async fn run() -> Result<()> {
 
     // 2. Load Config to get Log Settings
     let cfg_mgr = ConfigManager::new()?;
-    let active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
+    let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
+
+    // Logic Fix: Ensure 'init' always creates a NEW profile instead of overwriting the current one.
+    if matches!(&cli.command, Commands::Init { .. }) {
+        if cli.profile.is_none() {
+            active_profile = cfg_mgr.get_next_profile_name();
+            println!("🪄 No profile name provided. Automatically generating new profile: \x1b[1;32m{}\x1b[0m", active_profile);
+        } else {
+            // If user specified a profile, ensure it DOES NOT exist. 
+            // We want 'init' to be 'initialize NEW', not 'update EXISTING'.
+            if cfg_mgr.exists(&active_profile) {
+                return Err(anyhow::anyhow!("Profile '{}' already exists. Use a different name or 'reset' it first.", active_profile));
+            }
+        }
+    }
     
-    // Load config partially or use default if it fails
+    // Load config for the target profile (or defaults if it's a new profile)
     let mut config = cfg_mgr.load(&active_profile).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&active_profile));
 
     // Override config flags if CLI provides them
@@ -549,6 +585,17 @@ async fn run() -> Result<()> {
 
                 cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone()).await?;
             }
+            DaemonCommands::Service { action } => match action {
+                ServiceCommands::Install => {
+                    cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Install).await?;
+                }
+                ServiceCommands::Uninstall => {
+                    cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Uninstall).await?;
+                }
+                ServiceCommands::Status => {
+                    cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Status).await?;
+                }
+            }
         },
         Commands::Status { all } => {
             cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?;
@@ -607,6 +654,9 @@ async fn run() -> Result<()> {
                     }
                     println!();
                 }
+            }
+            ProfileCommands::Rename { old_name, new_name } => {
+                cmd::system::rename_profile(old_name, new_name, &cfg_mgr, vault.clone()).await?;
             }
         },
         Commands::Dlq { action } => match action {

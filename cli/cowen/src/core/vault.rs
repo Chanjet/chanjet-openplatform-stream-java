@@ -12,6 +12,7 @@ pub trait Vault: Send + Sync {
     fn set(&self, profile: &str, key: &str, value: &str) -> Result<()>;
     fn delete(&self, profile: &str, key: &str) -> Result<()>;
     fn clear_profile(&self, profile: &str) -> Result<()>;
+    fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()>;
 }
 
 
@@ -156,13 +157,24 @@ impl Vault for MultiVault {
             Ok(())
         })
     }
-fn clear_profile(&self, profile: &str) -> Result<()> {
-    self.with_storage_lock(|| {
-        let mut data = self.load_all()?;
-        data.remove(profile);
-        self.save_all(&data)
-    })
-}
+    fn clear_profile(&self, profile: &str) -> Result<()> {
+        self.with_storage_lock(|| {
+            let mut data = self.load_all()?;
+            data.remove(profile);
+            self.save_all(&data)
+        })
+    }
+
+    fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()> {
+        self.with_storage_lock(|| {
+            let mut data = self.load_all()?;
+            if let Some(profile_data) = data.remove(old_name) {
+                data.insert(new_name.to_string(), profile_data);
+                self.save_all(&data)?;
+            }
+            Ok(())
+        })
+    }
 }
 
 
@@ -210,6 +222,23 @@ mod tests {
         vault.clear_profile("profile1").unwrap();
         assert!(vault.get("profile1", "k").is_err());
         assert_eq!(vault.get("profile2", "k").unwrap(), "v2");
+    }
+
+    #[test]
+    fn test_multivault_rename_profile() {
+        let dir = tempdir().unwrap();
+        let vault_path = dir.path().join("test.vault");
+        let vault = MultiVault::new(vault_path, "fingerprint-1").unwrap();
+
+        vault.set("old", "secret", "value").unwrap();
+        assert_eq!(vault.get("old", "secret").unwrap(), "value");
+
+        vault.rename_profile("old", "new").unwrap();
+
+        // Old should be gone
+        assert!(vault.get("old", "secret").is_err());
+        // New should have the value
+        assert_eq!(vault.get("new", "secret").unwrap(), "value");
     }
 
     #[test]

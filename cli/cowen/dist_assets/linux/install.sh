@@ -30,8 +30,11 @@ if [ -n "$SHELL_RC" ] && [ -f "$SHELL_RC" ]; then
     fi
 fi
 
-# 4. Setup Shell Completion
 echo "⚙️ Setting up shell completion..."
 "$INSTALL_DIR/$BINARY" completion --install > /dev/null 2>&1 || true
+
+# 5. Setup Autostart Service
+echo "📟 Setting up autostart service..."
+"$INSTALL_DIR/$BINARY" daemon service install > /dev/null 2>&1 || true
 
 echo -e "\n🎉 Installation complete! Run 'cowen --help' to get started."
