@@ -269,66 +269,68 @@ async fn status_linux(bin_name: &str) -> Result<()> {
 // --- Windows Implementation ---
 
 async fn install_windows(bin_name: &str, bin_path: &str) -> Result<()> {
-    let task_name = format!("{}DaemonAutostart", bin_name);
+    let value_name = format!("{}Daemon", bin_name);
     let bin_name_caps = bin_name.to_uppercase();
     
-    // schtasks /create /tn CowenDaemonAutostart /tr "'C:\path\to\cowen.exe' daemon start --all" /sc onlogon /f
-    let status = Command::new("schtasks")
-        .arg("/create")
-        .arg("/tn")
-        .arg(&task_name)
-        .arg("/tr")
+    // reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v CowenDaemon /t REG_SZ /d "\"C:\path\to\cowen.exe\" daemon start --all" /f
+    let status = Command::new("reg")
+        .arg("add")
+        .arg("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+        .arg("/v")
+        .arg(&value_name)
+        .arg("/t")
+        .arg("REG_SZ")
+        .arg("/d")
         .arg(format!("\"{}\" daemon start --all", bin_path))
-        .arg("/sc")
-        .arg("onlogon")
         .arg("/f")
         .status();
 
     match status {
         Ok(s) if s.success() => {
-            println!("✅ Successfully installed Task Scheduler entry for Windows.");
-            println!("📍 Task Name: {}", task_name);
+            println!("✅ Successfully added autostart entry to Windows Registry.");
+            println!("📍 Registry Value: {}", value_name);
             println!("💡 {} will now start automatically whenever you log in.", bin_name_caps);
         },
         _ => {
-            anyhow::bail!("Failed to create scheduled task via schtasks. Make sure you have necessary permissions.");
+            anyhow::bail!("Failed to add registry entry via reg add.");
         }
     }
     Ok(())
 }
 
 async fn uninstall_windows(bin_name: &str) -> Result<()> {
-    let task_name = format!("{}DaemonAutostart", bin_name);
-    let status = Command::new("schtasks")
-        .arg("/delete")
-        .arg("/tn")
-        .arg(&task_name)
+    let value_name = format!("{}Daemon", bin_name);
+    let status = Command::new("reg")
+        .arg("delete")
+        .arg("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+        .arg("/v")
+        .arg(&value_name)
         .arg("/f")
         .status();
 
     match status {
         Ok(s) if s.success() => {
-            println!("✅ Successfully uninstalled Task Scheduler entry.");
+            println!("✅ Successfully removed registry autostart entry.");
         },
         _ => {
-            println!("ℹ️  No scheduled task found to uninstall.");
+            println!("ℹ️  No registry entry found to remove.");
         }
     }
     Ok(())
 }
 
 async fn status_windows(bin_name: &str) -> Result<()> {
-    let task_name = format!("{}DaemonAutostart", bin_name);
+    let value_name = format!("{}Daemon", bin_name);
 
-    println!("🔍 Windows Task Scheduler Status:");
-    println!("  - Task Name: {}", task_name);
+    println!("🔍 Windows Registry Autostart Status:");
+    println!("  - Key: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+    println!("  - Value: {}", value_name);
 
-    let output = Command::new("schtasks")
-        .arg("/query")
-        .arg("/tn")
-        .arg(&task_name)
-        .arg("/fo")
-        .arg("list")
+    let output = Command::new("reg")
+        .arg("query")
+        .arg("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+        .arg("/v")
+        .arg(&value_name)
         .output();
 
     match output {
