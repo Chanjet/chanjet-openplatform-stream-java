@@ -267,7 +267,10 @@ impl<'a> Client for AuthClient<'a> {
 
         // 2. Fetch fresh spec from Platform
         if !cfg.openapi_url.is_empty() {
-            let spec_url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/openapi/spec"));
+            let mut spec_url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/openapi/spec"));
+            if cfg.app_mode == AuthMode::Oauth2 {
+                spec_url.push_str("?checkPermission=false");
+            }
             if let Ok(token) = self.get_app_access_token(profile, cfg).await {
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
@@ -322,7 +325,11 @@ impl<'a> Client for AuthClient<'a> {
         let mut combined_paths = serde_json::Map::new();
 
         while current_page <= total_pages {
-            let url = format!("{}?page={}&size=100", base_url, current_page-1);
+            let url = if cfg.app_mode == AuthMode::Oauth2 {
+                format!("{}?page={}&size=100&checkPermission=false", base_url, current_page-1)
+            } else {
+                format!("{}?page={}&size=100", base_url, current_page-1)
+            };
             tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page, total_pages);
             
             let mut headers = reqwest::header::HeaderMap::new();

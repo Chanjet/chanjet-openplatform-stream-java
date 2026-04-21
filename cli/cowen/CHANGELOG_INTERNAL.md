@@ -12,6 +12,9 @@
 - **安装包服务集成**: 在各平台的构建脚本中深度集成了守护进程自启动服务的自动安装逻辑（macOS postinstall, Linux install.sh, Windows setup）。
 - **构建流程自动化**: 修复了 Makefile 与子模块构建约定的不一致性，确保全平台构建产物的版本号与命名规则高度统一。
 
+### 🏗️ 架构与 SDK 优化
+- **OAuth2 文档拉取优化**: 在 OAuth2 模式下，拉取 OpenAPI Spec 及接口列表时自动附加 `checkPermission=false` 参数，确保在受限授权环境下仍能正确获取 API 规约。
+
 ### 🛡️ 安全与审计 (Security & Audit)
 - **安全审计报告**: 发布了官方《Cowen CLI 安全审计报告》，系统性梳理并公开了系统的凭据管理、数据加密及日志脱敏逻辑。
 
