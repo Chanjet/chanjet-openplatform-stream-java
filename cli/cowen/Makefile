@@ -60,8 +60,8 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
         package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # 授权配置 (Authentication)
-OFFICIAL_APP_KEY = 3NWdEbmu
-INTE_APP_KEY     ?= rle1Onds
+OFFICIAL_APP_KEY = 3NWdEbmu    # 正式环境 AppKey (Production)
+PREVIEW_APP_KEY  ?= RjP3LPoI   # 预览/集成测试环境 AppKey (Preview/INTE)
 
 # --- 核心构建目标 ---
 
@@ -78,7 +78,7 @@ macos-aarch64:
 test-macos-aarch64:
 	@echo "🧪 Building macOS Apple Silicon (TEST ENV) v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/test
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) BUILTIN_CLIENT_ID=$(INTE_APP_KEY) cargo build --release --features inte
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) BUILTIN_CLIENT_ID=$(PREVIEW_APP_KEY) cargo build --release --features inte
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/test/$(BINARY)
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/test/$(BINARY))
