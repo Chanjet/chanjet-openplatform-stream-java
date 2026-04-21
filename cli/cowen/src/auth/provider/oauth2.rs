@@ -65,7 +65,7 @@ impl<'a> OAuth2Provider<'a> {
             );
         }
 
-        self.request_token(profile, &url, body).await
+        self.request_token(profile, &url, body, cfg).await
     }
 
     async fn refresh_token(
@@ -86,7 +86,7 @@ impl<'a> OAuth2Provider<'a> {
             "refresh_token": refresh_token,
         });
 
-        self.request_token(profile, &url, body).await
+        self.request_token(profile, &url, body, cfg).await
     }
 
     async fn request_token(
@@ -94,6 +94,7 @@ impl<'a> OAuth2Provider<'a> {
         profile: &str,
         url: &str,
         body: serde_json::Value,
+        cfg: &Config,
     ) -> Result<Token> {
         let headers = reqwest::header::HeaderMap::new();
         let resp = self.http_sender.post_form(url, headers, body).await?;
@@ -119,8 +120,9 @@ impl<'a> OAuth2Provider<'a> {
                 ));
             }
             if err_text.contains("4007") || err_text.contains("invalid_grant") {
+                let _ = self.pool.as_vault().set(profile, "oauth2_revoked", "true");
                 return Err(anyhow!(
-                    "令牌已失效，请执行 `owenc auth login` 重新授权。 (Error: {})",
+                    "令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})",
                     status
                 ));
             }
@@ -166,7 +168,44 @@ impl<'a> OAuth2Provider<'a> {
         self.pool
             .as_vault()
             .set(profile, "oauth2_token_pair", &serde_json::to_string(&pair)?)?;
+        let _ = self.pool.as_vault().delete(profile, "oauth2_revoked");
         self.pool.set_access_token(profile, &token)?;
+
+        // Deduplication Logic (User/Org/App/AppKey uniqueness)
+        if let Some(new_id) = token.extract_identity() {
+            if let Ok(cfg_mgr) = crate::core::config::ConfigManager::new() {
+                if let Ok(profiles) = cfg_mgr.list_profiles() {
+                    for other_profile in profiles {
+                        if other_profile == profile {
+                            continue;
+                        }
+
+                        // Check if this profile has a matching identity
+                        if let Ok(other_pair_raw) = self.pool.as_vault().get(&other_profile, "oauth2_token_pair") {
+                            if let Ok(other_pair) = serde_json::from_str::<OAuth2TokenPair>(&other_pair_raw) {
+                                let other_token = Token {
+                                    value: other_pair.access_token,
+                                    expires_at: other_pair.expires_at,
+                                    created_at: other_pair.created_at,
+                                };
+                                if let Some(other_id) = other_token.extract_identity() {
+                                    if other_id == new_id {
+                                        // Potential duplicate found. Verify AppKey match as well.
+                                        if let Ok(other_cfg) = cfg_mgr.load(&other_profile) {
+                                            if other_cfg.app_key == cfg.app_key {
+                                                tracing::warn!(target: "audit", profile = %profile, duplicate = %other_profile, "Deduplication: Invalidating historical profile with same identity");
+                                                let _ = self.pool.as_vault().set(&other_profile, "oauth2_revoked", "true");
+                                                // Also clear its memory cache if possible (Optional as daemon handles it)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         tracing::info!(
             target: "audit",

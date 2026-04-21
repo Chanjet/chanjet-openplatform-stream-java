@@ -227,6 +227,8 @@ impl<'a> Client for AuthClient<'a> {
         let _ = vault.delete(profile, "oauth2_token_pair");
         let _ = vault.delete(profile, "pending_auth_session");
         let _ = vault.delete(profile, "captured_auth_code");
+        let _ = vault.delete(profile, "oauth2_revoked");
+        let _ = vault.delete(profile, "last_refresh_error");
         
         // 4. Clear Auth related transient states
         let _ = vault.delete(profile, "push_backoff_level");

@@ -1,0 +1,34 @@
+[
+  {
+    "number": 1,
+    "category": "状态管理",
+    "task": "实现 AuthSessionManager",
+    "steps": [
+      { "step": "在 Vault 中定义并实现 AuthSession 的加密持久化存储", "completed": true },
+      { "step": "实现 Session 的生命周期查询与自动清理接口", "completed": true }
+    ],
+    "passes": true
+  },
+  {
+    "number": 2,
+    "category": "回调服务器",
+    "task": "实现 LocalCallbackServer",
+    "steps": [
+      { "step": "基于 axum 实现轻量级本地监听器", "completed": true },
+      { "step": "实现动态端口绑定 (Port 0) 逻辑", "completed": true },
+      { "step": "实现授权码 (Code) 与状态 (State) 的捕获逻辑", "completed": true }
+    ],
+    "passes": true
+  },
+  {
+    "number": 3,
+    "category": "进程管控",
+    "task": "Finalizer 命生命周期",
+    "steps": [
+      { "step": "实现子进程脱离终端 (Detachment) 的跨平台抽象", "completed": true },
+      { "step": "实现 --finalize 隐藏参数的换票处理器", "completed": true },
+      { "step": "实现 300s 超时强制退出与资源清理逻辑", "completed": true }
+    ],
+    "passes": true
+  }
+]

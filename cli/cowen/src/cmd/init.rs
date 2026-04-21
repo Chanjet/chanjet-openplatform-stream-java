@@ -193,11 +193,16 @@ async fn wait_for_token_exchange(profile: &str, vault: Arc<dyn Vault>) -> anyhow
     std::io::stdout().flush()?;
 
     loop {
-        if start_time.elapsed() > timeout {
+        let elapsed = start_time.elapsed();
+        if elapsed > timeout {
             println!("\n❌ 授权超时 (5 分钟)。请检查网络或重新运行 `init`。");
             render_last_auth_error(profile)?;
             return Err(anyhow::anyhow!("Authorization timeout"));
         }
+
+        let remaining = (timeout.as_secs() as i64 - elapsed.as_secs() as i64).max(0);
+        print!("\r⏳ 正在等待浏览器授权并在后台交换令牌... [剩余 {:3}s] ", remaining);
+        std::io::stdout().flush()?;
 
         // 1. Success check: Token pair exists
         if vault.get(profile, "oauth2_token_pair").is_ok() {
@@ -227,20 +232,20 @@ async fn wait_for_token_exchange(profile: &str, vault: Arc<dyn Vault>) -> anyhow
             }
         }
 
-        // 3. State check: If code is cleared but no token pair
-        if vault.get(profile, "captured_auth_code").is_err() && vault.get(profile, "oauth2_token_pair").is_err() {
+        // 3. State check: If session is cleared but no token pair
+        if vault.get(profile, "pending_auth_session").is_err() 
+            && vault.get(profile, "captured_auth_code").is_err() 
+            && vault.get(profile, "oauth2_token_pair").is_err() {
             // Wait a small buffer for the final write
             tokio::time::sleep(Duration::from_millis(500)).await;
             if vault.get(profile, "oauth2_token_pair").is_err() {
-                println!("\n❌ 授权码已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。");
+                println!("\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。");
                 render_last_auth_error(profile)?;
                 return Err(anyhow::anyhow!("Authorization state invalid"));
             }
         }
         
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        print!(".");
-        std::io::stdout().flush()?;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
     }
 }
 

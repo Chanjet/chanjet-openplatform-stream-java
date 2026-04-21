@@ -55,9 +55,27 @@ PROD_STREAM  = https://stream-open.chanapp.chanjet.com
 TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
-.PHONY: macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
+.PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
         package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
         package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image prepare-podman-machine stop-podman-machine
+
+# --- 默认构建目标 (Default Build Target) ---
+build:
+ifeq ($(HOST_OS),macos)
+ifeq ($(HOST_ARCH),aarch64)
+	@$(MAKE) macos-aarch64
+else
+	@$(MAKE) macos-x86_64
+endif
+else ifeq ($(HOST_OS),linux)
+ifeq ($(HOST_ARCH),x86_64)
+	@$(MAKE) linux-x86_64
+else
+	@$(MAKE) linux-aarch64
+endif
+else ifeq ($(HOST_OS),windows)
+	@$(MAKE) windows-x86_64
+endif
 
 # 授权配置 (Authentication)
 OFFICIAL_APP_KEY = 3NWdEbmu    # 正式环境 AppKey (Production)

@@ -32,9 +32,11 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>) -> Resul
                         Ok(_) => {
                             tracing::info!(target: "sys", "Proactive token refresh successful");
                             refresh_performed = true;
+                            let _ = vault.delete(profile, "last_refresh_error");
                         }
                         Err(e) => {
                             tracing::error!(target: "sys", error = %e, "Proactive token refresh failed");
+                            let _ = vault.set(profile, "last_refresh_error", &e.to_string());
                         }
                     }
                 } else {

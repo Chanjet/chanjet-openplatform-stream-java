@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::core::vault::Vault;
 use crate::core::config::Config;
 
-#[derive(Debug, Serialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Clone, Copy, PartialEq)]
 pub enum StatusLevel {
     OK,
     WARN,
@@ -20,6 +20,7 @@ pub struct StatusEntry {
     pub icon: String,
     pub level: StatusLevel,
     pub message: String,
+    pub reason: Option<String>,
     pub details: Vec<String>,
     pub children: Vec<StatusEntry>,
 }

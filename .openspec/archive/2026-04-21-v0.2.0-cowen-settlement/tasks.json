@@ -1,0 +1,23 @@
+[
+  {
+    "number": 1,
+    "category": "结项归档",
+    "task": "归档 v0.2.0 开发文献",
+    "steps": [
+      { "step": "将 PRD_v0.2.0_OAuth2_PKCE_Auth_Mode.md 移至归档目录", "completed": true },
+      { "step": "将 DESIGN_v0.2.0_OAuth2_PKCE_Implementation.md 移至归档目录", "completed": true },
+      { "step": "将 v0.2.0_Closing_Report.md 移至归档目录", "completed": true }
+    ],
+    "passes": true
+  },
+  {
+    "number": 2,
+    "category": "版本发布",
+    "task": "更新发布日志",
+    "steps": [
+      { "step": "更新 cli/cowen/CHANGELOG.md (用户可见变更)", "completed": true },
+      { "step": "更新 cli/cowen/CHANGELOG_INTERNAL.md (内部工程优化)", "completed": true }
+    ],
+    "passes": true
+  }
+]

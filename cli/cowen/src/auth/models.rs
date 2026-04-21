@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc, Duration};
 use serde::{Deserialize, Serialize};
+use anyhow::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
@@ -28,22 +29,48 @@ impl Token {
     }
 
     fn extract_jwt_exp(&self) -> Option<DateTime<Utc>> {
+        self.extract_jwt_claims().ok().and_then(|v| {
+            let exp = v.get("exp")?.as_i64()?;
+            DateTime::from_timestamp(exp, 0)
+        })
+    }
+
+    pub fn extract_jwt_claims(&self) -> Result<serde_json::Value> {
         let parts: Vec<&str> = self.value.split('.').collect();
         if parts.len() != 3 {
-            return None;
+            return Err(anyhow::anyhow!("Invalid JWT format"));
         }
 
         let payload_b64 = parts[1];
         
         use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-        let payload_json = URL_SAFE_NO_PAD.decode(payload_b64).ok()?;
+        let payload_json = URL_SAFE_NO_PAD.decode(payload_b64)
+            .map_err(|e| anyhow::anyhow!("Base64 decode error: {}", e))?;
         
-        let v: serde_json::Value = serde_json::from_slice(&payload_json).ok()?;
-        let exp = v.get("exp")?.as_i64()?;
+        let v: serde_json::Value = serde_json::from_slice(&payload_json)
+            .map_err(|e| anyhow::anyhow!("JSON parse error: {}", e))?;
         
-        DateTime::from_timestamp(exp, 0)
+        Ok(v)
+    }
+
+    pub fn extract_identity(&self) -> Option<TokenIdentity> {
+        let claims = self.extract_jwt_claims().ok()?;
+        
+        let user_id = claims.get("userId").or(claims.get("user_id"))?.as_str()?.to_string();
+        let org_id = claims.get("orgId").or(claims.get("org_id"))?.as_str()?.to_string();
+        let app_id = claims.get("appId").or(claims.get("app_id"))?.as_str()?.to_string();
+        
+        Some(TokenIdentity { user_id, org_id, app_id })
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TokenIdentity {
+    pub user_id: String,
+    pub org_id: String,
+    pub app_id: String,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ticket {
@@ -200,6 +227,25 @@ mod tests {
         let real_expiry = token.extract_jwt_exp().expect("Should extract exp");
         assert_eq!(real_expiry.timestamp(), 1711526400);
         assert_eq!(token.real_expires_at().timestamp(), 1711526400);
+    }
+
+    #[test]
+    fn test_extract_identity() {
+        let payload = r#"{"userId": "U123", "orgId": "O456", "appId": "A789"}"#;
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        let encoded_payload = URL_SAFE_NO_PAD.encode(payload);
+        let mock_token_value = format!("header.{}.signature", encoded_payload);
+
+        let token = Token {
+            value: mock_token_value,
+            expires_at: Utc::now(),
+            created_at: Utc::now(),
+        };
+
+        let identity = token.extract_identity().expect("Should extract identity");
+        assert_eq!(identity.user_id, "U123");
+        assert_eq!(identity.org_id, "O456");
+        assert_eq!(identity.app_id, "A789");
     }
 
     #[test]
