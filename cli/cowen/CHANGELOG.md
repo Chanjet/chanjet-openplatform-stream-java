@@ -71,3 +71,9 @@
 ## ⚠️ 已知问题 (Known Issues)
 
 - **Windows 更新后进程挂死**: 在 Windows 系统更新或重启后，旧的 `cowen` 进程可能无法正常退出，导致新进程无法启动。目前需要手动在任务管理器中结束残留的 `cowen` 进程。详细记录参考 [BUG-20260423-WINDOWS-UPDATE-STUCK](docs/bugs/BUG-20260423-WINDOWS-UPDATE-STUCK.md)。
+
+---
+
+## 🔮 未来演进与改进 (Future Iterations & Improvements)
+
+- **OAuth2 认证周期自清理**: 优化 OAuth2 认证异常退出或超时后的残留数据处理，确保本地状态的纯净。详细设计参考 [UX-20260423-OAUTH2-TIMEOUT-CLEANUP](docs/improvements/UX-20260423-OAUTH2-TIMEOUT-CLEANUP.md)。
