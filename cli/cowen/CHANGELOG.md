@@ -77,4 +77,5 @@
 ## 🔮 未来演进与改进 (Future Iterations & Improvements)
 
 - **OAuth2 认证周期自清理**: 优化 OAuth2 认证异常退出或超时后的残留数据处理，确保本地状态的纯净。详细设计参考 [UX-20260423-OAUTH2-TIMEOUT-CLEANUP](docs/todo/improvements/UX-20260423-OAUTH2-TIMEOUT-CLEANUP.md)。
+- **移除 OAuth2 无效二维码**: 计划移除 `init` 流程中由于无法跨端回调而失去意义的二维码展示，避免误导用户。详细说明参考 [UX-20260423-REMOVE-OAUTH2-QRCODE](docs/todo/improvements/UX-20260423-REMOVE-OAUTH2-QRCODE.md)。
 - **Webhook 监听安全策略**: 确立并加强了 Webhook 服务仅限绑定在回环地址（Loopback）的原则，杜绝由于外部 IP 监听导致的安全隐患。详细说明参考 [SEC-20260423-WEBHOOK-LOOPBACK-ONLY](docs/todo/security/SEC-20260423-WEBHOOK-LOOPBACK-ONLY.md)。
