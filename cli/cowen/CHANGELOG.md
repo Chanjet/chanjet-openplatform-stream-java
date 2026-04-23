@@ -65,3 +65,9 @@
 ### 🔧 改进与修复 (Improvements & Fixes)
 - **交互体验优化**: 支持更直观的分页查询。
 - **运行状态修复**: 解决了在特定临界状态下可能出现的进程重启循环。
+
+---
+
+## ⚠️ 已知问题 (Known Issues)
+
+- **Windows 更新后进程挂死**: 在 Windows 系统更新或重启后，旧的 `cowen` 进程可能无法正常退出，导致新进程无法启动。目前需要手动在任务管理器中结束残留的 `cowen` 进程。详细记录参考 [BUG-20260423-WINDOWS-UPDATE-STUCK](docs/bugs/BUG-20260423-WINDOWS-UPDATE-STUCK.md)。
