@@ -201,6 +201,7 @@ async fn wait_for_token_exchange(
         if elapsed > timeout {
             println!("\n❌ 授权超时 (5 分钟)。请检查网络或重新运行 `init`。");
             render_last_auth_error(profile)?;
+            perform_failure_cleanup(profile, vault, finalizer_pid, is_new, cfg_mgr).await;
             return Err(anyhow::anyhow!("Authorization timeout"));
         }
 
@@ -228,6 +229,7 @@ async fn wait_for_token_exchange(
                         if l.contains("ERROR") {
                             println!("\n❌ 令牌交换失败！");
                             println!("\x1b[31m🔍 错误原因: {}\x1b[0m", l);
+                            perform_failure_cleanup(profile, vault, finalizer_pid, is_new, cfg_mgr).await;
                             return Err(anyhow::anyhow!("Token exchange failed"));
                         }
                     }
@@ -245,6 +247,7 @@ async fn wait_for_token_exchange(
             if vault.get(profile, "oauth2_token_pair").is_err() {
                 println!("\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。");
                 render_last_auth_error(profile)?;
+                perform_failure_cleanup(profile, vault, finalizer_pid, is_new, cfg_mgr).await;
                 return Err(anyhow::anyhow!("Authorization state invalid"));
             }
         }
@@ -255,25 +258,7 @@ async fn wait_for_token_exchange(
             }
             _ = tokio::signal::ctrl_c() => {
                 println!("\n🛑 收到中断信号 (Ctrl+C)。正在取消授权并关闭监听...");
-                // Kill the finalizer background process
-                let mut sys = sysinfo::System::new();
-                sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-                if let Some(process) = sys.process(sysinfo::Pid::from_u32(finalizer_pid)) {
-                    process.kill_with(sysinfo::Signal::Kill);
-                    tracing::info!(target: "sys", pid = %finalizer_pid, "Background finalizer killed due to user cancellation");
-                }
-
-                // Cleanup session state
-                let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
-                let session_manager = crate::auth::lifecycle::AuthSessionManager::new(&token_pool);
-                let _ = session_manager.clear(profile);
-
-                // If this was a new profile, remove the junk .yaml file
-                if is_new {
-                    println!("🧹 检测到这是新创建的 Profile，正在物理移除临时配置文件...");
-                    let _ = crate::cmd::system::reset(profile, Some(vault.as_ref()), cfg_mgr).await;
-                }
-
+                perform_failure_cleanup(profile, vault, finalizer_pid, is_new, cfg_mgr).await;
                 return Err(anyhow::anyhow!("Operation cancelled by user"));
             }
         }
@@ -308,4 +293,31 @@ fn render_last_auth_error(profile: &str) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn perform_failure_cleanup(
+    profile: &str,
+    vault: Arc<dyn Vault>,
+    finalizer_pid: u32,
+    is_new: bool,
+    cfg_mgr: &ConfigManager,
+) {
+    // 1. Kill the finalizer background process
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    if let Some(process) = sys.process(sysinfo::Pid::from_u32(finalizer_pid)) {
+        process.kill_with(sysinfo::Signal::Kill);
+        tracing::info!(target: "sys", pid = %finalizer_pid, "Background finalizer killed due to initialization failure");
+    }
+
+    // 2. Cleanup session state
+    let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
+    let session_manager = crate::auth::lifecycle::AuthSessionManager::new(&token_pool);
+    let _ = session_manager.clear(profile);
+
+    // 3. If this was a new profile, remove the junk .yaml file
+    if is_new {
+        println!("🧹 检测到这是新创建的 Profile，正在物理移除临时配置文件...");
+        let _ = crate::cmd::system::reset(profile, Some(vault.as_ref()), cfg_mgr).await;
+    }
 }
