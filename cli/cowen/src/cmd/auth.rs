@@ -14,6 +14,16 @@ pub async fn login(
         return finalize_login(_profile, cfg, auth_cli).await;
     }
 
+    // 1.1 Pre-cleanup for OAuth2 sessions (Ensures a clean state machine)
+    if cfg.app_mode == crate::auth::models::AuthMode::Oauth2 {
+        let fingerprint = crate::core::security::get_machine_fingerprint()?;
+        let seal_path = crate::core::config::get_app_dir().join(".seal");
+        let multi_vault = crate::core::vault::MultiVault::new(seal_path, &fingerprint)?;
+        let token_pool = crate::auth::VaultTokenPool::new(std::sync::Arc::new(multi_vault));
+        let session_manager = crate::auth::lifecycle::AuthSessionManager::new(&token_pool);
+        let _ = session_manager.clear(_profile);
+    }
+
     // 2. Regular Login flow based on AuthMode
     match cfg.app_mode {
         crate::auth::models::AuthMode::Oauth2 => {
@@ -84,11 +94,11 @@ async fn finalize_login(profile: &str, cfg: &Config, auth_cli: &dyn AuthClientTr
     let session = session_manager.get_session(profile)?;
     
     // 2. Start Listener
-    let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await;
+    let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
     tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
 
     // 3. Wait for result with timeout
-    tokio::select! {
+    let res = tokio::select! {
         result = rx => {
             match result {
                 Ok(inner_res) => {
@@ -125,7 +135,13 @@ async fn finalize_login(profile: &str, cfg: &Config, auth_cli: &dyn AuthClientTr
             tracing::error!(target: "sys", "Finalizer timed out waiting for callback");
             Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
         }
+    };
+
+    // Cleanup session if failed or timed out (Success branch also clears indirectly during exchange or can be explicitly cleared)
+    if res.is_err() {
+        let _ = session_manager.clear(profile);
     }
+    res
 }
 
 pub async fn token(

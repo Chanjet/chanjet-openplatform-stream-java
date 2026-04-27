@@ -1,0 +1,23 @@
+[
+  {
+    "number": 1,
+    "category": "逻辑实现",
+    "task": "实现端口响应探测算子",
+    "steps": [
+      { "step": "在 src/cmd/system.rs 中实现 is_port_responsive 函数", "completed": false },
+      { "step": "编写 TDD 测试验证在端口监听/未监听时的正确返回", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "自愈集成",
+    "task": "修改 ensure_daemon_running 接入自愈逻辑",
+    "steps": [
+      { "step": "在 ensure_daemon_running 中增加端口探测逻辑", "completed": false },
+      { "step": "实现针对 Hanging 状态的强制重启逻辑", "completed": false },
+      { "step": "编写集成测试模拟 PID 存在但端口不响应的场景，验证自愈成功", "completed": false }
+    ],
+    "passes": false
+  }
+]

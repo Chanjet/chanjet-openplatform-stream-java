@@ -522,7 +522,7 @@ mod tests {
         // 2. Start Listener
         let (actual_port, rx) =
             crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, "test".to_string())
-                .await;
+                .await.unwrap();
 
         // 3. Simulate Callback (e.g. from Browser)
         let client = reqwest::Client::new();

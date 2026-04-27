@@ -1,0 +1,24 @@
+[
+  {
+    "number": 1,
+    "category": "逻辑算子实现",
+    "task": "实现回环地址校验算子 validate_loopback_addr",
+    "steps": [
+      { "step": "在 src/core/security.rs 中定义 SecurityError 枚举 (若尚不存在)", "completed": false },
+      { "step": "在 src/core/network.rs 中实现 validate_loopback_addr 函数", "completed": false },
+      { "step": "编写 TDD 测试用例验证非法 IP (0.0.0.0, 192.168.x.x) 被正确拦截", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "集成验证",
+    "task": "在核心监听器中接入校验逻辑",
+    "steps": [
+      { "step": "修改 src/daemon/proxy.rs 接入校验", "completed": false },
+      { "step": "修改 src/auth/lifecycle/listener.rs 接入校验", "completed": false },
+      { "step": "通过集成测试验证 Proxy 无法启动在 0.0.0.0", "completed": false }
+    ],
+    "passes": false
+  }
+]

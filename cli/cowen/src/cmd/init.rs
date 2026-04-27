@@ -111,24 +111,18 @@ pub async fn execute(
             crate::auth::provider::oauth2::Pkce::generate_challenge(&session.code_verifier),
         );
 
-        println!("\n\x1b[1mPlease authorize in your browser. Opening URL...\x1b[0m");
+        println!("\n\x1b[1mPlease authorize in the LOCAL browser of this machine. Opening URL...\x1b[0m");
         
         // 4. Automatically open browser
         if let Err(e) = open::that(&auth_url) {
             tracing::warn!(target: "sys", error = %e, "Failed to open browser automatically");
-            println!("\x1b[33m(Failed to open browser automatically. Please copy the URL manually)\x1b[0m");
+            println!("\x1b[33m(Failed to open browser automatically. Please copy the URL below manually to your LOCAL browser)\x1b[0m");
         }
         
         println!("\x1b[34m{}\x1b[0m", auth_url);
         
-        // Render QR Code
-        if let Ok(code) = qrcode::QrCode::new(&auth_url) {
-            let string = code.render::<qrcode::render::unicode::Dense1x2>().build();
-            println!("\n{}", string);
-        }
-
         // 5. Spawn Background Finalizer
-        println!("\n\x1b[34m🚀 授权监听已启动。请在浏览器中确认...\x1b[0m");
+        println!("\n\x1b[34m🚀 授权监听已在本机启动。请在浏览器中确认...\x1b[0m");
 
         spawn_finalizer(profile, &session.state)?;
         

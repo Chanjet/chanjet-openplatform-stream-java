@@ -102,7 +102,7 @@ fi
 echo -e "${YELLOW}Step 5: 探索 Profile 隔离与 Vault 机制...${NC}"
 "$BINARY_PATH" profile use "$TMP_PROF" >/dev/null 2>&1
 # 初始化临时环境（使用模拟数据）
-"$BINARY_PATH" init --app-key "TEST_KEY" --app-secret "TEST_SEC" --certificate "TEST_CERT" >/dev/null 2>&1
+"$BINARY_PATH" init --profile "$TMP_PROF" --app-mode self-built --app-key "TEST_KEY" --app-secret "TEST_SEC" --certificate "TEST_CERT" >/dev/null 2>&1
 
 CONFIG_FILE="$HOME/.cowen/$TMP_PROF.yaml"
 if [ -f "$CONFIG_FILE" ]; then
@@ -205,7 +205,7 @@ echo -e "${YELLOW}Step 9: 验证 Reset 清理彻底性 (DLQ & 滚动日志)...${
 DLQ_PROF_DIR="$HOME/.cowen/dlq/$TMP_PROF"
 mkdir -p "$DLQ_PROF_DIR"
 touch "$DLQ_PROF_DIR/failed_event.json"
-touch "$LOG_DIR/${TMP_PROF}.log.1"
+touch "$LOG_DIR/${TMP_PROF}_sys.log.1"
 
 # 执行 Reset
 "$BINARY_PATH" reset --profile "$TMP_PROF" >/dev/null 2>&1
@@ -215,7 +215,7 @@ if [ -d "$DLQ_PROF_DIR" ]; then
     exit 1
 fi
 
-if [ -f "$LOG_DIR/${TMP_PROF}.log.1" ]; then
+if [ -f "$LOG_DIR/${TMP_PROF}_sys.log.1" ]; then
     echo -e "${RED}   [FAIL] 警告：Reset 未能清理滚动生成的日志文件${NC}"
     exit 1
 fi

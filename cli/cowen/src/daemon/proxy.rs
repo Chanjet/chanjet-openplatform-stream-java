@@ -34,6 +34,7 @@ pub async fn start_proxy(
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    crate::core::network::validate_loopback_addr(&addr)?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     
     tracing::info!(target: "sys", "Local Proxy Server listening on http://127.0.0.1:{}", port);

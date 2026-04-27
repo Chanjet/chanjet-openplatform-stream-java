@@ -4,6 +4,19 @@
 
 ---
 
+## [0.2.1] - 2026-04-27
+
+### 🚀 新特性 (Features)
+- **OAuth2 会话生命周期自清理**: 实现了认证流程的自动化清理机制。当认证超时、失败或重新发起登录时，系统将自动清除本地残留的中间状态，确保状态机始终处于纯净状态。
+- **Webhook 回环地址强制限制**: 强化了安全性，强制所有本地监听服务（Proxy 与 OAuth2 Callback）必须绑定在回环地址 (`127.0.0.1` 或 `::1`)。任何尝试绑定公网或局域网 IP 的配置都将被安全拦截。
+
+### 🔧 改进与修复 (Improvements & Fixes)
+- **Windows 守护进程挂死自愈**: 解决了在 Windows 系统更新或休眠恢复后进程可能处于“挂死”状态的问题。引入了 PID + Port 的双重健康检查，发现无响应进程时会自动执行强制重启。
+- **OAuth2 交互流程优化**: 移除了 `cowen init` 流程中由于无法跨端回调而失效的二维码展示，并优化了授权引导文案，明确提示用户需在本机浏览器中完成授权。
+- **错误处理鲁棒性增强**: 提升了 OAuth2 监听器启动失败时的异常捕获与反馈质量。
+
+---
+
 ## [0.2.0] - 2026-04-21
 
 ### 🚀 新特性 (Features)
@@ -70,12 +83,11 @@
 
 ## ⚠️ 已知问题 (Known Issues)
 
-- **Windows 更新后进程挂死**: 在 Windows 系统更新或重启后，旧的 `cowen` 进程可能无法正常退出，导致新进程无法启动。目前需要手动在任务管理器中结束残留的 `cowen` 进程。详细记录参考 [BUG-20260423-WINDOWS-UPDATE-STUCK](docs/todo/bugs/BUG-20260423-WINDOWS-UPDATE-STUCK.md)。
+- 目前暂无严重已知阻塞问题。若发现异常，请通过 `cowen status` 获取诊断信息。
 
 ---
 
 ## 🔮 未来演进与改进 (Future Iterations & Improvements)
 
-- **OAuth2 认证周期自清理**: 优化 OAuth2 认证异常退出或超时后的残留数据处理，确保本地状态的纯净。详细设计参考 [UX-20260423-OAUTH2-TIMEOUT-CLEANUP](docs/todo/improvements/UX-20260423-OAUTH2-TIMEOUT-CLEANUP.md)。
-- **移除 OAuth2 无效二维码**: 计划移除 `init` 流程中由于无法跨端回调而失去意义的二维码展示，避免误导用户。详细说明参考 [UX-20260423-REMOVE-OAUTH2-QRCODE](docs/todo/improvements/UX-20260423-REMOVE-OAUTH2-QRCODE.md)。
-- **Webhook 监听安全策略**: 确立并加强了 Webhook 服务仅限绑定在回环地址（Loopback）的原则，杜绝由于外部 IP 监听导致的安全隐患。详细说明参考 [SEC-20260423-WEBHOOK-LOOPBACK-ONLY](docs/todo/security/SEC-20260423-WEBHOOK-LOOPBACK-ONLY.md)。
+- **多环境并行网关支持**: 计划支持在单一机器上同时运行多个 Profile 的网关实例，并提供自动冲突检测与端口管理。
+- **本地语义搜索缓存优化**: 提升大规模数据集下的索引加载速度。

@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
+use anyhow::Result as AnyhowResult;
 
 pub struct CallbackResult {
     pub code: String,
@@ -29,11 +30,13 @@ pub struct OAuth2CallbackListener;
 
 // Recompile trigger to refresh embedded success.html
 impl OAuth2CallbackListener {
-    pub async fn start(port: u16, profile: String) -> (u16, oneshot::Receiver<Result<CallbackResult, String>>) {
+    pub async fn start(port: u16, profile: String) -> anyhow::Result<(u16, oneshot::Receiver<Result<CallbackResult, String>>)> {
         let (result_tx, result_rx) = oneshot::channel();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
+        crate::core::network::validate_loopback_addr(&addr)?;
+        
         let shared_result_tx = Arc::new(Mutex::new(Some(result_tx)));
         let shared_shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
         let shared_profile = Arc::new(profile); // Inject profile into state
@@ -90,7 +93,7 @@ impl OAuth2CallbackListener {
             }))
             .with_state((shared_result_tx, shared_shutdown_tx, shared_profile));
 
-        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        let listener = tokio::net::TcpListener::bind(addr).await?;
         let actual_port = listener.local_addr().unwrap().port();
 
         tokio::spawn(async move {
@@ -102,7 +105,7 @@ impl OAuth2CallbackListener {
                 .unwrap();
         });
 
-        (actual_port, result_rx)
+        Ok((actual_port, result_rx))
     }
 }
 
@@ -113,7 +116,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_callback_capture() {
-        let (port, rx) = OAuth2CallbackListener::start(0, "test_profile".to_string()).await;
+        let (port, rx) = OAuth2CallbackListener::start(0, "test_profile".to_string()).await.unwrap();
         assert!(port > 0);
 
         let url = format!("http://127.0.0.1:{}/callback?code=test_code&state=test_state", port);

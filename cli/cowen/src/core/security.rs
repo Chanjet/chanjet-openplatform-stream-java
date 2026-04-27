@@ -6,6 +6,13 @@ use aes_gcm::{
 };
 use anyhow::{Result, anyhow};
 use rand::RngExt;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum SecurityError {
+    #[error("Security Violation: Listening on illegal non-loopback address {0}. All local services must bind to 127.0.0.1 or ::1.")]
+    IllegalBinding(String),
+}
 
 pub fn get_machine_fingerprint() -> Result<String> {
     let os = env::consts::OS;
