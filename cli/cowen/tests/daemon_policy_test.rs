@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::sync::Arc;
 use tempfile::tempdir;
 use std::fs;
 

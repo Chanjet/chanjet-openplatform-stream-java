@@ -8,7 +8,6 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
-use anyhow::Result as AnyhowResult;
 
 pub struct CallbackResult {
     pub code: String,
