@@ -97,6 +97,9 @@ pub async fn execute(
         // 1. Get a free port for redirect_uri (Port is used by background listener later)
         let port = cfg_mgr.find_free_port();
         
+        // 1.1 Pre-cleanup residual sessions
+        let _ = session_manager.clear(profile);
+        
         // 2. Create Session
         let session = session_manager.create_session(profile, port)?;
         
