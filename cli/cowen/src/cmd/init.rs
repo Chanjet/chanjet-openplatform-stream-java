@@ -127,10 +127,10 @@ pub async fn execute(
         // 5. Spawn Background Finalizer
         println!("\n\x1b[34m🚀 授权监听已在本机启动。请在浏览器中确认...\x1b[0m");
 
-        spawn_finalizer(profile, &session.state)?;
+        let pid = spawn_finalizer(profile, &session.state)?;
         
         // 6. Wait for Result (Closed Loop)
-        wait_for_token_exchange(profile, vault.clone()).await?;
+        wait_for_token_exchange(profile, vault.clone(), pid).await?;
     } else {
         println!("✅ Profile '{}' initialized successfully.", profile);
         // Automatically start the daemon for Self-Built mode to avoid OFFLINE status on first check
@@ -148,7 +148,7 @@ pub async fn execute(
     Ok(())
 }
 
-fn spawn_finalizer(profile: &str, session_id: &str) -> anyhow::Result<()> {
+fn spawn_finalizer(profile: &str, session_id: &str) -> anyhow::Result<u32> {
     let exe = std::env::current_exe()?;
     let mut cmd = std::process::Command::new(exe);
     
@@ -172,11 +172,11 @@ fn spawn_finalizer(profile: &str, session_id: &str) -> anyhow::Result<()> {
         cmd.process_group(0);
     }
 
-    cmd.spawn()?;
-    Ok(())
+    let child = cmd.spawn()?;
+    Ok(child.id())
 }
 
-async fn wait_for_token_exchange(profile: &str, vault: Arc<dyn Vault>) -> anyhow::Result<()> {
+async fn wait_for_token_exchange(profile: &str, vault: Arc<dyn Vault>, finalizer_pid: u32) -> anyhow::Result<()> {
     let start_time = Instant::now();
     let timeout = Duration::from_secs(300); // 5 minutes
     let log_file = crate::core::config::get_app_dir().join("logs").join(format!("{}_auth.log", profile));
@@ -242,7 +242,28 @@ async fn wait_for_token_exchange(profile: &str, vault: Arc<dyn Vault>) -> anyhow
             }
         }
         
-        tokio::time::sleep(Duration::from_millis(1000)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(1000)) => {
+                // Continue loop
+            }
+            _ = tokio::signal::ctrl_c() => {
+                println!("\n🛑 收到中断信号 (Ctrl+C)。正在取消授权并关闭监听...");
+                // Kill the finalizer background process
+                let mut sys = sysinfo::System::new();
+                sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                if let Some(process) = sys.process(sysinfo::Pid::from_u32(finalizer_pid)) {
+                    process.kill_with(sysinfo::Signal::Kill);
+                    tracing::info!(target: "sys", pid = %finalizer_pid, "Background finalizer killed due to user cancellation");
+                }
+
+                // Cleanup session state
+                let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
+                let session_manager = crate::auth::lifecycle::AuthSessionManager::new(&token_pool);
+                let _ = session_manager.clear(profile);
+
+                return Err(anyhow::anyhow!("Operation cancelled by user"));
+            }
+        }
     }
 }
 
