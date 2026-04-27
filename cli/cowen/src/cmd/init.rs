@@ -19,6 +19,7 @@ pub async fn execute(
     stream_url: &Option<String>,
     app_mode: &Option<String>,
 ) -> Result<()> {
+    let is_new = !cfg_mgr.exists(profile);
     let mut config = cfg_mgr.load(profile)?;
     
     // Logic Fix: Save early to ensure the .yaml file exists before we start any async or background processes.
@@ -130,7 +131,7 @@ pub async fn execute(
         let pid = spawn_finalizer(profile, &session.state)?;
         
         // 6. Wait for Result (Closed Loop)
-        wait_for_token_exchange(profile, vault.clone(), pid).await?;
+        wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr).await?;
     } else {
         println!("✅ Profile '{}' initialized successfully.", profile);
         // Automatically start the daemon for Self-Built mode to avoid OFFLINE status on first check
@@ -176,7 +177,13 @@ fn spawn_finalizer(profile: &str, session_id: &str) -> anyhow::Result<u32> {
     Ok(child.id())
 }
 
-async fn wait_for_token_exchange(profile: &str, vault: Arc<dyn Vault>, finalizer_pid: u32) -> anyhow::Result<()> {
+async fn wait_for_token_exchange(
+    profile: &str, 
+    vault: Arc<dyn Vault>, 
+    finalizer_pid: u32,
+    is_new: bool,
+    cfg_mgr: &ConfigManager,
+) -> anyhow::Result<()> {
     let start_time = Instant::now();
     let timeout = Duration::from_secs(300); // 5 minutes
     let log_file = crate::core::config::get_app_dir().join("logs").join(format!("{}_auth.log", profile));
@@ -260,6 +267,12 @@ async fn wait_for_token_exchange(profile: &str, vault: Arc<dyn Vault>, finalizer
                 let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
                 let session_manager = crate::auth::lifecycle::AuthSessionManager::new(&token_pool);
                 let _ = session_manager.clear(profile);
+
+                // If this was a new profile, remove the junk .yaml file
+                if is_new {
+                    println!("🧹 检测到这是新创建的 Profile，正在物理移除临时配置文件...");
+                    let _ = crate::cmd::system::reset(profile, Some(vault.as_ref()), cfg_mgr).await;
+                }
 
                 return Err(anyhow::anyhow!("Operation cancelled by user"));
             }
