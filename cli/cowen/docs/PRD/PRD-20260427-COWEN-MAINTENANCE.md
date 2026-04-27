@@ -1,5 +1,10 @@
 # Cowen CLI 维护与优化 PRD (PRD-20260427-COWEN-MAINTENANCE)
 
+> **版本**: v0.2.1
+> **状态**: 已结项 (Closed)
+> **日期**: 2026-04-27
+> **结项报告**: [walkthrough.md](../walkthrough.md)
+
 ## 1. 概述 (Overview)
 本项目旨在解决 Cowen CLI 当前存在的安全风险、用户体验缺陷以及 Windows 平台下的稳定性问题。主要包含 Webhook 回环地址强制限制、OAuth2 会话生命周期自清理、移除无效二维码以及 Windows 守护进程挂死后的自愈机制。
 

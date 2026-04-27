@@ -1,5 +1,9 @@
 # Cowen CLI 维护与优化 LLD (LLD-20260427-COWEN-MAINTENANCE)
 
+> **版本**: v0.2.1
+> **状态**: 已实现 (Implemented)
+> **日期**: 2026-04-27
+
 ## 1. 物理模型契约 (Physical Model Contract)
 
 ### 1.1 状态枚举 (State Enums)
