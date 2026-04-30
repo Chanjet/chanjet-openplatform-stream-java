@@ -65,13 +65,20 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         
         dispatcher.on_ent_auth_code(move |msg| {
             let temp_code = msg.biz_content.temp_auth_code.trim().to_string();
+            // Try to extract org_id from the message headers if available
+            let org_id = msg.base.headers.get("orgId").cloned().unwrap_or_default(); 
+            
             let t_pool_inner = t_pool.clone();
             let t_profile_inner = t_profile.clone();
             let t_config_inner = t_config.clone();
             
             tokio::spawn(async move {
                 let auth = AuthClient::new(t_pool_inner.as_ref());
-                let _ = auth.handle_platform_event(&t_profile_inner, &t_config_inner, crate::auth::provider::PlatformEvent::TempAuthCode(temp_code)).await;
+                let event = crate::auth::provider::PlatformEvent::TempAuthCode {
+                    code: temp_code,
+                    org_id: Some(org_id),
+                };
+                let _ = auth.handle_platform_event(&t_profile_inner, &t_config_inner, event).await;
             });
             true
         });

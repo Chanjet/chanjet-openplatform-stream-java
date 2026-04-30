@@ -35,36 +35,30 @@ impl<'a> StoreAppProvider<'a> {
         Self { pool, http_sender }
     }
 
-    pub async fn exchange_code(
-        &self,
-        profile: &str,
-        cfg: &Config,
-        code: &str,
-        verifier: &str,
-        redirect_uri: &str,
-    ) -> Result<Token> {
-        let url = format!(
-            "{}{}",
-            cfg.openapi_url.trim_end_matches('/'),
-            obfs!("/oauth2/token")
-        );
-        let mut body = serde_json::json!({
-            "grant_type": "authorization_code",
-            "client_id": cfg.app_key.trim(),
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "code_verifier": verifier,
-        });
-
-        if !cfg.app_secret.trim().is_empty() {
-            body.as_object_mut().unwrap().insert(
-                "client_secret".to_string(),
-                serde_json::json!(cfg.app_secret.trim()),
-            );
-        }
-
-        self.request_token(profile, &url, body, cfg).await
+    fn get_user_token_key(&self, app_key: &str, org_id: &str, user_id: &str) -> String {
+        format!("oauth2_token_pair_user_{}_{}_{}", app_key, org_id, user_id)
     }
+
+    fn get_org_token_key(&self, app_key: &str, org_id: &str) -> String {
+        format!("oauth2_token_pair_org_{}_{}", app_key, org_id)
+    }
+
+    fn get_user_upc_key(&self, app_key: &str, org_id: &str, user_id: &str) -> String {
+        format!("user_permanent_code_{}_{}_{}", app_key, org_id, user_id)
+    }
+
+    fn get_org_opc_key(&self, app_key: &str, org_id: &str) -> String {
+        format!("org_permanent_code_{}_{}", app_key, org_id)
+    }
+
+    fn get_custom_profile(&self, base_profile: &str, app_key: &str, org_id: &str, user_id: Option<&str>) -> String {
+        if let Some(uid) = user_id {
+            format!("{}:{}:{}:{}", base_profile, app_key, org_id, uid)
+        } else {
+            format!("{}:{}:{}", base_profile, app_key, org_id)
+        }
+    }
+
 
     async fn refresh_token(
         &self,
@@ -153,72 +147,46 @@ impl<'a> StoreAppProvider<'a> {
             
             if !identity.user_id.is_empty() && identity.user_id != "0" {
                 // User-level token path
-                let key_pair = format!(
-                    "oauth2_token_pair_user_{}_{}_{}",
-                    app_key, identity.org_id, identity.user_id
-                );
+                let key_pair = self.get_user_token_key(app_key, &identity.org_id, &identity.user_id);
                 vault
                     .set(profile, &key_pair, &serde_json::to_string(&pair)?)
                     .await?;
 
                 // 🚀 持久化维护“火种”：用户级永久码 (以三元组为索引)
                 if let Some(upc) = &token_resp.user_permanent_code {
-                    let upc_key = format!("user_permanent_code_{}_{}_{}", app_key, identity.org_id, identity.user_id);
+                    let upc_key = self.get_user_upc_key(app_key, &identity.org_id, &identity.user_id);
                     vault.set(profile, &upc_key, upc).await?;
                 }
 
                 // Temporarily swap access token in pool for user context
                 let mut fake_pool_token = token.clone();
-                let custom_profile = format!(
-                    "{}:{}:{}:{}",
-                    profile, app_key, identity.org_id, identity.user_id
-                );
+                let custom_profile = self.get_custom_profile(profile, app_key, &identity.org_id, Some(&identity.user_id));
                 let _ = self
                     .pool
                     .set_access_token(&custom_profile, &fake_pool_token)
                     .await;
             } else {
-                // Org-level token path (if any)
+                // Org-level token path
                 if let Some(opc) = &token_resp.org_permanent_code {
-                    vault.set(profile, "org_permanent_code", opc).await?;
+                    let opc_key = self.get_org_opc_key(app_key, &identity.org_id);
+                    vault.set(profile, &opc_key, opc).await?;
                 }
                 // Org-level token
+                let key_pair = self.get_org_token_key(app_key, &identity.org_id);
                 vault
-                    .set(profile, "oauth2_token_pair", &serde_json::to_string(&pair)?)
+                    .set(profile, &key_pair, &serde_json::to_string(&pair)?)
                     .await?;
-                self.pool.set_access_token(profile, &token).await?;
+                
+                let custom_profile = self.get_custom_profile(profile, app_key, &identity.org_id, None);
+                self.pool.set_access_token(&custom_profile, &token).await?;
             }
         } else {
-            // Default fallback
-            vault
-                .set(profile, "oauth2_token_pair", &serde_json::to_string(&pair)?)
-                .await?;
-            self.pool.set_access_token(profile, &token).await?;
+            return Err(anyhow!("Failed to extract identity from token during proxy exchange. Multi-tenant arbitration requires a valid JWT."));
         }
 
         Ok(raw_json)
     }
 
-    pub async fn exchange_temp_code(
-        &self,
-        profile: &str,
-        cfg: &Config,
-        temp_code: &str,
-    ) -> Result<Token> {
-        let url = format!(
-            "{}{}",
-            cfg.openapi_url.trim_end_matches('/'),
-            obfs!("/oauth2/token")
-        );
-        let body = serde_json::json!({
-            "grant_type": "temp_auth_code",
-            "client_id": cfg.app_key.trim(),
-            "client_secret": cfg.app_secret.trim(),
-            "code": temp_code,
-        });
-
-        self.request_token(profile, &url, body, cfg).await
-    }
 
     /// 🚀 步骤 A：获取应用访问凭证 (SuiteAccessToken)
     /// 这里的 appTicket 是由 Stream 桥接器在后台接收并存入 Pool 的
@@ -275,6 +243,7 @@ impl<'a> StoreAppProvider<'a> {
         &self,
         profile: &str,
         cfg: &Config,
+        org_id: &str,
         temp_auth_code: &str,
     ) -> Result<String> {
         let app_at = self.get_app_access_token(profile, cfg).await?.value;
@@ -305,21 +274,38 @@ impl<'a> StoreAppProvider<'a> {
             .ok_or_else(|| anyhow!("permanentAuthCode not found in response: {}", resp.body))?;
 
         // 自动归档到 Vault (映射回内部使用的 key: org_permanent_code)
+        let opc_key = self.get_org_opc_key(cfg.app_key.trim(), org_id);
         self.pool
             .as_vault()
-            .set(profile, "org_permanent_code", opc)
+            .set(profile, &opc_key, opc)
             .await?;
         
-        tracing::info!(target: "audit", profile = %profile, "Enterprise permanent code successfully archived");
+        tracing::info!(target: "audit", profile = %profile, orgId = %org_id, "Enterprise permanent code successfully archived");
         Ok(opc.to_string())
     }
 
-    async fn try_permanent_code_recovery(&self, profile: &str, cfg: &Config) -> Result<Token> {
+    async fn try_permanent_code_recovery(&self, profile: &str, cfg: &Config, org_id: &str, user_id: Option<&str>) -> Result<Token> {
         let vault = self.pool.as_vault();
-        let upc = vault.get(profile, "user_permanent_code").await?;
-        let opc = vault.get(profile, "org_permanent_code").await?;
+        let app_key = cfg.app_key.trim();
+        
+        let (upc, opc, target_name) = if let Some(uid) = user_id {
+            let upc_key = self.get_user_upc_key(app_key, org_id, uid);
+            let opc_key = self.get_org_opc_key(app_key, org_id);
+            (
+                Some(vault.get(profile, &upc_key).await?),
+                Some(vault.get(profile, &opc_key).await?),
+                format!("user {} in org {}", uid, org_id)
+            )
+        } else {
+            let opc_key = self.get_org_opc_key(app_key, org_id);
+            (
+                None,
+                Some(vault.get(profile, &opc_key).await?),
+                format!("org {}", org_id)
+            )
+        };
 
-        tracing::info!(target: "sys", profile = %profile, "Triggering permanent code exchange for store app auth recovery");
+        tracing::info!(target: "sys", profile = %profile, target = %target_name, "Triggering permanent code exchange for store app auth recovery");
 
         let url = format!(
             "{}{}",
@@ -327,13 +313,18 @@ impl<'a> StoreAppProvider<'a> {
             obfs!("/oauth2/token")
         );
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "grant_type": "permanent_code",
-            "client_id": cfg.app_key.trim(),
+            "client_id": app_key,
             "client_secret": cfg.app_secret.trim(),
-            "user_permanent_code": upc,
-            "org_permanent_code": opc,
         });
+
+        if let Some(u) = upc {
+            body.as_object_mut().unwrap().insert("user_permanent_code".to_string(), serde_json::json!(u));
+        }
+        if let Some(o) = opc {
+            body.as_object_mut().unwrap().insert("org_permanent_code".to_string(), serde_json::json!(o));
+        }
 
         self.request_token(profile, &url, body, cfg).await
     }
@@ -418,26 +409,38 @@ impl<'a> StoreAppProvider<'a> {
         };
 
         // Save permanent codes if present
-        if let Some(upc) = token_resp.user_permanent_code {
-            self.pool
-                .as_vault()
-                .set(profile, "user_permanent_code", &upc)
-                .await?;
-        }
-        if let Some(opc) = token_resp.org_permanent_code {
-            self.pool
-                .as_vault()
-                .set(profile, "org_permanent_code", &opc)
-                .await?;
-        }
+        if let Some(identity) = token.extract_identity() {
+            let app_key = cfg.app_key.trim();
+            if let Some(upc) = token_resp.user_permanent_code {
+                let upc_key = self.get_user_upc_key(app_key, &identity.org_id, &identity.user_id);
+                self.pool.as_vault().set(profile, &upc_key, &upc).await?;
+            }
+            if let Some(opc) = token_resp.org_permanent_code {
+                let opc_key = self.get_org_opc_key(app_key, &identity.org_id);
+                self.pool.as_vault().set(profile, &opc_key, &opc).await?;
+            }
 
-        // Save to vault via pool
-        self.pool
-            .as_vault()
-            .set(profile, "oauth2_token_pair", &serde_json::to_string(&pair)?)
-            .await?;
-        let _ = self.pool.as_vault().delete(profile, "oauth2_revoked").await;
-        self.pool.set_access_token(profile, &token).await?;
+            // Save to vault via pool using multi-tenant keys
+            let key_pair = if !identity.user_id.is_empty() && identity.user_id != "0" {
+                self.get_user_token_key(app_key, &identity.org_id, &identity.user_id)
+            } else {
+                self.get_org_token_key(app_key, &identity.org_id)
+            };
+
+            self.pool
+                .as_vault()
+                .set(profile, &key_pair, &serde_json::to_string(&pair)?)
+                .await?;
+            
+            let _ = self.pool.as_vault().delete(profile, "oauth2_revoked").await;
+            
+            let custom_profile = if !identity.user_id.is_empty() && identity.user_id != "0" {
+                self.get_custom_profile(profile, app_key, &identity.org_id, Some(&identity.user_id))
+            } else {
+                self.get_custom_profile(profile, app_key, &identity.org_id, None)
+            };
+            self.pool.set_access_token(&custom_profile, &token).await?;
+        }
 
         // Deduplication Logic (User/Org/App/AppKey uniqueness)
         if let Some(new_id) = token.extract_identity() {
@@ -500,29 +503,14 @@ impl<'a> StoreAppProvider<'a> {
         &self,
         profile: &str,
         cfg: &Config,
-        user_id: Option<&str>,
+        org_id: &str,
+        user_id: &str,
     ) -> Result<Token> {
-        let uid = match user_id {
-            Some(u) if !u.trim().is_empty() => u.trim(),
-            _ => {
-                return self
-                    .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
-                    .await
-            }
-        };
-
-        // Retrieve the main Org Token to extract the org_id
-        let org_token = self
-            .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
-            .await?;
-        let org_id = org_token
-            .extract_identity()
-            .map(|id| id.org_id)
-            .unwrap_or_else(|| "unknown_org".to_string());
+        let uid = user_id.trim();
         let app_key = cfg.app_key.trim();
 
         // 1. Check local cache (memory/fast vault)
-        let custom_profile = format!("{}:{}:{}:{}", profile, app_key, org_id, uid);
+        let custom_profile = self.get_custom_profile(profile, app_key, org_id, Some(uid));
         if let Ok(token) = self.pool.get_access_token(&custom_profile).await {
             if !token.is_expired() {
                 return Ok(token);
@@ -530,7 +518,7 @@ impl<'a> StoreAppProvider<'a> {
         }
 
         // 2. Slow path via Vault pair
-        let key_pair = format!("oauth2_token_pair_user_{}_{}_{}", app_key, org_id, uid);
+        let key_pair = self.get_user_token_key(app_key, org_id, uid);
         let pair_str = self
             .pool
             .as_vault()
@@ -585,31 +573,79 @@ impl<'a> StoreAppProvider<'a> {
                 // 🚀 Fallback to User Permanent Auth Code ("Fire Seed")
                 tracing::info!(target: "sys", userId = %uid, orgId = %org_id, "Refresh token failed or expired. Attempting recovery via Permanent Auth Code...");
                 
-                let upc_key = format!("user_permanent_code_{}_{}_{}", app_key, org_id, uid);
-                if let Ok(upc) = self.pool.as_vault().get(profile, &upc_key).await {
-                    let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/oauth2/token"));
-                    let body = serde_json::json!({
-                        "grant_type": "permanent_code",
-                        "client_id": app_key,
-                        "client_secret": cfg.app_secret.trim(),
-                        "user_permanent_code": upc,
-                    });
-                    
-                    match self.request_token(profile, &url, body, cfg).await {
-                        Ok(t) => {
-                            // Success via Permanent Code! (request_token already saves the new pair)
-                            self.pool.set_access_token(&custom_profile, &t).await?;
-                            tracing::info!(target: "audit", userId = %uid, "Successfully recovered user token via Permanent Auth Code");
-                            return Ok(t);
-                        }
-                        Err(err) => {
-                            tracing::error!(target: "sys", userId = %uid, "Recovery via Permanent Auth Code failed: {}", err);
-                        }
+                match self.try_permanent_code_recovery(profile, cfg, org_id, Some(uid)).await {
+                    Ok(t) => {
+                        self.pool.set_access_token(&custom_profile, &t).await?;
+                        tracing::info!(target: "audit", userId = %uid, "Successfully recovered user token via Permanent Auth Code");
+                        Ok(t)
+                    }
+                    Err(err) => {
+                        tracing::error!(target: "sys", userId = %uid, "Recovery via Permanent Auth Code failed: {}", err);
+                        Err(anyhow!("User session expired and recovery failed: {}", e))
                     }
                 }
-                
-                Err(anyhow!("User session expired and recovery failed: {}", e))
             }
+        }
+    }
+
+    pub async fn get_org_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        org_id: &str,
+    ) -> Result<Token> {
+        let app_key = cfg.app_key.trim();
+        let org_id = org_id.trim();
+
+        // 1. Check local cache
+        let custom_profile = self.get_custom_profile(profile, app_key, org_id, None);
+        if let Ok(token) = self.pool.get_access_token(&custom_profile).await {
+            if !token.is_expired() {
+                return Ok(token);
+            }
+        }
+
+        // 2. Slow path via Vault pair
+        let key_pair = self.get_org_token_key(app_key, org_id);
+        let pair_str = self
+            .pool
+            .as_vault()
+            .get(profile, &key_pair)
+            .await
+            .map_err(|_| anyhow!("Organization token not found for orgId: {}", org_id))?;
+
+        let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
+
+        if Utc::now() < pair.expires_at {
+            let token = Token {
+                value: pair.access_token.clone(),
+                expires_at: pair.expires_at,
+                created_at: pair.created_at,
+            };
+            self.pool.set_access_token(&custom_profile, &token).await?;
+            return Ok(token);
+        }
+
+        // 3. Refresh logic
+        if Utc::now() < pair.refresh_expires_at {
+            match self.refresh_token(profile, cfg, &pair.refresh_token).await {
+                Ok(t) => {
+                    self.pool.set_access_token(&custom_profile, &t).await?;
+                    return Ok(t);
+                }
+                Err(e) => {
+                    tracing::warn!(target: "sys", orgId = %org_id, error = %e, "Org refresh token failed. Attempting recovery...");
+                }
+            }
+        }
+
+        // 4. Permanent code recovery
+        match self.try_permanent_code_recovery(profile, cfg, org_id, None).await {
+            Ok(t) => {
+                self.pool.set_access_token(&custom_profile, &t).await?;
+                Ok(t)
+            }
+            Err(e) => Err(anyhow!("Organization session expired and recovery failed for org {}: {}", org_id, e))
         }
     }
 }
@@ -622,78 +658,22 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
         cfg: &Config,
         headers: &reqwest::header::HeaderMap,
     ) -> Result<Token> {
+        let org_id = headers.get("x-org-id").and_then(|v| v.to_str().ok());
         let user_id = headers.get("x-user-id").and_then(|v| v.to_str().ok());
-        if let Some(uid) = user_id {
-            if !uid.trim().is_empty() {
-                return self.get_user_token(profile, cfg, Some(uid)).await;
+
+        // 🚀 Multi-tenant Arbitration Enforcement
+        match (org_id, user_id) {
+            (Some(oid), Some(uid)) if !oid.trim().is_empty() && !uid.trim().is_empty() => {
+                self.get_user_token(profile, cfg, oid, uid).await
+            }
+            (Some(oid), _) if !oid.trim().is_empty() => {
+                self.get_org_token(profile, cfg, oid).await
+            }
+            _ => {
+                // Reject requests missing mandatory arbitration headers
+                Err(anyhow!("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required)."))
             }
         }
-
-        // Default Org Token Logic
-        // 1. Fast path: check current memory/local cache
-        if let Ok(token) = self.pool.get_access_token(profile).await {
-            if !token.is_expired() {
-                return Ok(token);
-            }
-        }
-
-        // 2. Slow path: Acquire Cross-Process File Lock
-        let lock_dir = crate::core::config::get_app_dir().join("locks");
-        std::fs::create_dir_all(&lock_dir)?;
-        let lock_file_path = lock_dir.join(format!("{}.lock", profile));
-        let lock_file = File::create(&lock_file_path)?;
-
-        // Blocking lock (wait for other processes)
-        lock_file.lock_exclusive()?;
-
-        let result = (|| async {
-            // 3. Double-Check: Reload from Vault after acquiring lock
-            if let Ok(token) = self.pool.get_access_token(profile).await {
-                if !token.is_expired() {
-                    return Ok(token);
-                }
-            }
-
-            // 4. Finalizer Path: Check for captured code
-            let session_manager = AuthSessionManager::new(self.pool);
-            if let Ok(code) = session_manager.get_captured_code(profile).await {
-                if let Ok(session) = session_manager.get_session(profile).await {
-                    tracing::info!(target: "sys", "Captured auth code found for profile '{}'. Finalizing exchange...", profile);
-                    let token = self.exchange_code(profile, cfg, &code, &session.code_verifier, &session.redirect_uri).await?;
-                    let _ = session_manager.clear(profile).await;
-                    return Ok(token);
-                }
-            }
-
-            let pair_str = self.pool.as_vault().get(profile, "oauth2_token_pair").await?;
-            let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
-
-            // Re-check expiry in case it was updated
-            if Utc::now() < pair.expires_at {
-                let token = Token {
-                    value: pair.access_token.clone(),
-                    expires_at: pair.expires_at,
-                    created_at: pair.created_at,
-                };
-                self.pool.set_access_token(profile, &token).await?;
-                return Ok(token);
-            }
-
-            if Utc::now() >= pair.refresh_expires_at {
-                return Err(anyhow!("StoreApp session expired. Please run 'owenc init' to re-authenticate."));
-            }
-
-            match self.refresh_token(profile, cfg, &pair.refresh_token).await {
-                Ok(t) => Ok(t),
-                Err(e) => {
-                    tracing::warn!(target: "sys", profile = %profile, error = %e, "StoreApp Refresh failed. Attempting recovery via permanent codes...");
-                    self.try_permanent_code_recovery(profile, cfg).await
-                }
-            }
-        })().await;
-
-        lock_file.unlock()?;
-        result
     }
 
     async fn refresh(
@@ -833,10 +813,11 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
                 tracing::info!(target: "sys", "Store App AppTicket updated from platform push");
                 Ok(())
             }
-            crate::auth::provider::PlatformEvent::TempAuthCode(temp_code) => {
+            crate::auth::provider::PlatformEvent::TempAuthCode { code, org_id } => {
                 tracing::info!(target: "sys", "Store App TEMP_AUTH_CODE received. Exchanging...");
-                if let Err(e) = self.exchange_permanent_code_by_temp_code(profile, config, &temp_code).await {
-                    tracing::error!(target: "sys", error = %e, "Failed to exchange TEMP_AUTH_CODE for Store App");
+                let oid = org_id.ok_or_else(|| anyhow!("Missing org_id in TempAuthCode event for Store App"))?;
+                if let Err(e) = self.exchange_permanent_code_by_temp_code(profile, config, &oid, &code).await {
+                    tracing::error!(target: "sys", error = %e, orgId = %oid, "Failed to exchange TEMP_AUTH_CODE for Store App");
                     return Err(e);
                 }
                 Ok(())
@@ -1067,5 +1048,113 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
         let _ = vault.delete(profile, "app_ticket");
         let _ = vault.delete(profile, "app_ticket_created");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::pool::TokenPool;
+    use crate::auth::client::{HttpSender, SimpleResponse};
+    use crate::auth::VaultTokenPool;
+    use std::sync::Arc;
+    use async_trait::async_trait;
+
+    // --- Manual Mocks ---
+
+    struct MockVault {}
+    #[async_trait]
+    impl crate::core::vault::Vault for MockVault {
+        async fn get_config(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+        async fn get_config_full(&self, _: &str, _: &str) -> Result<crate::core::store::Item> { Err(anyhow!("not found")) }
+        async fn set_config(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+        async fn set_config_conditional(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
+        async fn list_configs(&self, _: &str) -> Result<Vec<String>> { Ok(vec![]) }
+        async fn delete_config(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+        async fn get_secret(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+        async fn set_secret(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+        async fn get_token(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+        async fn set_token(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
+        async fn save_audit(&self, _: &crate::core::store::AuditEntry) -> Result<()> { Ok(()) }
+        async fn list_audit(&self, _: &str, _: usize) -> Result<Vec<crate::core::store::AuditEntry>> { Ok(vec![]) }
+        async fn push_dlq(&self, _: &crate::core::store::DlqMessage) -> Result<()> { Ok(()) }
+        async fn pop_dlq(&self, _: &str, _: &str) -> Result<Option<crate::core::store::DlqMessage>> { Ok(None) }
+        async fn list_dlq(&self, _: &str, _: usize) -> Result<Vec<crate::core::store::DlqMessage>> { Ok(vec![]) }
+        async fn get_cache(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+        async fn set_cache(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
+        async fn get(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+        async fn set(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+        async fn delete(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+        async fn list_keys(&self, _: &str, _: &str) -> Result<Vec<String>> { Ok(vec![]) }
+        async fn clear_profile(&self, _: &str) -> Result<()> { Ok(()) }
+        async fn rename_profile(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+        async fn list_all_profiles(&self) -> Result<Vec<String>> { Ok(vec![]) }
+        async fn notify_config_changed(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+        async fn watch_config(&self, _: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
+             Ok(Box::pin(tokio_stream::iter(vec![])))
+        }
+        fn primary_store(&self) -> Arc<dyn crate::core::store::Store> {
+            unimplemented!()
+        }
+    }
+
+    struct MockHttpSender {}
+    #[async_trait]
+    impl HttpSender for MockHttpSender {
+        async fn post(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
+            Ok(SimpleResponse { status: 200, body: "{}".to_string() })
+        }
+        async fn post_form(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
+            Ok(SimpleResponse { status: 200, body: "{}".to_string() })
+        }
+        async fn get(&self, _url: &str, _headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
+            Ok(SimpleResponse { status: 200, body: "{}".to_string() })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_token_missing_org_id_rejection() {
+        let vault = Arc::new(MockVault {});
+        let pool = VaultTokenPool::new(vault);
+        let sender = Arc::new(MockHttpSender {});
+        let provider = StoreAppProvider::new(&pool, sender);
+        
+        let config = Config::default_with_profile("test");
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-user-id", "U123".parse().unwrap());
+
+        let result = provider.get_token("default", &config, &headers).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("401 Unauthorized"));
+        assert!(err.to_string().contains("x-org-id"));
+    }
+
+    #[tokio::test]
+    async fn test_get_token_with_org_only_isolation() {
+        let vault = Arc::new(MockVault {});
+        let pool = VaultTokenPool::new(vault);
+        let sender = Arc::new(MockHttpSender {});
+        let provider = StoreAppProvider::new(&pool, sender);
+        
+        let mut config = Config::default_with_profile("test");
+        config.app_key = "test_app".to_string();
+        
+        let key = provider.get_org_token_key("test_app", "ORG1");
+        assert_eq!(key, "oauth2_token_pair_org_test_app_ORG1");
+    }
+
+    #[tokio::test]
+    async fn test_get_token_with_user_isolation() {
+        let vault = Arc::new(MockVault {});
+        let pool = VaultTokenPool::new(vault);
+        let sender = Arc::new(MockHttpSender {});
+        let provider = StoreAppProvider::new(&pool, sender);
+        
+        let mut config = Config::default_with_profile("test");
+        config.app_key = "test_app".to_string();
+        
+        let key = provider.get_user_token_key("test_app", "ORG1", "USER1");
+        assert_eq!(key, "oauth2_token_pair_user_test_app_ORG1_USER1");
     }
 }

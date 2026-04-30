@@ -155,8 +155,8 @@ pub trait Client: Send + Sync {
     // 🚀 Store App (OAuth2) Extension Methods
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
-    async fn exchange_temp_code(&self, profile: &str, cfg: &Config, temp_code: &str) -> Result<Token>;
-    async fn get_user_access_token(&self, profile: &str, cfg: &Config, user_id: Option<&str>) -> Result<Token>;
+    async fn exchange_temp_code(&self, profile: &str, cfg: &Config, org_id: &str, temp_code: &str) -> Result<Token>;
+    async fn get_user_access_token(&self, profile: &str, cfg: &Config, org_id: &str, user_id: &str) -> Result<Token>;
     async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> Result<serde_json::Value>;
 
     // 🚀 OCP Lifecycle Hooks
@@ -292,18 +292,17 @@ impl<'a> Client for AuthClient<'a> {
         Ok(token)
     }
 
-    async fn exchange_temp_code(&self, profile: &str, cfg: &Config, temp_code: &str) -> Result<Token> {
+    async fn exchange_temp_code(&self, profile: &str, cfg: &Config, org_id: &str, temp_code: &str) -> Result<Token> {
         // This is the core flow: tempCode -> permanentCode -> accessToken
-        let opc = self.store_app.exchange_permanent_code_by_temp_code(profile, cfg, temp_code).await?;
-        tracing::info!(target: "audit", profile = %profile, "Exchanged tempCode for permanentCode: {}", opc);
+        let _ = self.store_app.exchange_permanent_code_by_temp_code(profile, cfg, org_id, temp_code).await?;
+        tracing::info!(target: "audit", profile = %profile, orgId = %org_id, "Exchanged tempCode for permanentCode");
         
-        // After getting permanent code, we usually want the initial user token
-        // In StoreApp, the bridge will call this.
-        self.store_app.get_user_token(profile, cfg, None).await
+        // After getting permanent code, we usually want the initial org token
+        self.store_app.get_org_token(profile, cfg, org_id).await
     }
 
-    async fn get_user_access_token(&self, profile: &str, cfg: &Config, user_id: Option<&str>) -> Result<Token> {
-        self.store_app.get_user_token(profile, cfg, user_id).await
+    async fn get_user_access_token(&self, profile: &str, cfg: &Config, org_id: &str, user_id: &str) -> Result<Token> {
+        self.store_app.get_user_token(profile, cfg, org_id, user_id).await
     }
 
     async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> Result<serde_json::Value> {

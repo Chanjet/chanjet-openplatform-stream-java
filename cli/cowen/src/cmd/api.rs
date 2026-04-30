@@ -665,6 +665,27 @@ mod tests {
 
     #[async_trait::async_trait]
     impl crate::auth::client::Client for MockAuthClient {
+        async fn get_token(&self, _profile: &str, _cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
+            Ok(self.token.clone())
+        }
+        async fn refresh_token(&self, _profile: &str, _cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
+            Ok(self.token.clone())
+        }
+        async fn handle_platform_event(&self, _profile: &str, _cfg: &Config, _event: crate::auth::provider::PlatformEvent) -> Result<()> {
+            Ok(())
+        }
+        async fn perform_login(&self, _profile: &str, _cfg: &Config, _force: bool, _finalize: Option<&str>) -> Result<()> {
+            Ok(())
+        }
+        async fn get_status_entries(&self, _profile: &str, _cfg: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+            Ok(vec![])
+        }
+        fn requires_initial_push(&self, _cfg: &Config) -> bool { false }
+        async fn on_maintenance_tick(&self, _profile: &str, _cfg: &Config) -> Result<()> { Ok(()) }
+        fn get_auth_display_info(&self, _cfg: &Config) -> (String, String) { ("".to_string(), "".to_string()) }
+        fn get_daemon_display_info(&self, _cfg: &Config, _is_running: bool) -> (String, String) { ("".to_string(), "".to_string()) }
+        fn requires_ticket(&self, _cfg: &Config) -> bool { false }
+
         async fn get_app_access_token(&self, _profile: &str, _cfg: &Config) -> Result<Token> {
             Ok(self.token.clone())
         }
@@ -681,10 +702,10 @@ mod tests {
             Ok(self.spec.clone())
         }
         async fn clear_token(&self, _profile: &str, _cfg: &Config) -> Result<()> { Ok(()) }
-        async fn exchange_temp_code(&self, _profile: &str, _cfg: &Config, _temp_code: &str) -> Result<Token> {
+        async fn exchange_temp_code(&self, _profile: &str, _cfg: &Config, _org_id: &str, _temp_code: &str) -> Result<Token> {
             Ok(self.token.clone())
         }
-        async fn get_user_access_token(&self, _profile: &str, _cfg: &Config, _user_id: Option<&str>) -> Result<Token> {
+        async fn get_user_access_token(&self, _profile: &str, _cfg: &Config, _org_id: &str, _user_id: &str) -> Result<Token> {
             Ok(self.token.clone())
         }
         async fn intercept_exchange(&self, _profile: &str, _cfg: &Config, _body_bytes: &[u8]) -> Result<serde_json::Value> {

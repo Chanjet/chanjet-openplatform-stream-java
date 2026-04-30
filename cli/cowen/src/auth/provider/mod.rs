@@ -114,5 +114,8 @@ pub trait AuthProvider: Send + Sync {
 
 pub enum PlatformEvent {
     AppTicket(String),
-    TempAuthCode(String),
+    TempAuthCode {
+        code: String,
+        org_id: Option<String>,
+    },
 }
