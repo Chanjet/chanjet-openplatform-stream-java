@@ -144,7 +144,7 @@ endif
 prepare-podman-image: prepare-podman-machine
 	@if ! podman image exists $(BUILDER_IMAGE); then \
 		echo "🛠️ Creating custom builder image $(BUILDER_IMAGE)..."; \
-		printf "FROM docker.io/library/rust:latest\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu libc6-amd64-cross && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
+		printf "FROM docker.io/library/rust:1.85\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu libc6-amd64-cross python3 python3-aiohttp sqlite3 curl procps && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
 	fi
 
 # 提速版 Podman 构建 (系统依赖 + Rust 依赖双缓存)
@@ -267,18 +267,15 @@ else ifeq ($(HOST_OS),windows)
 	@$(MAKE) test-win
 endif
 
-# 在 Linux 容器中执行全量 E2E (Podman) - 支持缓存共享
+# 在 Linux 容器中执行全量 E2E (Podman) - 使用统一构建镜像
 test-linux: prepare-podman-machine prepare-podman-image
-	@echo "🧪 Running Full E2E Suite in Linux container with Shared Cache..."
-	@if ! podman image exists cowen-test-base; then \
-		podman build -t cowen-test-base -f tests/Dockerfile.linux.base .; \
-	fi
+	@echo "🧪 Running Full E2E Suite in Linux container (Unified Image)..."
 	podman run --rm -it \
 		-v "$(shell pwd)/../..:/workspace" \
 		-v "$(HOME)/.cargo/registry:/usr/local/cargo/registry" \
 		-v "$(HOME)/.cargo/git:/usr/local/cargo/git" \
 		-w /workspace/cli/cowen \
-		cowen-test-base \
+		$(BUILDER_IMAGE) \
 		./tests/run_suites.sh
 
 # 在 Windows PowerShell 环境下执行测试
