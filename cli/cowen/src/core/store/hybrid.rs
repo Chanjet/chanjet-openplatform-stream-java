@@ -94,20 +94,6 @@ impl Store for HybridStore {
         self.persistence.list_all_dlq(p).await
     }
 
-    async fn get_cache(&self, p: &str, k: &str) -> Result<String> {
-        match self.cache.get_cache(p, k).await {
-            Ok(v) => Ok(v),
-            Err(_) => {
-                let v = self.persistence.get_cache(p, k).await?;
-                let _ = self.cache.set_cache(p, k, &v, 3600).await;
-                Ok(v)
-            }
-        }
-    }
-    async fn set_cache(&self, p: &str, k: &str, v: &str, ttl: u64) -> Result<()> {
-        let _ = self.cache.set_cache(p, k, v, ttl).await;
-        self.persistence.set_cache(p, k, v, ttl).await
-    }
 
     async fn clear_profile(&self, p: &str) -> Result<()> {
         let _ = self.cache.clear_profile(p).await;

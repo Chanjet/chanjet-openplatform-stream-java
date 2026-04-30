@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use crate::core::status::{StatusEntry, StatusLevel, StatusContext, StatusCollector};
 use crate::auth::client::Client;
-use crate::auth::{AuthClient, VaultTokenPool};
 
 #[derive(Serialize)]
 pub struct SystemStatus {

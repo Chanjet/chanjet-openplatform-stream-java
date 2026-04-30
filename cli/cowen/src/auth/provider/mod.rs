@@ -49,16 +49,19 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 临时授权码兑换永久授权码 (StoreApp 专有，其他模式默认不支持)
+    #[allow(dead_code)]
     async fn exchange_temp_code(&self, _profile: &str, _config: &Config, _org_id: &str, _temp_code: &str) -> Result<Token> {
         Err(anyhow::anyhow!("Temporary code exchange is not supported in this auth mode"))
     }
 
     /// 🚀 获取用户级访问令牌 (UserAccessToken)
+    #[allow(dead_code)]
     async fn get_user_token(&self, _profile: &str, _config: &Config, _org_id: &str, _user_id: &str) -> Result<Token> {
         Err(anyhow::anyhow!("User token retrieval is not supported in this auth mode"))
     }
 
     /// 🚀 令牌兑换拦截器 (用于劫持 OAuth2 流程)
+    #[allow(dead_code)]
     async fn intercept_exchange(&self, _profile: &str, _config: &Config, _body: &[u8]) -> Result<serde_json::Value> {
         Err(anyhow::anyhow!("Exchange interception is not supported in this auth mode"))
     }
@@ -99,6 +102,7 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 能力检查：该模式是否需要 AppTicket (用于 Ticket 采集器显示)
+    #[allow(dead_code)]
     fn requires_ticket(&self) -> bool {
         false
     }
@@ -166,6 +170,7 @@ pub trait AuthProvider: Send + Sync {
         Ok(None)
     }
 
+    #[allow(dead_code)]
     async fn on_login(&self, _profile: &str, _config: &Config, _headers: &mut reqwest::header::HeaderMap) -> Result<()> {
         Ok(())
     }
@@ -182,6 +187,7 @@ pub trait AuthProvider: Send + Sync {
         Ok(vec![])
     }
 
+    #[allow(dead_code)]
     fn get_capabilities(&self) -> Vec<String> {
         vec![]
     }

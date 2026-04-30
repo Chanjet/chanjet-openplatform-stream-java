@@ -662,7 +662,6 @@ fn print_schema_recursive(schema: &serde_json::Value, indent: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::auth::models::Token;
     use crate::core::config::Config;
     use axum::{routing::get, Router, Json, extract::Query};

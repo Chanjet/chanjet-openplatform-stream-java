@@ -6,7 +6,6 @@ mod mssql;
 use super::{Store, AuditEntry, DlqMessage, Item};
 use anyhow::Result;
 use async_trait::async_trait;
-use std::path::Path;
 use std::sync::Arc;
 
 #[async_trait]
@@ -34,13 +33,11 @@ pub trait SqlDriver: Send + Sync {
 
     // --- DLQ ---
     async fn push_dlq(&self, msg: &DlqMessage) -> Result<()>;
+    #[allow(dead_code)]
     async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>>;
+    #[allow(dead_code)]
     async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>>;
     async fn list_all_dlq(&self, profile: &str) -> Result<Vec<DlqMessage>>;
-
-    // --- Cache ---
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String>;
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl_secs: u64) -> Result<()>;
 
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> Result<()>;
@@ -108,36 +105,6 @@ impl SqlStore {
     }
 }
 
-pub struct SqlStoreBuilder;
-
-#[async_trait]
-impl super::StoreBuilder for SqlStoreBuilder {
-    fn scheme(&self) -> &str {
-        "sql_proxy" // Internal marker, we handle multiple schemes
-    }
-
-    async fn build(&self, _url: &str, _app_dir: &Path, _fingerprint: &str) -> Result<Arc<dyn Store>> {
-        unreachable!("SqlStoreBuilder uses a custom discovery loop in vault.rs or from_url")
-    }
-}
-
-// Special case for InnerDB (Hybrid)
-pub struct InnerDbStoreBuilder;
-
-#[async_trait]
-impl super::StoreBuilder for InnerDbStoreBuilder {
-    fn scheme(&self) -> &str {
-        "innerdb"
-    }
-
-    async fn build(&self, _url: &str, _app_dir: &Path, _fingerprint: &str) -> Result<Arc<dyn Store>> {
-        // This is tricky because StoreBuilder only returns ONE store, 
-        // but vault.rs needs two in its current architecture.
-        // Let's refine StoreBuilder or vault.rs to handle this.
-        unimplemented!("Refining Vault assembly to handle primary/sensitive split")
-    }
-}
-
 #[async_trait]
 impl Store for SqlStore {
     // --- Config ---
@@ -166,10 +133,6 @@ impl Store for SqlStore {
     async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>> { self.driver.pop_dlq(profile, topic).await }
     async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>> { self.driver.list_dlq(profile, limit).await }
     async fn list_all_dlq(&self, profile: &str) -> Result<Vec<DlqMessage>> { self.driver.list_all_dlq(profile).await }
-
-    // --- Cache ---
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String> { self.driver.get_cache(profile, key).await }
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl: u64) -> Result<()> { self.driver.set_cache(profile, key, value, ttl).await }
 
     // --- Legacy ---
     async fn delete(&self, profile: &str, key: &str) -> Result<()> { self.driver.delete_config(profile, key).await }

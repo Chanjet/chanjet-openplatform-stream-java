@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use crate::core::config::Config;
 use anyhow::Result;
 
-use std::sync::Arc;
+
 
 #[derive(Clone)]
 pub struct ProxyState {

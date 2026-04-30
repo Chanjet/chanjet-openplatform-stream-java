@@ -65,13 +65,11 @@ pub trait Store: Send + Sync {
 
     // --- DLQ Domain (Queue-like) ---
     async fn push_dlq(&self, msg: &DlqMessage) -> Result<()>;
+    #[allow(dead_code)]
     async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>>;
+    #[allow(dead_code)]
     async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>>;
     async fn list_all_dlq(&self, profile: &str) -> Result<Vec<DlqMessage>>;
-
-    // --- Cache Domain (Temporary) ---
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String>;
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl_secs: u64) -> Result<()>;
 
     // --- Legacy / Generic Fallback ---
     async fn get(&self, profile: &str, key: &str) -> Result<String> { self.get_config(profile, key).await }
@@ -120,7 +118,7 @@ pub async fn create_store_from_url(url: &str) -> Result<Arc<dyn Store>> {
     if url == "local" {
         let app_dir = super::config::get_app_dir();
         let seal_path = app_dir.join(".seal");
-        return Ok(Arc::new(file::FileStore::new(seal_path, "migration")?));
+        return Ok(Arc::new(file::FileStore::new(seal_path, "migration")?) as Arc<dyn Store>);
     }
 
     let final_url = if url == "innerdb" {
@@ -134,9 +132,9 @@ pub async fn create_store_from_url(url: &str) -> Result<Arc<dyn Store>> {
     if final_url.starts_with("redis://") {
         let client = redis::Client::open(final_url.as_str())?;
         let conn = client.get_multiplexed_tokio_connection().await?;
-        return Ok(Arc::new(redis_store::RedisStore::new(conn, &final_url)));
+        return Ok(Arc::new(redis_store::RedisStore::new(conn, &final_url)) as Arc<dyn Store>);
     }
 
     // SQL variants (sqlite, mysql, postgres, mssql)
-    Ok(Arc::new(sql::SqlStore::from_url(final_url.as_str()).await?))
+    Ok(Arc::new(sql::SqlStore::from_url(final_url.as_str()).await?) as Arc<dyn Store>)
 }

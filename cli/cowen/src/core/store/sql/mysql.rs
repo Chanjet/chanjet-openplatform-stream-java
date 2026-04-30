@@ -192,17 +192,6 @@ impl SqlDriver for MySqlDriver {
         }).collect())
     }
 
-    // --- Cache Domain ---
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String> {
-        let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_cache WHERE profile = ? AND item_key = ? AND (expires_at IS NULL OR expires_at > NOW())")
-            .bind(profile).bind(key).fetch_one(&self.pool).await?;
-        Ok(row.0)
-    }
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl_secs: u64) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_cache (profile, item_key, item_value, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND)) ON DUPLICATE KEY UPDATE item_value = VALUES(item_value), expires_at = VALUES(expires_at)")
-            .bind(profile).bind(key).bind(value).bind(ttl_secs).execute(&self.pool).await?;
-        Ok(())
-    }
 
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> Result<()> {
@@ -212,7 +201,6 @@ impl SqlDriver for MySqlDriver {
             "cowen_token",
             "cowen_audit",
             "cowen_dlq",
-            "cowen_cache",
         ] {
             let sql = format!("DELETE FROM {} WHERE profile = ?", table);
             sqlx::query(&sql).bind(profile).execute(&self.pool).await?;
@@ -226,7 +214,6 @@ impl SqlDriver for MySqlDriver {
             "cowen_token",
             "cowen_audit",
             "cowen_dlq",
-            "cowen_cache",
         ] {
             let sql = format!("UPDATE {} SET profile = ? WHERE profile = ?", table);
             sqlx::query(&sql)
@@ -265,7 +252,6 @@ impl SqlBuilder for MySqlBuilder {
             "CREATE TABLE IF NOT EXISTS cowen_token (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value LONGTEXT NOT NULL, expires_at TIMESTAMP NULL, PRIMARY KEY (profile, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
             "CREATE TABLE IF NOT EXISTS cowen_audit (id VARCHAR(36) PRIMARY KEY, profile VARCHAR(255) NOT NULL, timestamp DATETIME(3) NOT NULL, level VARCHAR(20) NOT NULL, target VARCHAR(255) NOT NULL, message TEXT NOT NULL, fields LONGTEXT, INDEX (profile, timestamp), INDEX (level)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
             "CREATE TABLE IF NOT EXISTS cowen_dlq (id BIGINT AUTO_INCREMENT PRIMARY KEY, profile VARCHAR(255) NOT NULL, topic VARCHAR(255) NOT NULL, payload LONGTEXT NOT NULL, retry_count INT DEFAULT 0, error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX (profile, topic)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_cache (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value LONGTEXT NOT NULL, expires_at TIMESTAMP NULL, PRIMARY KEY (profile, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         ];
 
         for sql in ddl {

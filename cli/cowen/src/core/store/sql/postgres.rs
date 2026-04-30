@@ -137,28 +137,17 @@ impl SqlDriver for PostgresDriver {
         }).collect())
     }
 
-    // --- Cache Domain ---
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String> {
-        let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_cache WHERE profile = $1 AND item_key = $2 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)")
-            .bind(profile).bind(key).fetch_one(&self.pool).await?;
-        Ok(row.0)
-    }
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl_secs: u64) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_cache (profile, item_key, item_value, expires_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP + INTERVAL '1 second' * $4) ON CONFLICT (profile, item_key) DO UPDATE SET item_value = EXCLUDED.item_value, expires_at = EXCLUDED.expires_at")
-            .bind(profile).bind(key).bind(value).bind(ttl_secs as i64).execute(&self.pool).await?;
-        Ok(())
-    }
 
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> Result<()> {
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq", "cowen_cache"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("DELETE FROM {} WHERE profile = $1", table);
             sqlx::query(&sql).bind(profile).execute(&self.pool).await?;
         }
         Ok(())
     }
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()> {
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq", "cowen_cache"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("UPDATE {} SET profile = $1 WHERE profile = $2", table);
             sqlx::query(&sql).bind(new_name).bind(old_name).execute(&self.pool).await?;
         }
@@ -212,7 +201,6 @@ impl SqlBuilder for PostgresBuilder {
             "CREATE TABLE IF NOT EXISTS cowen_token (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NULL, PRIMARY KEY (profile, item_key))",
             "CREATE TABLE IF NOT EXISTS cowen_audit (id VARCHAR(36) PRIMARY KEY, profile VARCHAR(255) NOT NULL, timestamp TIMESTAMP WITH TIME ZONE NOT NULL, level VARCHAR(20) NOT NULL, target VARCHAR(255) NOT NULL, message TEXT NOT NULL, fields JSONB)",
             "CREATE TABLE IF NOT EXISTS cowen_dlq (id BIGSERIAL PRIMARY KEY, profile VARCHAR(255) NOT NULL, topic VARCHAR(255) NOT NULL, payload TEXT NOT NULL, retry_count INT DEFAULT 0, error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
-            "CREATE TABLE IF NOT EXISTS cowen_cache (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NULL, PRIMARY KEY (profile, item_key))",
         ];
 
         for sql in ddl { sqlx::query(sql).execute(&pool).await?; }

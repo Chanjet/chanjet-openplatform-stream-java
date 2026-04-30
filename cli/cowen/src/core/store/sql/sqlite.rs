@@ -143,28 +143,17 @@ impl SqlDriver for SqliteDriver {
         }).collect())
     }
 
-    // --- Cache Domain ---
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String> {
-        let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_cache WHERE profile = ? AND item_key = ? AND (expires_at IS NULL OR expires_at > datetime('now'))")
-            .bind(profile).bind(key).fetch_one(&self.pool).await?;
-        Ok(row.0)
-    }
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl_secs: u64) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_cache (profile, item_key, item_value, expires_at) VALUES (?, ?, ?, datetime('now', '+' || ? || ' seconds')) ON CONFLICT(profile, item_key) DO UPDATE SET item_value = excluded.item_value, expires_at = excluded.expires_at")
-            .bind(profile).bind(key).bind(value).bind(ttl_secs as i64).execute(&self.pool).await?;
-        Ok(())
-    }
 
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> Result<()> {
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq", "cowen_cache"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("DELETE FROM {} WHERE profile = ?", table);
             sqlx::query(&sql).bind(profile).execute(&self.pool).await?;
         }
         Ok(())
     }
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()> {
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq", "cowen_cache"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("UPDATE {} SET profile = ? WHERE profile = ?", table);
             sqlx::query(&sql).bind(new_name).bind(old_name).execute(&self.pool).await?;
         }
@@ -200,7 +189,6 @@ impl SqlBuilder for SqliteBuilder {
             "CREATE TABLE IF NOT EXISTS cowen_token (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, expires_at DATETIME NULL, PRIMARY KEY (profile, item_key))",
             "CREATE TABLE IF NOT EXISTS cowen_audit (id TEXT PRIMARY KEY, profile TEXT NOT NULL, timestamp DATETIME NOT NULL, level TEXT NOT NULL, target TEXT NOT NULL, message TEXT NOT NULL, fields TEXT)",
             "CREATE TABLE IF NOT EXISTS cowen_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, topic TEXT NOT NULL, payload TEXT NOT NULL, retry_count INTEGER DEFAULT 0, error TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
-            "CREATE TABLE IF NOT EXISTS cowen_cache (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, expires_at DATETIME NULL, PRIMARY KEY (profile, item_key))",
         ];
 
         for sql in ddl { sqlx::query(sql).execute(&pool).await?; }

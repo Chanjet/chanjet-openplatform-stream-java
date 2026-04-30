@@ -578,7 +578,6 @@ impl Pkce {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::vault::Vault;
 
     #[test]
     fn test_pkce_generation() {
@@ -647,9 +646,9 @@ mod tests {
         }
 
         let vault = Arc::new(MockVault {});
-        let pool = crate::auth::VaultTokenPool::new(vault);
+        let pool: Arc<dyn TokenPool> = Arc::new(crate::auth::VaultTokenPool::new(vault));
         let sender = Arc::new(MockHttpSender {});
-        let provider = OAuth2Provider::new(&pool, sender);
+        let provider = OAuth2Provider::new(pool, sender);
         assert!(!provider.supports_webhooks());
     }
 

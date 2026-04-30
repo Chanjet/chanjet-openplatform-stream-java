@@ -1,5 +1,4 @@
 use super::*;
-use crate::auth::pool::TokenPool;
 use crate::auth::client::{HttpSender, SimpleResponse};
 use crate::auth::VaultTokenPool;
 use std::sync::Arc;
@@ -60,9 +59,9 @@ impl HttpSender for MockHttpSender {
 #[tokio::test]
 async fn test_get_token_missing_org_id_rejection() {
     let vault = Arc::new(MockVault {});
-    let pool = VaultTokenPool::new(vault);
+    let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault));
     let sender = Arc::new(MockHttpSender {});
-    let provider = StoreAppProvider::new(&pool, sender);
+    let provider = StoreAppProvider::new(pool, sender);
     
     let config = Config::default_with_profile("test");
     let mut headers = reqwest::header::HeaderMap::new();
@@ -78,9 +77,9 @@ async fn test_get_token_missing_org_id_rejection() {
 #[tokio::test]
 async fn test_get_token_with_org_only_isolation() {
     let vault = Arc::new(MockVault {});
-    let pool = VaultTokenPool::new(vault);
+    let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault));
     let sender = Arc::new(MockHttpSender {});
-    let provider = StoreAppProvider::new(&pool, sender);
+    let provider = StoreAppProvider::new(pool, sender);
     
     let mut config = Config::default_with_profile("test");
     config.app_key = "test_app".to_string();
@@ -92,9 +91,9 @@ async fn test_get_token_with_org_only_isolation() {
 #[tokio::test]
 async fn test_get_token_with_user_isolation() {
     let vault = Arc::new(MockVault {});
-    let pool = VaultTokenPool::new(vault);
+    let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault));
     let sender = Arc::new(MockHttpSender {});
-    let provider = StoreAppProvider::new(&pool, sender);
+    let provider = StoreAppProvider::new(pool, sender);
     
     let mut config = Config::default_with_profile("test");
     config.app_key = "test_app".to_string();

@@ -234,33 +234,10 @@ impl SqlDriver for MssqlDriver {
         }).collect())
     }
 
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String> {
-        let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
-        let row = conn.query(
-            "SELECT item_value FROM cowen_cache WHERE profile = @p1 AND item_key = @p2 AND (expires_at IS NULL OR expires_at > GETUTCDATE())",
-            &[&profile, &key]
-        ).await?.into_row().await?
-        .ok_or_else(|| anyhow!("Cache entry not found or expired"))?;
-        let val: &str = row.get(0).unwrap();
-        Ok(val.to_string())
-    }
-
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl_secs: u64) -> Result<()> {
-        let sql = "
-            MERGE cowen_cache WITH (HOLDLOCK) AS target
-            USING (SELECT @p1 AS p, @p2 AS k) AS source
-            ON (target.profile = source.p AND target.item_key = source.k)
-            WHEN MATCHED THEN
-                UPDATE SET item_value = @p3, expires_at = DATEADD(second, @p4, GETUTCDATE())
-            WHEN NOT MATCHED THEN
-                INSERT (profile, item_key, item_value, expires_at)
-                VALUES (@p1, @p2, @p3, DATEADD(second, @p4, GETUTCDATE()));";
-        self.execute(sql, &[&profile, &key, &value, &(ttl_secs as i64)]).await
-    }
 
     async fn clear_profile(&self, profile: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq", "cowen_cache"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("DELETE FROM {} WHERE profile = @p1", table);
             conn.execute(sql, &[&profile]).await?;
         }
@@ -269,7 +246,7 @@ impl SqlDriver for MssqlDriver {
 
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq", "cowen_cache"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("UPDATE {} SET profile = @p1 WHERE profile = @p2", table);
             conn.execute(sql, &[&new_name, &old_name]).await?;
         }
@@ -310,8 +287,6 @@ impl SqlBuilder for MssqlBuilder {
              CREATE TABLE cowen_audit (id NVARCHAR(255) PRIMARY KEY, profile NVARCHAR(255) NOT NULL, timestamp DATETIME2 NOT NULL, level NVARCHAR(50) NOT NULL, target NVARCHAR(255) NOT NULL, message NVARCHAR(MAX) NOT NULL, fields NVARCHAR(MAX))",
             "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_dlq' AND xtype='U')
              CREATE TABLE cowen_dlq (id BIGINT IDENTITY(1,1) PRIMARY KEY, profile NVARCHAR(255) NOT NULL, topic NVARCHAR(255) NOT NULL, payload NVARCHAR(MAX) NOT NULL, retry_count INT DEFAULT 0, error NVARCHAR(MAX), created_at DATETIME2 DEFAULT GETUTCDATE())",
-            "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_cache' AND xtype='U')
-             CREATE TABLE cowen_cache (profile NVARCHAR(255) NOT NULL, item_key NVARCHAR(255) NOT NULL, item_value NVARCHAR(MAX) NOT NULL, expires_at DATETIME2 NULL, PRIMARY KEY (profile, item_key))",
         ];
 
         for sql in ddl {

@@ -3,7 +3,7 @@ use crate::daemon::dlq::DlqStore;
 use crate::daemon::forwarder::Forwarder;
 use std::sync::Arc;
 use crate::core::config::Config;
-use crate::auth::{AuthClient, VaultTokenPool, client::Client};
+use crate::auth::client::Client;
 
 pub async fn list(profile: &str, config: &Config, format: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
     let auth = crate::auth::create_auth_client_with_vault(vault.clone());

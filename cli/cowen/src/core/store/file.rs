@@ -140,8 +140,6 @@ impl Store for FileStore {
         Ok(msgs)
     }
 
-    async fn get_cache(&self, p: &str, k: &str) -> Result<String> { Ok(fs::read_to_string(self.get_path(p, "cch", k))?) }
-    async fn set_cache(&self, p: &str, k: &str, v: &str, _ttl: u64) -> Result<()> { Ok(fs::write(self.get_path(p, "cch", k), v)?) }
 
     async fn clear_profile(&self, p: &str) -> Result<()> {
         let dir = self.root_dir.join(p);

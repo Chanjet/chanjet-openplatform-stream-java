@@ -202,8 +202,6 @@ impl Store for RedisStore {
         Ok(msgs)
     }
 
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String> { self.raw_get(profile, &format!("cch:{}", key)).await }
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl: u64) -> Result<()> { self.raw_set(profile, &format!("cch:{}", key), value, Some(ttl)).await }
 
     async fn clear_profile(&self, profile: &str) -> Result<()> {
         let mut conn = self.conn.clone();

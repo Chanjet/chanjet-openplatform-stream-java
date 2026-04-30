@@ -116,6 +116,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     fs::write(&pid_file, format!("{}\n{}", pid, build_id))?;
     
     let mut current_config = config.clone();
+    #[allow(unused_assignments)]
     let mut result: Result<()> = Ok(());
 
     loop {

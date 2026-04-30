@@ -6,7 +6,6 @@ use crate::auth::provider::AuthProvider;
 use crate::core::config::Config;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use std::sync::Arc;
 
 pub mod models;
@@ -58,6 +57,7 @@ impl StoreAppProvider {
         client::exchange_permanent_code_by_temp_code(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id, temp_auth_code).await
     }
 
+    #[allow(dead_code)]
     pub async fn get_user_token(
         &self,
         profile: &str,
@@ -68,6 +68,7 @@ impl StoreAppProvider {
         token_logic::get_user_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id, user_id).await
     }
 
+    #[allow(dead_code)]
     pub async fn get_org_token(
         &self,
         profile: &str,

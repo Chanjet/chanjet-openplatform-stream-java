@@ -146,6 +146,7 @@ impl HttpSender for ReqwestSender {
 #[async_trait::async_trait]
 pub trait Client: Send + Sync {
     async fn get_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token>;
+    #[allow(dead_code)]
     async fn refresh_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token>;
     async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> Result<()>;
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value>;
@@ -154,9 +155,13 @@ pub trait Client: Send + Sync {
     
     // 🚀 Store App (OAuth2) Extension Methods
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
+    #[allow(dead_code)]
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
+    #[allow(dead_code)]
     async fn exchange_temp_code(&self, profile: &str, cfg: &Config, org_id: &str, temp_code: &str) -> Result<Token>;
+    #[allow(dead_code)]
     async fn get_user_access_token(&self, profile: &str, cfg: &Config, org_id: &str, user_id: &str) -> Result<Token>;
+    #[allow(dead_code)]
     async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> Result<serde_json::Value>;
 
     // 🚀 OCP Lifecycle Hooks
@@ -165,6 +170,7 @@ pub trait Client: Send + Sync {
     async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::auth::provider::PlatformEvent) -> Result<()>;
     fn get_auth_display_info(&self, cfg: &Config) -> (String, String);
     fn get_daemon_display_info(&self, cfg: &Config, is_running: bool) -> (String, String);
+    #[allow(dead_code)]
     fn requires_ticket(&self, cfg: &Config) -> bool;
     fn supports_webhooks(&self, cfg: &Config) -> bool;
     fn supports_api_call(&self, cfg: &Config) -> bool;

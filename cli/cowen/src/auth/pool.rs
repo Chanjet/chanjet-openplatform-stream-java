@@ -13,6 +13,7 @@ pub trait TokenPool: Send + Sync {
     
     async fn get_app_access_token(&self, app_key: &str) -> Result<Token>;
     async fn set_app_access_token(&self, app_key: &str, token: &Token) -> Result<()>;
+    #[allow(dead_code)]
     async fn delete_app_access_token(&self, app_key: &str) -> Result<()>;
 
     async fn get_access_token(&self, profile: &str) -> Result<Token>;

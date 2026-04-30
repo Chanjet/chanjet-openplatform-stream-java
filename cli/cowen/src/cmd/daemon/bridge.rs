@@ -6,7 +6,7 @@ use crate::daemon::dlq::DlqStore;
 use crate::daemon::forwarder::Forwarder;
 use crate::daemon::proxy::start_proxy;
 use crate::auth::client::Client;
-use crate::auth::{VaultTokenPool, AuthClient};
+use crate::auth::VaultTokenPool;
 use crate::core::vault::Vault;
 use tokio::time::{sleep, Duration};
 

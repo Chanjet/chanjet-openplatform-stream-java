@@ -8,11 +8,13 @@ use std::sync::Arc;
 #[async_trait]
 pub trait Vault: Send + Sync {
     // --- Config Domain ---
+    #[allow(dead_code)]
     async fn get_config(&self, profile: &str, key: &str) -> Result<String>;
     async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item>;
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()>;
     async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> Result<()>;
     async fn list_configs(&self, profile: &str) -> Result<Vec<String>>;
+    #[allow(dead_code)]
     async fn delete_config(&self, profile: &str, key: &str) -> Result<()>;
 
     // --- Secret Domain ---
@@ -20,7 +22,9 @@ pub trait Vault: Send + Sync {
     async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()>;
 
     // --- Token Domain ---
+    #[allow(dead_code)]
     async fn get_token(&self, profile: &str, key: &str) -> Result<String>;
+    #[allow(dead_code)]
     async fn set_token(&self, profile: &str, key: &str, value: &str, expires_in_secs: u64) -> Result<()>;
 
     // --- Audit Domain ---
@@ -28,13 +32,12 @@ pub trait Vault: Send + Sync {
     async fn list_audit(&self, profile: &str, limit: usize) -> Result<Vec<AuditEntry>>;
 
     // --- DLQ Domain ---
+    #[allow(dead_code)]
     async fn push_dlq(&self, msg: &DlqMessage) -> Result<()>;
+    #[allow(dead_code)]
     async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>>;
+    #[allow(dead_code)]
     async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>>;
-
-    // --- Cache Domain ---
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String>;
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl_secs: u64) -> Result<()>;
 
     // --- Legacy / Generic Fallback ---
     async fn get(&self, profile: &str, key: &str) -> Result<String>;
@@ -93,9 +96,6 @@ impl Vault for StoreVault {
     async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>> { self.primary.pop_dlq(profile, topic).await }
     async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>> { self.primary.list_dlq(profile, limit).await }
 
-    // --- Cache Domain (Primary) ---
-    async fn get_cache(&self, profile: &str, key: &str) -> Result<String> { self.primary.get_cache(profile, key).await }
-    async fn set_cache(&self, profile: &str, key: &str, value: &str, ttl: u64) -> Result<()> { self.primary.set_cache(profile, key, value, ttl).await }
 
     // --- Legacy Fallback ---
     async fn get(&self, profile: &str, key: &str) -> Result<String> { self.primary.get(profile, key).await }
