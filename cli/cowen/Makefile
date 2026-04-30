@@ -56,6 +56,7 @@ TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
+        test test-linux test-win test-macos \
         package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
         package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image prepare-podman-machine stop-podman-machine
 
@@ -253,6 +254,34 @@ impl-package-linux-x86_64:
 	rm -f $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
+
+# --- 测试目标 (Test Targets) ---
+
+# 自动根据环境运行测试
+test:
+ifeq ($(HOST_OS),macos)
+	@$(MAKE) test-macos
+else ifeq ($(HOST_OS),linux)
+	@$(MAKE) test-linux
+else ifeq ($(HOST_OS),windows)
+	@$(MAKE) test-win
+endif
+
+# 在 Linux 容器中执行全量 E2E (Podman)
+test-linux: prepare-podman-machine
+	@echo "🧪 Running Full E2E Suite in Linux container via Podman..."
+	podman build -t cowen-test-linux -f tests/Dockerfile.linux .
+	podman run --rm cowen-test-linux
+
+# 在 Windows PowerShell 环境下执行测试
+test-win:
+	@echo "🧪 Running Full E2E Suite in Windows PowerShell..."
+	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/run_suites.ps1"
+
+# 在 macOS 原生环境执行测试
+test-macos:
+	@echo "🧪 Running Full E2E Suite natively on macOS..."
+	./tests/run_suites.sh
 
 # --- 其他 ---
 
