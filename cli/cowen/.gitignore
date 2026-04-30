@@ -4,6 +4,7 @@ Cargo.lock
 
 # Test Environments
 .cowen_test/
+.cowen_test_*/
 .cowen_multi_test/
 .cowen_audit_test/
 

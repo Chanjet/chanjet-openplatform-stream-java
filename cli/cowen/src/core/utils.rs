@@ -19,8 +19,13 @@ pub fn render<T: Serialize>(data: &T, format: &str) -> Result<()> {
         }
     };
     
-    // Apply masking to the final output string
-    println!("{}", mask_sensitive_json(&output));
+    // Check if raw output is requested (for automation/tests)
+    if std::env::var("COWEN_RAW_OUTPUT").unwrap_or_default() == "true" {
+        println!("{}", output);
+    } else {
+        // Apply masking to the final output string
+        println!("{}", mask_sensitive_json(&output));
+    }
     Ok(())
 }
 

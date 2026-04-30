@@ -46,8 +46,8 @@ impl Forwarder {
             return;
         }
 
-        let msg_id = event.get("id").and_then(|v| v.as_str()).unwrap_or("unknown_id").to_string();
-        let msg_type = event.get("msgType").and_then(|v| v.as_str()).unwrap_or("UNKNOWN").to_string();
+        let msg_id = event.get("msgId").or(event.get("id")).and_then(|v| v.as_str()).unwrap_or("unknown_id").to_string();
+        let msg_type = event.get("msg_type").or(event.get("msgType")).and_then(|v| v.as_str()).unwrap_or("UNKNOWN").to_string();
         let headers = event.get("headers").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
         let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
 
@@ -75,7 +75,7 @@ impl Forwarder {
                 let err_msg = format!("Network error: {}", e);
                 tracing::error!(target: "stream", msg_id = %msg_id, error = %e, "Forward network failed, saving to DLQ");
                 println!("❌ Forward network failed: {}", err_msg);
-                let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg);
+                let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg).await;
             }
         }
     }

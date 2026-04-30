@@ -1,0 +1,9 @@
+app_key: "AK_OA"
+app_secret: "AS_OA"
+app_mode: "oauth2"
+openapi_url: "http://127.0.0.1:9299"
+stream_url: "http://127.0.0.1:9299"
+proxy_port: 9093
+proxy_enabled: true
+telemetry_enabled: false
+ai_enabled: false

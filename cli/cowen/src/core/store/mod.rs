@@ -123,12 +123,20 @@ pub async fn create_store_from_url(url: &str) -> Result<Arc<dyn Store>> {
         return Ok(Arc::new(file::FileStore::new(seal_path, "migration")?));
     }
 
-    if url.starts_with("redis://") {
-        let client = redis::Client::open(url)?;
+    let final_url = if url == "innerdb" {
+        let app_dir = super::config::get_app_dir();
+        let db_path = app_dir.join("cowen.db");
+        format!("sqlite://{}", db_path.to_str().unwrap())
+    } else {
+        url.to_string()
+    };
+
+    if final_url.starts_with("redis://") {
+        let client = redis::Client::open(final_url.as_str())?;
         let conn = client.get_multiplexed_tokio_connection().await?;
-        return Ok(Arc::new(redis_store::RedisStore::new(conn, url)));
+        return Ok(Arc::new(redis_store::RedisStore::new(conn, &final_url)));
     }
 
     // SQL variants (sqlite, mysql, postgres, mssql)
-    Ok(Arc::new(sql::SqlStore::from_url(url).await?))
+    Ok(Arc::new(sql::SqlStore::from_url(final_url.as_str()).await?))
 }
