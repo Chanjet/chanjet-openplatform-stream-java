@@ -615,8 +615,6 @@ mod tests {
             async fn push_dlq(&self, _: &crate::core::store::DlqMessage) -> Result<()> { Ok(()) }
             async fn pop_dlq(&self, _: &str, _: &str) -> Result<Option<crate::core::store::DlqMessage>> { Ok(None) }
             async fn list_dlq(&self, _: &str, _: usize) -> Result<Vec<crate::core::store::DlqMessage>> { Ok(vec![]) }
-            async fn get_cache(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
-            async fn set_cache(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
             async fn get(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
             async fn set(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
             async fn delete(&self, _: &str, _: &str) -> Result<()> { Ok(()) }

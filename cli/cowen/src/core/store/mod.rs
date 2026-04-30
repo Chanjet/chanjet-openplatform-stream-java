@@ -74,7 +74,7 @@ pub trait Store: Send + Sync {
     // --- Legacy / Generic Fallback ---
     async fn get(&self, profile: &str, key: &str) -> Result<String> { self.get_config(profile, key).await }
     async fn set(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.set_config(profile, key, value).await }
-    async fn delete(&self, _profile: &str, _key: &str) -> Result<()> { Ok(()) }
+    async fn delete(&self, profile: &str, key: &str) -> Result<()> { self.delete_config(profile, key).await }
     async fn list_keys(&self, profile: &str, prefix: &str) -> Result<Vec<String>> {
         let keys = self.list_configs(profile).await?;
         Ok(keys.into_iter().filter(|k| k.starts_with(prefix)).collect())

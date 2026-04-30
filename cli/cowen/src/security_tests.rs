@@ -17,9 +17,9 @@ fn test_config_debug_masking() {
     assert!(!debug_str.contains("val_test_val_4433"));
     
     // Should contain masked versions
-    assert!(debug_str.contains("val_8888...7777"));
-    assert!(debug_str.contains("val_6666...5555"));
-    assert!(debug_str.contains("val_4444...3333"));
+    assert!(debug_str.contains("val_test...8877"));
+    assert!(debug_str.contains("val_test...6655"));
+    assert!(debug_str.contains("val_test...4433"));
 }
 
 #[test]
@@ -39,9 +39,9 @@ fn test_json_masking_comprehensive() {
     assert!(!masked.contains("mock_ti_test_val_8877"));
     assert!(!masked.contains("mock_ce_test_val_8877"));
     
-    assert!(masked.contains("mock_at_...7777"));
-    assert!(masked.contains("mock_as_...7777"));
-    assert!(masked.contains("mock_ti_...7777"));
-    assert!(masked.contains("mock_ce_...7777"));
+    assert!(masked.contains("mock_at_...8877"));
+    assert!(masked.contains("mock_as_...8877"));
+    assert!(masked.contains("mock_ti_...8877"));
+    assert!(masked.contains("mock_ce_...8877"));
     assert!(masked.contains("safe_data"));
 }
