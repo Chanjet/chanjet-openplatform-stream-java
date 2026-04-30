@@ -8,3 +8,7 @@ pub mod search;
 pub mod telemetry;
 pub mod utils;
 pub mod network;
+pub mod store;
+pub mod audit;
+pub mod migration;
+pub mod status;

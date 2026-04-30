@@ -82,8 +82,12 @@ pub struct Ticket {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AuthMode {
+    /// 传统自建应用模式 (Ticket-based)
     SelfBuilt,
+    /// 官方标准 OAuth2 模式 (Fixed AppKey, Interactive flow)
     Oauth2,
+    /// 商店应用/边车模式 (OAuth2-based Sidecar, requires AppKey/Secret, no interactive flow)
+    StoreApp,
 }
 
 impl Default for AuthMode {
@@ -157,12 +161,16 @@ mod tests {
     fn test_authmode_serialization() {
         assert_eq!(serde_json::to_string(&AuthMode::SelfBuilt).unwrap(), "\"self-built\"");
         assert_eq!(serde_json::to_string(&AuthMode::Oauth2).unwrap(), "\"oauth2\"");
+        assert_eq!(serde_json::to_string(&AuthMode::StoreApp).unwrap(), "\"store-app\"");
         
         let mode: AuthMode = serde_json::from_str("\"self-built\"").unwrap();
         assert_eq!(mode, AuthMode::SelfBuilt);
         
         let mode: AuthMode = serde_json::from_str("\"oauth2\"").unwrap();
         assert_eq!(mode, AuthMode::Oauth2);
+
+        let mode: AuthMode = serde_json::from_str("\"store-app\"").unwrap();
+        assert_eq!(mode, AuthMode::StoreApp);
     }
 
     #[test]

@@ -1,0 +1,261 @@
+    Checking cowen v0.2.1 (/Users/zhangliang/chanjet/dev/workspace/open-streaming-connector/cli/cowen)
+error[E0433]: failed to resolve: could not find `MssqlPool` in `sqlx`
+   --> src/main.rs:389:55
+    |
+389 |         crate::core::store::sql::SqlPool::Mssql(sqlx::MssqlPool::connect(db_url).await?)
+    |                                                       ^^^^^^^^^
+    |                                                       |
+    |                                                       could not find `MssqlPool` in `sqlx`
+    |                                                       help: a type alias with a similar name exists: `MySqlPool`
+
+error[E0425]: cannot find value `store` in this scope
+   --> src/main.rs:565:17
+    |
+565 |                 store,
+    |                 ^^^^^ not found in this scope
+
+error[E0425]: cannot find value `db_url` in this scope
+   --> src/main.rs:566:17
+    |
+566 |                 db_url,
+    |                 ^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `cache` in this scope
+   --> src/main.rs:567:17
+    |
+567 |                 cache,
+    |                 ^^^^^ not found in this scope
+
+error[E0425]: cannot find value `cache_url` in this scope
+   --> src/main.rs:568:17
+    |
+568 |                 cache_url,
+    |                 ^^^^^^^^^ not found in this scope
+
+error[E0277]: the `?` operator can only be applied to values that implement `Try`
+   --> src/cmd/auth.rs:108:29
+    |
+108 | ...                   session_manager.save_code(profile, &res.code, &res.state)?;
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the `?` operator cannot be applied to type `impl std::future::Future<Output = Result<(), anyhow::Error>>`
+    |
+    = help: the trait `Try` is not implemented for `impl std::future::Future<Output = Result<(), anyhow::Error>>`
+help: consider `await`ing on the `Future`
+    |
+108 |                             session_manager.save_code(profile, &res.code, &res.state).await?;
+    |                                                                                      ++++++
+
+error[E0308]: mismatched types
+  --> src/cmd/daemon/bridge.rs:74:20
+   |
+74 |             if let Err(e) = p_pool.set_app_ticket(&p_profile, &ticket) {
+   |                    ^^^^^^   ------------------------------------------ this expression has type `Pin<Box<dyn std::future::Future<Output = Result<(), anyhow::Error>> + Send>>`
+   |                    |
+   |                    expected `Pin<Box<...>>`, found `Result<_, _>`
+   |
+   = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<(), anyhow::Error>> + Send>>`
+                found enum `Result<_, _>`
+
+error[E0599]: no method named `is_err` found for struct `Pin<Box<dyn std::future::Future<Output = Result<Ticket, anyhow::Error>> + Send>>` in the current scope
+   --> src/cmd/daemon/bridge.rs:113:50
+    |
+113 |         if p_pool_m.get_app_ticket(&p_profile_m).is_err() {
+    |                                                  ^^^^^^
+    |
+help: there is a method `inspect_err` with a similar name, but with different arguments
+   --> /Users/zhangliang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-util-0.3.32/src/future/try_future/mod.rs:493:5
+    |
+493 | /     fn inspect_err<F>(self, f: F) -> InspectErr<Self, F>
+494 | |     where
+495 | |         F: FnOnce(&Self::Error),
+496 | |         Self: Sized,
+    | |____________________^
+
+error[E0308]: mismatched types
+  --> src/cmd/daemon/mod.rs:28:20
+   |
+28 |             if let Ok(as_val) = vault.get(&p, "app_secret") { p_cfg.app_secret = as_val; }
+   |                    ^^^^^^^^^^   --------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+   |                    |
+   |                    expected `Pin<Box<...>>`, found `Result<_, _>`
+   |
+   = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                found enum `Result<_, _>`
+
+error[E0308]: mismatched types
+  --> src/cmd/daemon/mod.rs:29:20
+   |
+29 |             if let Ok(cert) = vault.get(&p, "certificate") { p_cfg.certificate = cert; }
+   |                    ^^^^^^^^   ---------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+   |                    |
+   |                    expected `Pin<Box<...>>`, found `Result<_, _>`
+   |
+   = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                found enum `Result<_, _>`
+
+error[E0308]: mismatched types
+  --> src/cmd/daemon/mod.rs:30:20
+   |
+30 |             if let Ok(ek) = vault.get(&p, "encrypt_key") { p_cfg.encrypt_key = ek; }
+   |                    ^^^^^^   ---------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+   |                    |
+   |                    expected `Pin<Box<...>>`, found `Result<_, _>`
+   |
+   = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                found enum `Result<_, _>`
+
+error[E0308]: mismatched types
+   --> src/cmd/daemon/mod.rs:184:20
+    |
+184 |             if let Ok(as_val) = vault.get(&p, "app_secret") { p_cfg.app_secret = as_val; }
+    |                    ^^^^^^^^^^   --------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+    |                    |
+    |                    expected `Pin<Box<...>>`, found `Result<_, _>`
+    |
+    = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                 found enum `Result<_, _>`
+
+error[E0308]: mismatched types
+   --> src/cmd/daemon/mod.rs:185:20
+    |
+185 |             if let Ok(cert) = vault.get(&p, "certificate") { p_cfg.certificate = cert; }
+    |                    ^^^^^^^^   ---------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+    |                    |
+    |                    expected `Pin<Box<...>>`, found `Result<_, _>`
+    |
+    = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                 found enum `Result<_, _>`
+
+error[E0308]: mismatched types
+   --> src/cmd/daemon/mod.rs:186:20
+    |
+186 |             if let Ok(ek) = vault.get(&p, "encrypt_key") { p_cfg.encrypt_key = ek; }
+    |                    ^^^^^^   ---------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+    |                    |
+    |                    expected `Pin<Box<...>>`, found `Result<_, _>`
+    |
+    = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                 found enum `Result<_, _>`
+
+error[E0599]: no variant or associated item named `Mssql` found for enum `SqlPool` in the current scope
+   --> src/main.rs:389:43
+    |
+389 |         crate::core::store::sql::SqlPool::Mssql(sqlx::MssqlPool::connect(db_url).await?)
+    |                                           ^^^^^ variant or associated item not found in `SqlPool`
+    |
+   ::: src/core/store/sql.rs:98:1
+    |
+ 98 | pub enum SqlPool {
+    | ---------------- variant or associated item `Mssql` not found for this enum
+
+error[E0308]: mismatched types
+   --> src/main.rs:516:12
+    |
+516 |     if let Ok(secret) = vault.get(&active_profile, "app_secret") {
+    |            ^^^^^^^^^^   ---------------------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+    |            |
+    |            expected `Pin<Box<...>>`, found `Result<_, _>`
+    |
+    = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                 found enum `Result<_, _>`
+
+error[E0308]: mismatched types
+   --> src/main.rs:519:12
+    |
+519 |     if let Ok(cert) = vault.get(&active_profile, "certificate") {
+    |            ^^^^^^^^   ----------------------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+    |            |
+    |            expected `Pin<Box<...>>`, found `Result<_, _>`
+    |
+    = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                 found enum `Result<_, _>`
+
+error[E0308]: mismatched types
+   --> src/main.rs:522:12
+    |
+522 |     if let Ok(encrypt_key) = vault.get(&active_profile, "encrypt_key") {
+    |            ^^^^^^^^^^^^^^^   ----------------------------------------- this expression has type `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+    |            |
+    |            expected `Pin<Box<...>>`, found `Result<_, _>`
+    |
+    = note: expected struct `Pin<Box<dyn std::future::Future<Output = Result<std::string::String, anyhow::Error>> + Send>>`
+                 found enum `Result<_, _>`
+
+error[E0027]: pattern does not mention fields `store`, `db_url`, `cache`, `cache_url`
+   --> src/main.rs:543:9
+    |
+543 | /         Commands::Init { 
+544 | |             app_key, 
+545 | |             app_secret, 
+546 | |             certificate,
+...   |
+551 | |             app_mode,
+552 | |         } => {
+    | |_________^ missing fields `store`, `db_url`, `cache`, `cache_url`
+    |
+help: include the missing fields in the pattern
+    |
+551 -             app_mode,
+552 -         } => {
+551 +             app_mode, store, db_url, cache, cache_url } => {
+    |
+help: if you don't care about these missing fields, you can explicitly ignore them
+    |
+551 -             app_mode,
+552 -         } => {
+551 +             app_mode, store: _, db_url: _, cache: _, cache_url: _ } => {
+    |
+help: or always ignore missing fields here
+    |
+551 -             app_mode,
+552 -         } => {
+551 +             app_mode, .. } => {
+    |
+
+error[E0063]: missing field `storage` in initializer of `config::Config`
+   --> src/core/config.rs:107:9
+    |
+107 |         Self {
+    |         ^^^^ missing `storage`
+
+error: this function depends on never type fallback being `()`
+  --> src/core/store/redis_store.rs:16:1
+   |
+16 | #[async_trait]
+   | ^^^^^^^^^^^^^^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in Rust 2024 and in a future release in all editions!
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/never-type-fallback.html>
+   = help: specify the types explicitly
+note: in edition 2024, the requirement `!: FromRedisValue` will fail
+  --> src/core/store/redis_store.rs:35:14
+   |
+35 |             .query_async(&mut conn)
+   |              ^^^^^^^^^^^
+   = note: `#[deny(dependency_on_unit_never_type_fallback)]` (part of `#[deny(rust_2024_compatibility)]`) on by default
+help: use `()` annotations to avoid fallback changes
+   |
+35 |             .query_async::<()>(&mut conn)
+   |                         ++++++
+
+error: this function depends on never type fallback being `()`
+  --> src/core/store/redis_store.rs:16:1
+   |
+16 | #[async_trait]
+   | ^^^^^^^^^^^^^^
+   |
+   = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in Rust 2024 and in a future release in all editions!
+   = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/never-type-fallback.html>
+   = help: specify the types explicitly
+note: in edition 2024, the requirement `!: FromRedisValue` will fail
+  --> src/core/store/redis_store.rs:45:14
+   |
+45 |             .query_async(&mut conn)
+   |              ^^^^^^^^^^^
+help: use `()` annotations to avoid fallback changes
+   |
+45 |             .query_async::<()>(&mut conn)
+   |                         ++++++
+
+Some errors have detailed explanations: E0027, E0063, E0277, E0308, E0425, E0433, E0599.
+For more information about an error, try `rustc --explain E0027`.
+error: could not compile `cowen` (bin "cowen") due to 24 previous errors

@@ -27,7 +27,6 @@ mod daemon;
 
 use clap::Parser;
 use crate::core::config::ConfigManager;
-use crate::core::vault::{MultiVault, Vault};
 use crate::core::security;
 use crate::core::utils::get_bin_name;
 use anyhow::Result;
@@ -147,6 +146,16 @@ pub enum Commands {
         #[command(subcommand)]
         action: LogCommands,
     },
+    /// 管理并配置全局存储后端与缓存
+    Store {
+        #[command(subcommand)]
+        action: StoreCommands,
+    },
+    /// 管理并检查系统整体状态
+    System {
+        #[command(subcommand)]
+        action: SystemCommands,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -166,6 +175,42 @@ pub enum ProfileCommands {
         old_name: String,
         /// 新 Profile 名称
         new_name: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum SystemCommands {
+    /// 诊断并检查系统的整体运行状态
+    Status {
+        /// 扫描并输出所有存在的 Profile 的状态
+        #[arg(short, long)]
+        all: bool,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum StoreCommands {
+    /// 设置全局存储配置
+    Set {
+        #[arg(long, help = "存储后端: local (本地文件), mysql, postgres, mssql")]
+        store: Option<String>,
+        #[arg(long, help = "数据库连接 URL")]
+        db_url: Option<String>,
+        #[arg(long, help = "缓存后端: none, redis")]
+        cache: Option<String>,
+        #[arg(long, help = "缓存连接 URL (Redis)")]
+        cache_url: Option<String>,
+    },
+    /// 查看存储状态并验证连接性
+    Status,
+    /// 迁移全量数据到新的存储后端
+    Migrate {
+        /// 目标存储 URL (如 mysql://user:pass@host/db 或 local)
+        #[arg(long, help = "目标存储 URL")]
+        to: String,
+        /// 迁移模式: clone (复制全量数据并切换), move (复制全量数据并切换，且清理源端数据)
+        #[arg(long, value_enum, default_value = "clone", help = "迁移模式")]
+        mode: crate::core::migration::MigrationMode,
     },
 }
 
@@ -359,6 +404,7 @@ async fn main() {
     }
 }
 
+
 async fn run() -> Result<()> {
     let cli = Cli::parse();
     let bin_name = get_bin_name();
@@ -369,24 +415,19 @@ async fn run() -> Result<()> {
 
     // 2. Load Config to get Log Settings
     let cfg_mgr = ConfigManager::new()?;
+    let mut app_config = cfg_mgr.load_app_config().await?;
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
 
     // Logic Fix: Ensure 'init' always creates a NEW profile instead of overwriting the current one.
     if matches!(&cli.command, Commands::Init { .. }) {
         if cli.profile.is_none() {
-            active_profile = cfg_mgr.get_next_profile_name();
+            active_profile = cfg_mgr.get_next_profile_name().await?;
             println!("🪄 No profile name provided. Automatically generating new profile: \x1b[1;32m{}\x1b[0m", active_profile);
-        } else {
-            // If user specified a profile, ensure it DOES NOT exist. 
-            // We want 'init' to be 'initialize NEW', not 'update EXISTING'.
-            if cfg_mgr.exists(&active_profile) {
-                return Err(anyhow::anyhow!("Profile '{}' already exists. Use a different name or 'reset' it first.", active_profile));
-            }
         }
     }
     
     // Load config for the target profile (or defaults if it's a new profile)
-    let mut config = cfg_mgr.load(&active_profile).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&active_profile));
+    let mut config = cfg_mgr.load(&active_profile).await.unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&active_profile));
 
     // Override config flags if CLI provides them
     if cli.no_telemetry {
@@ -396,8 +437,10 @@ async fn run() -> Result<()> {
         config.ai_enabled = false;
     }
 
+
     // 3. Initialize Telemetry (Structured & Rotated Logging)
-    let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_profile, &config.log) {
+    let (vault_tx, vault_rx) = tokio::sync::watch::channel(None);
+    let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {
         Ok(g) => Some(g),
         Err(e) => {
             eprintln!("⚠️ Warning: Telemetry system failed to initialize: {}. Continuing without structured logging.", e);
@@ -448,28 +491,46 @@ async fn run() -> Result<()> {
         Commands::Profile { .. } => "profile",
         Commands::Dlq { .. } => "dlq",
         Commands::Log { .. } => "log",
+        Commands::Store { .. } => "store",
+        Commands::System { .. } => "system",
     };
     crate::core::telemetry::report_event(&config, "command_run".to_string(), serde_json::json!({ "cmd": cmd_name }));
 
-    let fingerprint = security::get_machine_fingerprint()?;
-    let seal_path = app_dir.join(".seal");
-    
-    let vault: std::sync::Arc<dyn Vault> = std::sync::Arc::new(MultiVault::new(seal_path, &fingerprint)?);
-    
-    // Inject secrets from vault into config
-    if let Ok(secret) = vault.get(&active_profile, "app_secret") {
-        config.app_secret = secret;
-    }
-    if let Ok(cert) = vault.get(&active_profile, "certificate") {
-        config.certificate = cert;
-    }
-    if let Ok(encrypt_key) = vault.get(&active_profile, "encrypt_key") {
-        config.encrypt_key = encrypt_key;
+    // Handle 'store' command early before Vault creation to allow fixing broken storage configs
+    // Handle 'store' commands that don't need a vault first (Set/Status)
+    if let Commands::Store { action } = &cli.command {
+        match action {
+            StoreCommands::Set { store, db_url, cache, cache_url } => {
+                cmd::store::set(&mut app_config, &cfg_mgr, store, db_url, cache, cache_url).await?;
+                return Ok(());
+            }
+            StoreCommands::Status => {
+                cmd::store::status(&app_config).await?;
+                return Ok(());
+            }
+            _ => {} // Migrate needs vault, handle later
+        }
     }
 
+    let fingerprint = security::get_machine_fingerprint()?;
+    let vault = crate::core::vault::create_vault(&app_config, &app_dir, &fingerprint).await?;
+    let _ = vault_tx.send(Some(vault.clone()));
+    cfg_mgr.set_vault(vault.clone());
+
+    // RE-LOAD config from vault if it exists (allows cloud-synced profiles)
+    if let Ok(synced_cfg) = cfg_mgr.load(&active_profile).await {
+        config = synced_cfg;
+    }
+    
     // 2. Initialize Auth
     let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
     let auth_cli = crate::auth::AuthClient::new(&token_pool);
+
+    // Now handle 'store migrate' which needs the vault
+    if let Commands::Store { action: StoreCommands::Migrate { to, mode } } = &cli.command {
+        cmd::store::migrate(&cfg_mgr, to, *mode).await?;
+        return Ok(());
+    }
 
     // 4. Automatic Shell Completion Installation (One-time check)
     if crate::cmd::completion::is_auto_install_needed() {
@@ -483,6 +544,7 @@ async fn run() -> Result<()> {
 
     // 6. Execute Command
     match &cli.command {
+// ... existing match ...
         Commands::Init { 
             app_key, 
             app_secret, 
@@ -496,6 +558,7 @@ async fn run() -> Result<()> {
             cmd::init::execute(
                 &active_profile, 
                 &cfg_mgr, 
+                &mut app_config,
                 vault.clone(), 
                 app_key, 
                 app_secret, 
@@ -511,7 +574,7 @@ async fn run() -> Result<()> {
             if let Some(act) = action {
                 match act {
                     ApiCommands::List { search, page, page_size, refresh } => {
-                        cmd::api::list(&active_profile, &config, &auth_cli, search, *page, *page_size, &cli.format, *refresh).await?;
+                        cmd::api::list(&active_profile, &config, &auth_cli, search, *page, *page_size, &cli.format, *refresh, vault.clone()).await?;
                     }
                     ApiCommands::Spec { method, path, raw } => {
                         cmd::api::spec(&active_profile, &config, &auth_cli, method, path, *raw).await?;
@@ -556,7 +619,7 @@ async fn run() -> Result<()> {
                 }
                 
                 if changed && !*all {
-                    cfg_mgr.save(&active_profile, &updated_config)?;
+                    cfg_mgr.save(&active_profile, &updated_config).await?;
                 }
 
                 cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone()).await?;
@@ -580,7 +643,7 @@ async fn run() -> Result<()> {
                 }
 
                 if changed && !*all {
-                    cfg_mgr.save(&active_profile, &updated_config)?;
+                    cfg_mgr.save(&active_profile, &updated_config).await?;
                 }
 
                 cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone()).await?;
@@ -599,6 +662,13 @@ async fn run() -> Result<()> {
         },
         Commands::Status { all } => {
             cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?;
+        }
+        Commands::System { action } => {
+            match action {
+                SystemCommands::Status { all } => {
+                    cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?;
+                }
+            }
         }
         Commands::Config => {
             cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?;
@@ -638,7 +708,7 @@ async fn run() -> Result<()> {
                 println!("{}", cfg_mgr.get_default_profile());
             }
             ProfileCommands::List => {
-                let profiles = cfg_mgr.list_profiles()?;
+                let profiles = cfg_mgr.list_profiles().await?;
                 let current = cfg_mgr.get_default_profile();
                 
                 if cli.format == "json" || cli.format == "yaml" {
@@ -661,23 +731,24 @@ async fn run() -> Result<()> {
         },
         Commands::Dlq { action } => match action {
             DlqCommands::List => {
-                cmd::dlq::list(&active_profile, &cli.format).await?;
+                cmd::dlq::list(&active_profile, &cli.format, vault.clone()).await?;
             }
             DlqCommands::Retry { id } => {
-                cmd::dlq::retry(&active_profile, &config, id).await?;
+                cmd::dlq::retry(&active_profile, &config, id, vault.clone()).await?;
             }
             DlqCommands::Purge => {
-                cmd::dlq::purge(&active_profile).await?;
+                cmd::dlq::purge(&active_profile, vault.clone()).await?;
             }
         },
         Commands::Log { action } => match action {
             LogCommands::List => {
-                cmd::log::list(&active_profile).await?;
+                cmd::log::list(&active_profile, vault.clone()).await?;
             }
             LogCommands::View { domain, follow, lines } => {
-                cmd::log::view(&active_profile, domain, *follow, *lines).await?;
+                cmd::log::view(&active_profile, domain, *follow, *lines, vault.clone()).await?;
             }
-        }
+        },
+        Commands::Store { .. } => unreachable!("Store command should have been handled early"),
     }
 
     Ok(())

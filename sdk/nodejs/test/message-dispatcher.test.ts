@@ -4,7 +4,7 @@ import { MessageDispatcher } from '../src/message-dispatcher.js';
 import { EventFrame } from '../src/protocol.js';
 
 describe('MessageDispatcher', () => {
-    const secret = '12345678901234567890123456789012';
+    const secret = '<DUMMY_SECRET_32>';
     let dispatcher: MessageDispatcher;
 
     beforeEach(() => {
@@ -35,7 +35,7 @@ describe('MessageDispatcher', () => {
 
         const businessMsg = JSON.stringify({ msgType: 'SECURE_TYPE', secret_data: 'shhh' });
         
-        const encryptKey = '1234567890123456';
+        const encryptKey = '<DUMMY_KEY_16>';
         const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(encryptKey), null);
         let encrypted = cipher.update(businessMsg, 'utf8', 'base64');
         encrypted += cipher.final('base64');

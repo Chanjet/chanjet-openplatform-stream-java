@@ -16,7 +16,7 @@ func TestHmacSha256(t *testing.T) {
 }
 
 func TestAesDecrypt(t *testing.T) {
-	key := "1234567890123456" // 16 bytes
+	key := "<DUMMY_KEY_16>" // 16 bytes
 	plaintext := `{"hello":"world"}`
 	
 	// 手动构造加密数据以验证解密

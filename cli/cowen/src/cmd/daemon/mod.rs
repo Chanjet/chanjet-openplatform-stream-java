@@ -1,4 +1,3 @@
-mod renewer;
 mod bridge;
 pub mod service;
 
@@ -15,19 +14,19 @@ use crate::auth::models::AuthMode;
 /// 启动守护进程 (主分发器)
 pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
     let target_profiles = if all && !foreground {
-        cfg_mgr.list_profiles()?
+        cfg_mgr.list_profiles().await?
     } else {
         vec![profile.to_string()]
     };
 
     for p in target_profiles {
-        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| Config::default_with_profile(&p)) };
+        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| Config::default_with_profile(&p)) };
         
         // 注入 Vault 中的敏感信息
         if p != profile {
-            if let Ok(as_val) = vault.get(&p, "app_secret") { p_cfg.app_secret = as_val; }
-            if let Ok(cert) = vault.get(&p, "certificate") { p_cfg.certificate = cert; }
-            if let Ok(ek) = vault.get(&p, "encrypt_key") { p_cfg.encrypt_key = ek; }
+            if let Ok(as_val) = vault.get(&p, "app_secret").await { p_cfg.app_secret = as_val; }
+            if let Ok(cert) = vault.get(&p, "certificate").await { p_cfg.certificate = cert; }
+            if let Ok(ek) = vault.get(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
         }
         
         let pid_file = crate::core::config::get_app_dir().join(format!("{}_daemon.pid", p));
@@ -36,7 +35,7 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
             continue;
         }
 
-        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, vault.clone()).await {
+        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, cfg_mgr, vault.clone()).await {
             eprintln!("⚠️ Failed to start daemon for profile '{}': {}", p, e);
         }
     }
@@ -44,7 +43,7 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
 }
 
 /// 执行启动的核心逻辑，处理父子进程逻辑
-async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, vault: Arc<dyn Vault>) -> Result<()> {
+async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
@@ -114,24 +113,71 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     let build_id = env!("BUILD_ID");
     fs::write(&pid_file, format!("{}\n{}", pid, build_id))?;
     
-    tracing::info!(target: "sys", "Daemon core logic starting (PID: {}, Mode: {:?})", pid, config.app_mode);
+    let mut current_config = config.clone();
+    let mut result: Result<()> = Ok(());
 
-    let result = match config.app_mode {
-        AuthMode::Oauth2 => {
-            // 执行 OAuth2 专用续约引擎
+    loop {
+        tracing::info!(target: "sys", "Daemon core logic starting (PID: {}, Mode: {:?}, Version: {})", pid, current_config.app_mode, current_config.version);
+        
+        let mut stream_opt = vault.watch_config(profile).await.ok();
+        let mut reload = false;
+
+        let engine = async {
+            // 🚀 OCP: Unified Engine for all modes. 
+            // The bridge::run now uses generic AuthClient hooks and handles both 
+            // streaming events and background maintenance.
+            bridge::run(profile, &current_config, vault.clone(), proxy_port, enable_proxy).await
+        };
+
+        if let Some(mut stream) = stream_opt {
+            use tokio_stream::StreamExt;
             tokio::select! {
-                res = renewer::run(profile, config, vault) => res,
-                _ = wait_for_termination() => { tracing::info!(target: "sys", "Termination signal received"); Ok(()) },
+                res = engine => {
+                    tracing::info!(target: "sys", "Engine terminated naturally.");
+                    result = res;
+                    break;
+                },
+                _ = wait_for_termination() => { 
+                    tracing::info!(target: "sys", "Termination signal received"); 
+                    result = Ok(());
+                    break; 
+                },
+                Some(key) = stream.next() => {
+                    tracing::info!(target: "sys", "Config change detected (key: {}). Hot-reloading daemon...", key);
+                    reload = true;
+                }
             }
-        },
-        AuthMode::SelfBuilt => {
-            // 执行自建应用专用流桥引擎
+        } else {
             tokio::select! {
-                res = bridge::run(profile, config, vault, proxy_port, enable_proxy) => res,
-                _ = wait_for_termination() => { tracing::info!(target: "sys", "Termination signal received"); Ok(()) },
+                res = engine => {
+                    tracing::info!(target: "sys", "Engine terminated naturally.");
+                    result = res;
+                    break;
+                },
+                _ = wait_for_termination() => { 
+                    tracing::info!(target: "sys", "Termination signal received"); 
+                    result = Ok(());
+                    break; 
+                },
             }
         }
-    };
+
+        if reload {
+            tracing::info!(target: "sys", "Fetching latest configuration...");
+            match cfg_mgr.load(profile).await {
+                Ok(mut new_config) => {
+                    if let Ok(as_val) = vault.get(profile, "app_secret").await { new_config.app_secret = as_val; }
+                    if let Ok(cert) = vault.get(profile, "certificate").await { new_config.certificate = cert; }
+                    if let Ok(ek) = vault.get(profile, "encrypt_key").await { new_config.encrypt_key = ek; }
+                    current_config = new_config;
+                }
+                Err(e) => {
+                    tracing::error!(target: "sys", "Failed to reload config: {}. Retrying in 5s...", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+            }
+        }
+    }
 
     tracing::info!(target: "sys", "Daemon process shutting down...");
     let _ = fs::remove_file(&pid_file);
@@ -139,7 +185,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
 }
 
 pub async fn stop(profile: &str, all: bool, cfg_mgr: &ConfigManager) -> Result<()> {
-    let target_profiles = if all { cfg_mgr.list_profiles()? } else { vec![profile.to_string()] };
+    let target_profiles = if all { cfg_mgr.list_profiles().await? } else { vec![profile.to_string()] };
     for p in target_profiles {
         let _ = do_stop(&p).await;
     }
@@ -176,16 +222,16 @@ async fn do_stop(profile: &str) -> Result<()> {
 }
 
 pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
-    let target_profiles = if all { cfg_mgr.list_profiles()? } else { vec![profile.to_string()] };
+    let target_profiles = if all { cfg_mgr.list_profiles().await? } else { vec![profile.to_string()] };
     for p in target_profiles {
         let _ = do_stop(&p).await;
-        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| Config::default_with_profile(&p)) };
+        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| Config::default_with_profile(&p)) };
         if p != profile {
-            if let Ok(as_val) = vault.get(&p, "app_secret") { p_cfg.app_secret = as_val; }
-            if let Ok(cert) = vault.get(&p, "certificate") { p_cfg.certificate = cert; }
-            if let Ok(ek) = vault.get(&p, "encrypt_key") { p_cfg.encrypt_key = ek; }
+            if let Ok(as_val) = vault.get(&p, "app_secret").await { p_cfg.app_secret = as_val; }
+            if let Ok(cert) = vault.get(&p, "certificate").await { p_cfg.certificate = cert; }
+            if let Ok(ek) = vault.get(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
         }
-        let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, vault.clone()).await;
+        let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault.clone()).await;
     }
     Ok(())
 }

@@ -20,7 +20,7 @@ owenc init --app-key <KEY> --app-secret <SECRET> -c <CERT>
 ```
 
 ### `profile` - 环境管理
-`owenc` 支持多环境隔离。
+`owenc` 支持多环境隔离。π
 - `owenc profile use <NAME>`: 切换到指定环境（如 `prod`）。
 - `owenc profile current`: 显示当前激活的环境。
 

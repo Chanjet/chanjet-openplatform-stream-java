@@ -43,3 +43,5 @@ cli/cjtCli/pkg/search/assets/models/
 cli/cjtCli/cjtCli
 cli/cjtCli/cjtCli-test
 /assets/search/models/
+
+.gemini/

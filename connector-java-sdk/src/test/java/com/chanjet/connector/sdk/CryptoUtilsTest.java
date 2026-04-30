@@ -21,7 +21,7 @@ public class CryptoUtilsTest {
     @Test
     public void testAesDecrypt() throws Exception {
         String originalText = "{\"msg\":\"hello world\"}";
-        String encryptKey = "1234567890123456"; // Exactly 16 bytes
+        String encryptKey = "<DUMMY_KEY_16>"; // Exactly 16 bytes
         
         byte[] encryptedBytes = encryptAes(originalText, encryptKey);
         String encryptedBase64 = java.util.Base64.getEncoder().encodeToString(encryptedBytes);

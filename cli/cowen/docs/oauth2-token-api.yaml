@@ -1,0 +1,111 @@
+openapi: 3.0.0
+info:
+  title: OAuth 2.0 令牌接口规范 (RFC 6749 / RFC 8628)
+  description: 标准 OAuth 2.0 令牌端点，支持授权码模式、刷新令牌模式及设备授权模式。
+  version: 1.0.0
+
+paths:
+  /oauth2/token:
+    post:
+      summary: 标准 OAuth 2.0 令牌接口 (RFC 6749 / RFC 8628)
+      tags: [Token]
+      description: |
+        符合 RFC 6749 和 RFC 8628 规范的令牌端点。支持授权码模式、刷新令牌模式以及设备授权模式。
+        **特别说明**:
+        - 授权码模式支持 PKCE (RFC 7636)。
+        - 设备授权模式符合 RFC 8628 规范。
+        - 刷新令牌模式采用 **令牌轮换 (Token Rotation)** 机制，每次刷新都会作废旧令牌并颁发新令牌，有效期固定为 2h AT / 7d RT。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/OAuth2AccessTokenRequest"
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  schemas:
+    TokenDto:
+      type: object
+      properties:
+        access_token: { type: string, description: "访问令牌" }
+        refresh_token: { type: string, description: "刷新令牌" }
+        scope: { type: string, description: "授权范围" }
+        expires_in: { type: integer, format: int64, description: "过期时间(秒)" }
+        user_id: { type: string, description: "用户ID" }
+        org_id: { type: string, description: "企业ID" }
+        app_name: { type: string, description: "应用名称" }
+        app_id: { type: string, description: "应用ID" }
+        refresh_expires_in: { type: integer, format: int64, description: "刷新令牌过期时间(秒)" }
+        sid: { type: string, description: "会话ID" }
+        user_auth_permanent_code: { type: string, description: "用户永久授权码 (商店应用模式关键凭据)" }
+
+    OAuth2AccessTokenRequest:
+      type: object
+      required: [grant_type, client_id]
+      properties:
+        grant_type:
+          type: string
+          enum: [authorization_code, refresh_token, "urn:ietf:params:oauth:grant-type:device_code"]
+          description: 授权类型
+        client_id:
+          type: string
+          description: 应用 appKey
+        code:
+          type: string
+          description: 授权码 (authorization_code 模式必填)
+        code_verifier:
+          type: string
+          description: PKCE 验证码 (RFC 7636)
+        device_code:
+          type: string
+          description: 设备码 (device_code 模式必填)
+        refresh_token:
+          type: string
+          description: 刷新令牌 (refresh_token 模式必填)
+        redirect_uri:
+          type: string
+          description: 回调地址
+
+    ErrorResponse:
+      type: object
+      description: 统一错误响应结构
+      properties:
+        code:
+          type: string
+          description: 错误代码
+        message:
+          type: string
+          description: 错误描述信息
+
+  responses:
+    BadRequest:
+      description: 请求参数错误或格式不符 (400)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: 请求过於頻繁 (429)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalServerError:
+      description: 服务器内部错误 (500)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

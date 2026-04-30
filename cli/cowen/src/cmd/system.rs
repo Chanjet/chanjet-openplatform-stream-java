@@ -6,7 +6,9 @@ use chrono::{Local, Utc};
 use sysinfo::System;
 use std::sync::Arc;
 
-use crate::cmd::status_models::{StatusEntry, StatusLevel, StatusContext, StatusCollector};
+use crate::core::status::{StatusEntry, StatusLevel, StatusContext, StatusCollector};
+use crate::auth::client::Client;
+use crate::auth::{AuthClient, VaultTokenPool};
 
 #[derive(Serialize)]
 pub struct SystemStatus {
@@ -22,13 +24,13 @@ pub async fn status(
     all: bool,
 ) -> Result<()> {
     let profiles = if all {
-        cfg_mgr.list_profiles()?
+        cfg_mgr.list_profiles().await?
     } else {
         vec![active_profile.to_string()]
     };
 
     // Trigger self-healing BEFORE collection to ensure consistent report
-    let active_cfg = cfg_mgr.load(active_profile)?;
+    let active_cfg = cfg_mgr.load(active_profile).await?;
     let _ = ensure_daemon_running(active_profile, &active_cfg, cfg_mgr, vault.clone()).await;
 
     let mut statuses = Vec::new();
@@ -77,18 +79,18 @@ async fn get_system_status(
     cfg_mgr: &crate::core::config::ConfigManager,
     vault: Arc<dyn Vault>,
 ) -> Result<SystemStatus> {
-    let cfg = cfg_mgr.load(profile)?;
+    let cfg = cfg_mgr.load(profile).await?;
+    let app_cfg = cfg_mgr.load_app_config().await?;
     let ctx = StatusContext {
         profile: profile.to_string(),
         config: &cfg,
+        app_config: &app_cfg,
         vault,
     };
 
     let collectors: Vec<Box<dyn StatusCollector>> = vec![
         Box::new(ConfigCollector),
-        Box::new(SecurityCollector),
-        Box::new(TokenCollector),
-        Box::new(TicketCollector),
+        Box::new(AuthStatusCollector),
         Box::new(DaemonCollector),
     ];
 
@@ -214,16 +216,16 @@ async fn is_port_responsive(port: u16) -> bool {
 }
 
 pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
-    let profiles = cfg_mgr.list_profiles().unwrap_or_else(|_| vec![profile.to_string()]);
+    let profiles = cfg_mgr.list_profiles().await.unwrap_or_else(|_| vec![profile.to_string()]);
     
     for p in profiles {
         let (pid, _build_id) = get_active_daemon_info(&p).await;
-        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&p)) };
+        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&p)) };
         
         if p != profile {
-            if let Ok(as_val) = vault.get(&p, "app_secret") { p_cfg.app_secret = as_val; }
-            if let Ok(cert) = vault.get(&p, "certificate") { p_cfg.certificate = cert; }
-            if let Ok(ek) = vault.get(&p, "encrypt_key") { p_cfg.encrypt_key = ek; }
+            if let Ok(as_val) = vault.get(&p, "app_secret").await { p_cfg.app_secret = as_val; }
+            if let Ok(cert) = vault.get(&p, "certificate").await { p_cfg.certificate = cert; }
+            if let Ok(ek) = vault.get(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
         }
         
         let pid_file = app_dir().join(format!("{}_daemon.pid", p));
@@ -271,11 +273,37 @@ fn should_recover_daemon(_mode: crate::auth::models::AuthMode, has_pid: bool, _p
 }
 
 pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Result<()> {
-    let cfg = cfg_mgr.load(_profile)?;
+    let cfg = cfg_mgr.load(_profile).await?;
+    let app_cfg = cfg_mgr.load_app_config().await?;
+    
+    #[derive(Serialize)]
+    struct CombinedConfig {
+        global: crate::core::config::AppConfig,
+        profile: crate::core::config::Config,
+    }
+    
+    let combined = CombinedConfig {
+        global: app_cfg,
+        profile: cfg,
+    };
+
     if format == "json" || format == "yaml" {
-        crate::core::utils::render(&cfg, format)?;
+        crate::core::utils::render(&combined, format)?;
     } else {
-        println!("{:#?}", cfg);
+        println!("\n🌐 Global Configuration (app.yaml)");
+        println!("----------------------------------");
+        println!("Storage Type:  {}", combined.global.storage.store);
+        if let Some(url) = &combined.global.storage.db_url {
+            println!("Database URL:  {}", url);
+        }
+        println!("Cache Type:    {}", combined.global.storage.cache);
+        if let Some(url) = &combined.global.storage.cache_url {
+            println!("Cache URL:     {}", url);
+        }
+
+        println!("\n📂 Profile Configuration ({}.yaml)", _profile);
+        println!("----------------------------------");
+        println!("{:#?}", combined.profile);
     }
     Ok(())
 }
@@ -286,23 +314,44 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
         tracing::warn!(target: "sys", profile = %_profile, error = %e, "Failed to stop daemon during reset");
     }
     if let Some(v) = vault {
-        let _ = v.clear_profile(_profile);
+        let _ = v.clear_profile(_profile).await;
     }
     let base_dir = app_dir();
     let targets = vec![
         base_dir.join(format!("{}.yaml", _profile)),
         base_dir.join(format!("{}_openapi.json", _profile)),
         base_dir.join(format!("{}_openapi.yaml", _profile)),
-        base_dir.join(format!("{}_openapi.idx", _profile)),
         base_dir.join(format!("{}_daemon.pid", _profile)),
+        base_dir.join("dlq").join(_profile),
+        base_dir.join("logs").join(_profile),
     ];
     for path in targets {
-        if path.exists() { let _ = std::fs::remove_file(&path); }
+        if path.exists() {
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
+    // Also clean up log files with the profile prefix in the logs directory
+    let log_dir = base_dir.join("logs");
+    if log_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&log_dir) {
+            for entry in entries.flatten() {
+                if let Some(filename) = entry.file_name().to_str() {
+                    if filename.starts_with(&format!("{}_", _profile)) {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
     }
 
     // Smart reset: switch to another available profile if the active one was deleted
     if cfg_mgr.get_default_profile() == _profile {
-        let available_profiles = cfg_mgr.list_profiles().unwrap_or_default();
+        let available_profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
         let next_profile = available_profiles.iter()
             .find(|&p| p != _profile)
             .cloned()
@@ -312,8 +361,6 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
         eprintln!("🔄 Active profile deleted. Switched to '{}'.", next_profile);
     }
 
-    let dlq_dir = base_dir.join("dlq").join(_profile);
-    if dlq_dir.exists() { let _ = std::fs::remove_dir_all(&dlq_dir); }
 
     let log_dir = base_dir.join("logs");
     if log_dir.exists() {
@@ -340,10 +387,10 @@ pub async fn rename_profile(
     if old_name == new_name {
         return Err(anyhow::anyhow!("Old and new profile names are the same."));
     }
-    if !cfg_mgr.exists(old_name) {
+    if !cfg_mgr.exists(old_name).await {
         return Err(anyhow::anyhow!("Profile '{}' does not exist.", old_name));
     }
-    if cfg_mgr.exists(new_name) {
+    if cfg_mgr.exists(new_name).await {
         return Err(anyhow::anyhow!("Profile '{}' already exists. Choose a different name.", new_name));
     }
 
@@ -361,7 +408,6 @@ pub async fn rename_profile(
         ("", ".yaml"),
         ("_openapi", ".json"),
         ("_openapi", ".yaml"),
-        ("_openapi", ".idx"),
         ("_daemon", ".pid"),
     ];
 
@@ -373,12 +419,6 @@ pub async fn rename_profile(
         }
     }
 
-    // 3. Rename DLQ directory
-    let old_dlq = base_dir.join("dlq").join(old_name);
-    let new_dlq = base_dir.join("dlq").join(new_name);
-    if old_dlq.exists() {
-        std::fs::rename(old_dlq, new_dlq)?;
-    }
 
     // 4. Rename log files
     let log_dir = base_dir.join("logs");
@@ -397,7 +437,7 @@ pub async fn rename_profile(
     }
 
     // 5. Update Vault secrets
-    vault.rename_profile(old_name, new_name)?;
+    vault.rename_profile(old_name, new_name).await?;
 
     // 6. Update default profile pointer if it matched
     if cfg_mgr.get_default_profile() == old_name {
@@ -408,7 +448,7 @@ pub async fn rename_profile(
     // 7. Restart daemon if it was running
     if was_running {
         eprintln!("🚀 Restarting daemon under new name '{}'...", new_name);
-        let config = cfg_mgr.load(new_name)?;
+        let config = cfg_mgr.load(new_name).await?;
         let _ = crate::cmd::daemon::start(new_name, &config, config.proxy_port, config.proxy_enabled, false, false, cfg_mgr, vault).await;
     }
 
@@ -424,10 +464,21 @@ impl StatusCollector for ConfigCollector {
     fn name(&self) -> &str { "Config" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
         let mode_str = serde_json::to_string(&ctx.config.app_mode).unwrap_or_default().trim_matches('"').to_string();
-        let details = vec![
+        let mut details = vec![
             format!("OpenAPI: {}", ctx.config.openapi_url),
             format!("Stream:  {}", ctx.config.stream_url),
         ];
+        
+        details.push(format!("Storage: {} ({})", 
+            ctx.app_config.storage.store, 
+            ctx.app_config.storage.db_url.as_deref().unwrap_or("none")
+        ));
+        if ctx.app_config.storage.cache != "none" {
+            details.push(format!("Cache:   {} ({})", 
+                ctx.app_config.storage.cache, 
+                ctx.app_config.storage.cache_url.as_deref().unwrap_or("none")
+            ));
+        }
         
         let (level, msg) = if !ctx.config.app_key.is_empty() {
             (StatusLevel::OK, format!("AppKey: {} (Mode: {})", ctx.config.app_key, mode_str))
@@ -447,205 +498,47 @@ impl StatusCollector for ConfigCollector {
     }
 }
 
-struct SecurityCollector;
+struct AuthStatusCollector;
 #[async_trait::async_trait]
-impl StatusCollector for SecurityCollector {
-    fn name(&self) -> &str { "Security" }
+impl StatusCollector for AuthStatusCollector {
+    fn name(&self) -> &str { "Authentication" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        let mut missing = Vec::new();
-        if ctx.config.app_mode == crate::auth::models::AuthMode::SelfBuilt {
-            if ctx.vault.get(&ctx.profile, "app_secret").is_err() { missing.push("app_secret".to_string()); }
-            if ctx.vault.get(&ctx.profile, "certificate").is_err() { missing.push("certificate".to_string()); }
-            if ctx.vault.get(&ctx.profile, "encrypt_key").is_err() { missing.push("encrypt_key".to_string()); }
-        }
-
-        let (level, msg) = if missing.is_empty() {
-            (StatusLevel::OK, "All core secrets are securely stored.".to_string())
-        } else {
-            (StatusLevel::WARN, format!("Missing: {}", missing.join(", ")))
-        };
-
-        Ok(StatusEntry {
-            name: "Security (Vault)".to_string(),
-            icon: "🛡️".to_string(),
-            level,
-            message: msg,
-            reason: if level == StatusLevel::WARN { Some("缺少必要凭据，可能导致 API 调用或解密失败。".to_string()) } else { None },
-            details: vec![],
-            children: vec![],
-        })
-    }
-}
-
-struct TokenCollector;
-#[async_trait::async_trait]
-impl StatusCollector for TokenCollector {
-    fn name(&self) -> &str { "Token" }
-    async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        let vault = &ctx.vault;
-        let profile = &ctx.profile;
-
-        let refresh_error = vault.get(profile, "last_refresh_error").ok();
-        let ref_revoked = vault.get(profile, "oauth2_revoked").is_ok();
-
-        if let Ok(pair_raw) = vault.get(profile, "oauth2_token_pair") {
-            let pair: crate::auth::models::OAuth2TokenPair = serde_json::from_str(&pair_raw)?;
-            let is_expired = Utc::now() > pair.expires_at;
-            let ref_expired = Utc::now() > pair.refresh_expires_at;
-
-            let children = vec![
-                StatusEntry {
-                    name: "AccessToken".to_string(),
-                    icon: "🔑".to_string(),
-                    level: if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK },
-                    message: format!("[{}] (Expires: {})", 
-                        if is_expired || ref_revoked { "EXPIRED" } else { "VALID" },
-                        pair.expires_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S")),
-                    reason: if ref_revoked {
-                        Some("关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。".to_string())
-                    } else if is_expired { 
-                        refresh_error.map(|e| format!("自动续约失败: {}", e))
-                            .or(Some("AccessToken 已过期，正在等待后台续约进程处理...".to_string()))
-                    } else { None },
-                    details: vec![],
-                    children: vec![],
-                },
-                StatusEntry {
-                    name: "RefreshToken".to_string(),
-                    icon: "🔄".to_string(),
-                    level: if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK },
-                    message: format!("[{}] (Expires: {})", 
-                        if ref_revoked { "REVOKED" } else if ref_expired { "EXPIRED" } else { "VALID" },
-                        pair.refresh_expires_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S")),
-                    reason: if ref_revoked {
-                        Some("令牌已于服务端吊销或失效，必须重新执行 `owenc auth login`。".to_string())
-                    } else if ref_expired { 
-                        Some("RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。".to_string()) 
-                    } else { None },
-                    details: vec![],
-                    children: vec![],
-                }
-            ];
-
-            let mut details = vec![];
-            let token_inner = crate::auth::models::Token {
-                value: pair.access_token.clone(),
-                expires_at: pair.expires_at,
-                created_at: pair.created_at,
-            };
-            
-            if let Some(identity) = token_inner.extract_identity() {
-                details.push(format!("User ID: {}", identity.user_id));
-                details.push(format!("Org ID:  {}", identity.org_id));
-                details.push(format!("App ID:  {}", identity.app_id));
-            }
-
-            return Ok(StatusEntry {
-                name: "Authentication".to_string(),
-                icon: "🔐".to_string(),
-                level: if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK },
-                message: "OAuth2 tokens are locally managed.".to_string(),
-                reason: if ref_revoked { Some("会话已失效 (Revoked)".to_string()) } else { None },
-                details,
-                children,
-            });
-        }
-
-        // Fallback: Check for generic access_token (e.g. Self-Built mode)
-        if let Ok(access_token) = vault.get(profile, "access_token") {
-            if !access_token.trim().is_empty() {
-                let expires_at_str = vault.get(profile, "access_token_expires").unwrap_or_default();
-                let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_at_str)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .ok();
-                
-                let is_expired = expires_at.map(|exp| Utc::now() > exp).unwrap_or(false);
-                let exp_msg = expires_at
-                    .map(|exp| exp.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "Unknown".to_string());
-
-                let mut details = vec![];
-                let token_inner = crate::auth::models::Token {
-                    value: access_token.clone(),
-                    expires_at: expires_at.unwrap_or_else(Utc::now), // Use now as fallback for display
-                    created_at: Utc::now(),
-                };
-                if let Some(identity) = token_inner.extract_identity() {
-                    details.push(format!("User ID: {}", identity.user_id));
-                    details.push(format!("Org ID:  {}", identity.org_id));
-                    details.push(format!("App ID:  {}", identity.app_id));
-                }
-
-                return Ok(StatusEntry {
-                    name: "AccessToken".to_string(),
-                    icon: "🔑".to_string(),
-                    level: if is_expired { StatusLevel::ERROR } else { StatusLevel::OK },
-                    message: format!("[{}] (Expires: {})", 
-                        if is_expired { "EXPIRED" } else { "VALID" },
-                        exp_msg),
-                    reason: if is_expired { Some("令牌已过期，正在等待后台任务进行续约。".to_string()) } else { None },
-                    details,
-                    children: vec![],
-                });
-            }
-        }
-
-        // Final fallback: No token found. Show a warning instead of being hidden.
-        let (name, icon) = if ctx.config.app_mode == crate::auth::models::AuthMode::Oauth2 {
-            ("Authentication", "🔐")
-        } else {
-            ("AccessToken", "🔑")
-        };
-
-        Ok(StatusEntry {
-            name: name.to_string(),
-            icon: icon.to_string(),
-            level: StatusLevel::WARN,
-            message: "[NONE] (未获取到有效令牌)".to_string(),
-            reason: Some(format!("请先执行 `{} auth login` 或 `init` 完成授权。", crate::core::utils::get_bin_name())),
-            details: vec![],
-            children: vec![],
-        })
-    }
-}
-
-struct TicketCollector;
-#[async_trait::async_trait]
-impl StatusCollector for TicketCollector {
-    fn name(&self) -> &str { "Ticket" }
-    async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        if ctx.config.app_mode == crate::auth::models::AuthMode::Oauth2 {
-            return Ok(StatusEntry {
-                name: "AppTicket".to_string(),
-                icon: "🎫".to_string(),
-                level: StatusLevel::NONE,
-                message: "OAuth2 模式无需 AppTicket".to_string(),
-                reason: None,
+        let pool = VaultTokenPool::new(ctx.vault.clone());
+        let auth = AuthClient::new(&pool);
+        
+        let mut entries = auth.get_status_entries(&ctx.profile, ctx.config).await?;
+        
+        if entries.is_empty() {
+             let (name, icon) = auth.get_auth_display_info(ctx.config);
+             return Ok(StatusEntry {
+                name: name.to_string(),
+                icon: icon.to_string(),
+                level: StatusLevel::WARN,
+                message: "[NONE] (未获取到有效令牌)".to_string(),
+                reason: Some(format!("请先执行 `{} auth login` 或 `init` 完成授权。", crate::core::utils::get_bin_name())),
                 details: vec![],
                 children: vec![],
             });
         }
 
-        if let Ok(ts_str) = ctx.vault.get(&ctx.profile, "app_ticket_created") {
-            let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
-            Ok(StatusEntry {
-                name: "AppTicket".to_string(),
-                icon: "🎫".to_string(),
-                level: StatusLevel::OK,
-                message: format!("[CACHED] (Received: {})", created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S")),
-                reason: None,
-                details: vec![],
-                children: vec![],
-            })
+        // Use the first entry as the root if there's only one, otherwise wrap them
+        if entries.len() == 1 {
+            Ok(entries.remove(0))
         } else {
+            let (name, icon) = auth.get_auth_display_info(ctx.config);
             Ok(StatusEntry {
-                name: "AppTicket".to_string(),
-                icon: "🎫".to_string(),
-                level: StatusLevel::NONE,
-                message: "[NONE] (等待 Daemon 接收推送)".to_string(),
+                name: format!("{} Status", name),
+                icon,
+                level: entries.iter().map(|e| e.level).max_by_key(|l| match l {
+                    StatusLevel::ERROR => 3,
+                    StatusLevel::WARN => 2,
+                    StatusLevel::OK => 1,
+                    _ => 0,
+                }).unwrap_or(StatusLevel::OK),
+                message: format!("Collected {} status indicators", entries.len()),
                 reason: None,
                 details: vec![],
-                children: vec![],
+                children: entries,
             })
         }
     }
@@ -658,7 +551,11 @@ impl StatusCollector for DaemonCollector {
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
         let (found_daemon_pid, found_build_id) = get_active_daemon_info(&ctx.profile).await;
         
-        let is_oauth2 = ctx.config.app_mode == crate::auth::models::AuthMode::Oauth2;
+        let pool = VaultTokenPool::new(ctx.vault.clone());
+        let auth = AuthClient::new(&pool);
+        let is_running = found_daemon_pid.is_some();
+        let (display_name, efficiency_tip) = auth.get_daemon_display_info(ctx.config, is_running);
+
         let (level, msg, children) = if let Some(pid) = found_daemon_pid {
             (
                 StatusLevel::OK, 
@@ -668,7 +565,7 @@ impl StatusCollector for DaemonCollector {
                         name: "Proactive Refresh".to_string(),
                         icon: "🔄".to_string(),
                         level: StatusLevel::OK,
-                        message: "主动续约: [ACTIVE] 令牌环境将保持热启动状态".to_string(),
+                        message: format!("{}: 令牌环境将保持热启动状态", efficiency_tip),
                         reason: None,
                         details: vec![],
                         children: vec![],
@@ -684,11 +581,7 @@ impl StatusCollector for DaemonCollector {
                         name: "Efficiency Tip".to_string(),
                         icon: "💡".to_string(),
                         level: StatusLevel::WARN,
-                        message: if is_oauth2 {
-                            "若需实现令牌主动续约与秒级 API 响应，请运行 'cowen daemon start'".to_string()
-                        } else {
-                            "若需实现实时消息同步与秒级 API 响应，请运行 'cowen daemon start'".to_string()
-                        },
+                        message: efficiency_tip,
                         reason: None,
                         details: vec![],
                         children: vec![],
@@ -701,8 +594,6 @@ impl StatusCollector for DaemonCollector {
         if let Some(bid) = found_build_id {
             details.push(format!("Build ID: {}", bid));
         }
-
-        let display_name = if is_oauth2 { "Token Renewer (Daemon)" } else { "Stream Bridge (Daemon)" };
 
         Ok(StatusEntry {
             name: display_name.to_string(),

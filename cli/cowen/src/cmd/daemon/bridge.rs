@@ -24,7 +24,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
     let _auth = AuthClient::new(pool.as_ref());
     
-    let dlq = Arc::new(DlqStore::new(profile)?);
+    let dlq = Arc::new(DlqStore::new(profile, vault.clone())?);
     let forwarder = Forwarder::new(dlq, &config.webhook_target);
 
     // 1. Task: Local Proxy
@@ -58,51 +58,47 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
             true
         }));
 
-        let p_pool = pool.clone();
-        let p_profile = profile.to_string();
-        let p_config = config.clone();
+        // 🚀 OCP: Generic Platform Event Handlers
+        let t_pool = pool.clone();
+        let t_profile = profile.to_string();
+        let t_config = config.clone();
         
+        dispatcher.on_ent_auth_code(move |msg| {
+            let temp_code = msg.biz_content.temp_auth_code.trim().to_string();
+            let t_pool_inner = t_pool.clone();
+            let t_profile_inner = t_profile.clone();
+            let t_config_inner = t_config.clone();
+            
+            tokio::spawn(async move {
+                let auth = AuthClient::new(t_pool_inner.as_ref());
+                let _ = auth.handle_platform_event(&t_profile_inner, &t_config_inner, crate::auth::provider::PlatformEvent::TempAuthCode(temp_code)).await;
+            });
+            true
+        });
+
+        let pk_pool = pool.clone();
+        let pk_profile = profile.to_string();
+        let pk_config = config.clone();
         dispatcher.on_app_ticket(move |msg| {
-            let ticket_val = msg.biz_content.app_ticket.trim();
-            tracing::info!(target: "stream", "AppTicket received from platform");
+            let ticket_val = msg.biz_content.app_ticket.trim().to_string();
+            let pk_pool_inner = pk_pool.clone();
+            let pk_profile_inner = pk_profile.clone();
+            let pk_config_inner = pk_config.clone();
             
-            let ticket = Ticket {
-                value: ticket_val.to_string(),
-                created_at: Utc::now(),
-            };
-            
-            if let Err(e) = p_pool.set_app_ticket(&p_profile, &ticket) {
-                tracing::error!(target: "sys", error = %e, "Failed to save ticket to vault");
-            } else {
-                tracing::info!(target: "sys", "AppTicket saved to vault correctly");
-                let inner_pool = p_pool.clone();
-                let inner_profile = p_profile.clone();
-                let inner_config = p_config.clone();
-                tokio::spawn(async move {
-                    let auth = AuthClient::new(inner_pool.as_ref());
-                    if let Err(e) = auth.get_app_access_token(&inner_profile, &inner_config).await {
-                        tracing::error!(target: "sys", error = %e, "Automatic token refresh failed");
-                    } else {
-                        tracing::info!(target: "sys", "AccessToken proactively refreshed");
-                    }
-                });
-            }
+            tokio::spawn(async move {
+                let auth = AuthClient::new(pk_pool_inner.as_ref());
+                let _ = auth.handle_platform_event(&pk_profile_inner, &pk_config_inner, crate::auth::provider::PlatformEvent::AppTicket(ticket_val)).await;
+            });
             true
         });
     }
 
-    // 3. Task: Stream Bridge
-    let stream_client = client.clone();
+    // 3. Task: Main Gateway Loop
     let stream_task = tokio::spawn(async move {
-        if let Err(e) = stream_client.start().await {
-            tracing::error!(target: "sys", error = %e, "Stream Bridge loop terminated with error");
-            Err(e)
-        } else {
-            Ok(())
-        }
+        client.start().await
     });
 
-    // 4. Task: Maintenance (AppTicket Trigger)
+    // 4. Task: Background Maintenance (OCP Generic)
     let p_profile_m = profile.to_string();
     let p_config_m = config.clone();
     let p_pool_m = pool.clone();
@@ -110,23 +106,17 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         sleep(Duration::from_secs(2)).await;
         let auth = AuthClient::new(p_pool_m.as_ref());
 
-        if p_pool_m.get_app_ticket(&p_profile_m).is_err() {
-            tracing::info!(target: "sys", "Initial AppTicket missing. Requesting platform push...");
+        // 🚀 OCP: Generic Initial Push Check
+        if auth.requires_initial_push(&p_config_m) {
+            tracing::info!(target: "sys", "Initial credential missing. Requesting platform push...");
             let _ = auth.trigger_push(&p_profile_m, &p_config_m, true).await;
         }
 
         loop {
             tracing::info!(target: "sys", "Running bridge credential maintenance check...");
-            match auth.get_app_access_token(&p_profile_m, &p_config_m).await {
-                Ok(token) => {
-                    let remaining = token.expires_at.signed_duration_since(Utc::now());
-                    if remaining < chrono::Duration::minutes(15) {
-                        let _ = auth.refresh_app_access_token(&p_profile_m, &p_config_m).await;
-                    }
-                }
-                Err(_) => {
-                    let _ = auth.trigger_push(&p_profile_m, &p_config_m, false).await;
-                }
+            // 🚀 OCP: Generic Maintenance Tick
+            if let Err(e) = auth.on_maintenance_tick(&p_profile_m, &p_config_m).await {
+                tracing::warn!(target: "sys", error = %e, "Maintenance tick failed");
             }
             sleep(Duration::from_secs(600)).await;
         }
@@ -142,7 +132,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         res = stream_task => { 
             tracing::error!(target: "sys", "Stream task exited unexpectedly"); 
             res.map_err(|e| anyhow::anyhow!("Stream task panicked: {}", e))
-               .and_then(|r| r.context("Stream client crashed"))
+               .and_then(|r: Result<()>| r.context("Stream client crashed"))
         },
         res = maintenance_task => { 
             tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); 

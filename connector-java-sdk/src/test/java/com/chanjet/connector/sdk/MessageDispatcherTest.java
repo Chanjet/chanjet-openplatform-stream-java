@@ -53,7 +53,7 @@ public class MessageDispatcherTest {
 
     @Test
     public void testHaoYeCaiLosslessDispatch() throws Exception {
-        String appSecret = "12345678901234567890123456789012";
+        String appSecret = "<DUMMY_SECRET_32>";
         MessageDispatcher dispatcher = new MessageDispatcher();
         AtomicBoolean handled = new AtomicBoolean(false);
 
@@ -99,7 +99,7 @@ public class MessageDispatcherTest {
 
     @Test
     public void testAppTicketShortcut() throws Exception {
-        String appSecret = "12345678901234567890123456789012";
+        String appSecret = "<DUMMY_SECRET_32>";
         MessageDispatcher dispatcher = new MessageDispatcher();
         AtomicBoolean handled = new AtomicBoolean(false);
 

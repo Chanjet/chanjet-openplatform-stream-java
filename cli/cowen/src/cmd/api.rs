@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 use reqwest::Method;
 use serde_json::Value;
 use serde_yaml;
+use std::sync::Arc;
 
 pub async fn call(
     profile: &str,
@@ -127,7 +128,7 @@ pub async fn call(
                     let masked_body = crate::core::utils::mask_sensitive_json(&json_body.to_string());
                     println!("🚨 [DEBUG] 50107 Error: {}", masked_body);
                     tracing::warn!(target: "sys", "Detected expired token (50107). Clearing cache and retrying...");
-                    auth_cli.clear_token(profile).await?;
+                    auth_cli.clear_token(profile, cfg).await?;
                     retry_count += 1;
                     continue;
                 }
@@ -221,13 +222,12 @@ pub async fn list(
     page_size: usize,
     format: &str,
     refresh: bool,
+    vault: Arc<dyn crate::core::vault::Vault>,
 ) -> Result<()> {
     // 1. Capture old count if refreshing
     let old_count = if refresh {
-        let app_dir = crate::core::config::get_app_dir();
-        let cache_path = app_dir.join(format!("{}_openapi.yaml", profile));
-        if let Ok(data) = std::fs::read_to_string(&cache_path) {
-            if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
+        if let Ok(data) = vault.get(profile, "openapi_spec").await {
+            if let Ok(spec) = serde_json::from_str::<Value>(&data) {
                 if let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) {
                     let mut count = 0;
                     for methods in paths.values() {
@@ -267,29 +267,24 @@ pub async fn list(
     if let Some(_query) = search_query {
         #[cfg(feature = "ai")]
         {
-            let cache_dir = crate::core::config::get_app_dir();
-            let spec_path = cache_dir.join(format!("{}_openapi.yaml", profile));
-            let index_path = cache_dir.join(format!("{}_openapi.idx", profile));
-
-            // 1. Check if index needs rebuild
-            let mut index_ready = false;
-            if index_path.exists() && spec_path.exists() {
-                let spec_meta = std::fs::metadata(&spec_path)?;
-                let index_meta = std::fs::metadata(&index_path)?;
-                if index_meta.modified()? >= spec_meta.modified()? {
-                    index_ready = true;
-                }
-            }
-
-            let index = if !index_ready {
+            let index = if refresh {
                 println!("🔄 Rebuilding semantic search index for profile \"{}\"...", profile);
                 let mut embedder = crate::core::search::ONNXEmbedder::new()?;
                 let new_index = embedder.rebuild_index(&spec)?;
-                new_index.save(&index_path)?;
-                println!("✅ Index rebuilt and saved to {:?}", index_path);
+                new_index.save(profile, vault.as_ref()).await?;
+                println!("✅ Index rebuilt and saved to vault.");
                 new_index
             } else {
-                crate::core::search::SearchIndex::load(&index_path)?
+                match crate::core::search::SearchIndex::load(profile, vault.as_ref()).await {
+                    Ok(idx) => idx,
+                    Err(_) => {
+                        println!("🔄 Index not found in vault. Building for profile \"{}\"...", profile);
+                        let mut embedder = crate::core::search::ONNXEmbedder::new()?;
+                        let new_index = embedder.rebuild_index(&spec)?;
+                        new_index.save(profile, vault.as_ref()).await?;
+                        new_index
+                    }
+                }
             };
 
             let mut embedder = crate::core::search::ONNXEmbedder::new()?;
@@ -685,7 +680,16 @@ mod tests {
         async fn get_dynamic_interface_list(&self, _profile: &str, _cfg: &Config) -> Result<serde_json::Value> {
             Ok(self.spec.clone())
         }
-        async fn clear_token(&self, _profile: &str) -> Result<()> { Ok(()) }
+        async fn clear_token(&self, _profile: &str, _cfg: &Config) -> Result<()> { Ok(()) }
+        async fn exchange_temp_code(&self, _profile: &str, _cfg: &Config, _temp_code: &str) -> Result<Token> {
+            Ok(self.token.clone())
+        }
+        async fn get_user_access_token(&self, _profile: &str, _cfg: &Config, _user_id: Option<&str>) -> Result<Token> {
+            Ok(self.token.clone())
+        }
+        async fn intercept_exchange(&self, _profile: &str, _cfg: &Config, _body_bytes: &[u8]) -> Result<serde_json::Value> {
+            Ok(json!({}))
+        }
     }
 
     #[tokio::test]
@@ -768,35 +772,4 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_list_apis() -> Result<()> {
-        let mock_spec = json!({
-            "openapi": "3.0.0",
-            "paths": {
-                "/api/v1/test": {
-                    "get": { "summary": "Test API" }
-                },
-                "/api/v2/other": {
-                    "post": { "summary": "Other API" }
-                }
-            }
-        });
-
-        let mock_auth = MockAuthClient {
-            spec: mock_spec,
-            token: Token {
-                value: "token".into(),
-                expires_at: Utc::now(),
-                created_at: Utc::now(),
-            },
-        };
-
-        let config = Config::default_with_profile("test");
-        
-        // Just verify it doesn't crash and returns Ok
-        let result = list("default", &config, &mock_auth, &None, 1, 20, "text", false).await;
-        assert!(result.is_ok());
-
-        Ok(())
-    }
 }

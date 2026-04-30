@@ -2,8 +2,10 @@ use anyhow::Result;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::time::Duration;
 use std::fs::File;
+use std::sync::Arc;
+use crate::core::vault::Vault;
 
-pub async fn list(profile: &str) -> Result<()> {
+pub async fn list(profile: &str, vault: Arc<dyn Vault>) -> Result<()> {
     let app_dir = crate::core::config::get_app_dir();
     let log_dir = app_dir.join("logs");
 
@@ -29,10 +31,50 @@ pub async fn list(profile: &str) -> Result<()> {
         }
     }
     println!();
+    
+    // Check Store for audit logs
+    let audit_keys = vault.list_keys(profile, "audit_log:").await?;
+    if !audit_keys.is_empty() {
+        println!("🗄️ Store-based Audit Logs:");
+        println!("- {:<20} ({} entries in vault)", "audit (store)", audit_keys.len());
+        println!();
+    }
+    
     Ok(())
 }
 
-pub async fn view(profile: &str, domain: &str, follow: bool, lines: usize) -> Result<()> {
+pub async fn view(
+    profile: &str, 
+    domain: &str, 
+    follow: bool, 
+    lines: usize,
+    vault: Arc<dyn Vault>,
+) -> Result<()> {
+    if domain == "audit" {
+        // Try reading from Store first if we have keys there
+        let audit_keys = vault.list_keys(profile, "audit_log:").await?;
+        if !audit_keys.is_empty() {
+            println!("🔍 Reading audit logs from Store (Vault)...");
+            let entries = crate::core::audit::AuditStore::list(vault.as_ref(), profile, lines).await?;
+            for entry in entries.into_iter().rev() {
+                println!("[{}] {} {:<5} {}: {}", 
+                    entry.timestamp.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"),
+                    entry.profile,
+                    entry.level,
+                    entry.target,
+                    entry.message
+                );
+                if !entry.fields.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                    println!("  fields: {}", entry.fields);
+                }
+            }
+            
+            if follow {
+                println!("\n⚠️ 'follow' mode is not yet supported for Store-based logs.");
+            }
+            return Ok(());
+        }
+    }
     let app_dir = crate::core::config::get_app_dir();
     let log_dir = app_dir.join("logs");
     

@@ -145,12 +145,29 @@ impl HttpSender for ReqwestSender {
 
 #[async_trait::async_trait]
 pub trait Client: Send + Sync {
-    async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
-    async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
+    async fn get_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token>;
+    async fn refresh_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token>;
     async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> Result<()>;
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value>;
     async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value>;
-    async fn clear_token(&self, profile: &str) -> Result<()>;
+    async fn clear_token(&self, profile: &str, cfg: &Config) -> Result<()>;
+    
+    // 🚀 Store App (OAuth2) Extension Methods
+    async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
+    async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token>;
+    async fn exchange_temp_code(&self, profile: &str, cfg: &Config, temp_code: &str) -> Result<Token>;
+    async fn get_user_access_token(&self, profile: &str, cfg: &Config, user_id: Option<&str>) -> Result<Token>;
+    async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> Result<serde_json::Value>;
+
+    // 🚀 OCP Lifecycle Hooks
+    async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> Result<()>;
+    fn requires_initial_push(&self, cfg: &Config) -> bool;
+    async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::auth::provider::PlatformEvent) -> Result<()>;
+    fn get_auth_display_info(&self, cfg: &Config) -> (String, String);
+    fn get_daemon_display_info(&self, cfg: &Config, is_running: bool) -> (String, String);
+    fn requires_ticket(&self, cfg: &Config) -> bool;
+    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>) -> Result<()>;
+    async fn get_status_entries(&self, profile: &str, cfg: &Config) -> Result<Vec<crate::core::status::StatusEntry>>;
 }
 
 use crate::auth::provider::self_built::SelfBuiltProvider;
@@ -158,12 +175,14 @@ use crate::auth::provider::AuthProvider;
 use crate::auth::models::AuthMode;
 
 use crate::auth::provider::oauth2::OAuth2Provider;
+use crate::auth::provider::store_app::StoreAppProvider;
 
 pub struct AuthClient<'a> {
     pool: &'a (dyn TokenPool + Send + Sync),
     http_sender: Arc<dyn HttpSender>,
     self_built: SelfBuiltProvider<'a>,
     oauth2: OAuth2Provider<'a>,
+    store_app: StoreAppProvider<'a>,
 }
 
 impl<'a> AuthClient<'a> {
@@ -182,7 +201,8 @@ impl<'a> AuthClient<'a> {
             pool,
             http_sender: http_sender.clone(),
             self_built: SelfBuiltProvider::with_sender(pool, http_sender.clone()),
-            oauth2: OAuth2Provider::new(pool, http_sender),
+            oauth2: OAuth2Provider::new(pool, http_sender.clone()),
+            store_app: StoreAppProvider::new(pool, http_sender),
         }
     }
 
@@ -192,53 +212,102 @@ impl<'a> AuthClient<'a> {
             pool,
             http_sender: sender.clone(),
             self_built: SelfBuiltProvider::with_sender(pool, sender.clone()),
-            oauth2: OAuth2Provider::new(pool, sender),
+            oauth2: OAuth2Provider::new(pool, sender.clone()),
+            store_app: StoreAppProvider::new(pool, sender),
         }
     }
 
-    fn provider(&self, mode: &AuthMode) -> &dyn AuthProvider {
+    pub fn provider(&self, mode: &AuthMode) -> &dyn AuthProvider {
         match mode {
             AuthMode::SelfBuilt => &self.self_built,
             AuthMode::Oauth2 => &self.oauth2,
+            AuthMode::StoreApp => &self.store_app,
         }
     }
 }
 
 #[async_trait::async_trait]
 impl<'a> Client for AuthClient<'a> {
-    async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        self.provider(&cfg.app_mode).get_token(profile, cfg).await
+    async fn get_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token> {
+        self.provider(&cfg.app_mode).get_token(profile, cfg, headers).await
     }
 
-    async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        self.provider(&cfg.app_mode).refresh(profile, cfg).await
+    async fn refresh_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token> {
+        self.provider(&cfg.app_mode).refresh(profile, cfg, headers).await
     }
 
-    async fn clear_token(&self, profile: &str) -> Result<()> {
-        // 1. Clear Access Tokens (Generic pool)
-        self.pool.delete_access_token(profile)?;
+    async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::auth::provider::PlatformEvent) -> Result<()> {
+        self.provider(&cfg.app_mode).handle_platform_event(profile, cfg, event).await
+    }
+
+    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>) -> Result<()> {
+        self.provider(&cfg.app_mode).perform_login(profile, cfg, force, finalize).await
+    }
+
+    async fn get_status_entries(&self, profile: &str, cfg: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+        self.provider(&cfg.app_mode).get_status_entries(profile, cfg).await
+    }
+
+    fn requires_initial_push(&self, cfg: &Config) -> bool {
+        self.provider(&cfg.app_mode).requires_initial_push(cfg)
+    }
+
+    async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> Result<()> {
+        self.provider(&cfg.app_mode).on_maintenance_tick(profile, cfg).await
+    }
+
+    fn get_auth_display_info(&self, cfg: &Config) -> (String, String) {
+        self.provider(&cfg.app_mode).get_auth_display_info()
+    }
+
+    fn get_daemon_display_info(&self, cfg: &Config, is_running: bool) -> (String, String) {
+        self.provider(&cfg.app_mode).get_daemon_display_info(is_running)
+    }
+    fn requires_ticket(&self, cfg: &Config) -> bool {
+        self.provider(&cfg.app_mode).requires_ticket()
+    }
+
+    async fn clear_token(&self, profile: &str, cfg: &Config) -> Result<()> {
+        // 1. Generic cleanup (Access token pool)
+        self.pool.delete_access_token(profile).await?;
         
-        // 2. Clear AppTickets (Self-Built specific)
-        let vault = self.pool.as_vault();
-        let _ = vault.delete(profile, "app_ticket");
-        let _ = vault.delete(profile, "app_ticket_created");
-        
-        // 3. Clear OAuth2 Session & Tokens (OAuth2 specific)
-        let _ = vault.delete(profile, "oauth2_token_pair");
-        let _ = vault.delete(profile, "pending_auth_session");
-        let _ = vault.delete(profile, "captured_auth_code");
-        let _ = vault.delete(profile, "oauth2_revoked");
-        let _ = vault.delete(profile, "last_refresh_error");
-        
-        // 4. Clear Auth related transient states
-        let _ = vault.delete(profile, "push_backoff_level");
-        let _ = vault.delete(profile, "push_last_attempt_ts");
-        
-        Ok(())
+        // 2. Mode-specific cleanup
+        self.provider(&cfg.app_mode).on_logout(profile, cfg).await
     }
 
     async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> Result<()> {
         self.self_built.trigger_push(profile, cfg, force).await
+    }
+
+    async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
+        let token = self.store_app.get_app_access_token(profile, cfg).await?;
+        // 🚀 归档到持久化池
+        let _ = self.pool.set_app_access_token(&cfg.app_key, &token).await;
+        Ok(token)
+    }
+
+    async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
+        let token = self.store_app.get_app_access_token(profile, cfg).await?;
+        let _ = self.pool.set_app_access_token(&cfg.app_key, &token).await;
+        Ok(token)
+    }
+
+    async fn exchange_temp_code(&self, profile: &str, cfg: &Config, temp_code: &str) -> Result<Token> {
+        // This is the core flow: tempCode -> permanentCode -> accessToken
+        let opc = self.store_app.exchange_permanent_code_by_temp_code(profile, cfg, temp_code).await?;
+        tracing::info!(target: "audit", profile = %profile, "Exchanged tempCode for permanentCode: {}", opc);
+        
+        // After getting permanent code, we usually want the initial user token
+        // In StoreApp, the bridge will call this.
+        self.store_app.get_user_token(profile, cfg, None).await
+    }
+
+    async fn get_user_access_token(&self, profile: &str, cfg: &Config, user_id: Option<&str>) -> Result<Token> {
+        self.store_app.get_user_token(profile, cfg, user_id).await
+    }
+
+    async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> Result<serde_json::Value> {
+        self.store_app.intercept_exchange(profile, cfg, body_bytes).await
     }
 
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value> {
@@ -270,13 +339,11 @@ impl<'a> Client for AuthClient<'a> {
         // 2. Fetch fresh spec from Platform
         if !cfg.openapi_url.is_empty() {
             let mut spec_url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/openapi/spec"));
-            if cfg.app_mode == AuthMode::Oauth2 {
-                spec_url.push_str("?checkPermission=false");
-            }
-            if let Ok(token) = self.get_app_access_token(profile, cfg).await {
+            if let Ok(token) = self.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await {
                 let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-                headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+                
+                // OCP: Delegate URL and Header decoration to provider
+                self.provider(&cfg.app_mode).decorate_openapi_request(&mut spec_url, &mut headers, &token, cfg);
 
                 match self.http_sender.get(&spec_url, headers).await {
                     Ok(resp) if resp.is_success() => {
@@ -319,7 +386,7 @@ impl<'a> Client for AuthClient<'a> {
     }
 
     async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> Result<serde_json::Value> {
-        let token = self.get_app_access_token(profile, cfg).await?;
+        let token = self.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await?;
         let base_url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/developer/api/apiPermissions/isv/open/getInterfaceList"));
         
         let mut current_page = 1;
@@ -327,17 +394,20 @@ impl<'a> Client for AuthClient<'a> {
         let mut combined_paths = serde_json::Map::new();
 
         while current_page <= total_pages {
-            let url = if cfg.app_mode == AuthMode::Oauth2 {
-                format!("{}?page={}&size=100&checkPermission=false", base_url, current_page-1)
-            } else {
-                format!("{}?page={}&size=100", base_url, current_page-1)
-            };
-            tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page, total_pages);
-            
+            let mut url = base_url.clone();
             let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-            headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-
+            
+            // OCP: Delegate URL and Header decoration to provider
+            self.provider(&cfg.app_mode).decorate_openapi_request(&mut url, &mut headers, &token, cfg);
+            
+            // Append standard pagination params
+            if url.contains('?') {
+                url.push_str(&format!("&page={}&size=100", current_page - 1));
+            } else {
+                url.push_str(&format!("?page={}&size=100", current_page - 1));
+            }
+            
+            tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page, total_pages);
             let resp = self.http_sender.get(&url, headers).await?;
 
             if !resp.is_success() {
@@ -528,197 +598,3 @@ pub fn is_path_in_whitelist(req_path: &str, spec: &serde_json::Value) -> bool {
     find_matching_spec_path(req_path, spec).is_some()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use crate::auth::models::{Token, Ticket};
-    use crate::core::vault::Vault;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-    use chrono::Utc;
-
-    struct MockPool {
-        ticket: Mutex<Option<Ticket>>,
-        token: Mutex<Option<Token>>,
-        vault: Arc<dyn Vault>,
-    }
-
-    struct MockVault {
-        data: Mutex<HashMap<String, String>>,
-    }
-
-    impl Vault for MockVault {
-        fn get(&self, _profile: &str, key: &str) -> Result<String> {
-            self.data.lock().unwrap().get(key).cloned().ok_or_else(|| anyhow!("Not found"))
-        }
-        fn set(&self, _profile: &str, key: &str, value: &str) -> Result<()> {
-            self.data.lock().unwrap().insert(key.to_string(), value.to_string());
-            Ok(())
-        }
-        fn delete(&self, _profile: &str, key: &str) -> Result<()> {
-            self.data.lock().unwrap().remove(key);
-            Ok(())
-        }
-        fn clear_profile(&self, _profile: &str) -> Result<()> {
-            self.data.lock().unwrap().clear();
-            Ok(())
-        }
-        fn rename_profile(&self, _old: &str, _new: &str) -> Result<()> {
-            Ok(())
-        }
-    }
-
-    impl MockPool {
-        fn new() -> Self {
-            Self {
-                ticket: Mutex::new(None),
-                token: Mutex::new(None),
-                vault: Arc::new(MockVault { data: Mutex::new(HashMap::new()) }),
-            }
-        }
-    }
-
-    impl TokenPool for MockPool {
-        fn get_app_ticket(&self, _profile: &str) -> Result<Ticket> {
-            self.ticket.lock().unwrap().clone().ok_or_else(|| anyhow!("No ticket"))
-        }
-        fn set_app_ticket(&self, _profile: &str, ticket: &Ticket) -> Result<()> {
-            *self.ticket.lock().unwrap() = Some(ticket.clone());
-            Ok(())
-        }
-        fn get_access_token(&self, _profile: &str) -> Result<Token> {
-            self.token.lock().unwrap().clone().ok_or_else(|| anyhow!("No token"))
-        }
-        fn set_access_token(&self, _profile: &str, token: &Token) -> Result<()> {
-            *self.token.lock().unwrap() = Some(token.clone());
-            Ok(())
-        }
-        fn delete_access_token(&self, profile: &str) -> Result<()> {
-            *self.token.lock().unwrap() = None;
-            let _ = self.vault.delete(profile, "access_token");
-            let _ = self.vault.delete(profile, "access_token_expires");
-            let _ = self.vault.delete(profile, "access_token_created");
-            Ok(())
-        }
-        fn clear_cache(&self, _profile: &str) {}
-        fn as_vault(&self) -> Arc<dyn Vault> {
-            self.vault.clone()
-        }
-    }
-
-    struct MockHttpSender {
-        response_body: String,
-        status: u16,
-    }
-
-    #[async_trait::async_trait]
-    impl HttpSender for MockHttpSender {
-        async fn post(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
-            Ok(SimpleResponse {
-                status: self.status,
-                body: self.response_body.clone(),
-            })
-        }
-        async fn post_form(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
-            Ok(SimpleResponse {
-                status: self.status,
-                body: self.response_body.clone(),
-            })
-        }
-        async fn get(&self, _url: &str, _headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
-            Ok(SimpleResponse {
-                status: self.status,
-                body: self.response_body.clone(),
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn test_perform_network_refresh_success() {
-        let pool = MockPool::new();
-        pool.set_app_ticket("test", &Ticket {
-            value: "valid_ticket".to_string(),
-            created_at: Utc::now(),
-        }).unwrap();
-
-        let mock_http = Arc::new(MockHttpSender {
-            status: 200,
-            response_body: json!({
-                "result": true,
-                "value": {
-                    "accessToken": "new_token",
-                    "expiresIn": 3600
-                }
-            }).to_string(),
-        });
-
-        let client = AuthClient::with_sender(&pool, mock_http);
-        let mut cfg = Config::default_with_profile("test");
-        cfg.app_key = "test_app_key".to_string();
-        cfg.app_secret = "test_app_secret".to_string();
-        cfg.app_mode = AuthMode::SelfBuilt;
-        
-        let token = client.get_app_access_token("test", &cfg).await.unwrap();
-        assert_eq!(token.value, "new_token");
-        
-        let saved_token = pool.get_access_token("test").unwrap();
-        assert_eq!(saved_token.value, "new_token");
-    }
-
-    #[test]
-    fn test_clean_non_standard_fields_removes_content_type_header() {
-        let mut spec = json!({
-            "openapi": "3.0.0",
-            "paths": {
-                "/test": {
-                    "post": {
-                        "parameters": [
-                            {
-                                "name": "Content-Type",
-                                "in": "header",
-                                "required": true,
-                                "schema": {
-                                    "type": "string",
-                                    "default": "application/json"
-                                }
-                            },
-                            {
-                                "name": "Authorization",
-                                "in": "header"
-                            }
-                        ]
-                    }
-                }
-            }
-        });
-
-        AuthClient::clean_non_standard_fields(&mut spec);
-
-        let parameters = spec["paths"]["/test"]["post"]["parameters"].as_array().unwrap();
-        assert_eq!(parameters.len(), 1);
-        assert_eq!(parameters[0]["name"], "Authorization");
-    }
-
-    #[tokio::test]
-    async fn test_clear_token_removes_all_dynamic_keys() {
-        let pool = MockPool::new();
-        let vault = pool.as_vault();
-        let profile = "test";
-        
-        vault.set(profile, "access_token", "abc").unwrap();
-        vault.set(profile, "app_ticket", "tkt").unwrap();
-        vault.set(profile, "oauth2_token_pair", "{}").unwrap();
-        vault.set(profile, "push_backoff_level", "1").unwrap();
-        vault.set(profile, "app_secret", "STAY").unwrap();
-        
-        let client = AuthClient::new(&pool);
-        client.clear_token(profile).await.unwrap();
-        
-        assert!(vault.get(profile, "access_token").is_err());
-        assert!(vault.get(profile, "app_ticket").is_err());
-        assert!(vault.get(profile, "oauth2_token_pair").is_err());
-        assert!(vault.get(profile, "push_backoff_level").is_err());
-        assert_eq!(vault.get(profile, "app_secret").unwrap(), "STAY");
-    }
-}

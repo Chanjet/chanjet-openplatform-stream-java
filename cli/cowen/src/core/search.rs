@@ -23,17 +23,16 @@ pub struct SearchIndex {
 }
 
 impl SearchIndex {
-    pub fn save(&self, path: &PathBuf) -> Result<()> {
+    pub async fn save(&self, profile: &str, store: &dyn crate::core::vault::Vault) -> Result<()> {
         let json = serde_json::to_string(self)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(path, json).context("Failed to write index file")?;
+        let key = "search_index";
+        store.set(profile, key, &json).await?;
         Ok(())
     }
 
-    pub fn load(path: &PathBuf) -> Result<Self> {
-        let json = fs::read_to_string(path).context("Failed to read index file")?;
+    pub async fn load(profile: &str, store: &dyn crate::core::vault::Vault) -> Result<Self> {
+        let key = "search_index";
+        let json = store.get(profile, key).await.context("Failed to read index from vault")?;
         let index = serde_json::from_str(&json).context("Failed to parse index JSON")?;
         Ok(index)
     }

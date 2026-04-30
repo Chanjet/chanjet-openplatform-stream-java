@@ -120,7 +120,7 @@ impl<'a> OAuth2Provider<'a> {
                 ));
             }
             if err_text.contains("4007") || err_text.contains("invalid_grant") {
-                let _ = self.pool.as_vault().set(profile, "oauth2_revoked", "true");
+                let _ = self.pool.as_vault().set(profile, "oauth2_revoked", "true").await;
                 return Err(anyhow!(
                     "令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})",
                     status
@@ -167,45 +167,12 @@ impl<'a> OAuth2Provider<'a> {
         // Save to vault via pool
         self.pool
             .as_vault()
-            .set(profile, "oauth2_token_pair", &serde_json::to_string(&pair)?)?;
-        let _ = self.pool.as_vault().delete(profile, "oauth2_revoked");
-        self.pool.set_access_token(profile, &token)?;
+            .set(profile, "oauth2_token_pair", &serde_json::to_string(&pair)?).await?;
+        let _ = self.pool.as_vault().delete(profile, "oauth2_revoked").await;
+        self.pool.set_access_token(profile, &token).await?;
 
-        // Deduplication Logic (User/Org/App/AppKey uniqueness)
-        if let Some(new_id) = token.extract_identity() {
-            if let Ok(cfg_mgr) = crate::core::config::ConfigManager::new() {
-                if let Ok(profiles) = cfg_mgr.list_profiles() {
-                    for other_profile in profiles {
-                        if other_profile == profile {
-                            continue;
-                        }
+        // Deduplication and permanent code logic have been moved to StoreAppProvider.
 
-                        // Check if this profile has a matching identity
-                        if let Ok(other_pair_raw) = self.pool.as_vault().get(&other_profile, "oauth2_token_pair") {
-                            if let Ok(other_pair) = serde_json::from_str::<OAuth2TokenPair>(&other_pair_raw) {
-                                let other_token = Token {
-                                    value: other_pair.access_token,
-                                    expires_at: other_pair.expires_at,
-                                    created_at: other_pair.created_at,
-                                };
-                                if let Some(other_id) = other_token.extract_identity() {
-                                    if other_id == new_id {
-                                        // Potential duplicate found. Verify AppKey match as well.
-                                        if let Ok(other_cfg) = cfg_mgr.load(&other_profile) {
-                                            if other_cfg.app_key == cfg.app_key {
-                                                tracing::warn!(target: "audit", profile = %profile, duplicate = %other_profile, "Deduplication: Invalidating historical profile with same identity");
-                                                let _ = self.pool.as_vault().set(&other_profile, "oauth2_revoked", "true");
-                                                // Also clear its memory cache if possible (Optional as daemon handles it)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         tracing::info!(
             target: "audit",
@@ -221,9 +188,9 @@ impl<'a> OAuth2Provider<'a> {
 
 #[async_trait]
 impl<'a> AuthProvider for OAuth2Provider<'a> {
-    async fn get_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
+    async fn get_token(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
         // 1. Fast path: check current memory/local cache
-        if let Ok(token) = self.pool.get_access_token(profile) {
+        if let Ok(token) = self.pool.get_access_token(profile).await {
             if !token.is_expired() {
                 return Ok(token);
             }
@@ -241,7 +208,7 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         let result = (|| async {
             // 3. Double-Check: Reload from Vault after acquiring lock
             // Another process might have refreshed the token while we were waiting
-            if let Ok(token) = self.pool.get_access_token(profile) {
+            if let Ok(token) = self.pool.get_access_token(profile).await {
                 if !token.is_expired() {
                     return Ok(token);
                 }
@@ -249,16 +216,16 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
 
             // 4. Finalizer Path: Check for captured code
             let session_manager = AuthSessionManager::new(self.pool);
-            if let Ok(code) = session_manager.get_captured_code(profile) {
-                if let Ok(session) = session_manager.get_session(profile) {
+            if let Ok(code) = session_manager.get_captured_code(profile).await {
+                if let Ok(session) = session_manager.get_session(profile).await {
                     tracing::info!(target: "sys", "Captured auth code found for profile '{}'. Finalizing exchange...", profile);
                     let token = self.exchange_code(profile, cfg, &code, &session.code_verifier, &session.redirect_uri).await?;
-                    let _ = session_manager.clear(profile);
+                    let _ = session_manager.clear(profile).await;
                     return Ok(token);
                 }
             }
 
-            let pair_str = self.pool.as_vault().get(profile, "oauth2_token_pair")?;
+            let pair_str = self.pool.as_vault().get(profile, "oauth2_token_pair").await?;
             let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
 
             // Re-check expiry in case it was updated
@@ -268,7 +235,7 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
                     expires_at: pair.expires_at,
                     created_at: pair.created_at,
                 };
-                self.pool.set_access_token(profile, &token)?;
+                self.pool.set_access_token(profile, &token).await?;
                 return Ok(token);
             }
 
@@ -283,10 +250,259 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         result
     }
 
-    async fn refresh(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        let pair_str = self.pool.as_vault().get(profile, "oauth2_token_pair")?;
+    async fn refresh(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
+        let pair_str = self.pool.as_vault().get(profile, "oauth2_token_pair").await?;
         let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
         self.refresh_token(profile, cfg, &pair.refresh_token).await
+    }
+
+    async fn intercept_request(
+        &self,
+        profile: &str,
+        config: &Config,
+        path: &str,
+        method: &str,
+        mut headers: reqwest::header::HeaderMap,
+        _body: &[u8],
+        spec: &serde_json::Value,
+    ) -> Result<crate::auth::provider::ProxyRequestAction> {
+        let token = self.get_token(profile, config, &headers).await?;
+        
+        let auth_headers = crate::auth::RequestDecorator::get_auth_headers(
+            spec, path, method, &config.app_key, &config.app_secret, &token.value
+        );
+
+        for (name, value) in auth_headers {
+            if let Ok(name) = reqwest::header::HeaderName::from_bytes(name.as_bytes()) {
+                if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
+                    headers.insert(name, val);
+                }
+            }
+        }
+
+        Ok(crate::auth::provider::ProxyRequestAction::Forward { headers })
+    }
+
+    async fn initialize(&self, profile: &str, config: &Config, vault: std::sync::Arc<dyn crate::core::vault::Vault>, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+        use crate::auth::lifecycle::orchestrator;
+        use crate::core::utils;
+
+        println!("\n\x1b[1;34m🔒 Starting Authorization Flow...\x1b[0m");
+        
+        let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
+        let session_manager = crate::auth::lifecycle::AuthSessionManager::new(&token_pool);
+        
+        // 1. Get a free port for redirect_uri
+        let port = cfg_mgr.find_free_port().await;
+        
+        // 1.1 Pre-cleanup residual sessions
+        let _ = session_manager.clear(profile).await;
+        
+        // 2. Create Session
+        let session = session_manager.create_session(profile, port).await?;
+        
+        // 3. Generate Auth URL
+        let market_url = obfs!(env!("DEF_MARKET_URL"));
+        let auth_url = format!(
+            "{}/user/v2/authorize?client_id={}&response_type=code&scope=all&redirect_uri={}&state={}&code_challenge={}&code_challenge_method=S256",
+            market_url.trim_end_matches('/'),
+            config.app_key,
+            urlencoding::encode(&session.redirect_uri),
+            session.state,
+            Pkce::generate_challenge(&session.code_verifier),
+        );
+
+        println!("\n\x1b[1mPlease authorize in the LOCAL browser of this machine. Opening URL...\x1b[0m");
+        
+        // 4. Automatically open browser
+        if let Err(e) = open::that(&auth_url) {
+            tracing::warn!(target: "sys", error = %e, "Failed to open browser automatically");
+            println!("\x1b[33m(Failed to open browser automatically. Please copy the URL below manually to your LOCAL browser)\x1b[0m");
+        }
+        
+        println!("\x1b[34m{}\x1b[0m", auth_url);
+        
+        // 5. Spawn Background Finalizer
+        println!("\n\x1b[34m🚀 授权监听已在本机启动。请在浏览器中确认...\x1b[0m");
+
+        let pid = orchestrator::spawn_finalizer(profile, &session.state)?;
+        
+        // 6. Wait for Result (Closed Loop)
+        // Note: is_new check is slightly simplified here as we are in provider, but init.rs can pass it or we assume false for existing.
+        // Actually init.rs knows if it's new. I should probably add is_new to initialize signature or handle it.
+        // For now, let's assume init.rs handles the "new profile cleanup" inside initialize? No, initialize should handle it.
+        // I'll add is_new to the signature.
+        let is_new = !cfg_mgr.exists(profile).await; 
+        orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr).await?;
+
+        Ok(())
+    }
+
+    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>) -> Result<()> {
+        // 1. Finalizer Implementation (Background flow)
+        if let Some(_session_id) = finalize {
+            return self.finalize_login(profile, config).await;
+        }
+
+        // 2. Regular Login flow
+        println!("🔄 [OAuth2] Attempting to refresh token pair for profile '{}'...", profile);
+        match self.refresh(profile, config, &reqwest::header::HeaderMap::new()).await {
+            Ok(_) => {
+                println!("✅ Success! OAuth2 Token Pair has been rotated.");
+                Ok(())
+            }
+            Err(e) => {
+                println!("❌ Refresh failed: {}", e);
+                println!("💡 Suggestion: If the session has expired, please run \x1b[33mcowen init\x1b[0m to re-authorize.");
+                Err(e)
+            }
+        }
+    }
+    async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
+        tracing::info!(target: "sys", profile = %profile, "Finalizer started for OAuth2 auth");
+        
+        let session_manager = AuthSessionManager::new(self.pool);
+        let session = session_manager.get_session(profile).await?;
+        
+        let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
+        tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
+
+        let res = tokio::select! {
+            result = rx => {
+                match result {
+                    Ok(inner_res) => {
+                        match inner_res {
+                            Ok(res) => {
+                                tracing::info!(target: "sys", "Callback received, saving code...");
+                                session_manager.save_code(profile, &res.code, &res.state).await?;
+                                
+                                // Trigger exchange
+                                match self.exchange_code(profile, cfg, &res.code, &session.code_verifier, &session.redirect_uri).await {
+                                    Ok(_) => {
+                                        tracing::info!(target: "sys", "Token exchange successful");
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(target: "sys", error = %e, "Token exchange failed");
+                                        Err(e)
+                                    }
+                                }
+                            }
+                            Err(e) => Err(anyhow::anyhow!("Authorization failed: {}", e))
+                        }
+                    }
+                    Err(e) => Err(anyhow::anyhow!("Internal listener error: {}", e))
+                }
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
+                Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
+            }
+        };
+
+        if res.is_err() {
+            let _ = session_manager.clear(profile).await;
+        }
+        res
+    }
+
+    async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+        use crate::core::status::{StatusEntry, StatusLevel};
+        let mut entries = Vec::new();
+        let vault = self.pool.as_vault();
+
+        let refresh_error = vault.get(profile, "last_refresh_error").await.ok();
+        let ref_revoked = vault.get(profile, "oauth2_revoked").await.is_ok();
+
+        if let Ok(pair_raw) = vault.get(profile, "oauth2_token_pair").await {
+            let pair: crate::auth::models::OAuth2TokenPair = serde_json::from_str(&pair_raw)?;
+            let is_expired = Utc::now() > pair.expires_at;
+            let ref_expired = Utc::now() > pair.refresh_expires_at;
+
+            let children = vec![
+                StatusEntry {
+                    name: "AccessToken".to_string(),
+                    icon: "🔑".to_string(),
+                    level: if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK },
+                    message: format!("[{}] (Expires: {})", 
+                        if is_expired || ref_revoked { "EXPIRED" } else { "VALID" },
+                        pair.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")),
+                    reason: if ref_revoked {
+                        Some("关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。".to_string())
+                    } else if is_expired { 
+                        refresh_error.map(|e| format!("自动续约失败: {}", e))
+                            .or(Some("AccessToken 已过期，正在等待后台续约进程处理...".to_string()))
+                    } else { None },
+                    details: vec![],
+                    children: vec![],
+                },
+                StatusEntry {
+                    name: "RefreshToken".to_string(),
+                    icon: "🔄".to_string(),
+                    level: if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK },
+                    message: format!("[{}] (Expires: {})", 
+                        if ref_revoked { "REVOKED" } else if ref_expired { "EXPIRED" } else { "VALID" },
+                        pair.refresh_expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")),
+                    reason: if ref_revoked {
+                        Some("令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。".to_string())
+                    } else if ref_expired { 
+                        Some("RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。".to_string()) 
+                    } else { None },
+                    details: vec![],
+                    children: vec![],
+                }
+            ];
+
+            let mut details = vec![];
+            let token_inner = Token {
+                value: pair.access_token.clone(),
+                expires_at: pair.expires_at,
+                created_at: pair.created_at,
+            };
+            
+            if let Some(identity) = token_inner.extract_identity() {
+                details.push(format!("User ID: {}", identity.user_id));
+                details.push(format!("Org ID:  {}", identity.org_id));
+                details.push(format!("App ID:  {}", identity.app_id));
+            }
+
+            entries.push(StatusEntry {
+                name: "Authentication".to_string(),
+                icon: "🔐".to_string(),
+                level: if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK },
+                message: "OAuth2 tokens are locally managed.".to_string(),
+                reason: if ref_revoked { Some("会话已失效 (Revoked)".to_string()) } else { None },
+                details,
+                children,
+            });
+        }
+
+        Ok(entries)
+    }
+
+    fn get_default_app_key(&self) -> Option<String> {
+        Some(crate::auth::models::BUILTIN_CLIENT_ID.to_string())
+    }
+
+    fn decorate_openapi_request(&self, url: &mut String, headers: &mut reqwest::header::HeaderMap, token: &Token, config: &Config) {
+        if !url.contains("checkPermission=") {
+            if url.contains('?') {
+                url.push_str("&checkPermission=false");
+            } else {
+                url.push_str("?checkPermission=false");
+            }
+        }
+        headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+        headers.insert("appKey", config.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+    }
+
+    async fn on_logout(&self, profile: &str, _config: &Config) -> Result<()> {
+        let vault = self.pool.as_vault();
+        let _ = vault.delete(profile, "oauth2_token_pair");
+        let _ = vault.delete(profile, "pending_auth_session");
+        let _ = vault.delete(profile, "captured_auth_code");
+        let _ = vault.delete(profile, "oauth2_revoked");
+        let _ = vault.delete(profile, "last_refresh_error");
+        Ok(())
     }
 }
 impl Pkce {
@@ -344,220 +560,4 @@ mod tests {
         }
     }
 
-    struct MockPool {
-        token: std::sync::Mutex<Option<Token>>,
-        vault: Arc<dyn crate::core::vault::Vault>,
-    }
-
-    struct MockVault {
-        data: std::sync::Mutex<std::collections::HashMap<String, String>>,
-    }
-
-    impl crate::core::vault::Vault for MockVault {
-        fn get(&self, _profile: &str, key: &str) -> Result<String> {
-            self.data
-                .lock()
-                .unwrap()
-                .get(key)
-                .cloned()
-                .ok_or_else(|| anyhow!("Not found"))
-        }
-        fn set(&self, _profile: &str, key: &str, value: &str) -> Result<()> {
-            self.data
-                .lock()
-                .unwrap()
-                .insert(key.to_string(), value.to_string());
-            Ok(())
-        }
-        fn delete(&self, _profile: &str, key: &str) -> Result<()> {
-            self.data.lock().unwrap().remove(key);
-            Ok(())
-        }
-        fn clear_profile(&self, _profile: &str) -> Result<()> {
-            self.data.lock().unwrap().clear();
-            Ok(())
-        }
-        fn rename_profile(&self, _old: &str, _new: &str) -> Result<()> {
-            Ok(())
-        }
-    }
-
-    impl TokenPool for MockPool {
-        fn get_app_ticket(&self, _profile: &str) -> Result<crate::auth::models::Ticket> {
-            Err(anyhow!("Not implemented"))
-        }
-        fn set_app_ticket(
-            &self,
-            _profile: &str,
-            _ticket: &crate::auth::models::Ticket,
-        ) -> Result<()> {
-            Ok(())
-        }
-        fn get_access_token(&self, _profile: &str) -> Result<Token> {
-            self.token
-                .lock()
-                .unwrap()
-                .clone()
-                .ok_or_else(|| anyhow!("No token"))
-        }
-        fn set_access_token(&self, _profile: &str, token: &Token) -> Result<()> {
-            *self.token.lock().unwrap() = Some(token.clone());
-            Ok(())
-        }
-        fn delete_access_token(&self, _profile: &str) -> Result<()> {
-            *self.token.lock().unwrap() = None;
-            Ok(())
-        }
-        fn clear_cache(&self, _profile: &str) {}
-        fn as_vault(&self) -> Arc<dyn crate::core::vault::Vault> {
-            self.vault.clone()
-        }
-    }
-
-    struct MockHttpSender {
-        response_body: String,
-        status: u16,
-    }
-
-    #[async_trait]
-    impl HttpSender for MockHttpSender {
-        async fn post(
-            &self,
-            _url: &str,
-            _headers: reqwest::header::HeaderMap,
-            _body: serde_json::Value,
-        ) -> Result<crate::auth::client::SimpleResponse> {
-            Ok(crate::auth::client::SimpleResponse {
-                status: self.status,
-                body: self.response_body.clone(),
-            })
-        }
-        async fn post_form(
-            &self,
-            _url: &str,
-            _headers: reqwest::header::HeaderMap,
-            _body: serde_json::Value,
-        ) -> Result<crate::auth::client::SimpleResponse> {
-            Ok(crate::auth::client::SimpleResponse {
-                status: self.status,
-                body: self.response_body.clone(),
-            })
-        }
-        async fn get(
-            &self,
-            _url: &str,
-            _headers: reqwest::header::HeaderMap,
-        ) -> Result<crate::auth::client::SimpleResponse> {
-            Ok(crate::auth::client::SimpleResponse {
-                status: self.status,
-                body: self.response_body.clone(),
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn test_refresh_token_success() {
-        let vault = Arc::new(MockVault {
-            data: std::sync::Mutex::new(std::collections::HashMap::new()),
-        });
-        let pool = MockPool {
-            token: std::sync::Mutex::new(None),
-            vault: vault.clone(),
-        };
-
-        // Initial setup
-        let initial_pair = OAuth2TokenPair {
-            access_token: "old_access".to_string(),
-            refresh_token: "old_refresh".to_string(),
-            expires_at: Utc::now() - Duration::hours(1), // Expired
-            refresh_expires_at: Utc::now() + Duration::hours(24),
-            created_at: Utc::now() - Duration::hours(1),
-        };
-        vault
-            .set(
-                "test",
-                "oauth2_token_pair",
-                &serde_json::to_string(&initial_pair).unwrap(),
-            )
-            .unwrap();
-
-        let mock_http = Arc::new(MockHttpSender {
-            status: 200,
-            response_body: serde_json::json!({
-                "access_token": "new_access",
-                "refresh_token": "new_refresh",
-                "expires_in": 3600,
-                "refresh_token_expires_in": 7200
-            })
-            .to_string(),
-        });
-
-        let provider = OAuth2Provider::new(&pool, mock_http);
-        let cfg = Config::default_with_profile("test");
-
-        let token = provider.get_token("test", &cfg).await.unwrap();
-        assert_eq!(token.value, "new_access");
-
-        // Verify state update
-        let saved_pair_str = vault.get("test", "oauth2_token_pair").unwrap();
-        let saved_pair: OAuth2TokenPair = serde_json::from_str(&saved_pair_str).unwrap();
-        assert_eq!(saved_pair.access_token, "new_access");
-        assert_eq!(saved_pair.refresh_token, "new_refresh");
-    }
-
-    #[tokio::test]
-    async fn test_oauth2_full_lifecycle_success() {
-        let vault = Arc::new(MockVault {
-            data: std::sync::Mutex::new(std::collections::HashMap::new()),
-        });
-        let pool = MockPool {
-            token: std::sync::Mutex::new(None),
-            vault: vault.clone(),
-        };
-
-        // 1. Init - Create Session
-        let session_manager = AuthSessionManager::new(&pool);
-        let session = session_manager.create_session("test", 0).unwrap(); // Port 0 for random
-
-        // 2. Start Listener
-        let (actual_port, rx) =
-            crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, "test".to_string())
-                .await.unwrap();
-
-        // 3. Simulate Callback (e.g. from Browser)
-        let client = reqwest::Client::new();
-        let callback_url = format!(
-            "http://127.0.0.1:{}/callback?code=captured_code&state={}",
-            actual_port, session.state
-        );
-        client.get(&callback_url).send().await.unwrap();
-
-        // 4. Capture result and save to Vault
-        let result = rx.await.unwrap().unwrap();
-        session_manager
-            .save_code("test", &result.code, &result.state)
-            .unwrap();
-
-        // 5. Finalize - Call get_token (which should trigger Finalizer)
-        let mock_http = Arc::new(MockHttpSender {
-            status: 200,
-            response_body: serde_json::json!({
-                "access_token": "final_access",
-                "refresh_token": "final_refresh",
-                "expires_in": 3600,
-                "refresh_token_expires_in": 7200
-            })
-            .to_string(),
-        });
-
-        let provider = OAuth2Provider::new(&pool, mock_http);
-        let cfg = Config::default_with_profile("test");
-
-        let token = provider.get_token("test", &cfg).await.unwrap();
-        assert_eq!(token.value, "final_access");
-
-        // 6. Verify Session is cleared
-        assert!(session_manager.get_captured_code("test").is_err());
-        assert!(session_manager.get_session("test").is_err());
-    }
 }

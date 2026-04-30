@@ -5,6 +5,7 @@ use tracing_subscriber::{
     prelude::*,
     EnvFilter,
 };
+use std::sync::Arc;
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
@@ -21,7 +22,12 @@ pub struct TelemetryEvent {
     pub payload: serde_json::Value,
 }
 
-pub fn init_telemetry(log_dir: PathBuf, profile: &str, config: &crate::core::config::LogConfig) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
+pub fn init_telemetry(
+    log_dir: PathBuf, 
+    profile: &str, 
+    config: &crate::core::config::LogConfig,
+    vault_rx: tokio::sync::watch::Receiver<Option<Arc<dyn crate::core::vault::Vault>>>,
+) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
     let log_level = &config.level;
     let bin_name = crate::core::utils::get_bin_name();
     
@@ -55,9 +61,12 @@ pub fn init_telemetry(log_dir: PathBuf, profile: &str, config: &crate::core::con
         }
     };
 
+    let vault_audit_layer = crate::core::audit::VaultAuditLayer::new(vault_rx);
+
     let registry = tracing_subscriber::registry()
         .with(global_filter)
-        .with(console_layer);
+        .with(console_layer)
+        .with(vault_audit_layer);
 
     macro_rules! add_domain_layer {
         ($reg:expr, $filename:expr, $filter_fn:expr) => {{
@@ -150,7 +159,8 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("telemetry_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros()));
         let config = crate::core::config::Config::default_with_profile("testprof");
         
-        let _guards = init_telemetry(temp_dir.clone(), "testprof", &config.log).unwrap();
+        let (_, rx) = tokio::sync::watch::channel(None);
+        let _guards = init_telemetry(temp_dir.clone(), "testprof", &config.log, rx).unwrap();
         
         // Tracing appender creates files lazily upon first write OR immediately depending on the exact LogRoller configuration
         // In logroller, they are usually created right away if the builder creates the file.

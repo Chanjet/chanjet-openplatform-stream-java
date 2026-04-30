@@ -4,9 +4,9 @@ use crate::daemon::forwarder::Forwarder;
 use std::sync::Arc;
 use crate::core::config::Config;
 
-pub async fn list(profile: &str, format: &str) -> Result<()> {
-    let dlq_store = DlqStore::new(profile)?;
-    let entries = dlq_store.list()?;
+pub async fn list(profile: &str, format: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+    let dlq_store = DlqStore::new(profile, vault)?;
+    let entries = dlq_store.list().await?;
 
     if format == "json" || format == "yaml" {
         return crate::core::utils::render(&entries, format);
@@ -35,9 +35,9 @@ pub async fn list(profile: &str, format: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn retry(profile: &str, config: &Config, id: &str) -> Result<()> {
-    let dlq_store = DlqStore::new(profile)?;
-    let entry = dlq_store.get(id)?;
+pub async fn retry(profile: &str, config: &Config, id: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+    let dlq_store = DlqStore::new(profile, vault)?;
+    let entry = dlq_store.get(id).await?;
 
     println!("🔄 Retrying event [{}] ({})", entry.msg_type, entry.id);
 
@@ -53,15 +53,15 @@ pub async fn retry(profile: &str, config: &Config, id: &str) -> Result<()> {
     // Our forwarder.forward handles saving TO dlq if it fails again.
     
     // We'll delete it from original store to avoid duplicates if it's being retried manually.
-    dlq_arc.delete(id)?;
+    dlq_arc.delete(id).await?;
     println!("🗑️ Original DLQ entry [{}] removed.", id);
 
     Ok(())
 }
 
-pub async fn purge(profile: &str) -> Result<()> {
-    let dlq_store = DlqStore::new(profile)?;
-    let entries = dlq_store.list()?;
+pub async fn purge(profile: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+    let dlq_store = DlqStore::new(profile, vault)?;
+    let entries = dlq_store.list().await?;
 
     if entries.is_empty() {
         println!("✅ DLQ is already empty.");
@@ -70,7 +70,7 @@ pub async fn purge(profile: &str) -> Result<()> {
 
     println!("⚠️ Purging {} entries from DLQ...", entries.len());
     for entry in entries {
-        dlq_store.delete(&entry.id)?;
+        dlq_store.delete(&entry.id).await?;
     }
     println!("✅ DLQ purged.");
 

@@ -55,7 +55,7 @@ impl Forwarder {
                 let err_msg = format!("HTTP error: {}", r.status());
                 tracing::error!(target: "stream", msg_id = %msg_id, status = %r.status(), "Forward failed, saving to DLQ");
                 println!("❌ Forward failed: {}", err_msg);
-                let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg);
+                let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg).await;
             }
             Err(e) => {
                 let err_msg = format!("Network error: {}", e);

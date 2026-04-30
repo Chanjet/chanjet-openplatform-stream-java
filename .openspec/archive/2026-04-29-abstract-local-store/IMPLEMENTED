@@ -1,0 +1,6 @@
+IMPLEMENTED on 2026-04-29
+All tasks complete. Tests passed.
+Vault unified to StoreVault. Local storage abstracted as FileStore.
+Store trait enhanced with clear_profile and rename_profile.
+SqlStore, RedisStore, and HybridStore updated.
+main.rs, auth.rs, and proxy.rs refactored to use create_vault factory.

@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { CryptoUtils } from '../src/crypto-utils.js';
 
 describe('CryptoUtils', () => {
-    const secret = '12345678901234567890123456789012'; // 32 chars
+    const secret = '<DUMMY_SECRET_32>'; // 32 chars
 
     test('hmacSha256 should match expected hex', () => {
         const data = 'test-data';
@@ -13,7 +13,7 @@ describe('CryptoUtils', () => {
     });
 
     test('aesDecrypt should decrypt valid payload', () => {
-        const encryptKey = '1234567890123456';
+        const encryptKey = '<DUMMY_KEY_16>';
         const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(encryptKey), null);
         let enc = cipher.update('{"hello":"world"}', 'utf8', 'base64');
         enc += cipher.final('base64');

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "T1",
+    "description": "Enhance Store trait with profile management methods",
+    "status": "pending",
+    "priority": "high"
+  },
+  {
+    "id": "T2",
+    "description": "Implement FileStore with encryption and locking logic",
+    "status": "pending",
+    "priority": "high"
+  },
+  {
+    "id": "T3",
+    "description": "Update SqlStore and RedisStore to implement new methods",
+    "status": "pending",
+    "priority": "medium"
+  },
+  {
+    "id": "T4",
+    "description": "Unify Vault implementation and remove MultiVault",
+    "status": "pending",
+    "priority": "high"
+  },
+  {
+    "id": "T5",
+    "description": "Refactor main.rs initialization and verify consistency",
+    "status": "pending",
+    "priority": "medium"
+  }
+]
