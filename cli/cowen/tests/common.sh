@@ -135,3 +135,16 @@ extract_token() {
     local prof=$1
     "$COWEN_BIN" auth token --profile "$prof" --format json 2>/dev/null | python3 -c "import sys, json; d=json.loads(sys.stdin.read() or '{}'); print(d.get('access_token') or d.get('value') or '')"
 }
+
+# Global Cleanup
+cleanup_all_workspaces() {
+    echo -e "\n${BLUE}🧹 Cleaning up temporary test workspaces...${NC}"
+    rm -rf .cowen_test_*
+    # Ensure mock server is stopped
+    if [ "$IS_WINDOWS" = true ]; then
+        local pid=$(netstat -ano | grep ":9299" | grep "LISTENING" | awk '{print $5}' | head -n 1)
+        if [ -n "$pid" ]; then taskkill //F //PID "$pid" >/dev/null 2>&1 || true; fi
+    else
+        lsof -ti :9299 | xargs kill -9 2>/dev/null || true
+    fi
+}

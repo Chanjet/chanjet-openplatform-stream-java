@@ -54,10 +54,10 @@ done
 echo -e "\n${BLUE}${BOLD}========================================================${NC}"
 if [ $PASSED -eq $TOTAL ]; then
     echo -e "${GREEN}${BOLD}✅  ALL SUITES PASSED ($PASSED/$TOTAL)${NC}"
-    # cleanup_suite
+    cleanup_all_workspaces
     exit 0
 else
     echo -e "${RED}${BOLD}❌  SOME SUITES FAILED ($((TOTAL-PASSED))/$TOTAL)${NC}"
-    # cleanup_suite
+    cleanup_all_workspaces
     exit 1
 fi
