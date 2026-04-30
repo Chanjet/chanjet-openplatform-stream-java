@@ -274,9 +274,10 @@ test-linux: prepare-podman-machine prepare-podman-image
 		podman build -t cowen-test-base -f tests/Dockerfile.linux.base .; \
 	fi
 	podman run --rm -it \
-		-v "$(shell pwd):/app" \
+		-v "$(shell pwd)/../..:/workspace" \
 		-v "$(HOME)/.cargo/registry:/usr/local/cargo/registry" \
 		-v "$(HOME)/.cargo/git:/usr/local/cargo/git" \
+		-w /workspace/cli/cowen \
 		cowen-test-base \
 		./tests/run_suites.sh
 
