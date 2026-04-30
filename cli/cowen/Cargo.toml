@@ -39,6 +39,9 @@ hex = "0.4"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
 inventory = "0.3"
 redis = { version = "0.27", features = ["tokio-comp", "aio"] }
+tiberius = { version = "0.12", features = ["chrono", "tds73"] }
+deadpool-tiberius = "0.1.9"
+tokio-util = { version = "0.7", features = ["compat"] }
 
 # AI & Search
 ort = { version = "2.0.0-rc.12", features = ["ndarray"], optional = true }

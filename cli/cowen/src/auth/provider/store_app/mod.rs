@@ -17,7 +17,6 @@ pub mod storage;
 #[cfg(test)]
 pub mod tests;
 
-use models::StoreAppTokenResponse;
 
 pub struct StoreAppProvider<'a> {
     pool: &'a (dyn TokenPool + Send + Sync),
@@ -61,16 +60,6 @@ impl<'a> StoreAppProvider<'a> {
         client::exchange_permanent_code_by_temp_code(self.pool, self.http_sender.as_ref(), profile, cfg, org_id, temp_auth_code).await
     }
 
-    async fn request_token(
-        &self,
-        profile: &str,
-        url: &str,
-        body: serde_json::Value,
-        cfg: &Config,
-    ) -> Result<Token> {
-        client::request_token(self.pool, self.http_sender.as_ref(), profile, url, body, cfg).await
-    }
-
     pub async fn get_user_token(
         &self,
         profile: &str,
@@ -88,6 +77,53 @@ impl<'a> StoreAppProvider<'a> {
         org_id: &str,
     ) -> Result<Token> {
         token_logic::get_org_token(self.pool, self.http_sender.as_ref(), profile, cfg, org_id).await
+    }
+
+    async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
+        tracing::info!(target: "sys", profile = %profile, "Finalizer started for StoreApp auth");
+        
+        let session_manager = AuthSessionManager::new(self.pool);
+        let session = session_manager.get_session(profile).await?;
+        
+        let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
+        tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
+
+        let res = tokio::select! {
+            result = rx => {
+                match result {
+                    Ok(inner_res) => {
+                        match inner_res {
+                            Ok(res) => {
+                                tracing::info!(target: "sys", "Callback received, saving code...");
+                                session_manager.save_code(profile, &res.code, &res.state).await?;
+                                
+                                // Trigger exchange
+                                match self.get_app_access_token(profile, cfg).await {
+                                    Ok(_) => {
+                                        tracing::info!(target: "sys", "Token exchange successful");
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(target: "sys", error = %e, "Token exchange failed");
+                                        Err(e)
+                                    }
+                                }
+                            }
+                            Err(e) => Err(anyhow::anyhow!("Authorization failed: {}", e))
+                        }
+                    }
+                    Err(e) => Err(anyhow::anyhow!("Internal listener error: {}", e))
+                }
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
+                Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
+            }
+        };
+
+        if res.is_err() {
+            let _ = session_manager.clear(profile).await;
+        }
+        res
     }
 }
 
@@ -168,8 +204,8 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
         _status: u16,
         _response_headers: &reqwest::header::HeaderMap,
         _response_body: &[u8],
-    ) -> Result<()> {
-        Ok(())
+    ) -> Result<Option<serde_json::Value>> {
+        Ok(None)
     }
 
     async fn initialize(
@@ -298,53 +334,6 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
 
     fn supports_api_call(&self) -> bool {
         false
-    }
-
-    async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
-        tracing::info!(target: "sys", profile = %profile, "Finalizer started for StoreApp auth");
-        
-        let session_manager = AuthSessionManager::new(self.pool);
-        let session = session_manager.get_session(profile).await?;
-        
-        let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
-        tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
-
-        let res = tokio::select! {
-            result = rx => {
-                match result {
-                    Ok(inner_res) => {
-                        match inner_res {
-                            Ok(res) => {
-                                tracing::info!(target: "sys", "Callback received, saving code...");
-                                session_manager.save_code(profile, &res.code, &res.state).await?;
-                                
-                                // Trigger exchange
-                                match self.get_app_access_token(profile, cfg).await {
-                                    Ok(_) => {
-                                        tracing::info!(target: "sys", "Token exchange successful");
-                                        Ok(())
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(target: "sys", error = %e, "Token exchange failed");
-                                        Err(e)
-                                    }
-                                }
-                            }
-                            Err(e) => Err(anyhow::anyhow!("Authorization failed: {}", e))
-                        }
-                    }
-                    Err(e) => Err(anyhow::anyhow!("Internal listener error: {}", e))
-                }
-            },
-            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-                Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
-            }
-        };
-
-        if res.is_err() {
-            let _ = session_manager.clear(profile).await;
-        }
-        res
     }
 
     async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {

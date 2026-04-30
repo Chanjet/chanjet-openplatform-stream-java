@@ -75,13 +75,13 @@ cowen init --profile isv-prod \
 
 ### 2. 五大配置场景
 
-| 场景 | 配置组合 | 适用说明 |
-| :--- | :--- | :--- |
-| **🟢 A. 单机开发 (默认)** | `innerdb` + `none` | **新装默认**。开箱即用，支持 SQL 审计与 DLQ。 |
-| **🟡 B. 分布式持久化** | `mysql` + `none` | 适用于多机部署。数据与缓存全量上云。 |
-| **🟠 C. 生产级全家桶** | `mysql` + `redis` | **ISV 集群最优解**。高可用持久化 + 极速内存缓存。 |
-| **🔴 D. 纯 Redis 模式** | `redis` + `none` | **云原生推荐**。全量数据上云，本地零文件残留。 |
-| **⚪ E. 极简兼容模式** | `local` + `none` | **Legacy**。仅用于老版本 `.seal` 物理文件兼容。 |
+| 场景 | 存储 (Store) | 缓存 (Cache) | 适用阶段 |
+| :--- | :--- | :--- | :--- |
+| **A (默认)** | `innerdb` (SQLite) | `memory` | 本地开发 / 侧车模式测试 |
+| **B (单机扩展)** | `mysql` / `postgres` / `mssql` | `memory` | 单机生产 Sidecar (需审计) |
+| **C (集群/云原生)** | `mysql` / `postgres` / `mssql` | `redis` | K8s 集群部署 / 多副本 HA |
+| **D (极速模式)** | `redis` | `redis` | 高频消息同步 / 云原生无盘运行 |
+| **E (极简兼容)** | `local` | `none` | Legacy。仅用于老版本 `.seal` 物理文件兼容 |
 
 ---
 

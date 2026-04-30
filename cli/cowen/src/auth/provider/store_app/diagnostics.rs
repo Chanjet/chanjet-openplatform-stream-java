@@ -1,6 +1,6 @@
 use crate::auth::models::Token;
 use crate::core::config::Config;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use chrono::{Utc, Local};
 use crate::auth::pool::TokenPool;
 

@@ -81,6 +81,14 @@ cowen status
 `cowen` 的存储架构旨在适应从个人开发环境到企业级 K8s 集群的无缝迁移。
 
 ### 1. 支持组件清单
+| 场景 | 存储 (Store) | 缓存 (Cache) | 适用阶段 |
+| :--- | :--- | :--- | :--- |
+| **A (默认)** | `innerdb` (SQLite) | `memory` | 本地开发 / 小规模测试 |
+| **B (单机扩展)** | `mysql` / `postgres` / `mssql` | `memory` | 单机生产环境 (需审计) |
+| **C (集群/云原生)** | `mysql` / `postgres` / `mssql` | `redis` | 大规模集群 / 生产多节点 |
+| **D (极速模式)** | `redis` | `redis` | 高频访问 / 容器化无盘运行 |
+| **E (兼容模式)** | `local` (文件) | `memory` | 旧版升级兼容 |
+
 - **Store (持久化层)**: 
   - `local` (默认): 数据以加密形式存放在 `~/.cowen/.seal` 目录下。无需任何安装，开箱即用。
   - `innerdb`: 业务数据（日志、队列）存储在本地 SQLite 数据库中，敏感凭据锁定在本地 `.seal`。

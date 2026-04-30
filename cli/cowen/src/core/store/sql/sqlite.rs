@@ -200,7 +200,7 @@ impl SqlBuilder for SqliteBuilder {
         let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_profile_ts ON cowen_audit (profile, timestamp)").execute(&pool).await;
         let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_dlq_profile_topic ON cowen_dlq (profile, topic)").execute(&pool).await;
 
-        Ok(Arc::new(SqliteDriver::new(pool, url)))
+        Ok(Arc::new(SqliteDriver::new(pool)))
     }
 }
 

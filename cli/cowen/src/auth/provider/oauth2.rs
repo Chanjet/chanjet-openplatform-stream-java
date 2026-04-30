@@ -176,6 +176,53 @@ impl<'a> OAuth2Provider<'a> {
 
         Ok(token)
     }
+
+    async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
+        tracing::info!(target: "sys", profile = %profile, "Finalizer started for OAuth2 auth");
+        
+        let session_manager = AuthSessionManager::new(self.pool);
+        let session = session_manager.get_session(profile).await?;
+        
+        let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
+        tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
+
+        let res = tokio::select! {
+            result = rx => {
+                match result {
+                    Ok(inner_res) => {
+                        match inner_res {
+                            Ok(res) => {
+                                tracing::info!(target: "sys", "Callback received, saving code...");
+                                session_manager.save_code(profile, &res.code, &res.state).await?;
+                                
+                                // Trigger exchange
+                                match self.exchange_code(profile, cfg, &res.code, &session.code_verifier, &session.redirect_uri).await {
+                                    Ok(_) => {
+                                        tracing::info!(target: "sys", "Token exchange successful");
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(target: "sys", error = %e, "Token exchange failed");
+                                        Err(e)
+                                    }
+                                }
+                            }
+                            Err(e) => Err(anyhow::anyhow!("Authorization failed: {}", e))
+                        }
+                    }
+                    Err(e) => Err(anyhow::anyhow!("Internal listener error: {}", e))
+                }
+            },
+            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
+                Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
+            }
+        };
+
+        if res.is_err() {
+            let _ = session_manager.clear(profile).await;
+        }
+        res
+    }
 }
 
 #[async_trait]
@@ -284,7 +331,7 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         params: crate::auth::provider::InitParams,
     ) -> Result<()> {
         use crate::auth::lifecycle::orchestrator;
-        use crate::core::utils;
+        
 
         // 1. Setup credentials (OCP: forced built-in for OAuth2)
         if params.app_key.is_some() || params.app_secret.is_some() {
@@ -297,8 +344,6 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         cfg_mgr.save(profile, config).await?;
 
         // 3. Start Flow
-        use crate::auth::lifecycle::orchestrator;
-        use crate::core::utils;
 
         println!("\n\x1b[1;34m🔒 Starting Authorization Flow...\x1b[0m");
         
@@ -373,52 +418,6 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
                 Err(e)
             }
         }
-    }
-    async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
-        tracing::info!(target: "sys", profile = %profile, "Finalizer started for OAuth2 auth");
-        
-        let session_manager = AuthSessionManager::new(self.pool);
-        let session = session_manager.get_session(profile).await?;
-        
-        let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
-        tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
-
-        let res = tokio::select! {
-            result = rx => {
-                match result {
-                    Ok(inner_res) => {
-                        match inner_res {
-                            Ok(res) => {
-                                tracing::info!(target: "sys", "Callback received, saving code...");
-                                session_manager.save_code(profile, &res.code, &res.state).await?;
-                                
-                                // Trigger exchange
-                                match self.exchange_code(profile, cfg, &res.code, &session.code_verifier, &session.redirect_uri).await {
-                                    Ok(_) => {
-                                        tracing::info!(target: "sys", "Token exchange successful");
-                                        Ok(())
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(target: "sys", error = %e, "Token exchange failed");
-                                        Err(e)
-                                    }
-                                }
-                            }
-                            Err(e) => Err(anyhow::anyhow!("Authorization failed: {}", e))
-                        }
-                    }
-                    Err(e) => Err(anyhow::anyhow!("Internal listener error: {}", e))
-                }
-            },
-            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-                Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
-            }
-        };
-
-        if res.is_err() {
-            let _ = session_manager.clear(profile).await;
-        }
-        res
     }
 
     async fn get_status_entries(&self, profile: &str, _config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {

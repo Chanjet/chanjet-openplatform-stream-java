@@ -1,7 +1,7 @@
 use anyhow::{Result, Context};
 use std::sync::Arc;
 use crate::core::store::{Store, create_store_from_url};
-use crate::core::config::{ConfigManager, AppConfig, StorageConfig};
+use crate::core::config::ConfigManager;
 
 #[derive(Debug, Clone, Copy, PartialEq, clap::ValueEnum)]
 pub enum MigrationMode {

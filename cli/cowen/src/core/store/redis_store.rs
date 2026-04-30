@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use std::sync::Arc;
 use redis::aio::MultiplexedConnection;
 use super::{Store, AuditEntry, DlqMessage, Item};
 use serde::{Deserialize, Serialize};

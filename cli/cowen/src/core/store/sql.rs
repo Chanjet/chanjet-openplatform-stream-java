@@ -6,6 +6,7 @@ mod mssql;
 use super::{Store, AuditEntry, DlqMessage, Item};
 use anyhow::Result;
 use async_trait::async_trait;
+use std::path::Path;
 use std::sync::Arc;
 
 #[async_trait]
@@ -126,7 +127,7 @@ impl super::StoreBuilder for InnerDbStoreBuilder {
         "innerdb"
     }
 
-    async fn build(&self, url: &str, app_dir: &Path, fingerprint: &str) -> Result<Arc<dyn Store>> {
+    async fn build(&self, _url: &str, _app_dir: &Path, _fingerprint: &str) -> Result<Arc<dyn Store>> {
         // This is tricky because StoreBuilder only returns ONE store, 
         // but vault.rs needs two in its current architecture.
         // Let's refine StoreBuilder or vault.rs to handle this.

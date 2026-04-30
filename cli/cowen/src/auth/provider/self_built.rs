@@ -321,8 +321,8 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
 
     fn requires_initial_push(&self, config: &Config) -> bool {
         // If AppTicket is missing, we need an initial push
-        let pool = self.pool.clone();
-        let app_key = config.app_key.clone();
+        let _pool = self.pool;
+        let _app_key = config.app_key.clone();
         
         // Note: In a real sync context this might be tricky, but here we can check synchronously if the pool allows or just return true to be safe
         // For simplicity and to match bridge.rs logic:
@@ -356,10 +356,6 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
 
     fn requires_ticket(&self) -> bool {
         true
-    }
-
-    async fn finalize_login(&self, _profile: &str, _config: &Config) -> Result<()> {
-        Ok(())
     }
 
     async fn perform_login(&self, profile: &str, config: &Config, force: bool, _finalize: Option<&str>) -> Result<()> {
@@ -398,7 +394,7 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
         }
     }
 
-    async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+    async fn get_status_entries(&self, profile: &str, _config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
         use crate::core::status::{StatusEntry, StatusLevel};
         let mut entries = Vec::new();
         let vault = self.pool.as_vault();

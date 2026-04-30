@@ -70,8 +70,8 @@ pub async fn status(app_config: &AppConfig) -> Result<()> {
     // 2. Check Cache
     if storage.cache == "none" {
         println!("  {} Cache: No cache configured.", "ℹ️".blue());
-    } else if storage.cache == "redis" {
-        match check_redis_connectivity(storage.cache_url.as_deref()).await {
+    } else if storage.cache != "none" {
+        match check_cache_connectivity(storage.cache.as_str(), storage.cache_url.as_deref()).await {
             Ok(_) => println!("  {} Cache: Connected to Redis successfully.", "✅".green()),
             Err(e) => println!("  {} Cache: Failed to connect to Redis. Reason: {}", "❌".red(), e),
         }

@@ -1,7 +1,8 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
 use async_trait::async_trait;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use super::{Store, AuditEntry, DlqMessage, Item};
 
 pub struct FileStore {

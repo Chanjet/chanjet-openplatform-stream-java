@@ -90,7 +90,7 @@ async fn handle_proxy(
     }
 
     // 2. Extract Parts
-    let (mut parts, body) = req.into_parts();
+    let (parts, body) = req.into_parts();
 
     // Convert axum headers to reqwest headers for provider compatibility
     let mut headers = reqwest::header::HeaderMap::new();

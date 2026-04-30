@@ -1,11 +1,8 @@
-use crate::auth::client::Client;
 use crate::auth::models::AuthMode;
 use crate::core::config::ConfigManager;
 use crate::core::vault::Vault;
 use anyhow::Result;
-use std::io::{BufRead, Write};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 pub async fn execute(
     profile: &str,

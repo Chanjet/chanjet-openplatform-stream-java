@@ -9,7 +9,6 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use crate::core::vault::Vault;
-use crate::auth::models::AuthMode;
 
 /// 启动守护进程 (主分发器)
 pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
@@ -119,7 +118,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     loop {
         tracing::info!(target: "sys", "Daemon core logic starting (PID: {}, Mode: {:?}, Version: {})", pid, current_config.app_mode, current_config.version);
         
-        let mut stream_opt = vault.watch_config(profile).await.ok();
+        let stream_opt = vault.watch_config(profile).await.ok();
         let mut reload = false;
 
         let engine = async {
@@ -142,9 +141,11 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
                     result = Ok(());
                     break; 
                 },
-                Some(key) = stream.next() => {
-                    tracing::info!(target: "sys", "Config change detected (key: {}). Hot-reloading daemon...", key);
-                    reload = true;
+                res = stream.next() => {
+                    if let Some(key) = res {
+                        tracing::info!(target: "sys", "Config change detected (key: {}). Hot-reloading daemon...", key);
+                        reload = true;
+                    }
                 }
             }
         } else {

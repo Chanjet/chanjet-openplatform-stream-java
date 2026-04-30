@@ -25,9 +25,18 @@ pub struct InitParams {
     pub stream_url: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub enum PlatformEvent {
+    AppTicket(String),
+    TempAuthCode {
+        code: String,
+        org_id: Option<String>,
+    },
+}
+
 #[async_trait]
 pub trait AuthProvider: Send + Sync {
-    /// 获取当前可用令牌。若过期则触发刷新或网络重整。
+    /// 获取当前可用令牌。若过期则触发刷新或网络整改。
     async fn get_token(&self, profile: &str, config: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token>;
     
     /// 强制执行网络刷新逻辑（忽略内存或本地缓存）。
@@ -74,13 +83,11 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// OCP: Capability check for OpenAPI call support.
-    /// StoreApp (Sidecar) mode typically disables direct CLI calls due to missing tenant context.
     fn supports_api_call(&self) -> bool {
         true
     }
 
     /// OCP: Unified Initialization Hook.
-    /// Handles everything from credential setup to background service startup.
     async fn initialize(
         &self,
         profile: &str,
@@ -95,14 +102,19 @@ pub trait AuthProvider: Send + Sync {
         &self,
         profile: &str,
         config: &Config,
-        path: &str,
-        method: &str,
+        _path: &str,
+        _method: &str,
         headers: reqwest::header::HeaderMap,
         body: &[u8],
         spec: &serde_json::Value,
-    ) -> Result<ProxyRequestAction>;
+    ) -> Result<ProxyRequestAction> {
+        let mut headers = headers;
+        let token = self.get_token(profile, config, &headers).await?;
+        headers.insert("Authorization", format!("Bearer {}", token.value).parse().unwrap());
+        let _ = (body, spec);
+        Ok(ProxyRequestAction::Forward { headers })
+    }
 
-    /// 🚀 后置响应拦截器：负责响应窥探（例如截取固定响应中的凭据）
     async fn intercept_response(
         &self,
         profile: &str,
@@ -110,39 +122,37 @@ pub trait AuthProvider: Send + Sync {
         path: &str,
         method: &str,
         status: u16,
-        response_headers: &reqwest::header::HeaderMap,
-        response_body: &[u8],
-    ) -> Result<()> {
-        let _ = (profile, config, path, method, status, response_headers, response_body);
+        headers: &reqwest::header::HeaderMap,
+        body: &[u8],
+    ) -> Result<Option<serde_json::Value>> {
+        let _ = (profile, config, path, method, status, headers, body);
+        Ok(None)
+    }
+
+    async fn on_login(&self, _profile: &str, _config: &Config, _headers: &mut reqwest::header::HeaderMap) -> Result<()> {
         Ok(())
     }
 
-    /// 🚀 登录/授权逻辑：执行特定模式的登录流 (由 cowen auth login 调用)
-    async fn perform_login(&self, profile: &str, config: &Config, force: bool, finalize: Option<&str>) -> Result<()>;
+    async fn on_logout(&self, _profile: &str, _config: &Config) -> Result<()> {
+        Ok(())
+    }
 
-    /// 🚀 UI/诊断能力：返回该模式特有的状态条目 (由 StatusCollector 调用)
-    async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>>;
+    async fn perform_login(&self, _profile: &str, _config: &Config, _force: bool, _finalize: Option<&str>) -> Result<()> {
+        Ok(())
+    }
 
-    /// 🚀 UI/配置能力：返回该模式默认使用的 AppKey (用于 init 指令校验)
+    async fn get_status_entries(&self, _profile: &str, _config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+        Ok(vec![])
+    }
+
+    fn get_capabilities(&self) -> Vec<String> {
+        vec![]
+    }
+
     fn get_default_app_key(&self) -> Option<String> {
         None
     }
 
-    /// 🚀 平台请求修饰：负责修饰获取 OpenAPI 规范的请求 (URL 和 Header)
     fn decorate_openapi_request(&self, _url: &mut String, _headers: &mut reqwest::header::HeaderMap, _token: &Token, _config: &Config) {
-        // Default implementation does nothing
     }
-
-    /// 🚀 登出逻辑：清理该模式特有的本地凭据
-    async fn on_logout(&self, _profile: &str, _config: &Config) -> Result<()> {
-        Ok(())
-    }
-}
-
-pub enum PlatformEvent {
-    AppTicket(String),
-    TempAuthCode {
-        code: String,
-        org_id: Option<String>,
-    },
 }

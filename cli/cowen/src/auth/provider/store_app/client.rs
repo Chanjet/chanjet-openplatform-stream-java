@@ -106,7 +106,7 @@ pub(crate) async fn intercept_exchange(
             }
 
             // Temporarily swap access token in pool for user context
-            let mut fake_pool_token = token.clone();
+            let fake_pool_token = token.clone();
             let custom_profile = storage::get_custom_profile(profile, app_key, &identity.org_id, Some(&identity.user_id));
             let _ = pool
                 .set_access_token(&custom_profile, &fake_pool_token)

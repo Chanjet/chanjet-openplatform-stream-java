@@ -2,7 +2,6 @@ use crate::core::vault::Vault;
 use crate::core::config::ConfigManager;
 use anyhow::Result;
 use serde::Serialize;
-use chrono::{Local, Utc};
 use sysinfo::System;
 use std::sync::Arc;
 

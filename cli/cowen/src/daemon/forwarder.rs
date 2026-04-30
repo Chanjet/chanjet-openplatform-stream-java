@@ -1,4 +1,4 @@
-use reqwest::Client;
+use reqwest::{Client, Url};
 use serde_json::Value;
 use std::time::Duration;
 use crate::daemon::dlq::DlqStore;
@@ -33,7 +33,7 @@ impl Forwarder {
         }
 
         // SSRF Protection: Loopback Only
-        if let Ok(url) = url::Url::parse(&self.target_url) {
+        if let Ok(url) = Url::parse(&self.target_url) {
             let host = url.host_str().unwrap_or("");
             if host != "localhost" && host != "127.0.0.1" && host != "[::1]" {
                 let err_msg = format!("Security Violation: Webhook target '{}' is NOT a loopback address. For security reasons (SSRF prevention), only localhost/127.0.0.1 is allowed.", host);
