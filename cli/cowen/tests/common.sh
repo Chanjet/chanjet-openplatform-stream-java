@@ -11,8 +11,16 @@ export BLUE='\033[1;34m'
 export BOLD='\033[1m'
 export NC='\033[0m'
 
-# Binary and URL defaults
-export COWEN_BIN="./target/debug/cowen"
+# Detect OS and adjust binary name
+OS_TYPE=$(uname -s)
+if [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
+    export COWEN_BIN="./target/debug/cowen.exe"
+    export IS_WINDOWS=true
+else
+    export COWEN_BIN="./target/debug/cowen"
+    export IS_WINDOWS=false
+fi
+
 export MOCK_URL="http://127.0.0.1:9299"
 export MOCK_WS="ws://127.0.0.1:9299"
 export COWEN_RAW_OUTPUT="true"
@@ -47,10 +55,29 @@ apply_fixture() {
 # Cleanup
 cleanup_suite() {
     echo -e "${YELLOW}  Cleaning up daemons...${NC}"
+    # Try graceful stop first
     "$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
-    lsof -ti :9091,9092,9093 | xargs kill -9 2>/dev/null || true
+    
+    # Force kill processes by port (Cross-platform helper)
+    kill_port() {
+        local port=$1
+        if [ "$IS_WINDOWS" = true ]; then
+            # Windows taskkill logic
+            local pid=$(netstat -ano | grep ":$port" | grep "LISTENING" | awk '{print $5}' | head -n 1)
+            if [ -n "$pid" ]; then taskkill //F //PID "$pid" >/dev/null 2>&1 || true; fi
+        else
+            # Unix kill logic
+            lsof -ti ":$port" | xargs kill -9 >/dev/null 2>&1 || true
+        fi
+    }
+
+    # Clean up standard proxy and mock ports
+    for p in 9091 9092 9093 9903 9908 9909; do
+        kill_port $p
+    done
+    
     if [ "$COWEN_MOCK_MANAGED" != "true" ]; then
-        lsof -ti :9299 | xargs kill -9 2>/dev/null || true
+        kill_port 9299
     fi
 }
 
@@ -82,7 +109,12 @@ start_mock() {
     fi
     echo -n "  Starting Mock Server..."
     # Ensure port is free
-    lsof -ti :9299 | xargs kill -9 2>/dev/null || true
+    if [ "$IS_WINDOWS" = true ]; then
+        local pid=$(netstat -ano | grep ":9299" | grep "LISTENING" | awk '{print $5}' | head -n 1)
+        if [ -n "$pid" ]; then taskkill //F //PID "$pid" >/dev/null 2>&1 || true; fi
+    else
+        lsof -ti :9299 | xargs kill -9 2>/dev/null || true
+    fi
     sleep 1
     python3 tests/mock_server.py > mock_server.log 2>&1 &
     MOCK_PID=$!
