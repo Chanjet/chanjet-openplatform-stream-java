@@ -267,11 +267,18 @@ else ifeq ($(HOST_OS),windows)
 	@$(MAKE) test-win
 endif
 
-# 在 Linux 容器中执行全量 E2E (Podman)
+# 在 Linux 容器中执行全量 E2E (Podman) - 支持缓存共享
 test-linux: prepare-podman-machine
-	@echo "🧪 Running Full E2E Suite in Linux container via Podman..."
-	podman build -t cowen-test-linux -f tests/Dockerfile.linux .
-	podman run --rm cowen-test-linux
+	@echo "🧪 Running Full E2E Suite in Linux container with Shared Cache..."
+	@if ! podman image exists cowen-test-base; then \
+		podman build -t cowen-test-base -f tests/Dockerfile.linux.base .; \
+	fi
+	podman run --rm -it \
+		-v "$(shell pwd):/app" \
+		-v "$(HOME)/.cargo/registry:/usr/local/cargo/registry" \
+		-v "$(HOME)/.cargo/git:/usr/local/cargo/git" \
+		cowen-test-base \
+		./tests/run_suites.sh
 
 # 在 Windows PowerShell 环境下执行测试
 test-win:
