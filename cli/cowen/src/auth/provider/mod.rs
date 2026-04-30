@@ -23,6 +23,7 @@ pub struct InitParams {
     pub webhook_target: Option<String>,
     pub openapi_url: Option<String>,
     pub stream_url: Option<String>,
+    pub proxy_port: Option<u16>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +42,31 @@ pub trait AuthProvider: Send + Sync {
     
     /// 强制执行网络刷新逻辑（忽略内存或本地缓存）。
     async fn refresh(&self, profile: &str, config: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token>;
+    
+    /// 🚀 获取应用级访问令牌 (AppAccessToken)
+    async fn get_app_access_token(&self, profile: &str, config: &Config) -> Result<Token> {
+        self.get_token(profile, config, &Default::default()).await
+    }
+
+    /// 🚀 临时授权码兑换永久授权码 (StoreApp 专有，其他模式默认不支持)
+    async fn exchange_temp_code(&self, _profile: &str, _config: &Config, _org_id: &str, _temp_code: &str) -> Result<Token> {
+        Err(anyhow::anyhow!("Temporary code exchange is not supported in this auth mode"))
+    }
+
+    /// 🚀 获取用户级访问令牌 (UserAccessToken)
+    async fn get_user_token(&self, _profile: &str, _config: &Config, _org_id: &str, _user_id: &str) -> Result<Token> {
+        Err(anyhow::anyhow!("User token retrieval is not supported in this auth mode"))
+    }
+
+    /// 🚀 令牌兑换拦截器 (用于劫持 OAuth2 流程)
+    async fn intercept_exchange(&self, _profile: &str, _config: &Config, _body: &[u8]) -> Result<serde_json::Value> {
+        Err(anyhow::anyhow!("Exchange interception is not supported in this auth mode"))
+    }
+
+    /// 🚀 触发凭证推送 (SelfBuilt 专有)
+    async fn trigger_push(&self, _profile: &str, _config: &Config, _force: bool) -> Result<()> {
+        Ok(()) // 默认静默忽略
+    }
 
     /// 🚀 维护周期回调：由守护进程定时触发，负责令牌“保鲜”或状态修复
     async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> Result<()> {
@@ -96,6 +122,17 @@ pub trait AuthProvider: Send + Sync {
         cfg_mgr: &crate::core::config::ConfigManager,
         params: InitParams,
     ) -> Result<()>;
+
+    /// 🚀 配置补全钩子：在守护进程启动前，从 Vault 中捞出敏感信息注入内存配置
+    async fn hydrate_config(
+        &self,
+        profile: &str,
+        config: &mut Config,
+        vault: std::sync::Arc<dyn crate::core::vault::Vault>,
+    ) -> Result<()> {
+        let _ = (profile, config, vault);
+        Ok(())
+    }
 
     /// 🚀 前置请求拦截器：负责请求修饰（Header/Token注入）或请求劫持短路
     async fn intercept_request(

@@ -9,6 +9,8 @@ use std::net::SocketAddr;
 use crate::core::config::Config;
 use anyhow::Result;
 
+use std::sync::Arc;
+
 #[derive(Clone)]
 pub struct ProxyState {
     pub client: Client,
@@ -46,8 +48,9 @@ async fn handle_proxy(
     State(state): State<ProxyState>,
     req: Request,
 ) -> impl IntoResponse {
-    let path = req.uri().path_and_query().map(|x| x.as_str()).unwrap_or("");
-    let target_url = format!("{}{}", state.config.openapi_url, path);
+    // 2. Extract Parts
+    let (parts, body) = req.into_parts();
+    let target_url = format!("{}{}", state.config.openapi_url, parts.uri.path_and_query().map(|x| x.as_str()).unwrap_or(""));
 
     // 1. Resolve Auth & Spec
     let fingerprint = match crate::core::security::get_machine_fingerprint() {
@@ -69,17 +72,16 @@ async fn handle_proxy(
         Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Vault unlock failed").into_response()
     };
 
-    let pool = crate::auth::VaultTokenPool::new(vault.clone());
-    let auth_cli = crate::auth::AuthClient::new(&pool);
-    use crate::auth::client::Client as AuthTrait; // This import was inside the old match, moved here for scope.
+    let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
+    use crate::auth::client::Client as AuthTrait; 
 
     let spec = match auth_cli.get_openapi_spec(&state.profile, &state.config, false).await {
         Ok(s) => s,
         Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Spec error: {}", crate::core::utils::mask_sensitive_json(&e.to_string()))).into_response()
     };
 
-    let req_path = req.uri().path().to_string();
-    let method_str = req.method().to_string();
+    let req_path = parts.uri.path().to_string();
+    let method_str = parts.method.to_string();
 
     if !crate::auth::client::is_path_in_whitelist(&req_path, &spec) {
         tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, "Proxy Rejected: Path not in whitelist");
@@ -88,9 +90,6 @@ async fn handle_proxy(
                 format!("Proxy Rejected: Target path {} is not in the OpenAPI whitelist.", req_path),
         ).into_response();
     }
-
-    // 2. Extract Parts
-    let (parts, body) = req.into_parts();
 
     // Convert axum headers to reqwest headers for provider compatibility
     let mut headers = reqwest::header::HeaderMap::new();

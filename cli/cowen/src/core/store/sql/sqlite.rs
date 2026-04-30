@@ -40,6 +40,15 @@ impl SqlDriver for SqliteDriver {
         Ok(())
     }
     async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> Result<()> {
+        if expected_version == 0 {
+            let res = sqlx::query("INSERT INTO cowen_config (profile, item_key, item_value, version) VALUES (?, ?, ?, 1) ON CONFLICT(profile, item_key) DO NOTHING")
+                .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
+            if res.rows_affected() == 0 {
+                return Err(anyhow::anyhow!("Conflict: Config has been modified by another node (expected version 0, but found different)"));
+            }
+            return Ok(());
+        }
+
         let res = sqlx::query("UPDATE cowen_config SET item_value = ?, version = version + 1 WHERE profile = ? AND item_key = ? AND version = ?")
             .bind(value).bind(profile).bind(key).bind(expected_version as i64).execute(&self.pool).await?;
         if res.rows_affected() == 0 {

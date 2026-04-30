@@ -274,7 +274,9 @@ impl ConfigManager {
         if let Some(vault) = self.vault.get() {
             if let Ok(remote_profiles) = vault.list_all_profiles().await {
                 for p in remote_profiles {
-                    profiles.insert(p);
+                    if !p.starts_with("app:") {
+                        profiles.insert(p);
+                    }
                 }
             }
         }
@@ -324,6 +326,9 @@ impl ConfigManager {
 }
 
 pub fn get_app_dir() -> PathBuf {
+    if let Ok(path) = std::env::var("COWEN_HOME") {
+        return PathBuf::from(path);
+    }
     let home = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
     home.join(".cowen")
 }

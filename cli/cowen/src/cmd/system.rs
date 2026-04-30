@@ -360,19 +360,6 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
         eprintln!("🔄 Active profile deleted. Switched to '{}'.", next_profile);
     }
 
-
-    let log_dir = base_dir.join("logs");
-    if log_dir.exists() {
-        let prefix = format!("{}_", _profile);
-        if let Ok(entries) = std::fs::read_dir(&log_dir) {
-            for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.starts_with(&prefix) { let _ = std::fs::remove_file(entry.path()); }
-                }
-            }
-        }
-    }
-    
     eprintln!("✨ Profile '{}' reset complete.", _profile);
     Ok(())
 }
@@ -502,8 +489,7 @@ struct AuthStatusCollector;
 impl StatusCollector for AuthStatusCollector {
     fn name(&self) -> &str { "Authentication" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        let pool = VaultTokenPool::new(ctx.vault.clone());
-        let auth = AuthClient::new(&pool);
+        let auth = crate::auth::create_auth_client_with_vault(ctx.vault.clone());
         
         let mut entries = auth.get_status_entries(&ctx.profile, ctx.config).await?;
         
@@ -550,8 +536,7 @@ impl StatusCollector for DaemonCollector {
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
         let (found_daemon_pid, found_build_id) = get_active_daemon_info(&ctx.profile).await;
         
-        let pool = VaultTokenPool::new(ctx.vault.clone());
-        let auth = AuthClient::new(&pool);
+        let auth = crate::auth::create_auth_client_with_vault(ctx.vault.clone());
         let is_running = found_daemon_pid.is_some();
         let (display_name, efficiency_tip) = auth.get_daemon_display_info(ctx.config, is_running);
 

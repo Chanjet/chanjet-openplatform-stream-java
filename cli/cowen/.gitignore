@@ -1,0 +1,20 @@
+# Rust
+target/
+Cargo.lock
+
+# Test Environments
+.cowen_test/
+.cowen_multi_test/
+.cowen_audit_test/
+
+# Logs
+*.log
+logs/
+
+# Temporary Files
+check_output.txt
+scratch/
+.DS_Store
+
+# Mac
+.DS_Store

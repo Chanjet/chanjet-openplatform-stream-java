@@ -11,7 +11,7 @@ use tokio::time::{sleep, Duration};
 /// 负责在后台静默监控 AccessToken 的生存期并在临期前主动刷新
 pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>) -> Result<()> {
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
-    let auth = AuthClient::new(pool.as_ref());
+    let auth = crate::auth::create_auth_client(pool.clone());
 
     tracing::info!(target: "sys", "Token Renewer engine initialized for OAuth2 profile: {}", profile);
 

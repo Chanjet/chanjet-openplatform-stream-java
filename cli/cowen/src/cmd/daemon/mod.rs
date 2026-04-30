@@ -21,11 +21,10 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
     for p in target_profiles {
         let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| Config::default_with_profile(&p)) };
         
-        // 注入 Vault 中的敏感信息
+        // 注入 Vault 中的敏感信息 (SPI 委派)
         if p != profile {
-            if let Ok(as_val) = vault.get(&p, "app_secret").await { p_cfg.app_secret = as_val; }
-            if let Ok(cert) = vault.get(&p, "certificate").await { p_cfg.certificate = cert; }
-            if let Ok(ek) = vault.get(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
+            let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
+            let _ = auth_cli.provider(&p_cfg.app_mode).hydrate_config(&p, &mut p_cfg, vault.clone()).await;
         }
         
         let pid_file = crate::core::config::get_app_dir().join(format!("{}_daemon.pid", p));
@@ -58,7 +57,11 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         child_cmd.arg("--profile").arg(profile).arg("daemon").arg("start")
             .arg("--proxy-port").arg(proxy_port.to_string())
             .arg("--foreground") // 子进程运行在“前台”模式，但实际 stdio 被重定向
-            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+            .stdin(Stdio::null());
+
+        let log_file = std::fs::File::create(app_dir.join(format!("{}_child_crash.log", profile))).unwrap();
+        let err_file = log_file.try_clone().unwrap();
+        child_cmd.stdout(Stdio::from(log_file)).stderr(Stdio::from(err_file));
 
         if enable_proxy { child_cmd.arg("--enable-proxy"); }
         #[cfg(unix)]

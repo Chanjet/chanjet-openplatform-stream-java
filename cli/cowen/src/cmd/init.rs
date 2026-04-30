@@ -17,6 +17,7 @@ pub async fn execute(
     openapi_url: &Option<String>,
     stream_url: &Option<String>,
     app_mode: &Option<String>,
+    proxy_port: &Option<u16>,
 ) -> Result<()> {
     let is_new = !cfg_mgr.exists(profile).await;
     let mut config = cfg_mgr.load(profile).await?;
@@ -31,8 +32,8 @@ pub async fn execute(
         };
 
         // Determine requested key using SPI (Personality check)
-        let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
-        let auth_cli = crate::auth::AuthClient::new(&token_pool);
+        let token_pool = Arc::new(crate::auth::VaultTokenPool::new(vault.clone()));
+        let auth_cli = crate::auth::create_auth_client(token_pool.clone());
         let requested_key = auth_cli
             .provider(&requested_mode)
             .get_default_app_key()
@@ -56,6 +57,7 @@ pub async fn execute(
     } else {
         // Logic Fix: Save early for new profiles to anchor the identity
         cfg_mgr.save(profile, &config).await?;
+        config.version += 1;
     }
 
     // Determine Auth Mode
@@ -68,8 +70,8 @@ pub async fn execute(
     config.app_mode = mode;
 
     // 1. Delegate All Mode-Specific Initialization (Personality) to Provider
-    let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
-    let auth_cli = crate::auth::AuthClient::new(&token_pool);
+    let token_pool = Arc::new(crate::auth::VaultTokenPool::new(vault.clone()));
+    let auth_cli = crate::auth::create_auth_client(token_pool.clone());
     
     // Collect all parameters into InitParams
     let params = crate::auth::provider::InitParams {
@@ -80,6 +82,7 @@ pub async fn execute(
         webhook_target: webhook_target.clone(),
         openapi_url: openapi_url.clone(),
         stream_url: stream_url.clone(),
+        proxy_port: proxy_port.clone(),
     };
 
     // Assign a unique port if this is a new profile or it's currently 0 or 8080 (the old default)

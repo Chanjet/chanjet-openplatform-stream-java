@@ -21,7 +21,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     };
     let client = Arc::new(GatewayClient::new(options));
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
-    let auth = AuthClient::new(pool.as_ref());
+    let auth = crate::auth::create_auth_client(pool.clone());
     let supports_webhooks = auth.supports_webhooks(config);
 
     // 1. Task: Local Proxy
@@ -72,7 +72,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
             let t_config_inner = t_config.clone();
             
             tokio::spawn(async move {
-                let auth = AuthClient::new(t_pool_inner.as_ref());
+                let auth = crate::auth::create_auth_client(t_pool_inner.clone());
                 let event = crate::auth::provider::PlatformEvent::TempAuthCode {
                     code: temp_code,
                     org_id: Some(org_id),
@@ -92,7 +92,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
             let pk_config_inner = pk_config.clone();
             
             tokio::spawn(async move {
-                let auth = AuthClient::new(pk_pool_inner.as_ref());
+                let auth = crate::auth::create_auth_client(pk_pool_inner.clone());
                 let _ = auth.handle_platform_event(&pk_profile_inner, &pk_config_inner, crate::auth::provider::PlatformEvent::AppTicket(ticket_val)).await;
             });
             true
@@ -118,7 +118,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     let p_pool_m = pool.clone();
     let maintenance_task = tokio::spawn(async move {
         sleep(Duration::from_secs(2)).await;
-        let auth = AuthClient::new(p_pool_m.as_ref());
+        let auth = crate::auth::create_auth_client(p_pool_m.clone());
 
         // 🚀 OCP: Generic Initial Push Check
         if auth.requires_initial_push(&p_config_m) && supports_webhooks {

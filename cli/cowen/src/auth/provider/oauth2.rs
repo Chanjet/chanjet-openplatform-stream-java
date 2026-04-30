@@ -18,8 +18,8 @@ pub struct Pkce {
     pub verifier: String,
 }
 
-pub struct OAuth2Provider<'a> {
-    pool: &'a (dyn TokenPool + Send + Sync),
+pub struct OAuth2Provider {
+    pool: Arc<dyn TokenPool>,
     http_sender: Arc<dyn HttpSender>,
 }
 
@@ -32,8 +32,8 @@ struct OAuth2TokenResponse {
     refresh_expires_in: Option<i64>,
 }
 
-impl<'a> OAuth2Provider<'a> {
-    pub fn new(pool: &'a (dyn TokenPool + Send + Sync), http_sender: Arc<dyn HttpSender>) -> Self {
+impl OAuth2Provider {
+    pub fn new(pool: Arc<dyn TokenPool>, http_sender: Arc<dyn HttpSender>) -> Self {
         Self { pool, http_sender }
     }
 
@@ -180,7 +180,7 @@ impl<'a> OAuth2Provider<'a> {
     async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
         tracing::info!(target: "sys", profile = %profile, "Finalizer started for OAuth2 auth");
         
-        let session_manager = AuthSessionManager::new(self.pool);
+        let session_manager = AuthSessionManager::new(self.pool.as_ref());
         let session = session_manager.get_session(profile).await?;
         
         let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
@@ -226,7 +226,20 @@ impl<'a> OAuth2Provider<'a> {
 }
 
 #[async_trait]
-impl<'a> AuthProvider for OAuth2Provider<'a> {
+impl AuthProvider for OAuth2Provider {
+    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> Result<()> {
+        if let Ok(pair_str) = self.pool.as_vault().get(profile, "oauth2_token_pair").await {
+            if let Ok(pair) = serde_json::from_str::<OAuth2TokenPair>(&pair_str) {
+                let remaining = pair.expires_at.signed_duration_since(chrono::Utc::now());
+                if remaining < chrono::Duration::minutes(15) {
+                    tracing::info!(target: "sys", "OAuth2 token expires in {:?}. Proactively refreshing...", remaining);
+                    let _ = self.refresh(profile, config, &Default::default()).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn get_token(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
         // 1. Fast path: check current memory/local cache
         if let Ok(token) = self.pool.get_access_token(profile).await {
@@ -254,7 +267,7 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
             }
 
             // 4. Finalizer Path: Check for captured code
-            let session_manager = AuthSessionManager::new(self.pool);
+            let session_manager = AuthSessionManager::new(self.pool.as_ref());
             if let Ok(code) = session_manager.get_captured_code(profile).await {
                 if let Ok(session) = session_manager.get_session(profile).await {
                     tracing::info!(target: "sys", "Captured auth code found for profile '{}'. Finalizing exchange...", profile);
@@ -339,6 +352,19 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         }
         config.app_key = crate::auth::models::BUILTIN_CLIENT_ID.to_string();
         config.app_secret = "".to_string();
+
+        if let Some(url) = params.openapi_url {
+            config.openapi_url = url;
+        }
+        if let Some(url) = params.stream_url {
+            config.stream_url = url;
+        }
+        if let Some(target) = params.webhook_target {
+            config.webhook_target = target;
+        }
+        if let Some(port) = params.proxy_port {
+            config.proxy_port = port;
+        }
 
         // 2. Persist config early so callback listeners can see it
         cfg_mgr.save(profile, config).await?;

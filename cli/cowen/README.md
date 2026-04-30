@@ -57,9 +57,11 @@ cowen daemon start --proxy-port 8080
 
 ## 📖 详细文档
 
-- [架构设计 (Architecture)](docs/ARCHITECTURE.md) - 深入了解 `RequestDecorator`、插件系统与安全性设计。
-- [动态规约发现 (Dynamic Spec)](docs/TECHNICAL_SPEC.md#26-动态-openapi-发现-dynamic-openapi-discovery) - 详述 Spec 抓取、聚合与 TTL 缓存机制。
-- [命令指南 (Commands)](docs/COMMANDS.md) - 全量的子命令参数说明（Api, Auth, Dlq, Log, Profile）。
+- [架构设计 (Architecture)](docs/ARCHITECTURE.md) - 深入了解 `AuthProvider` SPI、插件系统与安全性设计。
+- [技术规范 (Technical Spec)](docs/TECHNICAL_SPEC.md) - 详述存储驱动、Token 维护生命周期与自愈逻辑。
+- [命令指南 (Commands)](docs/COMMANDS.md) - 全量的子命令参数说明（Api, Auth, Daemon, Store, System）。
+- [日志指南 (Logging)](docs/LOGGING.md) - 详述多域遥测系统与日志滚动策略。
+- [历史文档归档 (Archive)](docs/archive/v1/) - 包含 owenc 时期的历史规范与设计初稿。
 
 ## 🛠️ 开发者指南
 

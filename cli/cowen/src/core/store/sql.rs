@@ -90,13 +90,16 @@ impl SqlStore {
     pub async fn from_url(url: &str) -> Result<Self> {
         let mut scheme = url.split(':').next().ok_or_else(|| anyhow::anyhow!("Invalid database URL"))?;
         
-        if scheme == "innerdb" {
+        let actual_url = if scheme == "innerdb" {
             scheme = "sqlite";
-        }
+            url.replace("innerdb://", "sqlite://")
+        } else {
+            url.to_string()
+        };
         
         for reg in inventory::iter::<SqlBuilderRegistration> {
             if reg.builder.scheme() == scheme {
-                let driver = reg.builder.build(url).await?;
+                let driver = reg.builder.build(&actual_url).await?;
                 return Ok(Self::new(driver));
             }
         }

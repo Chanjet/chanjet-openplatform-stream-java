@@ -1,93 +1,95 @@
-# owenc 命令指南 (Commands)
+# cowen 命令指南 (Commands v0.3.0)
 
-本文档详细介绍了 `owenc` 所有子命令的用法与参数。
+本文档详述了 `cowen` CLI 所有可用命令及其功能。
 
-## 📁 1. 配置与环境 (Profile & Init)
+## 📁 1. 基础治理 (Init, Config, Reset)
 
 ### `init` - 初始化
-引导式初始化当前 Profile 的配置与加密凭据。
+配置 Profile 环境、托管安全凭据。
+- `--app-mode`: 指定应用类型 (`self_built` 或 `oauth2`)。
+- `--app-key` / `--app-secret`: 凭据。
+- `--proxy-port`: 设置本地代理端口。
 
-- **必选参数 (管家模式/自建应用)**:
-  - `--app-key`: 开放平台 AppKey。
-  - `--app-secret`: 开放平台 AppSecret。
-  - `-c, --certificate`: 自建应用证书 (Certificate)。
-- **可选参数**:
-  - `--webhook-target`: 本地 Webhook 接收地址。
-  - `--openapi-url` / `--stream-url`: 覆盖默认的平台地址。
+### `config` - 查看配置
+查看当前活跃 Profile 的非敏感配置信息。支持 `-o json` 输出。
 
-```bash
-owenc init --app-key <KEY> --app-secret <SECRET> -c <CERT>
-```
-
-### `profile` - 环境管理
-`owenc` 支持多环境隔离。π
-- `owenc profile use <NAME>`: 切换到指定环境（如 `prod`）。
-- `owenc profile current`: 显示当前激活的环境。
+### `reset` - 重置环境
+物理粉碎当前 Profile 的所有本地配置、缓存与 Vault 凭据。
 
 ---
 
-## 🔍 2. 接口治理 (Api)
+## 🔍 2. 接口能力 (Api)
 
-### `api list` - 智能检索
-- `owenc api list`: 列出所有 API（带摘要与描述）。
-- `owenc api list -s "关键词"`: 启用 **Neural Search** 语义搜索，基于意图发现接口。
-- `-n <TOP>`: 指定搜索结果的数量。
+### `api list` - 智能搜索
+- `cowen api list`: 列出已授权 API。
+- `-s, --search`: 语义搜索。例如 `cowen api list -s "查询余额"`。
+- `--refresh`: 强制从平台同步最新的 OpenAPI 规约。
 
-### `api spec` - 规范查看
-查看特定接口的详尽定义或原始 OpenAPI 片段。
+### `api spec` - 规约详情
+查看指定接口的文档定义或原始 JSON 片段。
+
+### `api [METHOD] [PATH]` - 接口调用
+直接发起受控请求，系统自动处理签名与 Token。
 ```bash
-owenc api spec GET /v1/user --raw
-```
-
-### `api [METHOD] [PATH]` - 直接调用
-声明式调用接口，系统会自动处理鉴权。
-```bash
-owenc api POST /v1/orders/create -d '{"id": 1}'
+cowen api GET /v1/user
+cowen api POST /v1/orders -d '{"amount": 100}'
 ```
 
 ---
 
-## 🛡️ 3. 守护进程与代理 (Daemon)
+## 🛡️ 3. 身份与安全 (Auth, Vault)
 
-### `daemon start` - 开启服务
-在后台启动代理服务器与转发器。
-- `--proxy-port <PORT>`: 自定义本地代理端口（默认 8080）。
-- `--foreground`: 在前台运行以便观察实时日志。
+### `auth status`
+检查当前环境的 Token 健康度与 AppTicket 状态。
 
-### `daemon stop` - 停止服务
-安全停止所有后台进程。
+### `auth login`
+手动触发网络换票流程。
+- `--force`: 强制使本地缓存失效并重新换票。
 
----
-
-## 📦 4. 故障处理 (Dlq)
-
-### `dlq list` - 查看堆积
-列出所有转发失败的消息及其错误原因。
-
-### `dlq retry <ID>` - 手动重试
-针对特定消息进行重发，成功后自动移除。
-
-### `dlq purge` - 清空队列
-一键清理所有过期的死信记录。
+### `auth logout`
+清理本地内存与 Vault 中的 Token 缓存。
 
 ---
 
-## 📈 5. 日志与遥测 (Log)
+## ⚙️ 4. 系统与后台 (Daemon, System, Store)
 
-### `log list` - 列出日志
-查看 `sys`, `audit`, `stream`, `dlq` 等日志域的文件状态。
+### `daemon start`
+启动长连接桥接器与反向代理。
+- `--enable-proxy`: 同时开启本地 HTTP 代理。
+- `--foreground`: 前台运行观察日志。
 
-### `log view <DOMAIN>` - 追踪日志
-- `owenc log view sys`: 查看最后 10 行系统日志。
-- `--follow` / `-f`: 开启实时追踪模式（类似 `tail -f`）。
-- `--lines <N>`: 指定显示的行数。
+### `system status --all`
+扫描并诊断系统所有 Profile 的运行状态矩阵。
+
+### `store status`
+检查存储后端（如 SQLite）的连接性与健康度。
+
+### `store set --store <TYPE>`
+切换全局存储后端 (e.g. `local`, `innerdb`)。
 
 ---
 
-## ⌨️ 6. 其它 (Completion)
+## 📦 5. 运维审计 (Log, Dlq)
 
-### `completion --install` - 自动补全
-自动为当前用户的 Shell（Zsh/Bash/Fish）安装命令自动补全脚本。
+### `log list`
+查看当前的日志域列表（sys, audit, stream, dlq）。
+
+### `log view <DOMAIN>`
+- `--follow`: 实时追踪日志流水。
+- `-n`: 指定起始行数。
+
+### `dlq list`
+查看堆积的失败事件。
+
+### `dlq retry <ID>`
+手动触发死信重发。
+
+---
+
+## ⌨️ 6. 其它
+
+### `completion --install`
+自动安装 Shell 命令补全脚本。
 
 ---
 © 2026 Chanjet Advanced Agentic Coding Team.

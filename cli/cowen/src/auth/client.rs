@@ -172,23 +172,41 @@ pub trait Client: Send + Sync {
     async fn get_status_entries(&self, profile: &str, cfg: &Config) -> Result<Vec<crate::core::status::StatusEntry>>;
 }
 
-use crate::auth::provider::self_built::SelfBuiltProvider;
 use crate::auth::provider::AuthProvider;
 use crate::auth::models::AuthMode;
+use std::collections::HashMap;
 
-use crate::auth::provider::oauth2::OAuth2Provider;
-use crate::auth::provider::store_app::StoreAppProvider;
-
-pub struct AuthClient<'a> {
-    pool: &'a (dyn TokenPool + Send + Sync),
+pub struct AuthClient {
+    pool: Arc<dyn TokenPool + Send + Sync>,
     http_sender: Arc<dyn HttpSender>,
-    self_built: SelfBuiltProvider<'a>,
-    oauth2: OAuth2Provider<'a>,
-    store_app: StoreAppProvider<'a>,
+    providers: HashMap<AuthMode, Arc<dyn AuthProvider>>,
 }
 
-impl<'a> AuthClient<'a> {
-    pub fn new(pool: &'a (dyn TokenPool + Send + Sync)) -> Self {
+/// Builder for constructing AuthClient with registered providers.
+/// Keeps `client.rs` free from concrete provider type knowledge.
+pub struct AuthClientBuilder {
+    pub(crate) pool: Arc<dyn TokenPool + Send + Sync>,
+    pub(crate) http_sender: Arc<dyn HttpSender>,
+    providers: HashMap<AuthMode, Arc<dyn AuthProvider>>,
+}
+
+impl AuthClientBuilder {
+    pub fn register(mut self, mode: AuthMode, provider: Arc<dyn AuthProvider>) -> Self {
+        self.providers.insert(mode, provider);
+        self
+    }
+
+    pub fn build(self) -> AuthClient {
+        AuthClient {
+            pool: self.pool,
+            http_sender: self.http_sender,
+            providers: self.providers,
+        }
+    }
+}
+
+impl AuthClient {
+    pub fn builder(pool: Arc<dyn TokenPool + Send + Sync>) -> AuthClientBuilder {
         #[cfg(not(feature = "inte"))]
         let http_sender: Arc<dyn HttpSender> = Arc::new(ReqwestSender::new());
 
@@ -199,37 +217,24 @@ impl<'a> AuthClient<'a> {
             Arc::new(ReqwestSender::new())
         };
 
-        Self {
+        AuthClientBuilder {
             pool,
-            http_sender: http_sender.clone(),
-            self_built: SelfBuiltProvider::with_sender(pool, http_sender.clone()),
-            oauth2: OAuth2Provider::new(pool, http_sender.clone()),
-            store_app: StoreAppProvider::new(pool, http_sender),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn with_sender(pool: &'a (dyn TokenPool + Send + Sync), sender: Arc<dyn HttpSender>) -> Self {
-        Self {
-            pool,
-            http_sender: sender.clone(),
-            self_built: SelfBuiltProvider::with_sender(pool, sender.clone()),
-            oauth2: OAuth2Provider::new(pool, sender.clone()),
-            store_app: StoreAppProvider::new(pool, sender),
+            http_sender,
+            providers: HashMap::new(),
         }
     }
 
     pub fn provider(&self, mode: &AuthMode) -> &dyn AuthProvider {
-        match mode {
-            AuthMode::SelfBuilt => &self.self_built,
-            AuthMode::Oauth2 => &self.oauth2,
-            AuthMode::StoreApp => &self.store_app,
-        }
+        self.providers.get(mode)
+            .map(|p| p.as_ref())
+            .unwrap_or_else(|| {
+                panic!("No provider registered for mode: {:?}", mode);
+            })
     }
 }
 
 #[async_trait::async_trait]
-impl<'a> Client for AuthClient<'a> {
+impl Client for AuthClient {
     async fn get_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> Result<Token> {
         self.provider(&cfg.app_mode).get_token(profile, cfg, headers).await
     }
@@ -286,37 +291,32 @@ impl<'a> Client for AuthClient<'a> {
     }
 
     async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> Result<()> {
-        self.self_built.trigger_push(profile, cfg, force).await
+        self.provider(&cfg.app_mode).trigger_push(profile, cfg, force).await
     }
 
     async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        let token = self.store_app.get_app_access_token(profile, cfg).await?;
+        let token = self.provider(&cfg.app_mode).get_app_access_token(profile, cfg).await?;
         // 🚀 归档到持久化池
         let _ = self.pool.set_app_access_token(&cfg.app_key, &token).await;
         Ok(token)
     }
 
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        let token = self.store_app.get_app_access_token(profile, cfg).await?;
+        let token = self.provider(&cfg.app_mode).get_app_access_token(profile, cfg).await?;
         let _ = self.pool.set_app_access_token(&cfg.app_key, &token).await;
         Ok(token)
     }
 
     async fn exchange_temp_code(&self, profile: &str, cfg: &Config, org_id: &str, temp_code: &str) -> Result<Token> {
-        // This is the core flow: tempCode -> permanentCode -> accessToken
-        let _ = self.store_app.exchange_permanent_code_by_temp_code(profile, cfg, org_id, temp_code).await?;
-        tracing::info!(target: "audit", profile = %profile, orgId = %org_id, "Exchanged tempCode for permanentCode");
-        
-        // After getting permanent code, we usually want the initial org token
-        self.store_app.get_org_token(profile, cfg, org_id).await
+        self.provider(&cfg.app_mode).exchange_temp_code(profile, cfg, org_id, temp_code).await
     }
 
     async fn get_user_access_token(&self, profile: &str, cfg: &Config, org_id: &str, user_id: &str) -> Result<Token> {
-        self.store_app.get_user_token(profile, cfg, org_id, user_id).await
+        self.provider(&cfg.app_mode).get_user_token(profile, cfg, org_id, user_id).await
     }
 
     async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> Result<serde_json::Value> {
-        self.store_app.intercept_exchange(profile, cfg, body_bytes).await
+        self.provider(&cfg.app_mode).intercept_exchange(profile, cfg, body_bytes).await
     }
 
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value> {
@@ -526,7 +526,7 @@ impl<'a> Client for AuthClient<'a> {
     }
 }
 
-impl<'a> AuthClient<'a> {
+impl AuthClient {
     fn save_spec_to_cache(&self, path: &std::path::PathBuf, spec: &serde_json::Value) -> Result<()> {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);

@@ -26,6 +26,7 @@ mod cmd;
 mod daemon;
 
 use clap::Parser;
+use std::sync::Arc;
 use crate::core::config::ConfigManager;
 use crate::core::security;
 use crate::core::utils::get_bin_name;
@@ -80,6 +81,8 @@ pub enum Commands {
         stream_url: Option<String>,
         #[arg(long, help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用)")]
         app_mode: Option<String>,
+        #[arg(long, help = "本地代理监听端口")]
+        proxy_port: Option<u16>,
     },
     /// 调用开放平台 API 或管理接口规范
     #[command(long_about = "调用开放平台 API 或管理接口规范。\n\n此命令支持两种模式：\n1. 直接调用 API: 提供 [METHOD] (如 GET, POST) 和 [PATH] (如 /v1/user) 直接发起请求。\n   CLI 会自动处理鉴权 Token 注入、请求签名与审计记录。\n2. 子命令管理: 使用 'list' 或 'spec' 进行 API 的检索、语义搜索与文档查看。")]
@@ -523,8 +526,8 @@ async fn run() -> Result<()> {
     }
     
     // 2. Initialize Auth
-    let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
-    let auth_cli = crate::auth::AuthClient::new(&token_pool);
+    let token_pool = Arc::new(crate::auth::VaultTokenPool::new(vault.clone()));
+    let auth_cli = crate::auth::create_auth_client(token_pool.clone());
 
     // Now handle 'store migrate' which needs the vault
     if let Commands::Store { action: StoreCommands::Migrate { to, mode } } = &cli.command {
@@ -554,6 +557,7 @@ async fn run() -> Result<()> {
             openapi_url,
             stream_url,
             app_mode,
+            proxy_port,
         } => {
             cmd::init::execute(
                 &active_profile, 
@@ -568,6 +572,7 @@ async fn run() -> Result<()> {
                 openapi_url,
                 stream_url,
                 app_mode,
+                proxy_port,
             ).await?;
         }
         Commands::Api { method, path, data, data_file, action } => {

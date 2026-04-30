@@ -9,8 +9,8 @@ use chrono::{Utc, Duration};
 use serde::Deserialize;
 use std::sync::Arc;
 
-pub struct SelfBuiltProvider<'a> {
-    pool: &'a (dyn TokenPool + Send + Sync),
+pub struct SelfBuiltProvider {
+    pool: Arc<dyn TokenPool>,
     http_sender: Arc<dyn HttpSender>,
     refresh_lock: Arc<tokio::sync::Mutex<()>>,
 }
@@ -30,9 +30,9 @@ struct TokenValue {
     expires_in: i64,
 }
 
-impl<'a> SelfBuiltProvider<'a> {
+impl SelfBuiltProvider {
     #[allow(dead_code)]
-    pub fn new(pool: &'a (dyn TokenPool + Send + Sync)) -> Self {
+    pub fn new(pool: Arc<dyn TokenPool>) -> Self {
         Self {
             pool,
             http_sender: Arc::new(ReqwestSender::new()),
@@ -40,7 +40,7 @@ impl<'a> SelfBuiltProvider<'a> {
         }
     }
 
-    pub fn with_sender(pool: &'a (dyn TokenPool + Send + Sync), sender: Arc<dyn HttpSender>) -> Self {
+    pub fn with_sender(pool: Arc<dyn TokenPool>, sender: Arc<dyn HttpSender>) -> Self {
         Self {
             pool,
             http_sender: sender,
@@ -144,7 +144,7 @@ impl<'a> SelfBuiltProvider<'a> {
                 .parse()
                 .unwrap_or(0);
                 
-            let wait_secs = std::cmp::min(86400, 60 * (1 << std::cmp::min(level, 10)));
+            let wait_secs = if level == 0 { 1 } else { 60 * (1 << std::cmp::min(level, 10)) };
             let elapsed = now.signed_duration_since(last_attempt).num_seconds();
             
             if elapsed < wait_secs as i64 {
@@ -201,7 +201,11 @@ impl<'a> SelfBuiltProvider<'a> {
 }
 
 #[async_trait]
-impl<'a> AuthProvider for SelfBuiltProvider<'a> {
+impl AuthProvider for SelfBuiltProvider {
+    async fn trigger_push(&self, profile: &str, config: &Config, force: bool) -> Result<()> {
+        self.trigger_push(profile, config, force).await
+    }
+
     async fn get_token(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
         if let Ok(token) = self.pool.get_app_access_token(&cfg.app_key).await {
             if !token.is_expired() {
@@ -227,6 +231,13 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
         let _guard = self.refresh_lock.lock().await;
         self.pool.clear_cache(profile);
         self.perform_network_refresh(profile, cfg).await
+    }
+
+    async fn hydrate_config(&self, profile: &str, config: &mut Config, vault: std::sync::Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+        if let Ok(as_val) = vault.get(profile, "app_secret").await { config.app_secret = as_val; }
+        if let Ok(cert) = vault.get(profile, "certificate").await { config.certificate = cert; }
+        if let Ok(ek) = vault.get(profile, "encrypt_key").await { config.encrypt_key = ek; }
+        Ok(())
     }
 
     async fn intercept_request(
@@ -280,6 +291,18 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
             vault.set(profile, "encrypt_key", &ek).await?;
             config.encrypt_key = ek;
         }
+        if let Some(url) = params.openapi_url {
+            config.openapi_url = url;
+        }
+        if let Some(url) = params.stream_url {
+            config.stream_url = url;
+        }
+        if let Some(target) = params.webhook_target {
+            config.webhook_target = target;
+        }
+        if let Some(port) = params.proxy_port {
+            config.proxy_port = port;
+        }
 
         // 2. Persist config so daemon can see it
         cfg_mgr.save(profile, config).await?;
@@ -321,7 +344,7 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
 
     fn requires_initial_push(&self, config: &Config) -> bool {
         // If AppTicket is missing, we need an initial push
-        let _pool = self.pool;
+        let _pool = self.pool.clone();
         let _app_key = config.app_key.clone();
         
         // Note: In a real sync context this might be tricky, but here we can check synchronously if the pool allows or just return true to be safe
@@ -421,10 +444,12 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
             children: vec![],
         });
 
+        let global_profile = format!("app:{}", _config.app_key);
+        
         // 2. Token Check
-        if let Ok(access_token) = vault.get(profile, "access_token").await {
+        if let Ok(access_token) = vault.get(&global_profile, "access_token").await {
             if !access_token.trim().is_empty() {
-                let expires_at_str = vault.get(profile, "access_token_expires").await.unwrap_or_default();
+                let expires_at_str = vault.get(&global_profile, "access_token_expires").await.unwrap_or_default();
                 let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_at_str)
                     .map(|dt| dt.with_timezone(&Utc))
                     .ok();
@@ -461,7 +486,7 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
         }
 
         // 3. AppTicket Check
-        if let Ok(ts_str) = vault.get(profile, "app_ticket_created").await {
+        if let Ok(ts_str) = vault.get(&global_profile, "app_ticket_created").await {
             let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
             entries.push(StatusEntry {
                 name: "AppTicket".to_string(),

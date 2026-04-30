@@ -18,13 +18,13 @@ pub mod storage;
 pub mod tests;
 
 
-pub struct StoreAppProvider<'a> {
-    pool: &'a (dyn TokenPool + Send + Sync),
+pub struct StoreAppProvider {
+    pool: Arc<dyn TokenPool>,
     http_sender: Arc<dyn HttpSender>,
 }
 
-impl<'a> StoreAppProvider<'a> {
-    pub fn new(pool: &'a (dyn TokenPool + Send + Sync), http_sender: Arc<dyn HttpSender>) -> Self {
+impl StoreAppProvider {
+    pub fn new(pool: Arc<dyn TokenPool>, http_sender: Arc<dyn HttpSender>) -> Self {
         Self { pool, http_sender }
     }
 
@@ -34,7 +34,7 @@ impl<'a> StoreAppProvider<'a> {
         cfg: &Config,
         refresh_token: &str,
     ) -> Result<Token> {
-        client::refresh_token(self.pool, self.http_sender.as_ref(), profile, cfg, refresh_token).await
+        client::refresh_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, refresh_token).await
     }
 
     pub async fn intercept_exchange(
@@ -43,12 +43,10 @@ impl<'a> StoreAppProvider<'a> {
         cfg: &Config,
         body_bytes: &[u8],
     ) -> Result<serde_json::Value> {
-        client::intercept_exchange(self.pool, self.http_sender.as_ref(), profile, cfg, body_bytes).await
+        client::intercept_exchange(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, body_bytes).await
     }
 
-    pub async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        client::get_app_access_token(self.pool, self.http_sender.as_ref(), profile, cfg).await
-    }
+
 
     pub async fn exchange_permanent_code_by_temp_code(
         &self,
@@ -57,7 +55,7 @@ impl<'a> StoreAppProvider<'a> {
         org_id: &str,
         temp_auth_code: &str,
     ) -> Result<String> {
-        client::exchange_permanent_code_by_temp_code(self.pool, self.http_sender.as_ref(), profile, cfg, org_id, temp_auth_code).await
+        client::exchange_permanent_code_by_temp_code(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id, temp_auth_code).await
     }
 
     pub async fn get_user_token(
@@ -67,7 +65,7 @@ impl<'a> StoreAppProvider<'a> {
         org_id: &str,
         user_id: &str,
     ) -> Result<Token> {
-        token_logic::get_user_token(self.pool, self.http_sender.as_ref(), profile, cfg, org_id, user_id).await
+        token_logic::get_user_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id, user_id).await
     }
 
     pub async fn get_org_token(
@@ -76,13 +74,13 @@ impl<'a> StoreAppProvider<'a> {
         cfg: &Config,
         org_id: &str,
     ) -> Result<Token> {
-        token_logic::get_org_token(self.pool, self.http_sender.as_ref(), profile, cfg, org_id).await
+        token_logic::get_org_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id).await
     }
 
     async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
         tracing::info!(target: "sys", profile = %profile, "Finalizer started for StoreApp auth");
         
-        let session_manager = AuthSessionManager::new(self.pool);
+        let session_manager = AuthSessionManager::new(self.pool.as_ref());
         let session = session_manager.get_session(profile).await?;
         
         let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
@@ -128,14 +126,31 @@ impl<'a> StoreAppProvider<'a> {
 }
 
 #[async_trait]
-impl<'a> AuthProvider for StoreAppProvider<'a> {
+impl AuthProvider for StoreAppProvider {
+    async fn exchange_temp_code(&self, profile: &str, config: &Config, org_id: &str, temp_code: &str) -> Result<Token> {
+        let _ = self.exchange_permanent_code_by_temp_code(profile, config, org_id, temp_code).await?;
+        self.get_org_token(profile, config, org_id).await
+    }
+
+    async fn get_user_token(&self, profile: &str, config: &Config, org_id: &str, user_id: &str) -> Result<Token> {
+        self.get_user_token(profile, config, org_id, user_id).await
+    }
+
+    async fn intercept_exchange(&self, profile: &str, config: &Config, body: &[u8]) -> Result<serde_json::Value> {
+        self.intercept_exchange(profile, config, body).await
+    }
+
+    async fn get_app_access_token(&self, profile: &str, config: &Config) -> Result<Token> {
+        client::get_app_access_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, config).await
+    }
+
     async fn get_token(
         &self,
         profile: &str,
         cfg: &Config,
         headers: &reqwest::header::HeaderMap,
     ) -> Result<Token> {
-        token_logic::get_token(self.pool, self.http_sender.as_ref(), profile, cfg, headers).await
+        token_logic::get_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, headers).await
     }
 
     async fn refresh(
@@ -163,11 +178,35 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
         body: &[u8],
         spec: &serde_json::Value,
     ) -> Result<crate::auth::provider::ProxyRequestAction> {
-        // 1. Check for short-circuit interception
+        // 1. Check for short-circuit interception (OAuth2 Token Exchange)
         if path.ends_with("/oauth2/token") && method == "POST" {
             let json_resp = self.intercept_exchange(profile, config, body).await?;
             return Ok(crate::auth::provider::ProxyRequestAction::Respond(
                 json_resp,
+            ));
+        }
+
+        // 1.5. Webhook Receiver Interception
+        if path.ends_with("/webhook") && method == "POST" {
+            let data: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+            let event_type = data.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+            
+            match event_type {
+                "APP_TICKET" => {
+                    let ticket = data.get("app_ticket").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    self.handle_platform_event(profile, config, crate::auth::provider::PlatformEvent::AppTicket(ticket)).await?;
+                }
+                "TEMP_AUTH_CODE" => {
+                    let code = data.get("temp_auth_code").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let org_id = data.get("org_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    self.handle_platform_event(profile, config, crate::auth::provider::PlatformEvent::TempAuthCode { code, org_id }).await?;
+                }
+                _ => {
+                    tracing::debug!(target: "sys", "StoreApp Webhook received unknown event type: {}", event_type);
+                }
+            }
+            return Ok(crate::auth::provider::ProxyRequestAction::Respond(
+                serde_json::json!({"code": "200", "message": "success"})
             ));
         }
 
@@ -208,6 +247,37 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
         Ok(None)
     }
 
+    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> Result<()> {
+        // 1. Check AppAccessToken health
+        match self.pool.get_app_access_token(&config.app_key).await {
+            Ok(token) => {
+                let remaining = token.expires_at.signed_duration_since(chrono::Utc::now());
+                if remaining < chrono::Duration::minutes(15) {
+                    tracing::info!(target: "sys", "StoreApp AppAccessToken expires in {:?}. Proactively refreshing...", remaining);
+                    let _ = self.get_app_access_token(profile, config).await;
+                }
+            }
+            Err(_) => {
+                // If missing, try to get it (this will fail if appTicket is missing, but that's handled inside)
+                let _ = self.get_app_access_token(profile, config).await;
+            }
+        }
+
+        // 2. Check archived OAuth2 tokens health (Multi-tenant support)
+        // For simplicity, we just look at the 'main' pair if archived
+        if let Ok(pair_str) = self.pool.as_vault().get(profile, "oauth2_token_pair").await {
+            if let Ok(pair) = serde_json::from_str::<OAuth2TokenPair>(&pair_str) {
+                let remaining = pair.expires_at.signed_duration_since(chrono::Utc::now());
+                if remaining < chrono::Duration::minutes(15) {
+                    tracing::info!(target: "sys", "StoreApp archived OAuth2 token expires in {:?}. Proactively refreshing...", remaining);
+                    let _ = self.refresh(profile, config, &Default::default()).await;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
     async fn initialize(
         &self,
         profile: &str,
@@ -227,6 +297,18 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
         if let Some(ek) = params.encrypt_key {
             vault.set(profile, "encrypt_key", &ek).await?;
             config.encrypt_key = ek;
+        }
+        if let Some(url) = params.openapi_url {
+            config.openapi_url = url;
+        }
+        if let Some(url) = params.stream_url {
+            config.stream_url = url;
+        }
+        if let Some(target) = params.webhook_target {
+            config.webhook_target = target;
+        }
+        if let Some(port) = params.proxy_port {
+            config.proxy_port = port;
         }
 
         // 2. Persist config so daemon can see it
@@ -258,22 +340,13 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
         Ok(())
     }
 
-    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> Result<()> {
-        // Routine maintenance for Store App: Maintain the AppAccessToken (SuiteAccessToken)
-        match self.get_app_access_token(profile, config).await {
-            Ok(token) => {
-                let remaining = token.expires_at.signed_duration_since(Utc::now());
-                if remaining < Duration::minutes(15) {
-                    tracing::info!(target: "sys", "Store App SuiteAccessToken expires in less than 15 mins. Proactively refreshing...");
-                    let _ = self.get_app_access_token(profile, config).await;
-                }
-            }
-            Err(e) => {
-                tracing::warn!(target: "sys", error = %e, "Store App SuiteAccessToken is missing or invalid. Waiting for platform push.");
-            }
-        }
+    async fn hydrate_config(&self, profile: &str, config: &mut Config, vault: std::sync::Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+        if let Ok(as_val) = vault.get(profile, "app_secret").await { config.app_secret = as_val; }
+        if let Ok(ek) = vault.get(profile, "encrypt_key").await { config.encrypt_key = ek; }
         Ok(())
     }
+
+
 
     fn requires_initial_push(&self, _config: &Config) -> bool {
         false // Store App usually waits for platform events passively
@@ -284,7 +357,7 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
             crate::auth::provider::PlatformEvent::AppTicket(ticket_val) => {
                 let ticket = crate::auth::models::Ticket {
                     value: ticket_val,
-                    created_at: Utc::now(),
+                    created_at: chrono::Utc::now(),
                 };
                 self.pool.set_app_ticket(&config.app_key, &ticket).await?;
                 tracing::info!(target: "sys", "Store App AppTicket updated from platform push");
@@ -337,7 +410,7 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
     }
 
     async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
-        diagnostics::get_status_entries(self.pool, profile, config).await
+        diagnostics::get_status_entries(self.pool.as_ref(), profile, config).await
     }
 
     fn get_default_app_key(&self) -> Option<String> {
