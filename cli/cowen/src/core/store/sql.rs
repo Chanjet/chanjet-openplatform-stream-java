@@ -1,6 +1,7 @@
 mod mysql;
 mod postgres;
 mod sqlite;
+mod mssql;
 
 use super::{Store, AuditEntry, DlqMessage, Item};
 use anyhow::Result;
@@ -56,6 +57,12 @@ pub trait SqlBuilder: Send + Sync {
     async fn build(&self, url: &str) -> Result<Arc<dyn SqlDriver>>;
 }
 
+pub struct SqlBuilderRegistration {
+    pub builder: &'static dyn SqlBuilder,
+}
+
+inventory::collect!(SqlBuilderRegistration);
+
 pub struct SqlStore {
     driver: Arc<dyn SqlDriver>,
 }
@@ -65,28 +72,65 @@ impl SqlStore {
         Self { driver }
     }
 
+    pub fn supported_schemes() -> Vec<String> {
+        inventory::iter::<SqlBuilderRegistration>
+            .into_iter()
+            .map(|reg| reg.builder.scheme().to_string())
+            .collect()
+    }
+
+    pub fn is_supported(scheme: &str) -> bool {
+        let scheme = if scheme == "innerdb" { "sqlite" } else { scheme };
+        inventory::iter::<SqlBuilderRegistration>
+            .into_iter()
+            .any(|reg| reg.builder.scheme() == scheme)
+    }
+
     pub async fn from_url(url: &str) -> Result<Self> {
         let mut scheme = url.split(':').next().ok_or_else(|| anyhow::anyhow!("Invalid database URL"))?;
         
-        // Alias support
         if scheme == "innerdb" {
             scheme = "sqlite";
         }
         
-        let builders = [
-            Arc::new(mysql::MySqlBuilder) as Arc<dyn SqlBuilder>,
-            Arc::new(postgres::PostgresBuilder) as Arc<dyn SqlBuilder>,
-            Arc::new(sqlite::SqliteBuilder) as Arc<dyn SqlBuilder>,
-        ];
-
-        for builder in builders {
-            if builder.scheme() == scheme {
-                let driver = builder.build(url).await?;
+        for reg in inventory::iter::<SqlBuilderRegistration> {
+            if reg.builder.scheme() == scheme {
+                let driver = reg.builder.build(url).await?;
                 return Ok(Self::new(driver));
             }
         }
 
-        Err(anyhow::anyhow!("Unsupported database scheme: {}", scheme))
+        Err(anyhow::anyhow!("Unsupported database scheme: {}. Supported: {:?}", scheme, Self::supported_schemes()))
+    }
+}
+
+pub struct SqlStoreBuilder;
+
+#[async_trait]
+impl super::StoreBuilder for SqlStoreBuilder {
+    fn scheme(&self) -> &str {
+        "sql_proxy" // Internal marker, we handle multiple schemes
+    }
+
+    async fn build(&self, _url: &str, _app_dir: &Path, _fingerprint: &str) -> Result<Arc<dyn Store>> {
+        unreachable!("SqlStoreBuilder uses a custom discovery loop in vault.rs or from_url")
+    }
+}
+
+// Special case for InnerDB (Hybrid)
+pub struct InnerDbStoreBuilder;
+
+#[async_trait]
+impl super::StoreBuilder for InnerDbStoreBuilder {
+    fn scheme(&self) -> &str {
+        "innerdb"
+    }
+
+    async fn build(&self, url: &str, app_dir: &Path, fingerprint: &str) -> Result<Arc<dyn Store>> {
+        // This is tricky because StoreBuilder only returns ONE store, 
+        // but vault.rs needs two in its current architecture.
+        // Let's refine StoreBuilder or vault.rs to handle this.
+        unimplemented!("Refining Vault assembly to handle primary/sensitive split")
     }
 }
 

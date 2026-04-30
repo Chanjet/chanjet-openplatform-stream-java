@@ -166,6 +166,8 @@ pub trait Client: Send + Sync {
     fn get_auth_display_info(&self, cfg: &Config) -> (String, String);
     fn get_daemon_display_info(&self, cfg: &Config, is_running: bool) -> (String, String);
     fn requires_ticket(&self, cfg: &Config) -> bool;
+    fn supports_webhooks(&self, cfg: &Config) -> bool;
+    fn supports_api_call(&self, cfg: &Config) -> bool;
     async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>) -> Result<()>;
     async fn get_status_entries(&self, profile: &str, cfg: &Config) -> Result<Vec<crate::core::status::StatusEntry>>;
 }
@@ -265,6 +267,14 @@ impl<'a> Client for AuthClient<'a> {
     }
     fn requires_ticket(&self, cfg: &Config) -> bool {
         self.provider(&cfg.app_mode).requires_ticket()
+    }
+
+    fn supports_webhooks(&self, cfg: &Config) -> bool {
+        self.provider(&cfg.app_mode).supports_webhooks()
+    }
+
+    fn supports_api_call(&self, cfg: &Config) -> bool {
+        self.provider(&cfg.app_mode).supports_api_call()
     }
 
     async fn clear_token(&self, profile: &str, cfg: &Config) -> Result<()> {

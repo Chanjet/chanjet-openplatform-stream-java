@@ -4,6 +4,21 @@
 
 ---
 
+## [0.3.0] - 2026-04-30
+
+### 🏗️ 架构重构 (Architectural Refactoring)
+- **SPI First 架构实现**: 引入 `inventory` crate 替换原有的硬编码 `match` 分支。所有存储引擎（Store）与缓存（Cache）现在通过 `StoreBuilder` / `CacheBuilder` Trait 进行解耦，支持自动注册与自发现。
+- **Vault 与 Store 解耦**: 彻底分离了凭据管理（Vault）与数据存储（Store）的职责。Vault 现在通过动态组装 `StoreBuilder` 列表来构建存储底座。
+- **存储驱动扩展**: 
+    - 实现了 `RedisStoreBuilder`，使 Redis 能够作为 `primary_store` 使用。
+    - 统一了 SQL 驱动的连接池生命周期管理。
+- **装饰器模式优化**: 重构了 `HybridStore`，使其能够作为通用的缓存装饰器包装任何实现 `Store` Trait 的后端。
+- **配置默认值变更**: `StorageConfig` 默认 store 切换为 `innerdb`。
+
+### 🛠️ 内部组件优化
+- **迁移引擎 (Migrator)**: 实现了通用的跨 Store 数据搬迁逻辑，利用 Trait 抽象抹平了不同数据库间的方言差异。
+
+
 ## [0.2.0] - 2026-04-21
 
 ### 🤖 自动化构建与发布 (CI/CD & Release)

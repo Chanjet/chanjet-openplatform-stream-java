@@ -202,3 +202,5 @@ impl SqlBuilder for MssqlBuilder {
         Ok(Arc::new(MssqlDriver::new(pool)))
     }
 }
+
+inventory::submit! { super::SqlBuilderRegistration { builder: &MssqlBuilder } }

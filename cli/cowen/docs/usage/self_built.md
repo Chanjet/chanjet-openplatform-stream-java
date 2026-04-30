@@ -1,0 +1,155 @@
+# Self-Built 模式使用指南 (企业自建模式)
+
+Self-Built 模式是畅捷通为企业自有系统集成提供的**深度定制方案**。它通过 `AppKey` / `AppSecret` 结合平台每 20 分钟推送一次的 `AppTicket` 机制，实现最稳定的单租户 API 调用与实时消息订阅。
+
+## 🎯 目标场景
+- **企业集成**：ERP/OA 系统与畅捷通产品实现深度数据打通。
+- **实时同步**：需要接收并处理实时业务消息（如：订单下单推送）。
+- **长期运行**：适合部署在服务器上，作为长期运行的消息中转站。
+
+## 🚀 核心工作流
+
+### 1. 初始化配置 (四要素强制)
+初始化自建模式时，您必须提供以下关键凭据：
+```bash
+cowen init --profile corp-dev \
+           --mode self-built \
+           --app-key <YOUR_APP_KEY> \
+           --app-secret <YOUR_APP_SECRET> \
+           --certificate <YOUR_CERTIFICATE> \
+           --encrypt-key <YOUR_ENCRYPT_KEY>
+```
+> [!IMPORTANT]
+> **安全性与存储模式 (Vault)**：
+> 您的 `AppSecret` 和 `EncryptKey` 将存储在 **Vault** 中。系统默认使用 **Keychain 模式**（即操作系统原生安全存储，如 macOS Keychain），确保凭据在物理层面被隔离保护。
+> *(注：在不支持 Keychain 的 Linux 服务器上，系统会自动回退至加密的本地文件存储。)*
+
+### 2. 验证初始化状态
+初始化成功后，系统会**自动启动**后台守护进程。请运行以下命令检查：
+```bash
+cowen status
+```
+在输出中，您应重点关注：
+- **Auth Status**: 确认已成功获取 `App Access Token`。
+- **Stream Bridge**: 确认状态为 `ACTIVE` (表示已建立 WebSocket 长连接，正在等待 AppTicket 推送)。
+
+### 3. 关于守护进程 (Daemon)
+> [!TIP]
+> **自动启动行为**：不同于 OAuth2 模式，Self-Built 模式在 `init` 成功后会**立即拉起**后台守护进程。
+
+**为什么必须保持 Daemon 运行？**
+- **令牌续约**：该模式的令牌刷新极其依赖 `AppTicket`。而 `AppTicket` 只能通过长连接实时接收。如果 Daemon 关闭，系统将无法接收新 Ticket，导致令牌最终无法刷新。
+- **本地代理**：提供 `localhost:8000` 代理服务。
+
+### 4. 本地代理 (Proxy) 使用指南
+在自建模式下，本地代理是实现“无感调用”的核心工具。
+
+- **默认行为**：初始化后，代理服务默认处于 **开启** 状态。
+- **端口机制**：系统在初始化时会**自动寻找一个可用端口**。您不再需要担心默认 8000 端口冲突。
+    - **如何查看**：运行 `cowen status` 查看 `Proxy:` 这一行标注的实际端口。
+    - **如何手动指定**：如果您有固定端口需求，可以通过 `cowen config --proxy-port <PORT>` 进行修改。
+- **开启/关闭控制**：
+    - **持久化关闭**：`cowen config --proxy-enabled false`
+    - **临时关闭启动**：`cowen daemon start --disable-proxy`
+- **发起调用**：
+  ```bash
+  # 代理会自动注入符合规范的 openToken 和 appKey
+  curl http://127.0.0.1:8000/v1/user/info
+  ```
+  > [!IMPORTANT]
+  > **身份注入说明**：代理会自动在请求头中注入 `openToken` 和 `appKey`。您仅需提供业务相关的 Header（如 `Content-Type: application/json`）。
+
+### 5. 消息推送与 Webhook 转发
+`cowen` 可以将接收到的实时业务消息（如：订单变更、审批流提醒）自动转发给您的业务系统。
+
+- **配置转发地址**：
+  在初始化时或通过 `config` 命令设置目标 URL：
+  ```bash
+  cowen config --webhook-target http://127.0.0.1:3000/api/callback
+  ```
+  > [!CAUTION]
+  > **安全约束 (SSRF 防护)**：出于安全合规要求，`webhook-target` **仅支持本地回环地址** (`127.0.0.1` / `localhost` / `[::1]`)。严禁指向任何外部域名或非本机的内网 IP。
+- **工作原理**：
+    1. 守护进程通过 WebSocket 实时接收消息。
+    2. **系统消息过滤**：`cowen` 会自动拦截并处理 `AppTicket` 和 `TempAuthCode` 等系统级消息（用于自动续约），**这些消息不会转发给您的 Webhook**。
+    3. **业务消息转发**：对于业务类消息，`cowen` 会立即发起一个 **HTTP POST** 请求到您的 `webhook-target`。
+- **可靠性保障 (DLQ)**：
+    如果您的业务服务器暂时不可用（返回非 200 状态码），该消息会自动进入**本地死信队列**。您可以在服务器恢复后运行 `cowen dlq retry` 进行重试。
+
+## 🔐 全局存储与缓存架构 (Storage & Cache)
+
+`cowen` 的存储架构旨在适应从个人开发环境到企业级 K8s 集群的无缝迁移。
+
+### 1. 支持组件清单
+- **Store (持久化层)**: 
+  - `local` (默认): 数据以加密形式存放在 `~/.cowen/.seal` 目录下。无需任何安装，开箱即用。
+  - `innerdb`: 业务数据（日志、队列）存储在本地 SQLite 数据库中，敏感凭据锁定在本地 `.seal`。
+  - `mysql` / `postgres` / `mssql`: 全量数据存入远程数据库。**推荐生产集群使用**，支持多节点共享身份。
+- **Cache (加速层)**:
+  - `none` (默认): 无额外缓存。
+  - `redis`: 开启分布式令牌缓存，使用 `HybridStore` 混合存储方案。
+
+### 2. 五大配置场景
+
+#### 🟢 场景 A：单机开发 (默认推荐)
+**说明**：**新装默认模式**。采用 `innerdb` 方案：业务数据（审计、DLQ）存入内置 SQLite，敏感凭据由本地 `.seal` 文件加密锁死。
+- **配置**: `store: innerdb`, `cache: none`
+- **优势**：开箱即用，支持 SQL 级消息审计与死信管理。
+
+#### 🟡 场景 B：仅外置数据库 (高可用持久化)
+**说明**：适用于多机部署。数据持久化与令牌缓存均由数据库承载（利用内置 `cowen_cache` 表）。
+- **配置**: `store: <DB_TYPE>`, `cache: none`
+- **命令**: `cowen store set --store mysql --db-url "..."`
+
+#### 🟠 场景 C：生产级全家桶 (DB + Redis)
+**说明**：**集群部署的最优解**。持久层保证一致性，Redis 提供高性能令牌缓存。
+- **配置**: `store: <DB_TYPE>`, `cache: redis`
+- **命令**: `cowen store set --store mysql --db-url "..." --cache redis --cache-url "..."`
+
+#### 🔴 场景 D：纯 Redis 模式 (云原生)
+**说明**：完全不依赖本地文件。需确保 Redis 开启持久化（AOF/RDB）。
+- **配置**: `store: redis`, `cache: none`
+- **命令**: `cowen store set --store redis --db-url "redis://..."`
+
+#### ⚪ 场景 E：极简兼容模式 (Legacy)
+**说明**：仅用于老版本迁移。数据全量存放在本地 `.seal` 加密文件中。
+- **配置**: `store: local`, `cache: none`
+
+> [!TIP]
+> **连通性检查**：配置完成后，请务必运行 `cowen store status`。系统会自动对数据库和 Redis 进行 PING 测试，确保底座稳固。
+
+---
+
+## 🔄 数据迁移 (Data Migration)
+
+如果您需要从单机环境（`innerdb` / `local`）搬迁到生产集群（`mysql` / `postgres` / `redis`），`cowen` 提供了内置的无痛迁移工具。
+
+### 1. 迁移指令
+使用 `store migrate` 指令将当前存储的数据全量同步到目标存储：
+
+```bash
+# 示例：从本地搬迁到 MySQL
+cowen store migrate --to "mysql://user:pass@host:3306/db"
+```
+
+### 2. 迁移模式说明
+- **`clone` (默认)**: 同步全量数据并切换配置，原有的本地数据依然保留。
+- **`move`**: 同步完成后，自动清理源端的旧数据（推荐在生产环境回收单机磁盘空间时使用）。
+  ```bash
+  cowen store migrate --to "mysql://..." --mode move
+  ```
+
+### 3. 同步内容清单
+迁移过程会自动搬迁以下资产：
+- ✅ **租户配置**: 所有 Profile 的基础配置。
+- ✅ **敏感凭据**: `AppSecret`, `Certificate`, `EncryptKey` 等加密资产。
+- ✅ **访问令牌**: 所有活跃的 `OrgToken` (迁移后继续有效)。
+- ✅ **审计日志**: 最近 5000 条操作流水。
+- ✅ **死信队列**: 待处理的失败消息。
+
+---
+
+## ⚠️ 能力边界
+- **身份类型**：企业自建应用 (单租户)。
+- **消息推送**：✅ 完美支持 WebSocket 长连接及 Webhook 转发。
+- **死信管理**：✅ 自动托管失败消息，支持使用 `dlq list` 和 `dlq retry` 运维。

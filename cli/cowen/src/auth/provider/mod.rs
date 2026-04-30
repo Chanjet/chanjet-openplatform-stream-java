@@ -14,6 +14,17 @@ pub enum ProxyRequestAction {
     Respond(serde_json::Value),
 }
 
+#[derive(Debug, Default)]
+pub struct InitParams {
+    pub app_key: Option<String>,
+    pub app_secret: Option<String>,
+    pub certificate: Option<String>,
+    pub encrypt_key: Option<String>,
+    pub webhook_target: Option<String>,
+    pub openapi_url: Option<String>,
+    pub stream_url: Option<String>,
+}
+
 #[async_trait]
 pub trait AuthProvider: Send + Sync {
     /// 获取当前可用令牌。若过期则触发刷新或网络重整。
@@ -57,11 +68,27 @@ pub trait AuthProvider: Send + Sync {
         false
     }
 
-    /// 执行认证流程的收尾工作 (如 OAuth2 回调处理)
-    async fn finalize_login(&self, profile: &str, config: &Config) -> Result<()>;
+    /// 🚀 能力检查：该模式是否支持 Webhook/Streaming 推送能力
+    fn supports_webhooks(&self) -> bool {
+        true
+    }
 
-    /// 执行该模式特有的初始化逻辑 (由 cowen init 调用)
-    async fn initialize(&self, profile: &str, config: &Config, vault: std::sync::Arc<dyn crate::core::vault::Vault>, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()>;
+    /// OCP: Capability check for OpenAPI call support.
+    /// StoreApp (Sidecar) mode typically disables direct CLI calls due to missing tenant context.
+    fn supports_api_call(&self) -> bool {
+        true
+    }
+
+    /// OCP: Unified Initialization Hook.
+    /// Handles everything from credential setup to background service startup.
+    async fn initialize(
+        &self,
+        profile: &str,
+        config: &mut Config,
+        vault: std::sync::Arc<dyn crate::core::vault::Vault>,
+        cfg_mgr: &crate::core::config::ConfigManager,
+        params: InitParams,
+    ) -> Result<()>;
 
     /// 🚀 前置请求拦截器：负责请求修饰（Header/Token注入）或请求劫持短路
     async fn intercept_request(

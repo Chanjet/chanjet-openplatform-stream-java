@@ -1,9 +1,10 @@
+use crate::auth::client::Client;
 use crate::auth::models::AuthMode;
 use crate::core::config::ConfigManager;
 use crate::core::vault::Vault;
 use anyhow::Result;
-use std::sync::Arc;
 use std::io::{BufRead, Write};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub async fn execute(
@@ -35,11 +36,16 @@ pub async fn execute(
         // Determine requested key using SPI (Personality check)
         let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
         let auth_cli = crate::auth::AuthClient::new(&token_pool);
-        let requested_key = auth_cli.provider(&requested_mode).get_default_app_key()
+        let requested_key = auth_cli
+            .provider(&requested_mode)
+            .get_default_app_key()
             .unwrap_or_else(|| app_key.clone().unwrap_or_default());
 
         if config.app_mode == requested_mode && config.app_key == requested_key {
-            println!("✅ Profile '{}' is already initialized with these settings.", profile);
+            println!(
+                "✅ Profile '{}' is already initialized with these settings.",
+                profile
+            );
             println!("💡 To update configurations (port, webhook, etc.), use the 'cowen config' command.");
             println!("💡 To re-authorize or refresh tokens, use 'cowen auth login'.");
             return Ok(());
@@ -64,47 +70,33 @@ pub async fn execute(
     };
     config.app_mode = mode;
 
-    // 1. Generic Parameter Assignment (Personality-agnostic)
-    if let Some(ak) = app_key {
-        config.app_key = ak.clone();
-    }
-    if let Some(as_val) = app_secret {
-        vault.set(profile, "app_secret", as_val).await?;
-        config.app_secret = as_val.clone();
-    }
-    if let Some(cert) = certificate {
-        vault.set(profile, "certificate", cert).await?;
-        config.certificate = cert.clone();
-    }
-    if let Some(ek) = encrypt_key {
-        vault.set(profile, "encrypt_key", ek).await?;
-        config.encrypt_key = ek.clone();
-    }
-    if let Some(wt) = webhook_target {
-        config.webhook_target = wt.clone();
-    }
-    if let Some(ou) = openapi_url {
-        config.openapi_url = ou.clone();
-    }
-    if let Some(su) = stream_url {
-        config.stream_url = su.clone();
-    }
+    // 1. Delegate All Mode-Specific Initialization (Personality) to Provider
+    let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
+    let auth_cli = crate::auth::AuthClient::new(&token_pool);
+    
+    // Collect all parameters into InitParams
+    let params = crate::auth::provider::InitParams {
+        app_key: app_key.clone(),
+        app_secret: app_secret.clone(),
+        certificate: certificate.clone(),
+        encrypt_key: encrypt_key.clone(),
+        webhook_target: webhook_target.clone(),
+        openapi_url: openapi_url.clone(),
+        stream_url: stream_url.clone(),
+    };
 
     // Assign a unique port if this is a new profile or it's currently 0 or 8080 (the old default)
     if config.proxy_port == 0 || config.proxy_port == 8080 {
         config.proxy_port = cfg_mgr.find_free_port().await;
     }
 
-    // 2. Persist configurations (Port, Mode, URLs, etc.)
+    // Generic configurations
     cfg_mgr.save_app_config(app_config).await?;
-    cfg_mgr.save(profile, &config).await?;
 
-    // 3. Delegate Mode-Specific Initialization (Personality) to Provider
-    let token_pool = crate::auth::VaultTokenPool::new(vault.clone());
-    let auth_cli = crate::auth::AuthClient::new(&token_pool);
-    let provider = auth_cli.provider(&config.app_mode);
-    
-    provider.initialize(profile, &config, vault.clone(), cfg_mgr).await?;
+    // The Provider now handles credential setup, config saving (via cfg_mgr), and daemon startup.
+    auth_cli.provider(&config.app_mode)
+        .initialize(profile, &mut config, vault.clone(), cfg_mgr, params)
+        .await?;
 
     // Automatically attempt to install shell completion
     println!("⚙️ Configuring auto-completion...");

@@ -249,3 +249,38 @@ impl Store for RedisStore {
         Ok(Box::pin(stream))
     }
 }
+
+pub struct RedisCacheBuilder;
+
+#[async_trait]
+impl super::CacheBuilder for RedisCacheBuilder {
+    fn scheme(&self) -> &str {
+        "redis"
+    }
+
+    async fn build(&self, url: &str, primary: Arc<dyn Store>) -> Result<Arc<dyn Store>> {
+        let client = redis::Client::open(url)?;
+        let conn = client.get_multiplexed_tokio_connection().await?;
+        let redis_store: Arc<dyn Store> = Arc::new(RedisStore::new(conn, url));
+        Ok(Arc::new(super::hybrid::HybridStore::new(redis_store, primary)))
+    }
+}
+
+inventory::submit! { super::CacheBuilderRegistration { builder: &RedisCacheBuilder } }
+
+pub struct RedisStoreBuilder;
+
+#[async_trait]
+impl super::StoreBuilder for RedisStoreBuilder {
+    fn scheme(&self) -> &str {
+        "redis"
+    }
+
+    async fn build(&self, url: &str, _app_dir: &std::path::Path, _fingerprint: &str) -> Result<Arc<dyn Store>> {
+        let client = redis::Client::open(url)?;
+        let conn = client.get_multiplexed_tokio_connection().await?;
+        Ok(Arc::new(RedisStore::new(conn, url)))
+    }
+}
+
+inventory::submit! { super::StoreBuilderRegistration { builder: &RedisStoreBuilder } }

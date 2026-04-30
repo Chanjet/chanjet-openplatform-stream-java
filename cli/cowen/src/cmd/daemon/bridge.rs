@@ -22,10 +22,8 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     };
     let client = Arc::new(GatewayClient::new(options));
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
-    let _auth = AuthClient::new(pool.as_ref());
-    
-    let dlq = Arc::new(DlqStore::new(profile, vault.clone())?);
-    let forwarder = Forwarder::new(dlq, &config.webhook_target);
+    let auth = AuthClient::new(pool.as_ref());
+    let supports_webhooks = auth.supports_webhooks(config);
 
     // 1. Task: Local Proxy
     let p_profile_proxy = profile.to_string();
@@ -44,8 +42,10 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         })
     };
 
-    // 2. Setup Dispatchers
-    {
+    // 2. Setup Dispatchers (Conditional)
+    if supports_webhooks {
+        let dlq = Arc::new(DlqStore::new(profile, vault.clone())?);
+        let forwarder = Forwarder::new(dlq, &config.webhook_target);
         let d = client.dispatcher();
         let mut dispatcher = d.lock().unwrap();
 
@@ -100,10 +100,18 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         });
     }
 
-    // 3. Task: Main Gateway Loop
-    let stream_task = tokio::spawn(async move {
-        client.start().await
-    });
+    // 3. Task: Main Gateway Loop (Conditional)
+    let stream_task = if supports_webhooks {
+        tokio::spawn(async move {
+            client.start().await
+        })
+    } else {
+        let mode = config.app_mode;
+        tokio::spawn(async move {
+            tracing::info!(target: "sys", "Streaming bridge is disabled for mode {:?}.", mode);
+            std::future::pending::<Result<()>>().await
+        })
+    };
 
     // 4. Task: Background Maintenance (OCP Generic)
     let p_profile_m = profile.to_string();
@@ -114,7 +122,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         let auth = AuthClient::new(p_pool_m.as_ref());
 
         // 🚀 OCP: Generic Initial Push Check
-        if auth.requires_initial_push(&p_config_m) {
+        if auth.requires_initial_push(&p_config_m) && supports_webhooks {
             tracing::info!(target: "sys", "Initial credential missing. Requesting platform push...");
             let _ = auth.trigger_push(&p_profile_m, &p_config_m, true).await;
         }
@@ -134,16 +142,20 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     tokio::select! {
         res = proxy_task => { 
             tracing::error!(target: "sys", "Proxy task exited unexpectedly"); 
-            res.map_err(|e| anyhow::anyhow!("Proxy task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Proxy task stopped")))
+            res.map_err(|e| anyhow::anyhow!("Proxy task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Proxy task stopped"))) as Result<()>
         },
         res = stream_task => { 
-            tracing::error!(target: "sys", "Stream task exited unexpectedly"); 
-            res.map_err(|e| anyhow::anyhow!("Stream task panicked: {}", e))
-               .and_then(|r: Result<()>| r.context("Stream client crashed"))
+            if supports_webhooks {
+                tracing::error!(target: "sys", "Stream task exited unexpectedly"); 
+                res.map_err(|e| anyhow::anyhow!("Stream task panicked: {}", e))
+                   .and_then(|r: Result<()>| r.context("Stream client crashed"))
+            } else {
+                Ok(())
+            }
         },
         res = maintenance_task => { 
             tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); 
-            res.map_err(|e| anyhow::anyhow!("Maintenance task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Maintenance task stopped")))
+            res.map_err(|e| anyhow::anyhow!("Maintenance task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Maintenance task stopped"))) as Result<()>
         },
     }
 }

@@ -32,6 +32,20 @@ impl Forwarder {
             return;
         }
 
+        // SSRF Protection: Loopback Only
+        if let Ok(url) = url::Url::parse(&self.target_url) {
+            let host = url.host_str().unwrap_or("");
+            if host != "localhost" && host != "127.0.0.1" && host != "[::1]" {
+                let err_msg = format!("Security Violation: Webhook target '{}' is NOT a loopback address. For security reasons (SSRF prevention), only localhost/127.0.0.1 is allowed.", host);
+                tracing::error!(target: "stream", error = %err_msg);
+                println!("❌ {}", err_msg);
+                return;
+            }
+        } else {
+            println!("❌ Invalid webhook_target URL: {}", self.target_url);
+            return;
+        }
+
         let msg_id = event.get("id").and_then(|v| v.as_str()).unwrap_or("unknown_id").to_string();
         let msg_type = event.get("msgType").and_then(|v| v.as_str()).unwrap_or("UNKNOWN").to_string();
         let headers = event.get("headers").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());

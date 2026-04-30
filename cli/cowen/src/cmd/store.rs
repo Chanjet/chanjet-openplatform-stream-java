@@ -86,7 +86,7 @@ async fn check_db_connectivity(store_type: &str, url: Option<&str>) -> Result<()
     
     // Use the same logic as main.rs create_vault to verify connectivity
     match store_type {
-        "mysql" | "postgres" | "mssql" => {
+        _ if crate::core::store::sql::SqlStore::is_supported(store_type) => {
             // We use the SqlStore's from_url which performs a connection check
             crate::core::store::sql::SqlStore::from_url(url).await?;
             Ok(())
@@ -94,14 +94,33 @@ async fn check_db_connectivity(store_type: &str, url: Option<&str>) -> Result<()
         _ => Err(anyhow::anyhow!("Unsupported distributed store type: {}", store_type)),
     }
 }
+async fn check_cache_connectivity(cache_type: &str, url: Option<&str>) -> Result<()> {
+    if cache_type == "none" {
+        return Ok(());
+    }
 
-async fn check_redis_connectivity(url: Option<&str>) -> Result<()> {
-    let url = url.ok_or_else(|| anyhow::anyhow!("Redis URL is missing"))?;
-    let client = redis::Client::open(url)?;
-    let mut conn = client.get_multiplexed_tokio_connection().await?;
-    // Perform a simple PING
-    let _: () = redis::cmd("PING").query_async(&mut conn).await?;
-    Ok(())
+    let url = url.ok_or_else(|| anyhow::anyhow!("Cache URL is missing"))?;
+    
+    let mut found = false;
+    for reg in inventory::iter::<crate::core::store::CacheBuilderRegistration> {
+        if reg.builder.scheme() == cache_type {
+            // For now, only Redis needs connectivity check here. 
+            // In a more generic way, builders could provide a 'check' method.
+            if cache_type == "redis" {
+                let client = redis::Client::open(url)?;
+                let mut conn = client.get_multiplexed_tokio_connection().await?;
+                let _: () = redis::cmd("PING").query_async(&mut conn).await?;
+            }
+            found = true;
+            break;
+        }
+    }
+
+    if found {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("Unsupported cache type: {}", cache_type))
+    }
 }
 
 pub async fn migrate(

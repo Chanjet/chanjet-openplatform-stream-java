@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::path::Path;
 
 pub mod file;
 pub mod hybrid;
@@ -91,6 +92,30 @@ pub trait Store: Send + Sync {
     async fn watch_config(&self, profile: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>>;
 }
 
+#[async_trait]
+pub trait StoreBuilder: Send + Sync {
+    fn scheme(&self) -> &str;
+    async fn build(&self, url: &str, app_dir: &Path, fingerprint: &str) -> Result<Arc<dyn Store>>;
+}
+
+pub struct StoreBuilderRegistration {
+    pub builder: &'static dyn StoreBuilder,
+}
+
+inventory::collect!(StoreBuilderRegistration);
+
+#[async_trait]
+pub trait CacheBuilder: Send + Sync {
+    fn scheme(&self) -> &str;
+    async fn build(&self, url: &str, primary: Arc<dyn Store>) -> Result<Arc<dyn Store>>;
+}
+
+pub struct CacheBuilderRegistration {
+    pub builder: &'static dyn CacheBuilder,
+}
+
+inventory::collect!(CacheBuilderRegistration);
+
 pub async fn create_store_from_url(url: &str) -> Result<Arc<dyn Store>> {
     if url == "local" {
         let app_dir = super::config::get_app_dir();
@@ -104,8 +129,6 @@ pub async fn create_store_from_url(url: &str) -> Result<Arc<dyn Store>> {
         return Ok(Arc::new(redis_store::RedisStore::new(conn, url)));
     }
 
-    // SQL variants (sqlite, mysql, postgres)
+    // SQL variants (sqlite, mysql, postgres, mssql)
     Ok(Arc::new(sql::SqlStore::from_url(url).await?))
 }
-
-

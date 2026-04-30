@@ -731,13 +731,13 @@ async fn run() -> Result<()> {
         },
         Commands::Dlq { action } => match action {
             DlqCommands::List => {
-                cmd::dlq::list(&active_profile, &cli.format, vault.clone()).await?;
+                cmd::dlq::list(&active_profile, &config, &cli.format, vault.clone()).await?;
             }
             DlqCommands::Retry { id } => {
                 cmd::dlq::retry(&active_profile, &config, id, vault.clone()).await?;
             }
             DlqCommands::Purge => {
-                cmd::dlq::purge(&active_profile, vault.clone()).await?;
+                cmd::dlq::purge(&active_profile, &config, vault.clone()).await?;
             }
         },
         Commands::Log { action } => match action {

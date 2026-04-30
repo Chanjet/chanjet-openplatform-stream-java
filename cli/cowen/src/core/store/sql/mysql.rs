@@ -274,3 +274,5 @@ impl SqlBuilder for MySqlBuilder {
         Ok(Arc::new(MySqlDriver::new(pool)))
     }
 }
+
+inventory::submit! { super::SqlBuilderRegistration { builder: &MySqlBuilder } }

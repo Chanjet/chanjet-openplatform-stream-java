@@ -137,46 +137,60 @@ impl Vault for StoreVault {
 
 pub async fn create_vault(app_config: &AppConfig, app_dir: &Path, fingerprint: &str) -> Result<Arc<dyn Vault>> {
     use crate::core::store::sql::SqlStore;
-    use crate::core::store::redis_store::RedisStore;
-    use crate::core::store::hybrid::HybridStore;
     use crate::core::store::file::FileStore;
 
     let storage_cfg = &app_config.storage;
+    let store_type = storage_cfg.store.as_str();
     let seal_path = app_dir.join(".seal");
 
-    let (primary, sensitive): (Arc<dyn Store>, Arc<dyn Store>) = match storage_cfg.store.as_str() {
-        "local" => {
-            let store: Arc<dyn Store> = Arc::new(FileStore::new(seal_path, fingerprint)?);
-            (store.clone(), store)
+    // 1. Determine Primary and Sensitive Stores
+    let (primary, sensitive): (Arc<dyn Store>, Arc<dyn Store>) = if store_type == "innerdb" || store_type == "sqlite" {
+        let db_url = storage_cfg.db_url.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Database URL is required for InnerDB"))?;
+        let sql_store: Arc<dyn Store> = Arc::new(SqlStore::from_url(db_url).await?);
+        // COMPATIBILITY: InnerDB pins secrets to .seal to avoid breaking existing setups
+        let secret_store: Arc<dyn Store> = Arc::new(FileStore::new(seal_path, fingerprint)?);
+        (sql_store, secret_store)
+    } else {
+        let mut found = None;
+        for reg in inventory::iter::<crate::core::store::StoreBuilderRegistration> {
+            if reg.builder.scheme() == store_type {
+                let store = reg.builder.build(storage_cfg.db_url.as_deref().unwrap_or(""), app_dir, fingerprint).await?;
+                found = Some((store.clone(), store));
+                break;
+            }
         }
-        "innerdb" | "sqlite" => {
-            let db_url = storage_cfg.db_url.as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Database URL is required for InnerDB"))?;
-            let sql_store: Arc<dyn Store> = Arc::new(SqlStore::from_url(db_url).await?);
-            // COMPATIBILITY: InnerDB pins secrets to .seal to avoid breaking existing setups
-            let secret_store: Arc<dyn Store> = Arc::new(FileStore::new(seal_path, fingerprint)?);
-            (sql_store, secret_store)
-        }
-        "mysql" | "postgres" => {
+
+        if let Some(pair) = found {
+            pair
+        } else if SqlStore::is_supported(store_type) {
+            // Fallback for direct SQL schemes not yet wrapped in StoreBuilder
             let db_url = storage_cfg.db_url.as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Database URL is required for remote SQL storage"))?;
             let sql_store: Arc<dyn Store> = Arc::new(SqlStore::from_url(db_url).await?);
-            // STATELESS: Remote SQL stores secrets in the database for node parity
             (sql_store.clone(), sql_store)
+        } else {
+            return Err(anyhow::anyhow!("Unsupported store type: {}", store_type));
         }
-        _ => return Err(anyhow::anyhow!("Unsupported store type: {}", storage_cfg.store)),
     };
 
-    let final_primary = if storage_cfg.cache == "redis" {
-        let redis_url = storage_cfg.cache_url.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Redis URL is required for cache storage"))?;
-        let client = redis::Client::open(redis_url.as_str())?;
-        let conn = client.get_multiplexed_tokio_connection().await?;
-        let redis_store: Arc<dyn Store> = Arc::new(RedisStore::new(conn, redis_url));
-        Arc::new(HybridStore::new(redis_store, primary))
-    } else {
-        primary
-    };
+    // 2. Apply Cache Decorator (if any)
+    let mut final_primary = primary;
+    if storage_cfg.cache != "none" {
+        let mut applied = false;
+        for reg in inventory::iter::<crate::core::store::CacheBuilderRegistration> {
+            if reg.builder.scheme() == storage_cfg.cache {
+                let cache_url = storage_cfg.cache_url.as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Cache URL is required for storage cache mode: {}", storage_cfg.cache))?;
+                final_primary = reg.builder.build(cache_url, final_primary).await?;
+                applied = true;
+                break;
+            }
+        }
+        if !applied {
+            return Err(anyhow::anyhow!("Unsupported cache mode: {}", storage_cfg.cache));
+        }
+    }
 
     Ok(Arc::new(StoreVault::new(final_primary, sensitive)))
 }

@@ -256,12 +256,43 @@ impl<'a> AuthProvider for SelfBuiltProvider<'a> {
         Ok(crate::auth::provider::ProxyRequestAction::Forward { headers })
     }
 
-    async fn initialize(&self, profile: &str, config: &Config, vault: std::sync::Arc<dyn crate::core::vault::Vault>, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
-        // Validation: appKey, appSecret, and certificate are required
-        if config.app_key.trim().is_empty() || config.app_secret.trim().is_empty() || config.certificate.trim().is_empty() {
+    async fn initialize(
+        &self,
+        profile: &str,
+        config: &mut Config,
+        vault: std::sync::Arc<dyn crate::core::vault::Vault>,
+        cfg_mgr: &crate::core::config::ConfigManager,
+        params: crate::auth::provider::InitParams,
+    ) -> Result<()> {
+        // 1. Setup credentials
+        if let Some(ak) = params.app_key {
+            config.app_key = ak;
+        }
+        if let Some(as_val) = params.app_secret {
+            vault.set(profile, "app_secret", &as_val).await?;
+            config.app_secret = as_val;
+        }
+        if let Some(cert) = params.certificate {
+            vault.set(profile, "certificate", &cert).await?;
+            config.certificate = cert;
+        }
+        if let Some(ek) = params.encrypt_key {
+            vault.set(profile, "encrypt_key", &ek).await?;
+            config.encrypt_key = ek;
+        }
+
+        // 2. Persist config so daemon can see it
+        cfg_mgr.save(profile, config).await?;
+
+        // 3. Validation and Startup
+        if config.app_key.trim().is_empty() 
+            || config.app_secret.trim().is_empty() 
+            || config.certificate.trim().is_empty()
+            || config.encrypt_key.trim().is_empty() 
+        {
             let bin_name = crate::core::utils::get_bin_name();
-            println!("Error: --app-key, --app-secret, and --certificate are required for self-built mode.");
-            println!("Example: {} init --app-mode self-built --app-key X --app-secret Y --certificate Z", bin_name);
+            println!("Error: --app-key, --app-secret, --certificate, and --encrypt-key are required for self-built mode.");
+            println!("Example: {} init --app-mode self-built --app-key X --app-secret Y --certificate Z --encrypt-key E", bin_name);
             return Err(anyhow!("Missing required credentials for SelfBuilt mode"));
         }
 

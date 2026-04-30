@@ -175,10 +175,28 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
     async fn initialize(
         &self,
         profile: &str,
-        config: &Config,
+        config: &mut Config,
         vault: std::sync::Arc<dyn crate::core::vault::Vault>,
         cfg_mgr: &crate::core::config::ConfigManager,
+        params: crate::auth::provider::InitParams,
     ) -> Result<()> {
+        // 1. Setup credentials
+        if let Some(ak) = params.app_key {
+            config.app_key = ak;
+        }
+        if let Some(as_val) = params.app_secret {
+            vault.set(profile, "app_secret", &as_val).await?;
+            config.app_secret = as_val;
+        }
+        if let Some(ek) = params.encrypt_key {
+            vault.set(profile, "encrypt_key", &ek).await?;
+            config.encrypt_key = ek;
+        }
+
+        // 2. Persist config so daemon can see it
+        cfg_mgr.save(profile, config).await?;
+
+        // 3. Validation and Startup
         // Validation: appKey, appSecret and encryptKey are required for sidecar
         if config.app_key.trim().is_empty()
             || config.app_secret.trim().is_empty()
@@ -268,6 +286,20 @@ impl<'a> AuthProvider for StoreAppProvider<'a> {
             }
         }
     }
+    fn get_daemon_display_info(&self, is_running: bool) -> (String, String) {
+        let name = "Stream Bridge (Daemon)";
+        let tip = if is_running {
+            "同步状态: [ACTIVE]"
+        } else {
+            "若需实现多租户消息同步，请运行 'cowen daemon start'"
+        };
+        (name.to_string(), tip.to_string())
+    }
+
+    fn supports_api_call(&self) -> bool {
+        false
+    }
+
     async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
         tracing::info!(target: "sys", profile = %profile, "Finalizer started for StoreApp auth");
         

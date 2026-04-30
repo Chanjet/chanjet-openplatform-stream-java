@@ -3,8 +3,16 @@ use crate::daemon::dlq::DlqStore;
 use crate::daemon::forwarder::Forwarder;
 use std::sync::Arc;
 use crate::core::config::Config;
+use crate::auth::{AuthClient, VaultTokenPool, client::Client};
 
-pub async fn list(profile: &str, format: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+pub async fn list(profile: &str, config: &Config, format: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+    let pool = VaultTokenPool::new(vault.clone());
+    let auth = AuthClient::new(&pool);
+    if !auth.supports_webhooks(config) {
+        println!("⚠️  Mode '{:?}' does not support Webhooks/Streaming, DLQ is disabled.", config.app_mode);
+        return Ok(());
+    }
+
     let dlq_store = DlqStore::new(profile, vault)?;
     let entries = dlq_store.list().await?;
 
@@ -36,6 +44,13 @@ pub async fn list(profile: &str, format: &str, vault: Arc<dyn crate::core::vault
 }
 
 pub async fn retry(profile: &str, config: &Config, id: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+    let pool = VaultTokenPool::new(vault.clone());
+    let auth = AuthClient::new(&pool);
+    if !auth.supports_webhooks(config) {
+        println!("⚠️  Mode '{:?}' does not support Webhooks/Streaming, DLQ is disabled.", config.app_mode);
+        return Ok(());
+    }
+
     let dlq_store = DlqStore::new(profile, vault)?;
     let entry = dlq_store.get(id).await?;
 
@@ -59,7 +74,14 @@ pub async fn retry(profile: &str, config: &Config, id: &str, vault: Arc<dyn crat
     Ok(())
 }
 
-pub async fn purge(profile: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+pub async fn purge(profile: &str, config: &Config, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+    let pool = VaultTokenPool::new(vault.clone());
+    let auth = AuthClient::new(&pool);
+    if !auth.supports_webhooks(config) {
+        println!("⚠️  Mode '{:?}' does not support Webhooks/Streaming, DLQ is disabled.", config.app_mode);
+        return Ok(());
+    }
+
     let dlq_store = DlqStore::new(profile, vault)?;
     let entries = dlq_store.list().await?;
 

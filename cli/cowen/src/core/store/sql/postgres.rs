@@ -224,3 +224,5 @@ impl SqlBuilder for PostgresBuilder {
         Ok(Arc::new(PostgresDriver::new(pool, url)))
     }
 }
+
+inventory::submit! { super::SqlBuilderRegistration { builder: &PostgresBuilder } }

@@ -16,6 +16,10 @@ pub async fn call(
     data_file: &Option<String>,
     format: &str,
 ) -> Result<()> {
+    if !auth_cli.supports_api_call(cfg) {
+        anyhow::bail!("Mode '{:?}' does not support direct CLI API calls. Please use your main application to trigger requests.", cfg.app_mode);
+    }
+
     // 1. Resolve Body Data
     let body_str = if let Some(file_path) = data_file {
         std::fs::read_to_string(file_path)
@@ -224,6 +228,10 @@ pub async fn list(
     refresh: bool,
     vault: Arc<dyn crate::core::vault::Vault>,
 ) -> Result<()> {
+    if !auth_cli.supports_api_call(cfg) {
+        anyhow::bail!("Mode '{:?}' does not support direct CLI API calls. Please use your main application to discover APIs.", cfg.app_mode);
+    }
+
     // 1. Capture old count if refreshing
     let old_count = if refresh {
         if let Ok(data) = vault.get(profile, "openapi_spec").await {
@@ -400,6 +408,10 @@ pub async fn spec(
     input_path: &str,
     raw: bool,
 ) -> Result<()> {
+    if !auth_cli.supports_api_call(cfg) {
+        anyhow::bail!("Mode '{:?}' does not support direct CLI API spec inspection. Please use your main application for API discovery.", cfg.app_mode);
+    }
+
     let spec = auth_cli.get_openapi_spec(profile, cfg, false).await?;
     
     // 1. Resolve Path
@@ -685,6 +697,8 @@ mod tests {
         fn get_auth_display_info(&self, _cfg: &Config) -> (String, String) { ("".to_string(), "".to_string()) }
         fn get_daemon_display_info(&self, _cfg: &Config, _is_running: bool) -> (String, String) { ("".to_string(), "".to_string()) }
         fn requires_ticket(&self, _cfg: &Config) -> bool { false }
+        fn supports_webhooks(&self, _cfg: &Config) -> bool { true }
+        fn supports_api_call(&self, _cfg: &Config) -> bool { true }
 
         async fn get_app_access_token(&self, _profile: &str, _cfg: &Config) -> Result<Token> {
             Ok(self.token.clone())

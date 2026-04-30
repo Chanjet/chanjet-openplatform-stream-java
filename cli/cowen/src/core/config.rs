@@ -27,7 +27,7 @@ pub struct StorageConfig {
     pub cache_url: Option<String>,
 }
 
-fn default_store() -> String { "local".to_string() }
+fn default_store() -> String { "innerdb".to_string() }
 fn default_cache() -> String { "none".to_string() }
 
 impl Default for StorageConfig {

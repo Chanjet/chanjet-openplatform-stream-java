@@ -50,20 +50,13 @@ impl<'a> OAuth2Provider<'a> {
             cfg.openapi_url.trim_end_matches('/'),
             obfs!("/oauth2/token")
         );
-        let mut body = serde_json::json!({
+        let body = serde_json::json!({
             "grant_type": "authorization_code",
-            "client_id": cfg.app_key.trim(),
+            "client_id": crate::auth::models::BUILTIN_CLIENT_ID,
             "code": code,
             "redirect_uri": redirect_uri,
             "code_verifier": verifier,
         });
-
-        if !cfg.app_secret.trim().is_empty() {
-            body.as_object_mut().unwrap().insert(
-                "client_secret".to_string(),
-                serde_json::json!(cfg.app_secret.trim()),
-            );
-        }
 
         self.request_token(profile, &url, body, cfg).await
     }
@@ -81,8 +74,7 @@ impl<'a> OAuth2Provider<'a> {
         );
         let body = serde_json::json!({
             "grant_type": "refresh_token",
-            "client_id": cfg.app_key.trim(),
-            "client_secret": cfg.app_secret.trim(),
+            "client_id": crate::auth::models::BUILTIN_CLIENT_ID,
             "refresh_token": refresh_token,
         });
 
@@ -94,7 +86,7 @@ impl<'a> OAuth2Provider<'a> {
         profile: &str,
         url: &str,
         body: serde_json::Value,
-        cfg: &Config,
+        _cfg: &Config,
     ) -> Result<Token> {
         let headers = reqwest::header::HeaderMap::new();
         let resp = self.http_sender.post_form(url, headers, body).await?;
@@ -283,7 +275,28 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         Ok(crate::auth::provider::ProxyRequestAction::Forward { headers })
     }
 
-    async fn initialize(&self, profile: &str, config: &Config, vault: std::sync::Arc<dyn crate::core::vault::Vault>, cfg_mgr: &crate::core::config::ConfigManager) -> Result<()> {
+    async fn initialize(
+        &self,
+        profile: &str,
+        config: &mut Config,
+        vault: std::sync::Arc<dyn crate::core::vault::Vault>,
+        cfg_mgr: &crate::core::config::ConfigManager,
+        params: crate::auth::provider::InitParams,
+    ) -> Result<()> {
+        use crate::auth::lifecycle::orchestrator;
+        use crate::core::utils;
+
+        // 1. Setup credentials (OCP: forced built-in for OAuth2)
+        if params.app_key.is_some() || params.app_secret.is_some() {
+            println!("⚠️  Note: OAuth2 mode uses the standard built-in identity. Provided AppKey/AppSecret will be ignored.");
+        }
+        config.app_key = crate::auth::models::BUILTIN_CLIENT_ID.to_string();
+        config.app_secret = "".to_string();
+
+        // 2. Persist config early so callback listeners can see it
+        cfg_mgr.save(profile, config).await?;
+
+        // 3. Start Flow
         use crate::auth::lifecycle::orchestrator;
         use crate::core::utils;
 
@@ -306,7 +319,7 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         let auth_url = format!(
             "{}/user/v2/authorize?client_id={}&response_type=code&scope=all&redirect_uri={}&state={}&code_challenge={}&code_challenge_method=S256",
             market_url.trim_end_matches('/'),
-            config.app_key,
+            crate::auth::models::BUILTIN_CLIENT_ID,
             urlencoding::encode(&session.redirect_uri),
             session.state,
             Pkce::generate_challenge(&session.code_verifier),
@@ -334,6 +347,9 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         // I'll add is_new to the signature.
         let is_new = !cfg_mgr.exists(profile).await; 
         orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr).await?;
+
+        // 7. Automatically start the daemon (OCP: Consistent experience across all modes)
+        let _ = crate::cmd::system::ensure_daemon_running(profile, config, cfg_mgr, vault).await;
 
         Ok(())
     }
@@ -405,7 +421,7 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         res
     }
 
-    async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+    async fn get_status_entries(&self, profile: &str, _config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
         use crate::core::status::{StatusEntry, StatusLevel};
         let mut entries = Vec::new();
         let vault = self.pool.as_vault();
@@ -483,6 +499,10 @@ impl<'a> AuthProvider for OAuth2Provider<'a> {
         Some(crate::auth::models::BUILTIN_CLIENT_ID.to_string())
     }
 
+    fn supports_webhooks(&self) -> bool {
+        false
+    }
+
     fn decorate_openapi_request(&self, url: &mut String, headers: &mut reqwest::header::HeaderMap, token: &Token, config: &Config) {
         if !url.contains("checkPermission=") {
             if url.contains('?') {
@@ -549,6 +569,63 @@ mod tests {
         hasher.update(pkce.verifier.as_bytes());
         let expected_challenge = URL_SAFE_NO_PAD.encode(hasher.finalize());
         assert_eq!(challenge, expected_challenge);
+    }
+
+    #[test]
+    fn test_oauth2_capabilities() {
+        struct MockVault {}
+        #[async_trait::async_trait]
+        impl crate::core::vault::Vault for MockVault {
+            async fn get_config(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+            async fn get_config_full(&self, _: &str, _: &str) -> Result<crate::core::store::Item> { Err(anyhow!("not found")) }
+            async fn set_config(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn set_config_conditional(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
+            async fn list_configs(&self, _: &str) -> Result<Vec<String>> { Ok(vec![]) }
+            async fn delete_config(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn get_secret(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+            async fn set_secret(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn get_token(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+            async fn set_token(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
+            async fn save_audit(&self, _: &crate::core::store::AuditEntry) -> Result<()> { Ok(()) }
+            async fn list_audit(&self, _: &str, _: usize) -> Result<Vec<crate::core::store::AuditEntry>> { Ok(vec![]) }
+            async fn push_dlq(&self, _: &crate::core::store::DlqMessage) -> Result<()> { Ok(()) }
+            async fn pop_dlq(&self, _: &str, _: &str) -> Result<Option<crate::core::store::DlqMessage>> { Ok(None) }
+            async fn list_dlq(&self, _: &str, _: usize) -> Result<Vec<crate::core::store::DlqMessage>> { Ok(vec![]) }
+            async fn get_cache(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+            async fn set_cache(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
+            async fn get(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+            async fn set(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn delete(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn list_keys(&self, _: &str, _: &str) -> Result<Vec<String>> { Ok(vec![]) }
+            async fn clear_profile(&self, _: &str) -> Result<()> { Ok(()) }
+            async fn rename_profile(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn list_all_profiles(&self) -> Result<Vec<String>> { Ok(vec![]) }
+            async fn notify_config_changed(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn watch_config(&self, _: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
+                    Ok(Box::pin(tokio_stream::iter(vec![])))
+            }
+            fn primary_store(&self) -> Arc<dyn crate::core::store::Store> { unimplemented!() }
+        }
+
+        struct MockHttpSender {}
+        #[async_trait::async_trait]
+        impl crate::auth::client::HttpSender for MockHttpSender {
+            async fn post(&self, _: &str, _: reqwest::header::HeaderMap, _: serde_json::Value) -> Result<crate::auth::client::SimpleResponse> {
+                Ok(crate::auth::client::SimpleResponse { status: 200, body: "{}".to_string() })
+            }
+            async fn post_form(&self, _: &str, _: reqwest::header::HeaderMap, _: serde_json::Value) -> Result<crate::auth::client::SimpleResponse> {
+                Ok(crate::auth::client::SimpleResponse { status: 200, body: "{}".to_string() })
+            }
+            async fn get(&self, _: &str, _: reqwest::header::HeaderMap) -> Result<crate::auth::client::SimpleResponse> {
+                Ok(crate::auth::client::SimpleResponse { status: 200, body: "{}".to_string() })
+            }
+        }
+
+        let vault = Arc::new(MockVault {});
+        let pool = crate::auth::VaultTokenPool::new(vault);
+        let sender = Arc::new(MockHttpSender {});
+        let provider = OAuth2Provider::new(&pool, sender);
+        assert!(!provider.supports_webhooks());
     }
 
     #[test]

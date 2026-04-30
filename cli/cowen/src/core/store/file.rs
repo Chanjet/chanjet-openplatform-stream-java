@@ -169,3 +169,19 @@ impl Store for FileStore {
         Err(anyhow::anyhow!("Notifications not supported for FileStore"))
     }
 }
+
+pub struct LocalStoreBuilder;
+
+#[async_trait]
+impl super::StoreBuilder for LocalStoreBuilder {
+    fn scheme(&self) -> &str {
+        "local"
+    }
+
+    async fn build(&self, _url: &str, app_dir: &Path, fingerprint: &str) -> Result<Arc<dyn Store>> {
+        let seal_path = app_dir.join(".seal");
+        Ok(Arc::new(FileStore::new(seal_path, fingerprint)?))
+    }
+}
+
+inventory::submit! { super::StoreBuilderRegistration { builder: &LocalStoreBuilder } }
