@@ -305,11 +305,3 @@ install:
 run:
 	cargo run -- --help
 
-explore:
-	@echo "🔍 Running exploratory ready tests for $(HOST_OS)-$(HOST_ARCH)..."
-	@if [ "$(HOST_OS)" = "windows" ]; then \
-		./tests/exploratory_ready_test.sh $(OUTPUT_DIR)/$(HOST_OS)-$(HOST_ARCH)/$(BINARY).exe; \
-	else \
-		./tests/exploratory_ready_test.sh $(OUTPUT_DIR)/$(HOST_OS)-$(HOST_ARCH)/$(BINARY); \
-	fi
-
