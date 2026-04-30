@@ -268,7 +268,7 @@ else ifeq ($(HOST_OS),windows)
 endif
 
 # 在 Linux 容器中执行全量 E2E (Podman) - 支持缓存共享
-test-linux: prepare-podman-machine
+test-linux: prepare-podman-machine prepare-podman-image
 	@echo "🧪 Running Full E2E Suite in Linux container with Shared Cache..."
 	@if ! podman image exists cowen-test-base; then \
 		podman build -t cowen-test-base -f tests/Dockerfile.linux.base .; \
