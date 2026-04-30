@@ -73,16 +73,6 @@ else
     exit 1
 fi
 
-# 3. AI 语义搜索能力深度探索 (Neural Search)
-echo -e "${YELLOW}Step 3: 探索 AI 语义搜索行为...${NC}"
-# 寻找关键词，验证语义映射是否存在
-SEARCH_OUT=$("$BINARY_PATH" api list --search "发票" --log-level error 2>&1 || true)
-if echo "$SEARCH_OUT" | grep -q "Neural Search"; then
-    echo -e "${GREEN}   [OK] 本地语义引擎激活，关键词 '发票' 映射成功${NC}"
-else
-    echo -e "${YELLOW}   [SKIP] 语义引擎未响应，可能模型未下载或当前版本不支持${NC}"
-fi
-
 # 4. 配置响应格式与掩码 (Output Format & Masking)
 echo -e "${YELLOW}Step 4: 验证输出格式与敏感信息脱敏...${NC}"
 JSON_OUT=$("$BINARY_PATH" config -o json 2>&1 || true)
@@ -102,7 +92,7 @@ fi
 echo -e "${YELLOW}Step 5: 探索 Profile 隔离与 Vault 机制...${NC}"
 "$BINARY_PATH" profile use "$TMP_PROF" >/dev/null 2>&1
 # 初始化临时环境（使用模拟数据）
-"$BINARY_PATH" init --profile "$TMP_PROF" --app-mode self-built --app-key "TEST_KEY" --app-secret "TEST_SEC" --certificate "TEST_CERT" >/dev/null 2>&1
+"$BINARY_PATH" init --profile "$TMP_PROF" --app-mode self-built --app-key "TEST_KEY" --app-secret "TEST_SEC" --certificate "TEST_CERT" --encrypt-key "TEST_ENC" >/dev/null 2>&1
 
 CONFIG_FILE="$HOME/.cowen/$TMP_PROF.yaml"
 if [ -f "$CONFIG_FILE" ]; then
@@ -118,7 +108,21 @@ else
 fi
 
 # 预置一个极简的本地 Spec 缓存，防止 Proxy 因为获取规约失败而报 500
-echo '{"openapi":"3.0.0","paths":{"/v1/user":{"get":{"responses":{"200":{"description":"OK"}}}}}}' > "$HOME/.cowen/${TMP_PROF}_openapi.yaml"
+echo '{"openapi":"3.0.0","paths":{"/v1/user":{"get":{"summary": "查询用户信息", "description": "获取当前登录用户的详细信息", "responses":{"200":{"description":"OK"}}}}}}' > "$HOME/.cowen/${TMP_PROF}_openapi.yaml"
+
+# 3. AI 语义搜索能力深度探索 (Neural Search)
+echo -e "${YELLOW}Step 3: 探索 AI 语义搜索行为...${NC}"
+# 寻找关键词，验证语义映射是否存在
+# 注意：第一次搜索会触发索引构建
+SEARCH_OUT=$("$BINARY_PATH" api list --search "用户" --log-level error 2>&1 || true)
+if echo "$SEARCH_OUT" | grep -q "Neural Search"; then
+    echo -e "${GREEN}   [OK] 本地语义引擎激活，关键词 '用户' 映射成功${NC}"
+else
+    # 如果还是失败，输出错误日志便于调试
+    echo -e "${RED}   [FAIL] 语义搜索失败！输出: $SEARCH_OUT${NC}"
+    exit 1
+fi
+
 
 # 6. 安全模块与日志管理检查
 echo -e "${YELLOW}Step 6: 安全模块与日志管理系统检查...${NC}"
