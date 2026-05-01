@@ -34,6 +34,7 @@ SUITES=(
     "tests/case_07_token_lifecycle.sh"
     "tests/case_08_concurrent_stress.sh"
     "tests/case_09_dlq_retries.sh"
+    "tests/case_10_profile_management.sh"
 )
 
 PASSED=0
