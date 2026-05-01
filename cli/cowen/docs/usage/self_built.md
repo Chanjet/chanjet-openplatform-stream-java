@@ -161,3 +161,62 @@ cowen store migrate --to "mysql://user:pass@host:3306/db"
 - **身份类型**：企业自建应用 (单租户)。
 - **消息推送**：✅ 完美支持 WebSocket 长连接及 Webhook 转发。
 - **死信管理**：✅ 自动托管失败消息，支持使用 `dlq list` 和 `dlq retry` 运维。
+
+---
+
+## ☁️ 云原生与分布式部署 (Cloud-Native & Distributed)
+
+在生产环境中，建议采用 **Sidecar (边车模式)** 部署。通过环境变量注入配置，实现 Pod 启动即就绪。
+
+### 1. 推荐：环境变量驱动 (One-Liner)
+利用 `cowen` 的环境变量注入能力，您可以无需手动执行 `init` 脚本，直接通过容器配置启动：
+
+**核心环境变量 (Self-Built 模式)**:
+- `COWEN_APP_MODE`: 设为 `self-built`
+- `COWEN_APP_KEY`: 填写应用 AppKey
+- `COWEN_APP_SECRET`: 填写应用 AppSecret
+- `COWEN_CERTIFICATE`: 填写应用签名证书 (Certificate)
+- `COWEN_ENCRYPT_KEY`: 16位物理加密密钥
+- `COWEN_STORE_TYPE`: 设为 `redis` (分布式场景必备)
+- `COWEN_DB_URL`: `redis://<HOST>:<PORT>/<DB>`
+- `COWEN_WEBHOOK_TARGET`: Webhook 回调地址
+
+### 2. Kubernetes Sidecar 部署示例
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-isv-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: main-app
+        image: my-business-app:latest
+      - name: cowen-sidecar
+        image: chanjet/cowen:latest
+        command: ["cowen", "daemon", "start", "--foreground"]
+        env:
+        - name: COWEN_APP_MODE
+          value: "self-built"
+        - name: COWEN_APP_KEY
+          value: "<YOUR_APP_KEY>"
+        - name: COWEN_APP_SECRET
+          valueFrom: { secretKeyRef: { name: cowen-secret, key: app-secret } }
+        - name: COWEN_CERTIFICATE
+          valueFrom: { secretKeyRef: { name: cowen-secret, key: certificate } }
+        - name: COWEN_ENCRYPT_KEY
+          valueFrom: { secretKeyRef: { name: cowen-secret, key: encrypt-key } }
+        - name: COWEN_STORE_TYPE
+          value: "redis"
+        - name: COWEN_DB_URL
+          value: "redis://redis-cluster:6379/0"
+        - name: COWEN_PROXY_PORT
+          value: "8080"
+```
+
+### 3. 分布式一致性保障
+- **Token 共享**: 当 `COWEN_STORE_TYPE` 设为 `redis` 时，所有 Pod 将共享同一个 AccessToken。
+- **并发安全**: `cowen` 内部通过 Lua 脚本实现 CAS 原子操作。即使 100 个 Pod 同时启动，也只会有一个 Pod 执行真正的 Token 交换，其余 Pod 会自动等待并复用缓存中的有效 Token。
+- **无感扩容**: 由于底座是共享的，您可以随时对应用进行 HPA 扩容，新节点上线后会自动完成自愈初始化。
+- **健康检查**: 建议配置 Liveness Probe 指令：`cowen status --profile main`。
