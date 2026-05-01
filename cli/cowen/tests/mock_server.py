@@ -352,10 +352,15 @@ async def handle_clear_webhooks(request):
 
 async def handle_connection_count(request):
     """Return exact count of active WS connections (prunes dead ones first)"""
-    dead_keys = [k for k, ws in MOCK_STATE["active_ws_clients"].items() if ws.closed]
-    for k in dead_keys:
+    # Force prune
+    to_delete = []
+    for k, ws in MOCK_STATE["active_ws_clients"].items():
+        if ws.closed:
+            to_delete.append(k)
+    for k in to_delete:
         del MOCK_STATE["active_ws_clients"][k]
-    clients = {k: not ws.closed for k, ws in MOCK_STATE["active_ws_clients"].items()}
+        
+    clients = {k: True for k in MOCK_STATE["active_ws_clients"].keys()}
     return web.json_response({"count": len(clients), "clients": clients})
     
 async def handle_config(request):

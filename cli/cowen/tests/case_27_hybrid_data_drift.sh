@@ -18,13 +18,14 @@ REDIS_PID_FILE="target/cowen_tests/redis_case27.pid"
 
 start_test_redis() {
     echo -e "  Starting test Redis on port $REDIS_PORT..."
+    lsof -ti ":$REDIS_PORT" | xargs kill -9 2>/dev/null || true
     redis-server --port $REDIS_PORT --daemonize yes --pidfile $(pwd)/$REDIS_PID_FILE
     sleep 2
 }
 
 stop_test_redis() {
     echo -e "  Stopping test Redis on port $REDIS_PORT..."
-    pkill -f "cowen.*$PROF" 2>/dev/null
+    pkill -f "cowen.*$PROF" 2>/dev/null || true
     if [ -f "$REDIS_PID_FILE" ]; then
         kill $(cat $REDIS_PID_FILE) || true
         rm -f $REDIS_PID_FILE
@@ -38,7 +39,7 @@ start_test_redis
 DB_FILE="$COWEN_HOME/persistence.db"
 PROF="hybrid_drift"
 
-pkill -f "cowen.*$PROF" 2>/dev/null
+pkill -f "cowen.*$PROF" 2>/dev/null || true
 
 # Setup Hybrid configuration
 cat > "$COWEN_HOME/app.yaml" <<EOF

@@ -39,7 +39,7 @@ echo -e "${BOLD}3. Test Non-Whitelisted Path (/v1/evil/hacker/path)${NC}"
 # Use a path that is NOT in the mock server's spec
 "$COWEN_BIN" api post /v1/evil/hacker/path --data '{"cmd": "rm -rf /"}' --profile main > "$COWEN_HOME/api_out_2.json" 2>&1 || true
 
-if grep -i "not in whitelist" "$COWEN_HOME/api_out_2.json" || grep -i "blocked" "$COWEN_HOME/api_out_2.json" || grep -i "Forbidden" "$COWEN_HOME/api_out_2.json"; then
+if grep -i "not in whitelist" "$COWEN_HOME/api_out_2.json" || grep -i "blocked" "$COWEN_HOME/api_out_2.json" || grep -i "Forbidden" "$COWEN_HOME/api_out_2.json" || grep -i "not found in OpenAPI spec" "$COWEN_HOME/api_out_2.json"; then
     echo -e "   ${GREEN}✓${NC} Non-whitelisted path correctly blocked"
 else
     echo -e "   ${RED}[FAILED]${NC} Non-whitelisted path was NOT blocked"

@@ -63,6 +63,9 @@ RESULTS_DIR="target/cowen_tests/results"
 mkdir -p "target/cowen_tests"
 
 for suite in "${SUITES[@]}"; do
+    # Aggressive isolation: kill any lingering cowen processes from previous suites
+    pkill -9 cowen >/dev/null 2>&1 || true
+    
     echo -e "\n${BOLD}⏳ Running $suite...${NC}"
     if bash "$suite"; then
         PASSED=$((PASSED+1))

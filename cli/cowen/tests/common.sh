@@ -73,6 +73,11 @@ cleanup_suite() {
                 rm -f "$pid_file" >/dev/null 2>&1 || true
             done
         fi
+
+        # 1.5 Global pkill as fallback (Robustness)
+        if [ "$COWEN_MOCK_MANAGED" == "true" ]; then
+             pkill -9 cowen >/dev/null 2>&1 || true
+        fi
         
         # 2. Cleanup mock server state for next case (Only if shared)
         if [ "$COWEN_MOCK_MANAGED" == "true" ]; then

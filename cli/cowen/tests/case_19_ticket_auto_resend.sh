@@ -6,7 +6,6 @@
 #   3. 'auth token' eventually succeeds.
 
 source tests/common.sh
-export MOCK_PORT=9301
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 pkill cowen || true
