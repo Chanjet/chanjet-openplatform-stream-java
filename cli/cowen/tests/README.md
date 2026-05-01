@@ -93,11 +93,11 @@ cargo build && bash tests/case_15_store_app_shared_storage.sh
 - [ ] **Case 20: OAuth2 刷新令牌 (Refresh Token) 续约**: 模拟 AccessToken 过期，验证 CLI 是否能在调用 API 前自动使用 Refresh Token 换取新令牌。
 
 ### 3. 安全与拦截验证 (Security Debt)
-- [ ] **Case 21: Proxy 白名单强制校验**: 
-  > [!IMPORTANT]
-  > 需配合生产代码 `src/daemon/proxy.rs` 的修复。
-  - 验证：访问不在 OpenAPI Spec 中的路径，Proxy 必须返回 `403 Forbidden`。
-  - 验证：动态更新 Spec 后，拦截规则是否实时生效。
+- [ ] **Case 21: OpenAPI 白名单强制校验 (CLI 侧)**: 
+  > [!NOTE]
+  > 当前白名单拦截逻辑主要在 CLI `api` 命令层实现，Daemon Proxy 层尚未强制拦截。
+  - 验证：使用 `cowen api [METHOD] [PATH]` 访问不在白名单的路径，应由 CLI 拦截并提示权限不足。
+  - 验证：动态更新 Spec 后，CLI 的拦截行为是否同步。
 
 ### 4. 极端场景与弹性测试 (Reliability)
 - [ ] **Case 22: 海量配置加载性能**: 在单个 Profile 下写入 10,000 条配置，验证 `config` 命令的响应时间。
