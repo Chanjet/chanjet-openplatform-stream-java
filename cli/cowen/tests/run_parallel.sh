@@ -118,8 +118,9 @@ EOF
 job_id=0
 FAILED_COUNT=0
 
-echo -e "\n${BOLD}Phase 1: Running Parallel Suites (${#PARALLEL_SUITES[@]})${NC}"
-for suite in "${PARALLEL_SUITES[@]}"; do
+if [ ${#PARALLEL_SUITES[@]} -gt 0 ]; then
+    echo -e "\n${BOLD}Phase 1: Running Parallel Suites (${#PARALLEL_SUITES[@]})${NC}"
+    for suite in "${PARALLEL_SUITES[@]}"; do
     base_port=$((BASE_PORT_START + job_id * 50))
     tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$job_id"
     cp "$suite" "$tmp_suite"
@@ -136,15 +137,18 @@ for suite in "${PARALLEL_SUITES[@]}"; do
     run_job "$tmp_suite" "$job_id" "$base_port" &
     job_id=$((job_id + 1))
     [ $((job_id % MAX_PARALLEL)) -eq 0 ] && wait
-done
+    done
+fi
 wait
 
 # --- Phase 2: Serial ---
-echo -e "\n${BOLD}Phase 2: Running Serial Suites (${#SERIAL_SUITES[@]})${NC}"
-for suite in "${SERIAL_SUITES[@]}"; do
-    run_job "$suite" "$job_id" "19999"
-    job_id=$((job_id + 1))
-done
+if [ ${#SERIAL_SUITES[@]} -gt 0 ]; then
+    echo -e "\n${BOLD}Phase 2: Running Serial Suites (${#SERIAL_SUITES[@]})${NC}"
+    for suite in "${SERIAL_SUITES[@]}"; do
+        run_job "$suite" "$job_id" "19999"
+        job_id=$((job_id + 1))
+    done
+fi
 
 # Summary Analysis
 echo -e "\n${BLUE}${BOLD}========================================================${NC}"
