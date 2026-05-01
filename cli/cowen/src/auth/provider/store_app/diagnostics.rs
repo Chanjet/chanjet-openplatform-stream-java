@@ -119,7 +119,10 @@ pub(crate) async fn get_status_entries(
     }
 
     // 2.3 AppTicket Status
-    if let Ok(ts_str) = vault.get(profile, "app_ticket_created").await {
+    let app_key = config.app_key.trim();
+    let global_app_profile = format!("app:{}", app_key);
+    
+    if let Ok(ts_str) = vault.get(&global_app_profile, "app_ticket_created").await {
         let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
         entries.push(StatusEntry {
             name: "AppTicket".to_string(),

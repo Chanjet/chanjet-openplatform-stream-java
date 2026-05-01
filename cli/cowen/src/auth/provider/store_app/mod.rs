@@ -189,18 +189,28 @@ impl AuthProvider for StoreAppProvider {
 
         // 1.5. Webhook Receiver Interception
         if path.ends_with("/webhook") && method == "POST" {
+            tracing::info!(target: "sys", path = %path, "StoreApp Proxy intercepted webhook request");
             let data: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
             let event_type = data.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+            tracing::info!(target: "sys", event_type = %event_type, "StoreApp Webhook event type identified");
             
             match event_type {
                 "APP_TICKET" => {
                     let ticket = data.get("app_ticket").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                    self.handle_platform_event(profile, config, crate::auth::provider::PlatformEvent::AppTicket(ticket)).await?;
+                    if ticket.is_empty() {
+                        tracing::warn!(target: "sys", "Received APP_TICKET event with empty ticket value, ignoring");
+                    } else {
+                        self.handle_platform_event(profile, config, crate::auth::provider::PlatformEvent::AppTicket(ticket)).await?;
+                    }
                 }
                 "TEMP_AUTH_CODE" => {
                     let code = data.get("temp_auth_code").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                    let org_id = data.get("org_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-                    self.handle_platform_event(profile, config, crate::auth::provider::PlatformEvent::TempAuthCode { code, org_id }).await?;
+                    if code.is_empty() {
+                        tracing::warn!(target: "sys", "Received TEMP_AUTH_CODE event with empty code value, ignoring");
+                    } else {
+                        let org_id = data.get("org_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        self.handle_platform_event(profile, config, crate::auth::provider::PlatformEvent::TempAuthCode { code, org_id }).await?;
+                    }
                 }
                 _ => {
                     tracing::debug!(target: "sys", "StoreApp Webhook received unknown event type: {}", event_type);

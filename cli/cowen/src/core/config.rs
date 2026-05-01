@@ -194,8 +194,8 @@ impl ConfigManager {
                             if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
                             if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
                             if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
-                        return Ok(config);
-                    },
+                            return Ok(config);
+                        },
                     Err(e) => {
                         tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
                     }

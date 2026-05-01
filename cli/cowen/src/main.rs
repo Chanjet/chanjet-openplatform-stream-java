@@ -459,7 +459,7 @@ async fn run() -> Result<()> {
 
     // 4. Check for Activation (First Run)
     let marker_path = app_dir.join(".telemetry_marker");
-    if !marker_path.exists() {
+    if !marker_path.exists() && cli.format == "text" {
         // --- 隐私声明 / Privacy Notice ---
         println!("\n\x1b[1;36m🛡️  安全与隐私提示 (Security & Privacy Notice)\x1b[0m");
         println!("--------------------------------------------------");

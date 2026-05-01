@@ -151,7 +151,7 @@ pub trait AuthProvider: Send + Sync {
     ) -> Result<ProxyRequestAction> {
         let mut headers = headers;
         let token = self.get_token(profile, config, &headers).await?;
-        headers.insert("Authorization", format!("Bearer {}", token.value).parse().unwrap());
+        headers.insert("openToken", token.value.parse().unwrap());
         let _ = (body, spec);
         Ok(ProxyRequestAction::Forward { headers })
     }

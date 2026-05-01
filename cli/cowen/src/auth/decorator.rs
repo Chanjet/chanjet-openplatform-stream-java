@@ -34,19 +34,17 @@ impl RequestDecorator {
                                 headers.push(("appSecret".to_string(), app_secret.to_string()));
                             }
                             "openToken" => {
-                                // Some APIs use openToken directly as a header
                                 headers.push(("openToken".to_string(), token_value.to_string()));
-                            }
-                            "Authorization" => {
-                                // If the spec explicitly asks for Authorization, we provide it
-                                // (Note: Usually this is "Bearer {token}")
-                                headers.push(("Authorization".to_string(), format!("Bearer {}", token_value)));
                             }
                             _ => {}
                         }
                     }
                 }
             }
+        } else {
+            // Fallback: spec unavailable or path not defined — inject default auth headers
+            headers.push(("appKey".to_string(), app_key.to_string()));
+            headers.push(("openToken".to_string(), token_value.to_string()));
         }
 
         headers
@@ -111,32 +109,5 @@ mod tests {
         );
 
         assert_eq!(headers.len(), 0);
-    }
-    
-    #[test]
-    fn test_get_auth_headers_authorization() {
-        let spec = json!({
-            "paths": {
-                "/v1/auth": {
-                    "post": {
-                        "parameters": [
-                            { "name": "Authorization", "in": "header" }
-                        ]
-                    }
-                }
-            }
-        });
-
-        let headers = RequestDecorator::get_auth_headers(
-            &spec,
-            "/v1/auth",
-            "post",
-            "key",
-            "sec",
-            "token123"
-        );
-
-        assert_eq!(headers.len(), 1);
-        assert_eq!(headers[0], ("Authorization".to_string(), "Bearer token123".to_string()));
     }
 }

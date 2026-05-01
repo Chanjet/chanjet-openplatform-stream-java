@@ -39,6 +39,7 @@ SUITES=(
     "tests/case_12_daemon_recovery.sh"
     "tests/case_13_distributed_lb.sh"
     "tests/case_14_shared_storage.sh"
+    "tests/case_15_store_app_shared_storage.sh"
 )
 
 PASSED=0

@@ -48,11 +48,14 @@ async fn handle_proxy(
     State(state): State<ProxyState>,
     req: Request,
 ) -> impl IntoResponse {
-    // 2. Extract Parts
+    // 0. Extract Parts
     let (parts, body) = req.into_parts();
     let target_url = format!("{}{}", state.config.openapi_url, parts.uri.path_and_query().map(|x| x.as_str()).unwrap_or(""));
 
-    // 1. Resolve Auth & Spec
+    let req_path = parts.uri.path().to_string();
+    let method_str = parts.method.to_string();
+
+    // 1. Resolve Auth (No spec yet)
     let fingerprint = match crate::core::security::get_machine_fingerprint() {
         Ok(f) => f,
         Err(_) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Fingerprint failed").into_response()
@@ -73,23 +76,17 @@ async fn handle_proxy(
     };
 
     let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
-    use crate::auth::client::Client as AuthTrait; 
 
-    let spec = match auth_cli.get_openapi_spec(&state.profile, &state.config, false).await {
-        Ok(s) => s,
-        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Spec error: {}", crate::core::utils::mask_sensitive_json(&e.to_string()))).into_response()
+    // 1.1. Read body early to allow interception
+    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(b) => b,
+        Err(e) => return (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("Failed to read body: {}", e)
+        ).into_response(),
     };
 
-    let req_path = parts.uri.path().to_string();
-    let method_str = parts.method.to_string();
-
-    if !crate::auth::client::is_path_in_whitelist(&req_path, &spec) {
-        tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, "Proxy Rejected: Path not in whitelist");
-        return (
-                axum::http::StatusCode::FORBIDDEN,
-                format!("Proxy Rejected: Target path {} is not in the OpenAPI whitelist.", req_path),
-        ).into_response();
-    }
+    let provider = auth_cli.provider(&state.config.app_mode);
 
     // Convert axum headers to reqwest headers for provider compatibility
     let mut headers = reqwest::header::HeaderMap::new();
@@ -101,20 +98,9 @@ async fn handle_proxy(
         }
     }
 
-    // 1.5. Intercept Logic (Encapsulated in Provider)
-    // Read body early to allow interception and re-use for forwarding
-    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
-        Ok(b) => b,
-        Err(e) => return (
-            axum::http::StatusCode::BAD_REQUEST,
-            format!("Failed to read body: {}", e)
-        ).into_response(),
-    };
-
-    let provider = auth_cli.provider(&state.config.app_mode);
-    
-    // 1. Pre-flight Interceptor (Token injection, header decoration, or short-circuit)
-    let intercept_result = match provider.intercept_request(&state.profile, &state.config, &req_path, &method_str, headers, &bytes, &spec).await {
+    // 1.2. Pre-flight Interceptor (spec-free, allows webhook short-circuit)
+    let fallback_spec = serde_json::Value::Null;
+    let intercept_result = match provider.intercept_request(&state.profile, &state.config, &req_path, &method_str, headers, &bytes, &fallback_spec).await {
         Ok(res) => res,
         Err(e) => {
             let masked_err = crate::core::utils::mask_sensitive_json(&e.to_string());
@@ -126,12 +112,12 @@ async fn handle_proxy(
         }
     };
 
+    // 1.3. Dispatch: Short-circuit (Webhook ACK) or extract forwarding headers
     let reqwest_headers = match intercept_result {
         crate::auth::provider::ProxyRequestAction::Respond(json_resp) => {
             return (axum::http::StatusCode::OK, axum::Json(json_resp)).into_response();
         }
         crate::auth::provider::ProxyRequestAction::Forward { mut headers } => {
-            // Some headers like Host might confuse the upstream server if we copy them directly
             headers.remove(reqwest::header::HOST);
             headers
         }

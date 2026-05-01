@@ -143,7 +143,7 @@ fi
 
 RAW_CONTROL=$(curl -s "$MOCK_URL/control/webhooks")
 echo "DEBUG: Raw Control Webhooks: $RAW_CONTROL"
-LAST_TOKEN=$(echo "$RAW_CONTROL" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d[-1].get('headers', {}).get('Authorization', ''))" 2>/dev/null)
+LAST_TOKEN=$(echo "$RAW_CONTROL" | python3 -c "import sys, json; d=json.load(sys.stdin); h=d[-1].get('headers', {}); print(h.get('openToken', '') or h.get('opentoken', ''))" 2>/dev/null)
 
 if [[ "$LAST_TOKEN" == *"$TOKEN_V2"* ]]; then
     echo -e " ${GREEN}[VERIFIED]${NC}"
