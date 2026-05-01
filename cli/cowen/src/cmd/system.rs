@@ -36,6 +36,10 @@ pub async fn status(
     for profile in &profiles {
         match get_system_status(profile, cfg_mgr, vault.clone()).await {
             Ok(s) => statuses.push(s),
+            Err(e) if e.to_string().contains("SKIPPED:") => {
+                // Ignore skipped profiles in bulk status
+                continue;
+            }
             Err(e) => errors.push((profile.clone(), e)),
         }
     }
@@ -218,7 +222,15 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
     
     for p in profiles {
         let (pid, _build_id) = get_active_daemon_info(&p).await;
-        let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&p)) };
+        let mut p_cfg = if p == profile { 
+            config.clone() 
+        } else { 
+            match cfg_mgr.load(&p).await {
+                Ok(c) => c,
+                Err(e) if e.to_string().contains("SKIPPED:") => continue,
+                Err(_) => crate::core::config::Config::default_with_profile(&p),
+            }
+        };
         
         if p != profile {
             if let Ok(as_val) = vault.get_secret(&p, "app_secret").await { p_cfg.app_secret = as_val; }

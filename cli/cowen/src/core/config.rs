@@ -178,9 +178,31 @@ impl ConfigManager {
         self.app_dir.join(format!("{}.yaml", profile))
     }
 
+    fn is_distributed_storage(&self, app_cfg: &AppConfig) -> bool {
+        match app_cfg.storage.store.as_str() {
+            "local" => false,
+            "innerdb" => {
+                if let Some(url) = &app_cfg.storage.db_url {
+                    // It's the default local innerdb if it points to {app_dir}/cowen.db
+                    let db_path = self.app_dir.join("cowen.db");
+                    let expected_sqlite = format!("sqlite://{}", db_path.to_string_lossy());
+                    let expected_innerdb = format!("innerdb://{}", db_path.to_string_lossy());
+                    
+                    // Note: starts_with is used because sometimes the URL might have query params like ?mode=rwc
+                    url != &expected_sqlite && url != &expected_innerdb 
+                        && !url.starts_with(&format!("{}?", expected_sqlite))
+                        && !url.starts_with(&format!("{}?", expected_innerdb))
+                } else {
+                    false
+                }
+            },
+            _ => true, // mysql, postgres, redis, and explicit "sqlite" are all considered distributed
+        }
+    }
+
     pub async fn load(&self, profile: &str) -> Result<Config> {
         let app_cfg = self.load_app_config().await?;
-        let is_db_mode = app_cfg.storage.store != "local" && app_cfg.storage.store != "innerdb";
+        let is_db_mode = self.is_distributed_storage(&app_cfg);
 
         let (config, exists) = if let Some(vault) = self.vault.get() {
             // Priority 1: Cloud/Shared Storage (Database)
@@ -215,7 +237,9 @@ impl ConfigManager {
         // Validate: OAuth2 is NOT allowed in distributed (non-local) mode
         // We only block if the profile exists, to allow 'init' command to bootstrap a new profile.
         if is_db_mode && config.app_mode == crate::auth::models::AuthMode::Oauth2 && exists {
-            return Err(anyhow::anyhow!("OAuth2 mode is not allowed in distributed storage scenarios (shared database/redis). Please use Sidecar or SelfBuilt mode for distributed deployments."));
+            let msg = format!("⚠️  Skipping profile '{}': OAuth2 mode is not allowed in distributed storage scenarios (shared database/redis).", profile);
+            eprintln!("{}", msg);
+            return Err(anyhow::anyhow!("SKIPPED: {}", msg));
         }
 
         Ok(config)
@@ -241,7 +265,7 @@ impl ConfigManager {
 
     pub async fn save(&self, profile: &str, config: &Config) -> Result<()> {
         let app_cfg = self.load_app_config().await?;
-        let is_db_mode = app_cfg.storage.store != "local" && app_cfg.storage.store != "innerdb";
+        let is_db_mode = self.is_distributed_storage(&app_cfg);
 
         // Validate: Don't allow saving OAuth2 in distributed mode
         if is_db_mode && config.app_mode == crate::auth::models::AuthMode::Oauth2 {

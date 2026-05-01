@@ -399,8 +399,13 @@ async fn main() {
     tokio::select! {
         res = run() => {
             if let Err(e) = res {
-                tracing::error!(target: "sys", error = %e, "CLI execution failed");
-                eprintln!("❌ Error: {}", e);
+                let err_msg = e.to_string();
+                if err_msg.contains("SKIPPED:") {
+                    // Message already printed via eprintln! in load(), just exit gracefully
+                    std::process::exit(1);
+                }
+                tracing::error!(target: "sys", error = %err_msg, "CLI execution failed");
+                eprintln!("❌ Error: {}", err_msg);
                 std::process::exit(1);
             }
         }
@@ -434,7 +439,11 @@ async fn run() -> Result<()> {
     }
     
     // Load config for the target profile (or defaults if it's a new profile)
-    let mut config = cfg_mgr.load(&active_profile).await.unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&active_profile));
+    let mut config = match cfg_mgr.load(&active_profile).await {
+        Ok(cfg) => cfg,
+        Err(e) if e.to_string().contains("SKIPPED:") => return Err(e),
+        Err(_) => crate::core::config::Config::default_with_profile(&active_profile),
+    };
 
     // Override config flags if CLI provides them
     if cli.no_telemetry {
