@@ -308,7 +308,7 @@ impl Client for AuthClient {
     }
 
     async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> Result<Token> {
-        let token = self.provider(&cfg.app_mode).get_app_access_token(profile, cfg).await?;
+        let token = self.provider(&cfg.app_mode).refresh(profile, cfg, &reqwest::header::HeaderMap::new()).await?;
         let _ = self.pool.set_app_access_token(&cfg.app_key, &token).await;
         Ok(token)
     }

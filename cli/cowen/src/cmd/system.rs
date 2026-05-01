@@ -221,9 +221,9 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
         let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| crate::core::config::Config::default_with_profile(&p)) };
         
         if p != profile {
-            if let Ok(as_val) = vault.get(&p, "app_secret").await { p_cfg.app_secret = as_val; }
-            if let Ok(cert) = vault.get(&p, "certificate").await { p_cfg.certificate = cert; }
-            if let Ok(ek) = vault.get(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
+            if let Ok(as_val) = vault.get_secret(&p, "app_secret").await { p_cfg.app_secret = as_val; }
+            if let Ok(cert) = vault.get_secret(&p, "certificate").await { p_cfg.certificate = cert; }
+            if let Ok(ek) = vault.get_secret(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
         }
         
         let pid_file = app_dir().join(format!("{}_daemon.pid", p));

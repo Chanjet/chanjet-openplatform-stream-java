@@ -53,10 +53,11 @@ async def handle_store_app_token(request):
         }
     })
 
-async def handle_resend(request):
-    """Trigger AppTicket push for Self-Built"""
+async def handle_push(request):
+    """Platform trigger for proactive push"""
     app_key = request.headers.get("appKey", "unknown")
-    print(f"   [MOCK] AppTicket Resend Requested for {app_key}. Proactively pushing to all WS clients...")
+    active_count = len(MOCK_STATE["active_ws_clients"])
+    print(f"   [MOCK] AppTicket Push Requested for {app_key}. Active WS Clients: {active_count}")
     
     # Broadcast APP_TICKET to all active WS connections
     for ws in list(MOCK_STATE["active_ws_clients"].values()):
@@ -90,7 +91,15 @@ async def handle_spec(request):
         "paths": {
             "/v1/mock/ping": {"get": {"responses": {"200": {"description": "OK"}}}},
             "/v1/mock/secure": {"get": {"responses": {"200": {"description": "OK"}}}},
-            "/v1/mock/admin": {"post": {"responses": {"200": {"description": "OK"}}}}
+            "/v1/mock/admin": {"post": {"responses": {"200": {"description": "OK"}}}},
+            "/webhook_sink": {
+                "post": {
+                    "parameters": [
+                        { "name": "Authorization", "in": "header", "required": true }
+                    ],
+                    "responses": {"200": {"description": "OK"}}
+                }
+            }
         }
     })
 
@@ -104,10 +113,51 @@ async def handle_secure(request):
 
 # --- WebSocket Handlers ---
 
-async def handle_challenge(request):
+async def handle_nonce(request):
     app_key = request.query.get("app_key", "unknown")
     nonce = uuid.uuid4().hex[:16]
     return web.json_response({"data": {"nonce": nonce}})
+
+async def handle_interface_list(request):
+    """Mock platform API list for Self-Built mode (matched to client.rs expectation)"""
+    return web.json_response({
+        "result": True,
+        "value": {
+            "currentPage": 0,
+            "totalPages": 1,
+            "resultList": [
+                {
+                    "requestPath": "/webhook_sink",
+                    "interfaceName": "Webhook Sink",
+                    "openApi": {
+                        "paths": {
+                            "/webhook_sink": {
+                                "post": {
+                                    "parameters": [
+                                        { "name": "Authorization", "in": "header", "required": true }
+                                    ],
+                                    "responses": {"200": {"description": "OK"}}
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "requestPath": "/v1/mock/ping",
+                    "interfaceName": "Mock Ping",
+                    "openApi": {
+                        "paths": {
+                            "/v1/mock/ping": {
+                                "get": {
+                                    "responses": {"200": {"description": "OK"}}
+                                }
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    })
 
 async def handle_ws(request):
     app_key = request.query.get("app_key", "unknown")
@@ -140,9 +190,17 @@ async def handle_ws(request):
 async def handle_webhook_sink(request):
     """Receive forwarded messages from Cowen Daemon"""
     body = await request.read()
-    data = json.loads(body)
-    print(f"📥 [MOCK SINK] Received forwarded webhook: {data.get('msg_type')}")
-    MOCK_STATE["webhook_messages"].append(data)
+    try:
+        data = json.loads(body)
+    except:
+        data = {"raw": body.decode('utf-8')}
+        
+    headers = dict(request.headers)
+    print(f"📥 [MOCK SINK] Received forwarded webhook: {headers.get('Authorization', 'no-auth')}")
+    MOCK_STATE["webhook_messages"].append({
+        "body": data,
+        "headers": headers
+    })
     return web.json_response({"status": "received"})
 
 async def handle_get_webhook_messages(request):
@@ -229,7 +287,9 @@ async def run_server():
     
     # Auth Endpoints
     app.router.add_post("/v1/common/auth/selfBuiltApp/generateToken", handle_self_built_token)
-    app.router.add_post("/auth/appTicket/resend", handle_resend)
+    app.router.add_post("/v1/common/auth/selfBuiltApp/triggerPush", handle_push)
+    app.router.add_get("/developer/api/apiPermissions/isv/open/getInterfaceList", handle_interface_list)
+    app.router.add_get("/v1/common/auth/selfBuiltApp/generateNonce", handle_nonce)
     app.router.add_post("/v1/common/auth/oauth2/token", handle_oauth2_token)
     app.router.add_post("/oauth2/token", handle_oauth2_token)
     app.router.add_post("/auth/appAuth/getAppAccessToken", handle_store_app_token)
@@ -240,7 +300,7 @@ async def run_server():
     app.router.add_get("/v1/mock/secure", handle_secure)
     
     # WebSocket Endpoints
-    app.router.add_get("/v1/ws/challenge", handle_challenge)
+    app.router.add_get("/v1/ws/challenge", handle_nonce)
     app.router.add_get("/connect", handle_ws)
     
     # Webhook & Control

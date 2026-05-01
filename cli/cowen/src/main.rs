@@ -257,7 +257,11 @@ pub enum AuthCommands {
         finalize: Option<String>,
     },
     /// 查看令牌
-    Token,
+    Token {
+        /// 强制执行网络刷新逻辑
+        #[arg(short, long)]
+        refresh: bool,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -602,8 +606,8 @@ async fn run() -> Result<()> {
             AuthCommands::Login { force, finalize } => {
                 cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref()).await?;
             }
-            AuthCommands::Token => {
-                cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format).await?;
+            AuthCommands::Token { refresh } => {
+                cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format, *refresh).await?;
             }
         },
         Commands::Daemon { action } => match action {

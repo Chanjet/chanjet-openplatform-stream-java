@@ -180,7 +180,9 @@ impl SqlBuilder for SqliteBuilder {
         use std::str::FromStr;
 
         let options = SqliteConnectOptions::from_str(url)?
-            .create_if_missing(true);
+            .create_if_missing(true)
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
         let pool = sqlx::SqlitePool::connect_with(options).await?;
         
         let ddl = [

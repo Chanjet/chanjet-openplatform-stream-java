@@ -174,36 +174,53 @@ impl ConfigManager {
         false
     }
 
+    pub fn get_profile_path(&self, profile: &str) -> PathBuf {
+        self.app_dir.join(format!("{}.yaml", profile))
+    }
+
     pub async fn load(&self, profile: &str) -> Result<Config> {
+        let app_cfg = self.load_app_config().await?;
+        let is_db_mode = app_cfg.storage.store != "local" && app_cfg.storage.store != "innerdb";
+
         if let Some(vault) = self.vault.get() {
-            if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
-                if let Ok(mut config) = serde_yaml::from_str::<Config>(&item.value) {
-                    config.version = item.version;
-                    if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
-                    if let Ok(c) = vault.get_secret(profile, "certificate").await { config.certificate = c; }
-                    if let Ok(k) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = k; }
-                    return Ok(config);
+            // Priority 1: Cloud/Shared Storage (Database)
+            if is_db_mode {
+                if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
+                    match serde_yaml::from_str::<Config>(&item.value) {
+                        Ok(mut config) => {
+                            config.version = item.version;
+                            
+                            // Hydrate sensitive fields from Vault (soft-fail: not all modes use all secrets)
+                            if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
+                            if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
+                            if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
+                        return Ok(config);
+                    },
+                    Err(e) => {
+                        tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
+                    }
                 }
+            }
             }
         }
 
-        let path = self.app_dir.join(format!("{}.yaml", profile));
-        if !path.exists() {
-            return Ok(Config::default_with_profile(profile));
-        }
-        let content = fs::read_to_string(path)?;
-        let mut config: Config = serde_yaml::from_str(&content)?;
-
-        if let Some(vault) = self.vault.get() {
-            if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
-            if let Ok(c) = vault.get_secret(profile, "certificate").await { config.certificate = c; }
-            if let Ok(k) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = k; }
+        // Priority 2: Local Storage
+        let profile_path = self.get_profile_path(profile);
+        if profile_path.exists() {
+            let content = fs::read_to_string(&profile_path)?;
+            let mut config: Config = serde_yaml::from_str(&content)?;
             
-            let manifest = serde_yaml::to_string(&config)?;
-            let _ = vault.set_config(profile, "system:manifest", &manifest).await;
+            // Re-hydrate sensitive fields from Vault
+            if let Some(vault) = self.vault.get() {
+                if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
+                if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
+                if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
+            }
+            return Ok(config);
         }
 
-        Ok(config)
+        // Fallback: New profile
+        Ok(Config::default_with_profile(profile))
     }
 
     pub async fn save(&self, profile: &str, config: &Config) -> Result<()> {
@@ -211,9 +228,16 @@ impl ConfigManager {
         let is_db_mode = app_cfg.storage.store != "local";
 
         if let Some(vault) = self.vault.get() {
-            let _ = vault.set_secret(profile, "app_secret", &config.app_secret).await;
-            let _ = vault.set_secret(profile, "certificate", &config.certificate).await;
-            let _ = vault.set_secret(profile, "encrypt_key", &config.encrypt_key).await;
+            // Only save secrets if they are not empty to avoid overwriting with defaults during partial loads
+            if !config.app_secret.is_empty() {
+                let _ = vault.set_secret(profile, "app_secret", &config.app_secret).await;
+            }
+            if !config.certificate.is_empty() {
+                let _ = vault.set_secret(profile, "certificate", &config.certificate).await;
+            }
+            if !config.encrypt_key.is_empty() {
+                let _ = vault.set_secret(profile, "encrypt_key", &config.encrypt_key).await;
+            }
             
             let manifest = serde_yaml::to_string(config)?;
             if is_db_mode {

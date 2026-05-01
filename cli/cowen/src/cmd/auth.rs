@@ -17,8 +17,13 @@ pub async fn token(
     config: &Config,
     auth_cli: &dyn AuthClientTrait,
     format: &str,
+    force_refresh: bool,
 ) -> Result<()> {
-    let detail = auth_cli.get_app_access_token(_profile, config).await;
+    let detail = if force_refresh {
+        auth_cli.refresh_app_access_token(_profile, config).await
+    } else {
+        auth_cli.get_app_access_token(_profile, config).await
+    };
     
     if format == "json" || format == "yaml" {
         match detail {

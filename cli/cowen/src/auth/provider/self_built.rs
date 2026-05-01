@@ -160,7 +160,7 @@ impl SelfBuiltProvider {
             return Err(anyhow!("Missing AppKey or AppSecret for profile '{}'. Please run 'cowen init' first.", profile));
         }
 
-        let url = format!("{}{}", cfg.openapi_url, obfs!("/auth/appTicket/resend"));
+        let url = format!("{}{}", cfg.openapi_url, obfs!("/v1/common/auth/selfBuiltApp/triggerPush"));
         let body = serde_json::json!({});
 
         let mut headers = reqwest::header::HeaderMap::new();
@@ -234,9 +234,9 @@ impl AuthProvider for SelfBuiltProvider {
     }
 
     async fn hydrate_config(&self, profile: &str, config: &mut Config, vault: std::sync::Arc<dyn crate::core::vault::Vault>) -> Result<()> {
-        if let Ok(as_val) = vault.get(profile, "app_secret").await { config.app_secret = as_val; }
-        if let Ok(cert) = vault.get(profile, "certificate").await { config.certificate = cert; }
-        if let Ok(ek) = vault.get(profile, "encrypt_key").await { config.encrypt_key = ek; }
+        if let Ok(as_val) = vault.get_secret(profile, "app_secret").await { config.app_secret = as_val; }
+        if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
+        if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
         Ok(())
     }
 
@@ -280,15 +280,15 @@ impl AuthProvider for SelfBuiltProvider {
             config.app_key = ak;
         }
         if let Some(as_val) = params.app_secret {
-            vault.set(profile, "app_secret", &as_val).await?;
+            vault.set_secret(profile, "app_secret", &as_val).await?;
             config.app_secret = as_val;
         }
         if let Some(cert) = params.certificate {
-            vault.set(profile, "certificate", &cert).await?;
+            vault.set_secret(profile, "certificate", &cert).await?;
             config.certificate = cert;
         }
         if let Some(ek) = params.encrypt_key {
-            vault.set(profile, "encrypt_key", &ek).await?;
+            vault.set_secret(profile, "encrypt_key", &ek).await?;
             config.encrypt_key = ek;
         }
         if let Some(url) = params.openapi_url {

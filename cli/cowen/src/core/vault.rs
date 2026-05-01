@@ -146,10 +146,16 @@ pub async fn create_vault(app_config: &AppConfig, app_dir: &Path, fingerprint: &
     // 1. Determine Primary and Sensitive Stores
     let (primary, sensitive): (Arc<dyn Store>, Arc<dyn Store>) = if store_type == "innerdb" || store_type == "sqlite" {
         let db_url = storage_cfg.db_url.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Database URL is required for InnerDB"))?;
+            .ok_or_else(|| anyhow::anyhow!("Database URL is required for storage mode: {}", store_type))?;
         let sql_store: Arc<dyn Store> = Arc::new(SqlStore::from_url(db_url).await?);
-        // COMPATIBILITY: InnerDB pins secrets to .seal to avoid breaking existing setups
-        let secret_store: Arc<dyn Store> = Arc::new(FileStore::new(seal_path, fingerprint)?);
+        
+        let secret_store: Arc<dyn Store> = if store_type == "sqlite" {
+            // In explicit SQLite mode, we use the database for secrets to support distributed sync
+            sql_store.clone()
+        } else {
+            // COMPATIBILITY: InnerDB pins secrets to local .seal to avoid breaking existing standalone setups
+            Arc::new(FileStore::new(seal_path, fingerprint)?)
+        };
         (sql_store, secret_store)
     } else {
         let mut found = None;
