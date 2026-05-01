@@ -182,7 +182,7 @@ impl ConfigManager {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = app_cfg.storage.store != "local" && app_cfg.storage.store != "innerdb";
 
-        if let Some(vault) = self.vault.get() {
+        let (config, exists) = if let Some(vault) = self.vault.get() {
             // Priority 1: Cloud/Shared Storage (Database)
             if is_db_mode {
                 if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
@@ -194,17 +194,33 @@ impl ConfigManager {
                             if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
                             if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
                             if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
-                            return Ok(config);
+                            (config, true)
                         },
-                    Err(e) => {
-                        tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
+                        Err(e) => {
+                            tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
+                            return Err(anyhow::anyhow!("Failed to parse manifest from Vault: {}", e));
+                        }
                     }
+                } else {
+                    // Fallback to local if shared manifest missing
+                    self.load_local_profile_with_status(profile).await?
                 }
+            } else {
+                self.load_local_profile_with_status(profile).await?
             }
-            }
+        } else {
+            self.load_local_profile_with_status(profile).await?
+        };
+
+        // Validate: OAuth2 is NOT allowed in distributed (non-local) mode
+        // We only block if the profile exists, to allow 'init' command to bootstrap a new profile.
+        if is_db_mode && config.app_mode == crate::auth::models::AuthMode::Oauth2 && exists {
+            return Err(anyhow::anyhow!("OAuth2 mode is not allowed in distributed storage scenarios (shared database/redis). Please use Sidecar or SelfBuilt mode for distributed deployments."));
         }
 
-        // Priority 2: Local Storage
+        Ok(config)
+    }
+    async fn load_local_profile_with_status(&self, profile: &str) -> Result<(Config, bool)> {
         let profile_path = self.get_profile_path(profile);
         if profile_path.exists() {
             let content = fs::read_to_string(&profile_path)?;
@@ -216,16 +232,21 @@ impl ConfigManager {
                 if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
                 if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
             }
-            return Ok(config);
+            return Ok((config, true));
         }
 
         // Fallback: New profile
-        Ok(Config::default_with_profile(profile))
+        Ok((Config::default_with_profile(profile), false))
     }
 
     pub async fn save(&self, profile: &str, config: &Config) -> Result<()> {
         let app_cfg = self.load_app_config().await?;
-        let is_db_mode = app_cfg.storage.store != "local";
+        let is_db_mode = app_cfg.storage.store != "local" && app_cfg.storage.store != "innerdb";
+
+        // Validate: Don't allow saving OAuth2 in distributed mode
+        if is_db_mode && config.app_mode == crate::auth::models::AuthMode::Oauth2 {
+            return Err(anyhow::anyhow!("Cannot save profile in OAuth2 mode when distributed storage is enabled."));
+        }
 
         if let Some(vault) = self.vault.get() {
             // Only save secrets if they are not empty to avoid overwriting with defaults during partial loads
@@ -377,4 +398,45 @@ pub fn get_app_dir() -> PathBuf {
     }
     let home = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
     home.join(".cowen")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn test_oauth2_restriction_in_db_mode() -> Result<()> {
+        let dir = tempdir()?;
+        let app_dir = dir.path().to_path_buf();
+        
+        // Setup AppConfig with DB mode (SQLite)
+        let app_cfg = AppConfig {
+            storage: StorageConfig {
+                store: "sqlite".to_string(),
+                db_url: Some("sqlite::memory:".to_string()),
+                ..Default::default()
+            },
+        };
+        fs::write(app_dir.join("app.yaml"), serde_yaml::to_string(&app_cfg)?)?;
+
+        // Setup a profile with OAuth2 mode
+        let oauth2_config = Config {
+            app_mode: crate::auth::models::AuthMode::Oauth2,
+            ..Config::default_with_profile("test")
+        };
+        fs::write(app_dir.join("test.yaml"), serde_yaml::to_string(&oauth2_config)?)?;
+
+        let mgr = ConfigManager {
+            app_dir,
+            vault: tokio::sync::OnceCell::new(),
+        };
+
+        // Loading should fail because it's OAuth2 in DB mode
+        let result = mgr.load("test").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("OAuth2 mode is not allowed in distributed storage scenarios"));
+
+        Ok(())
+    }
 }

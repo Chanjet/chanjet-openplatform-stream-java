@@ -30,7 +30,7 @@ cargo build && bash tests/case_15_store_app_shared_storage.sh
 | :--- | :--- | :--- |
 | **SelfBuilt** (自建应用) | 基础握手、分布式 Token 同步 (SQLite) | 分布式 Token 同步 (Redis) |
 | **StoreApp** (代开发应用) | 基础握手、Webhook Ticket 拦截、分布式同步 (SQLite) | Ticket 过期自动重续、分布式 Token 同步 (Redis) |
-| **OAuth2** (三方授权) | 基础 Authorization Code 交换 | 刷新令牌 (Refresh Token) 自动续约、分布式环境下的 Token 同步 |
+| **OAuth2** (三方授权) | 基础 Authorization Code 交换 | **分布式环境禁用**（代码级强制拦截）、刷新令牌自动续约 |
 
 ### 2. 存储模式 (Store Mode) 维度
 

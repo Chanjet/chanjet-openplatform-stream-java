@@ -54,12 +54,7 @@ pub async fn execute(
                 profile, config.app_mode, config.app_key
             );
         }
-    } else {
-        // Logic Fix: Save early for new profiles to anchor the identity
-        cfg_mgr.save(profile, &config).await?;
-        config.version += 1;
     }
-
     // Determine Auth Mode
     let mode_str = app_mode.as_deref().unwrap_or("oauth2");
     let mode = match mode_str {
@@ -68,6 +63,12 @@ pub async fn execute(
         _ => AuthMode::Oauth2,
     };
     config.app_mode = mode;
+
+    if is_new {
+        // Logic Fix: Save early for new profiles to anchor the identity
+        cfg_mgr.save(profile, &config).await?;
+        config.version += 1;
+    }
 
     // 1. Delegate All Mode-Specific Initialization (Personality) to Provider
     let token_pool = Arc::new(crate::auth::VaultTokenPool::new(vault.clone()));
