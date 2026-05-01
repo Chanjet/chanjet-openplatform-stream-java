@@ -432,11 +432,3 @@ pub fn get_app_dir() -> PathBuf {
     let home = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
     home.join(".cowen")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-
-}
