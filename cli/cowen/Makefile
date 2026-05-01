@@ -56,7 +56,7 @@ TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
-        test test-linux test-win test-macos \
+        test test-linux test-win test-macos test-sandbox \
         package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
         package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image prepare-podman-machine stop-podman-machine
 
@@ -144,7 +144,7 @@ endif
 prepare-podman-image: prepare-podman-machine
 	@if ! podman image exists $(BUILDER_IMAGE); then \
 		echo "🛠️ Creating custom builder image $(BUILDER_IMAGE)..."; \
-		printf "FROM docker.io/library/rust:latest\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu libc6-amd64-cross python3 python3-aiohttp sqlite3 curl procps lsof && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
+		printf "FROM docker.io/library/rust:latest\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu libc6-amd64-cross python3 python3-aiohttp sqlite3 redis-server curl procps lsof && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
 	fi
 
 # 提速版 Podman 构建 (系统依赖 + Rust 依赖双缓存)
@@ -267,16 +267,16 @@ else ifeq ($(HOST_OS),windows)
 	@$(MAKE) test-win
 endif
 
-# 在 Linux 容器中执行全量 E2E (Podman) - 使用统一构建镜像
+# 在 Linux 容器中执行并行 E2E (Podman) - 封闭纯净环境
 test-linux: prepare-podman-machine prepare-podman-image
-	@echo "🧪 Running Full E2E Suite in Linux container (Unified Image)..."
+	@echo "🧪 Running Parallel E2E Suite in Linux container (Clean Sandbox)..."
 	podman run --rm -it \
 		-v "$(shell pwd)/../..:/workspace" \
 		-v "$(HOME)/.cargo/registry:/usr/local/cargo/registry" \
 		-v "$(HOME)/.cargo/git:/usr/local/cargo/git" \
 		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
-		./tests/run_suites.sh
+		./tests/run_parallel.sh
 
 # 在 Windows PowerShell 环境下执行测试
 test-win:
