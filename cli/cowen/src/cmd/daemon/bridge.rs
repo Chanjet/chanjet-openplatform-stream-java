@@ -18,6 +18,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         app_secret: config.app_secret.clone(),
         encrypt_key: Some(config.encrypt_key.clone()),
         gateway_url: config.stream_url.clone(),
+        ..Default::default()
     };
     let client = Arc::new(GatewayClient::new(options));
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));

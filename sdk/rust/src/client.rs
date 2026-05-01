@@ -10,11 +10,35 @@ use anyhow::{Result, anyhow};
 use url::Url;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+}
+
 pub struct ClientOptions {
     pub app_key: String,
     pub app_secret: String,
     pub encrypt_key: Option<String>,
     pub gateway_url: String,
+    /// Base reconnection interval after a clean disconnect (default: 1s)
+    pub reconnect_interval: Duration,
+    /// Maximum backoff delay after consecutive failures (default: 60s)
+    pub max_backoff: Duration,
+}
+
+impl Default for ClientOptions {
+    fn default() -> Self {
+        Self {
+            app_key: String::new(),
+            app_secret: String::new(),
+            encrypt_key: None,
+            gateway_url: String::new(),
+            reconnect_interval: Duration::from_secs(1),
+            max_backoff: Duration::from_secs(60),
+        }
+    }
 }
 
 pub struct GatewayClient {
@@ -48,6 +72,13 @@ impl GatewayClient {
     }
 
     pub async fn start(&self) -> Result<()> {
+        self.start_with_callback(|_| {}).await
+    }
+
+    pub async fn start_with_callback<F>(&self, mut callback: F) -> Result<()>
+    where
+        F: FnMut(ConnectionState),
+    {
         if self.options.app_key.trim().is_empty() {
             return Err(anyhow::anyhow!("AppKey cannot be empty"));
         }
@@ -71,25 +102,32 @@ impl GatewayClient {
 
         let mut attempt = 0;
         loop {
+            callback(ConnectionState::Connecting);
             tokio::select! {
                 _ = stop_rx.recv() => {
                     tracing::info!("GatewayClient stopping...");
+                    callback(ConnectionState::Disconnected);
                     break;
                 }
-                res = Self::connect_and_loop(&options, &client_id, &dispatcher) => {
+                res = Self::connect_and_loop(&options, &client_id, &dispatcher, &mut callback) => {
                     if let Err(e) = res {
                         tracing::error!("Connection error: {}", e);
-                        let delay = Self::calculate_backoff(attempt);
+                        callback(ConnectionState::Disconnected);
+                        let delay = Self::calculate_backoff(attempt, &options);
                         tracing::info!("Reconnecting in {:?}", delay);
                         sleep(delay).await;
                         attempt += 1;
                     } else {
+                        tracing::info!("Connection closed normally.");
+                        callback(ConnectionState::Disconnected);
                         attempt = 0;
+                        sleep(options.reconnect_interval).await;
                     }
                 }
             }
 
             if !*running_flag.lock().unwrap() {
+                callback(ConnectionState::Disconnected);
                 break;
             }
         }
@@ -103,11 +141,15 @@ impl GatewayClient {
         let _ = self.stop_tx.send(());
     }
 
-    async fn connect_and_loop(
+    async fn connect_and_loop<F>(
         options: &ClientOptions,
         client_id: &str,
-        dispatcher: &Arc<Mutex<MessageDispatcher>>
-    ) -> Result<()> {
+        dispatcher: &Arc<Mutex<MessageDispatcher>>,
+        callback: &mut F,
+    ) -> Result<()> 
+    where
+        F: FnMut(ConnectionState),
+    {
         // 1. Fetch Nonce
         let nonce = Self::fetch_nonce(options).await?;
 
@@ -142,6 +184,7 @@ impl GatewayClient {
             .map_err(|e| anyhow!("WebSocket connect failed: {}", e))?;
 
         tracing::info!("WebSocket connected.");
+        callback(ConnectionState::Connected);
 
         let (mut write, mut read) = ws_stream.split();
         let encrypt_key = options.encrypt_key.clone().unwrap_or_else(|| options.app_secret.clone());
@@ -289,8 +332,8 @@ impl GatewayClient {
             .map_err(|e| anyhow!("Failed to send ACK: {}", e))
     }
 
-    fn calculate_backoff(attempt: u32) -> Duration {
-        let sec = (2u64.pow(attempt.min(6))).min(60);
-        Duration::from_secs(sec)
+    fn calculate_backoff(attempt: u32, options: &ClientOptions) -> Duration {
+        let base = Duration::from_secs(2u64.pow(attempt.min(6)));
+        std::cmp::min(base, options.max_backoff)
     }
 }
