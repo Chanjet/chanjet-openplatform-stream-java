@@ -79,7 +79,7 @@ curl -s -X POST "$MOCK_URL/control/broadcast" \
     -H "Content-Type: application/json" \
     -d '{"msg_type": "RECONNECT_TEST", "payload": {"status": "ok_after_retry"}}' >/dev/null
 
-sleep 2
+sleep 4
 # Check if message reached the webhook sink via daemon
 MESSAGES=$(curl -s "$MOCK_URL/control/webhooks")
 if echo "$MESSAGES" | grep -q "RECONNECT_TEST"; then

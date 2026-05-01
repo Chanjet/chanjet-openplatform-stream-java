@@ -38,7 +38,7 @@ assert_pass "Broadcast triggered"
 
 echo -e "${BOLD}4. Verify DLQ Recording${NC}"
 echo "   Waiting for retries and DLQ storage..."
-sleep 10
+sleep 15
 DLQ_OUT=$("$COWEN_BIN" dlq list --profile dlq_prof)
 echo "   DLQ List: $DLQ_OUT"
 if echo "$DLQ_OUT" | grep -q "DLQ_TRIGGER"; then

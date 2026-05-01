@@ -110,8 +110,6 @@ EOF
 # --- Phase 1: Parallel ---
 job_id=0
 FAILED_COUNT=0
-SED_L="[[:<:]]"
-SED_R="[[:>:]]"
 
 echo -e "\n${BOLD}Phase 1: Running Parallel Suites (${#PARALLEL_SUITES[@]})${NC}"
 for suite in "${PARALLEL_SUITES[@]}"; do
@@ -122,7 +120,7 @@ for suite in "${PARALLEL_SUITES[@]}"; do
     for p in 29101 9909 9908 9903 9902 9901 9128 9127 9126 9122 9112 9111 9101 9098 9097 9096 9095 9094 9093 9092 9091 9299 8080 6387 6380 6379; do
         new_p=$((base_port + (p % 100)))
         [ $p -eq 9299 ] && new_p=$base_port
-        sed -i.bak "s/${SED_L}${p}${SED_R}/${new_p}/g" "$tmp_suite"
+        perl -pi -e "s/\b${p}\b/${new_p}/g" "$tmp_suite"
     done
     
     run_job "$tmp_suite" "$job_id" "$base_port" &

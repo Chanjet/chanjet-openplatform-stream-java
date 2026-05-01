@@ -16,6 +16,7 @@ logs/
 check_output.txt
 scratch/
 .DS_Store
+.builder_image_built
 
 # Mac
 .DS_Store

@@ -31,7 +31,8 @@ fi
 echo -e "${BOLD}3. Test Installation (--install)${NC}"
 # Use a subshell and point HOME to COWEN_HOME so it doesn't mess with the user's real .zshrc
 export HOME="$COWEN_HOME"
-"$COWEN_BIN" completion --install > /dev/null 2>&1
+# Explicitly specify zsh to avoid auto-detection issues in different environments
+"$COWEN_BIN" completion --install zsh > /dev/null 2>&1
 
 if grep -q "cowen completion" "$HOME/.zshrc" || grep -q "source" "$HOME/.zshrc"; then
     echo -e "   ${GREEN}✓${NC} Completion installed in .zshrc"
@@ -43,7 +44,7 @@ fi
 
 # 4. Test Uninstall
 echo -e "${BOLD}4. Test Uninstallation (--uninstall)${NC}"
-"$COWEN_BIN" completion --uninstall > /dev/null 2>&1
+"$COWEN_BIN" completion --uninstall zsh > /dev/null 2>&1
 
 if ! grep -q "cowen completion" "$HOME/.zshrc" 2>/dev/null; then
     echo -e "   ${GREEN}✓${NC} Completion uninstalled from .zshrc"

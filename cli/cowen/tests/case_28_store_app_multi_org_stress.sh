@@ -54,22 +54,36 @@ for i in $(seq 1 $ORG_COUNT); do
 done
 
 echo "   Waiting for token exchange to complete..."
-sleep 15
+sleep 20
 
 # 3. Verify Tokens in DB
 echo -e "${BOLD}3. Verifying Token Storage Isolation${NC}"
-# Wait for WAL to flush by killing daemon
-kill -9 $DAEMON_PID 2>/dev/null
-pkill -f "cowen.*$PROF" 2>/dev/null
-sleep 2
-
-if [ ! -f "$DB_FILE" ]; then
-    echo -e "   ${RED}[FAILED]${NC} DB file not created at $DB_FILE"
-    ls -l "$COWEN_HOME"
+if ! command -v sqlite3 >/dev/null 2>&1; then
+    echo -e "   ${RED}[FAILED]${NC} sqlite3 command not found"
     exit 1
 fi
 
-STORED_COUNT=$(sqlite3 "$DB_FILE" "SELECT count(*) FROM cowen_config WHERE item_key LIKE 'org_permanent_code_%';")
+# Wait for WAL to flush by killing daemon
+echo "   Killing daemon $DAEMON_PID..."
+kill -9 $DAEMON_PID 2>/dev/null
+# Use a more specific pattern to avoid killing the test script itself
+pkill -f "bin/cowen daemon.*--profile $PROF" 2>/dev/null || true
+pkill -f "debug/cowen daemon.*--profile $PROF" 2>/dev/null || true
+sleep 3
+
+if [ ! -f "$DB_FILE" ]; then
+    echo -e "   ${RED}[FAILED]${NC} DB file not created at $DB_FILE"
+    ls -la "$COWEN_HOME"
+    exit 1
+fi
+
+echo "   Querying database $DB_FILE..."
+STORED_COUNT=$(sqlite3 "$DB_FILE" "SELECT count(*) FROM cowen_config WHERE item_key LIKE 'org_permanent_code_%';" || echo "ERR")
+
+if [ "$STORED_COUNT" == "ERR" ]; then
+    echo -e "   ${RED}[FAILED]${NC} sqlite3 query failed"
+    exit 1
+fi
 
 if [ "$STORED_COUNT" -ge "$ORG_COUNT" ]; then
     echo -e "   ${GREEN}✓${NC} Successfully stored permanent codes for $STORED_COUNT orgs"
