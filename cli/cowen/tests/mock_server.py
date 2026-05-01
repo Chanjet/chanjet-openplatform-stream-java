@@ -95,7 +95,7 @@ async def handle_spec(request):
             "/webhook_sink": {
                 "post": {
                     "parameters": [
-                        { "name": "Authorization", "in": "header", "required": true }
+                        { "name": "Authorization", "in": "header", "required": True }
                     ],
                     "responses": {"200": {"description": "OK"}}
                 }
@@ -134,7 +134,7 @@ async def handle_interface_list(request):
                             "/webhook_sink": {
                                 "post": {
                                     "parameters": [
-                                        { "name": "Authorization", "in": "header", "required": true }
+                                        { "name": "Authorization", "in": "header", "required": True }
                                     ],
                                     "responses": {"200": {"description": "OK"}}
                                 }
@@ -287,7 +287,7 @@ async def run_server():
     
     # Auth Endpoints
     app.router.add_post("/v1/common/auth/selfBuiltApp/generateToken", handle_self_built_token)
-    app.router.add_post("/v1/common/auth/selfBuiltApp/triggerPush", handle_push)
+    app.router.add_post("/auth/appTicket/resend", handle_push)
     app.router.add_get("/developer/api/apiPermissions/isv/open/getInterfaceList", handle_interface_list)
     app.router.add_get("/v1/common/auth/selfBuiltApp/generateNonce", handle_nonce)
     app.router.add_post("/v1/common/auth/oauth2/token", handle_oauth2_token)

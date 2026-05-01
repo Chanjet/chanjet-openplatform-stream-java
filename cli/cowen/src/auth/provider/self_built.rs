@@ -160,7 +160,7 @@ impl SelfBuiltProvider {
             return Err(anyhow!("Missing AppKey or AppSecret for profile '{}'. Please run 'cowen init' first.", profile));
         }
 
-        let url = format!("{}{}", cfg.openapi_url, obfs!("/v1/common/auth/selfBuiltApp/triggerPush"));
+        let url = format!("{}{}", cfg.openapi_url, obfs!("/auth/appTicket/resend"));
         let body = serde_json::json!({});
 
         let mut headers = reqwest::header::HeaderMap::new();
