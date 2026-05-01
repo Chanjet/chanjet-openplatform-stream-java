@@ -12,8 +12,9 @@ echo -e "${BLUE}${BOLD}========================================================$
 
 # Configuration
 MAX_PARALLEL=8
-TEST_BASE="target/cowen_tests"
+TEST_BASE="${TEST_BASE:-target/cowen_tests}"
 RESULTS_DIR="$TEST_BASE/results"
+BASE_PORT_START="${BASE_PORT_START:-16000}"
 
 final_parallel_cleanup() {
     if [ "$CLEANUP_DONE" == "true" ]; then return; fi
@@ -30,6 +31,9 @@ final_parallel_cleanup() {
 trap "final_parallel_cleanup" EXIT
 pkill -9 cowen >/dev/null 2>&1 || true
 
+# --- Initialization ---
+echo -e "${BLUE}🧹 Cleaning up previous test artifacts in $TEST_BASE...${NC}"
+rm -rf "$TEST_BASE"
 mkdir -p "$RESULTS_DIR/tmp_scripts"
 
 echo -n "  Building cowen binary..."
@@ -113,7 +117,7 @@ FAILED_COUNT=0
 
 echo -e "\n${BOLD}Phase 1: Running Parallel Suites (${#PARALLEL_SUITES[@]})${NC}"
 for suite in "${PARALLEL_SUITES[@]}"; do
-    base_port=$((16000 + job_id * 50))
+    base_port=$((BASE_PORT_START + job_id * 50))
     tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$job_id"
     cp "$suite" "$tmp_suite"
     
@@ -122,6 +126,9 @@ for suite in "${PARALLEL_SUITES[@]}"; do
         [ $p -eq 9299 ] && new_p=$base_port
         perl -pi -e "s/\b${p}\b/${new_p}/g" "$tmp_suite"
     done
+    
+    # 路径隔离：将所有 .cowen_test_ 替换为带有 Job ID 的唯一路径
+    perl -pi -e "s/\.cowen_test_/.cowen_test_job_${job_id}_/g" "$tmp_suite"
     
     run_job "$tmp_suite" "$job_id" "$base_port" &
     job_id=$((job_id + 1))

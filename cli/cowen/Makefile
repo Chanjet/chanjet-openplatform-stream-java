@@ -143,7 +143,7 @@ endif
 # 哨兵文件：记录镜像最后一次成功构建的时间
 .builder_image_built: Dockerfile.builder
 	@echo "🛠️ Building/Updating custom builder image $(BUILDER_IMAGE)..."
-	podman build --pull -t $(BUILDER_IMAGE) -f Dockerfile.builder .
+	podman build -t $(BUILDER_IMAGE) -f Dockerfile.builder .
 	@touch .builder_image_built
 
 # 准备 Podman 编译镜像
@@ -275,11 +275,13 @@ endif
 
 # 在 Linux 容器中执行并行 E2E (Podman) - 封闭纯净环境
 test-linux: prepare-podman-machine prepare-podman-image
-	@echo "🧪 Running Parallel E2E Suite in Linux container (Clean Sandbox)..."
+	@echo "🧪 Running Parallel E2E Suite in Linux container (Isolated)..."
 	podman run --rm -it \
 		-v "$(shell pwd)/../..:/workspace" \
 		-v "$(HOME)/.cargo/registry:/usr/local/cargo/registry" \
 		-v "$(HOME)/.cargo/git:/usr/local/cargo/git" \
+		-e TEST_BASE=target/cowen_tests_linux \
+		-e BASE_PORT_START=16000 \
 		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
 		./tests/run_parallel.sh
@@ -289,16 +291,16 @@ test-win:
 	@echo "🧪 Running Full E2E Suite in Windows PowerShell..."
 	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/run_suites.ps1"
 
-# 在 macOS 原生环境执行测试
+# 在 macOS 原生环境执行并行测试
 test-macos:
-	@echo "🧪 Running Full E2E Suite natively on macOS..."
-	./tests/run_suites.sh
+	@echo "🧪 Running Parallel E2E Suite natively on macOS (Isolated)..."
+	TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/run_parallel.sh
 
 # --- 其他 ---
 
 clean:
 	cargo clean
-	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/macos-x86_64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/test .builder_image_built)
+	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/macos-x86_64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
 
 install:
 	@$(MAKE) macos-aarch64
