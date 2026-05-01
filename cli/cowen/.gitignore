@@ -22,3 +22,4 @@ scratch/
 # Local DB (Temporary)
 innerdb*
 cowen.db*
+*.rdb
