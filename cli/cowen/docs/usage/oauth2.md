@@ -71,37 +71,29 @@ OAuth2 模式在 `init` 成功后会尝试自动拉起守护进程。
 | **死信管理 (DLQ)** | ❌ **不支持** | 无消息接收能力，故不提供运维指令 |
 | **安全性** | ✅ 极高 | 基于 PKCE 协议，本地存储仅限 RefreshToken |
 
-## 🔐 全局存储与缓存架构 (Storage & Cache)
+## 🔐 存储限制与架构 (Storage Constraints)
 
-虽然 OAuth2 模式常用于本地调试，但其底层依然受全局存储策略控制，支持多机协同开发。
+> [!WARNING]
+> **分布式部署限制**：由于 OAuth2 模式依赖本地浏览器交互（PKCE 流程）以及特定的本地回调地址处理，该模式 **仅支持本地存储**（`innerdb` 或 `local`）。
 
-### 1. 配置选项
-- **Store (存储)**: `innerdb` (默认), `mysql`, `postgres`, `mssql`, `redis`。
-- **Cache (加速)**: `none`, `redis` (Hybrid 模式)。
+### 1. 强制本地存储
+OAuth2 模式定位于“本地开发调试工具”。如果您尝试在全局配置为远程数据库（如 MySQL, Postgres, Redis）的环境下使用 OAuth2，系统将由于无法同步授权上下文而报错。
 
-### 2. 五大配置场景
+- **支持的存储**: `innerdb` (默认 SQLite), `local` (加密文件)
+- **不支持的存储**: `mysql`, `postgres`, `mssql`, `redis`
 
-| 场景 | 存储 (Store) | 缓存 (Cache) | 适用阶段 |
-| :--- | :--- | :--- | :--- |
-| **A (默认)** | `innerdb` (SQLite) | `memory` | 个人开发 / 轻量级授权使用 |
-| **B (集群化)** | `mysql` / `postgres` / `mssql` | `redis` | 企业级多用户授权共享 |
-| **C (生产级全家桶)** | `mysql` / `postgres` / `mssql` | `redis` | 集群推荐：配置远程 DB 与 Redis 实现多机同步 |
-| **D (纯云端运行)** | `redis` | `none` | 云原生推荐：直接将 Redis 设为主存储，本地零文件 |
-| **E (极简兼容模式)** | `local` | `none` | Legacy：仅用于老版本数据文件兼容 |
+### 2. 为什么不支持远程存储？
+1. **交互性**：OAuth2 流程需要 `cowen` 在本地启动一个临时的 HTTP 监听器来接收授权码（Code）。
+2. **安全性**：PKCE 协议要求的 `code_verifier` 是临时生成的，且必须在同一个进程中闭环，难以通过远程数据库跨网络实例共享授权中间态。
+3. **定位**：OAuth2 旨在提供“零配置”的开发体验，而非高可用的生产级侧车。
+
+### 3. 集群环境的替代方案
+如果您需要在 K8s 集群或分布式生产环境中使用 `cowen` 实现 AccessToken 共享，请根据应用类型选择：
+- **[Self-Built (自建模式)](self_built.md)**: 通过 AppKey/AppSecret/Certificate 实现完全自动化的分布式部署。
+- **[Store-App (商店应用模式)](store_app.md)**: 支持大规模多租户场景。
+
 
 ---
 
-## 🔄 数据迁移 (Migration)
-
-如果您需要将本地调试的身份信息搬迁到云端数据库，可以使用以下指令：
-
-```bash
-# 示例：从本地搬迁到生产环境 MySQL
-cowen store migrate --to "mysql://user:pass@host:3306/db"
-```
-
 > [!TIP]
-> 运行 `cowen store status` 可随时检查当前架构的连接健康状况。
-
-> [!TIP]
-> 如果您的业务场景需要接收实时消息推送（如订单提醒），请改用 **[Self-Built (自建模式)](self_built.md)**。
+> 如果您的业务场景需要分布式集群部署或接收实时消息推送，请改用 **[Self-Built (自建模式)](self_built.md)** 或 **[Store-App (商店应用模式)](store_app.md)**。
