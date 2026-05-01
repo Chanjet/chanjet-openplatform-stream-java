@@ -182,6 +182,7 @@ use crate::auth::provider::AuthProvider;
 use crate::auth::models::AuthMode;
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct AuthClient {
     pool: Arc<dyn TokenPool + Send + Sync>,
     http_sender: Arc<dyn HttpSender>,

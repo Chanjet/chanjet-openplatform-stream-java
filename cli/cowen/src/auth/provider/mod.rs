@@ -60,10 +60,24 @@ pub trait AuthProvider: Send + Sync {
         Err(anyhow::anyhow!("User token retrieval is not supported in this auth mode"))
     }
 
+    /// 🚀 是否允许在分布式存储模式下运行
+    fn is_allowed_in_distributed_storage(&self) -> bool {
+        true // 默认允许，特定模式（如 OAuth2）需显式重写并返回 false
+    }
+
     /// 🚀 令牌兑换拦截器 (用于劫持 OAuth2 流程)
     #[allow(dead_code)]
     async fn intercept_exchange(&self, _profile: &str, _config: &Config, _body: &[u8]) -> Result<serde_json::Value> {
         Err(anyhow::anyhow!("Exchange interception is not supported in this auth mode"))
+    }
+
+    /// 🚀 守护进程自动恢复策略
+    fn should_auto_recover(&self, _config: &Config, has_pid: bool, _pid_file_exists: bool) -> bool {
+        if has_pid {
+            return false;
+        }
+        // 默认策略：始终保持热启动，确保“秒级 API 响应”
+        true
     }
 
     /// 🚀 触发凭证推送 (SelfBuilt 专有)

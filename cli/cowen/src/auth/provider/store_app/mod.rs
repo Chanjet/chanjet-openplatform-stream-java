@@ -347,7 +347,16 @@ impl AuthProvider for StoreAppProvider {
         println!("💡 Please perform authorization through your main application.");
         println!("🚀 Sidecar is ready. Starting background daemon...");
 
-        let _ = crate::cmd::system::ensure_daemon_running(profile, config, cfg_mgr, vault).await;
+        let _ = crate::cmd::daemon::start(
+            profile, 
+            config, 
+            config.proxy_port, 
+            config.proxy_enabled, 
+            false, 
+            false, 
+            cfg_mgr, 
+            vault
+        ).await;
         Ok(())
     }
 

@@ -29,7 +29,8 @@ pub async fn status(
 
     // Trigger self-healing BEFORE collection to ensure consistent report
     let active_cfg = cfg_mgr.load(active_profile).await?;
-    let _ = ensure_daemon_running(active_profile, &active_cfg, cfg_mgr, vault.clone()).await;
+    let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
+    let _ = ensure_daemon_running(active_profile, &active_cfg, cfg_mgr, vault.clone(), &auth_cli).await;
 
     let mut statuses = Vec::new();
     let mut errors = Vec::new();
@@ -217,7 +218,13 @@ async fn is_port_responsive(port: u16) -> bool {
     }
 }
 
-pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::Config, cfg_mgr: &crate::core::config::ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
+pub async fn ensure_daemon_running(
+    profile: &str, 
+    config: &crate::core::config::Config, 
+    cfg_mgr: &crate::core::config::ConfigManager, 
+    vault: Arc<dyn Vault>,
+    auth_cli: &crate::auth::AuthClient,
+) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().await.unwrap_or_else(|_| vec![profile.to_string()]);
     
     for p in profiles {
@@ -260,26 +267,14 @@ pub async fn ensure_daemon_running(profile: &str, config: &crate::core::config::
         
         // 2. Normal missing process detection
         if pid.is_none() {
-            if should_recover_daemon(p_cfg.app_mode, pid.is_some(), pid_file.exists()) {
+            let provider = auth_cli.provider(&p_cfg.app_mode);
+            if provider.should_auto_recover(&p_cfg, pid.is_some(), pid_file.exists()) {
                 tracing::info!(target: "sys", profile = %p, mode = ?p_cfg.app_mode, "Daemon recovery triggered. Launching background worker...");
                 let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault.clone()).await;
             }
         }
     }
     Ok(())
-}
-
-fn should_recover_daemon(_mode: crate::auth::models::AuthMode, has_pid: bool, _pid_file_exists: bool) -> bool {
-    if has_pid {
-        return false;
-    }
-    
-    // Recovery Policy:
-    // 1. If it crashed (PID file exists but process missing)
-    // 2. OR IF offline (Always-online policy for ALL modes to ensure "秒级 API 响应")
-    // Note: p_cfg_inner.app_key check in calling function or daemon::start 
-    // ensures we don't start for uninitialized profiles.
-    true
 }
 
 pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Result<()> {

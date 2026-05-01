@@ -8,6 +8,7 @@ pub mod lifecycle;
 pub use pool::VaultTokenPool;
 pub use client::AuthClient;
 pub use decorator::RequestDecorator;
+use anyhow::Result;
 
 use std::sync::Arc;
 
@@ -38,4 +39,41 @@ pub fn create_auth_client(pool: Arc<dyn pool::TokenPool + Send + Sync>) -> AuthC
 pub fn create_auth_client_with_vault(vault: Arc<dyn crate::core::vault::Vault>) -> AuthClient {
     let pool = Arc::new(pool::VaultTokenPool::new(vault));
     create_auth_client(pool)
+}
+
+/// 🚀 Auth-driven Config Validator
+/// Implements `ConfigValidator` from `core` to decouple architectural constraints
+/// from concrete mode logic.
+pub struct AuthProviderValidator {
+    client: AuthClient,
+}
+
+impl AuthProviderValidator {
+    pub fn new(client: AuthClient) -> Self {
+        Self { client }
+    }
+}
+
+impl crate::core::config::ConfigValidator for AuthProviderValidator {
+    fn validate_load(&self, profile: &str, config: &crate::core::config::Config, is_distributed: bool) -> Result<()> {
+        if is_distributed {
+            let provider = self.client.provider(&config.app_mode);
+            if !provider.is_allowed_in_distributed_storage() {
+                let msg = format!("⚠️  Skipping profile '{}': Auth mode '{:?}' is not allowed in distributed storage scenarios (shared database/redis).", profile, config.app_mode);
+                eprintln!("{}", msg);
+                return Err(anyhow::anyhow!("SKIPPED: {}", msg));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_save(&self, _profile: &str, config: &crate::core::config::Config, is_distributed: bool) -> Result<()> {
+        if is_distributed {
+            let provider = self.client.provider(&config.app_mode);
+            if !provider.is_allowed_in_distributed_storage() {
+                return Err(anyhow::anyhow!("Auth mode '{:?}' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.", config.app_mode));
+            }
+        }
+        Ok(())
+    }
 }

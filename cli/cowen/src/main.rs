@@ -26,7 +26,7 @@ mod cmd;
 mod daemon;
 
 use clap::Parser;
-use std::sync::Arc;
+use std::sync::OnceLock;
 use crate::core::config::ConfigManager;
 use crate::core::security;
 use crate::core::utils::get_bin_name;
@@ -428,6 +428,16 @@ async fn run() -> Result<()> {
     // 2. Load Config to get Log Settings
     let cfg_mgr = ConfigManager::new()?;
     let mut app_config = cfg_mgr.load_app_config().await?;
+
+    // Initialize Vault and Validator EARLY (after AppConfig is known)
+    // This allows the initial profile load to be validated against distributed storage restrictions.
+    let fingerprint = security::get_machine_fingerprint()?;
+    let vault = crate::core::vault::create_vault(&app_config, &app_dir, &fingerprint).await?;
+    cfg_mgr.set_vault(vault.clone());
+
+    let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
+    cfg_mgr.set_validator(std::sync::Arc::new(crate::auth::AuthProviderValidator::new(auth_cli.clone())));
+
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
 
     // Logic Fix: Ensure 'init' always creates a NEW profile instead of overwriting the current one.
@@ -438,7 +448,7 @@ async fn run() -> Result<()> {
         }
     }
     
-    // Load config for the target profile (or defaults if it's a new profile)
+    // Load config for the target profile (from vault or local)
     let mut config = match cfg_mgr.load(&active_profile).await {
         Ok(cfg) => cfg,
         Err(e) if e.to_string().contains("SKIPPED:") => return Err(e),
@@ -528,19 +538,7 @@ async fn run() -> Result<()> {
         }
     }
 
-    let fingerprint = security::get_machine_fingerprint()?;
-    let vault = crate::core::vault::create_vault(&app_config, &app_dir, &fingerprint).await?;
     let _ = vault_tx.send(Some(vault.clone()));
-    cfg_mgr.set_vault(vault.clone());
-
-    // RE-LOAD config from vault if it exists (allows cloud-synced profiles)
-    if let Ok(synced_cfg) = cfg_mgr.load(&active_profile).await {
-        config = synced_cfg;
-    }
-    
-    // 2. Initialize Auth
-    let token_pool = Arc::new(crate::auth::VaultTokenPool::new(vault.clone()));
-    let auth_cli = crate::auth::create_auth_client(token_pool.clone());
 
     // Now handle 'store migrate' which needs the vault
     if let Commands::Store { action: StoreCommands::Migrate { to, mode } } = &cli.command {
@@ -555,7 +553,7 @@ async fn run() -> Result<()> {
 
     // 5. Ensure daemon is running and up to date with this CLI binary
     if !matches!(&cli.command, Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. }) {
-        let _ = crate::cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone()).await;
+        let _ = crate::cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
     }
 
     // 6. Execute Command

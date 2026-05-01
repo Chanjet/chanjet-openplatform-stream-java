@@ -308,6 +308,10 @@ impl AuthProvider for OAuth2Provider {
         self.refresh_token(profile, cfg, &pair.refresh_token).await
     }
 
+    fn is_allowed_in_distributed_storage(&self) -> bool {
+        false
+    }
+
     async fn intercept_request(
         &self,
         profile: &str,
@@ -420,7 +424,16 @@ impl AuthProvider for OAuth2Provider {
         orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr).await?;
 
         // 7. Automatically start the daemon (OCP: Consistent experience across all modes)
-        let _ = crate::cmd::system::ensure_daemon_running(profile, config, cfg_mgr, vault).await;
+        let _ = crate::cmd::daemon::start(
+            profile, 
+            config, 
+            config.proxy_port, 
+            config.proxy_enabled, 
+            false, 
+            false, 
+            cfg_mgr, 
+            vault
+        ).await;
 
         Ok(())
     }

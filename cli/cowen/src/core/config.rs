@@ -134,9 +134,15 @@ impl Config {
     }
 }
 
+pub trait ConfigValidator: Send + Sync {
+    fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool) -> Result<()>;
+    fn validate_save(&self, profile: &str, config: &Config, is_distributed: bool) -> Result<()>;
+}
+
 pub struct ConfigManager {
     app_dir: PathBuf,
     vault: tokio::sync::OnceCell<std::sync::Arc<dyn crate::core::vault::Vault>>,
+    validator: tokio::sync::OnceCell<std::sync::Arc<dyn ConfigValidator>>,
 }
 
 impl ConfigManager {
@@ -148,11 +154,16 @@ impl ConfigManager {
         Ok(Self { 
             app_dir,
             vault: tokio::sync::OnceCell::new(),
+            validator: tokio::sync::OnceCell::new(),
         })
     }
 
     pub fn set_vault(&self, vault: std::sync::Arc<dyn crate::core::vault::Vault>) {
         let _ = self.vault.set(vault);
+    }
+
+    pub fn set_validator(&self, validator: std::sync::Arc<dyn ConfigValidator>) {
+        let _ = self.validator.set(validator);
     }
 
     pub fn get_vault(&self) -> Option<std::sync::Arc<dyn crate::core::vault::Vault>> {
@@ -204,7 +215,7 @@ impl ConfigManager {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
-        let (config, exists) = if let Some(vault) = self.vault.get() {
+        let (config, _exists) = if let Some(vault) = self.vault.get() {
             // Priority 1: Cloud/Shared Storage (Database)
             if is_db_mode {
                 if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
@@ -234,12 +245,10 @@ impl ConfigManager {
             self.load_local_profile_with_status(profile).await?
         };
 
-        // Validate: OAuth2 is NOT allowed in distributed (non-local) mode
-        // We only block if the profile exists, to allow 'init' command to bootstrap a new profile.
-        if is_db_mode && config.app_mode == crate::auth::models::AuthMode::Oauth2 && exists {
-            let msg = format!("⚠️  Skipping profile '{}': OAuth2 mode is not allowed in distributed storage scenarios (shared database/redis).", profile);
-            eprintln!("{}", msg);
-            return Err(anyhow::anyhow!("SKIPPED: {}", msg));
+        // Validate: Delegate to injected validator if present
+        // This decouples core logic from specific auth mode restrictions (e.g. OAuth2 in distributed mode)
+        if let Some(validator) = self.validator.get() {
+            validator.validate_load(profile, &config, is_db_mode)?;
         }
 
         Ok(config)
@@ -267,9 +276,9 @@ impl ConfigManager {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
-        // Validate: Don't allow saving OAuth2 in distributed mode
-        if is_db_mode && config.app_mode == crate::auth::models::AuthMode::Oauth2 {
-            return Err(anyhow::anyhow!("Cannot save profile in OAuth2 mode when distributed storage is enabled."));
+        // Validate: Delegate to injected validator if present
+        if let Some(validator) = self.validator.get() {
+            validator.validate_save(profile, config, is_db_mode)?;
         }
 
         if let Some(vault) = self.vault.get() {

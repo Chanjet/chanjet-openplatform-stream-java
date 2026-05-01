@@ -321,7 +321,16 @@ impl AuthProvider for SelfBuiltProvider {
 
         println!("✅ Profile '{}' initialized successfully.", profile);
         // Automatically start the daemon for Self-Built mode to avoid OFFLINE status on first check
-        let _ = crate::cmd::system::ensure_daemon_running(profile, config, cfg_mgr, vault).await;
+        let _ = crate::cmd::daemon::start(
+            profile, 
+            config, 
+            config.proxy_port, 
+            config.proxy_enabled, 
+            false, 
+            false, 
+            cfg_mgr, 
+            vault
+        ).await;
         Ok(())
     }
 
