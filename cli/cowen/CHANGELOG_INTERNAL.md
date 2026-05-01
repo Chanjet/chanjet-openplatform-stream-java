@@ -14,6 +14,18 @@
     - 统一了 SQL 驱动的连接池生命周期管理。
 - **装饰器模式优化**: 重构了 `HybridStore`，使其能够作为通用的缓存装饰器包装任何实现 `Store` Trait 的后端。
 - **配置默认值变更**: `StorageConfig` 默认 store 切换为 `innerdb`。
+- **云原生与侧车优化 (Cloud-Native & Sidecar)**:
+    - **环境变量配置优先级实现**: 重构了 `ConfigManager` 的加载逻辑。在 `Vault` 加载配置文件后，强制通过环境变量 `COWEN_*` 进行动态覆盖，确立了 `CLI参数 > 环境变量 > 配置文件` 的优先级体系。
+    - **自愈式隐式初始化流程**: 在 `daemon start` 逻辑中注入了 `auto_init` 探针。当系统缺失配置文件但通过环境变量注入了 `APP_KEY` 等核心凭据时，会自动触发后台 `init::execute` 流程，并禁止递归自启动。
+    - **Auth Provider SPI 增强**: 为 `AuthProvider` trait 的初始化方法补充了 `auto_start` 参数，使得 `init` 流程能精细化控制是否需要同步拉起守护进程，解决了隐式启动时的死循环风险。
+    - **分布式原子同步 (Redis Lua CAS)**: 为 `RedisStore` 引入了 Lua 脚本驱动的原子 `Compare-And-Swap (CAS)` 操作，解决了高并发 Pod 启动场景下常见的“脑裂”更新与竞争写入问题。
+
+### 🧪 测试基础设施升级
+- **弹性伸缩压力测试 (Case 30/31)**: 新增了模拟 Kubernetes 场景下 4 Pod 到 8 Pod 动态扩容的 E2E 测试脚本，验证了共享 Redis 底座下的令牌一致性。
+- **测试运行器稳定性增强**:
+    - 为 `run_parallel.sh` 增加了对旧版本 Bash (3.2) 的兼容性处理，解决了空数组循环引发的语法错误。
+    - 引入了逐案清理 (`cleanup_suite`) 与强力进程隔离 (`pkill -9`) 机制，确保并行测试环境的绝对纯净。
+    - 同备更新了 PowerShell 测试运行器 (`run_suites.ps1`)，对标 Bash 版本的隔离与回收能力。
 
 ### 🛠️ 内部组件优化
 - **迁移引擎 (Migrator)**: 实现了通用的跨 Store 数据搬迁逻辑，利用 Trait 抽象抹平了不同数据库间的方言差异。
