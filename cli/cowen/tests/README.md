@@ -74,6 +74,28 @@ cargo build && bash tests/case_28_store_app_multi_org_stress.sh
 
 ---
 
+## 🚀 下一阶段测试演进建议 (Next-Stage Roadmap)
+
+根据最新的代码覆盖率报告（LLVM-COV: 15.19%），虽然核心链路已闭环，但仍存在以下**业务死角 (Business Dead Zones)** 需要在后续版本中攻克：
+
+### 1. 多数据库驱动兼容性 (Database Diversity)
+*   **死角**: 当前 E2E 仅覆盖了 SQLite 路径。`src/core/store/sql/` 下的 MySQL, Postgres, MSSQL 驱动代码覆盖率为 0。
+*   **建议**: 引入 Dockerized 数据库环境，补充 `Case 29-31` 以验证不同数据库方言下的凭据持久化稳定性。
+
+### 2. 极端网络与协议容错 (Network & Protocol Resilience)
+*   **死角**: `src/auth/client.rs` 中的超时、断网重试、502/503 错误处理分支未被充分触发。
+*   **建议**: 增强 `mock_server.py`，支持模拟网络延迟、丢包及非 JSON 异常响应，验证 Proxy 层的健壮性。
+
+### 3. 运维与诊断指令闭环 (Ops & Diagnostics)
+*   **死角**: `cowen service`, `log view`, `config reset` 等运维类指令在自动化脚本中覆盖不足。
+*   **建议**: 补充针对 OS 服务管理器（systemd/launchd）的静态配置校验测试。
+
+### 4. 遥测与 AI 引擎链路 (Telemetry & AI Search)
+*   **死角**: 由于测试环境通常禁用遥测和 AI，导致 `src/core/telemetry.rs` 和 `src/core/search.rs` 成为大片盲区。
+*   **建议**: 在专用的“冒烟测试”中开启相关功能，验证其对系统性能的影响及数据上报的正确性。
+
+---
+
 ## 🛠️ 测试架构说明
 
 1. **Mock Server** (`tests/mock_server.py`):
