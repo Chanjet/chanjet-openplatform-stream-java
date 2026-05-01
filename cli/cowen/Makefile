@@ -58,7 +58,7 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 .PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
         test test-linux test-win test-macos \
         package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
-        package-linux-aarch64 package-windows-x86_64 clean install run explore prepare-podman-image prepare-podman-machine stop-podman-machine
+        package-linux-aarch64 package-windows-x86_64 clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # --- 默认构建目标 (Default Build Target) ---
 build:
@@ -262,6 +262,8 @@ impl-package-linux-x86_64:
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 
 # --- 测试目标 (Test Targets) ---
+
+
 
 # 自动根据环境运行测试
 test:

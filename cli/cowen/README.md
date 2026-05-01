@@ -59,6 +59,12 @@ cowen daemon start --proxy-port 8080
 
 - [架构设计 (Architecture)](docs/ARCHITECTURE.md) - 深入了解 `AuthProvider` SPI、插件系统与安全性设计。
 - [技术规范 (Technical Spec)](docs/TECHNICAL_SPEC.md) - 详述存储驱动、Token 维护生命周期与自愈逻辑。
+- 🚀 **快速上手**:
+    - [Self-Built 模式指南](docs/usage/self_built.md)
+    - [Store-App 模式指南](docs/usage/store_app.md)
+    - [OAuth2 模式指南](docs/usage/oauth2.md)
+- 🛠️ **进阶运维**:
+    - [进阶运维与自愈指南 (DLQ/诊断/集群)](docs/usage/OPERATIONS.md)
 - [命令指南 (Commands)](docs/COMMANDS.md) - 全量的子命令参数说明（Api, Auth, Daemon, Store, System）。
 - [日志指南 (Logging)](docs/LOGGING.md) - 详述多域遥测系统与日志滚动策略。
 - [历史文档归档 (Archive)](docs/archive/v1/) - 包含 owenc 时期的历史规范与设计初稿。
@@ -72,8 +78,8 @@ cowen daemon start --proxy-port 8080
 ```bash
 # 运行单元测试
 cargo test
-# 运行深度探索性测试项 (Step 1-11)
-make explore
+# 运行集成测试套件 (E2E)
+make test
 # 运行命名规范验证测试
 bash tests/makefile_test.sh
 ```
