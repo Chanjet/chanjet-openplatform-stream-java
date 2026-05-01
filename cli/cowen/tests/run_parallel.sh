@@ -72,13 +72,13 @@ PARALLEL_SUITES=(
     "tests/case_27_hybrid_data_drift.sh"
     "tests/case_28_store_app_multi_org_stress.sh"
     "tests/case_29_sidecar_startup.sh"
-)
-
-# Group 2: Sensitive Serial Suites (Known to be flaky in high parallelism)
-SERIAL_SUITES=(
     "tests/case_18_redis_fault_tolerance.sh"
     "tests/case_20_oauth2_refresh.sh"
     "tests/case_30_sidecar_scaling_stress.sh"
+)
+
+# Group 2: Sensitive Serial Suites (Empty for now, all moved to parallel)
+SERIAL_SUITES=(
 )
 
 run_job() {
@@ -123,7 +123,7 @@ for suite in "${PARALLEL_SUITES[@]}"; do
     tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$job_id"
     cp "$suite" "$tmp_suite"
     
-    for p in 29101 9909 9908 9903 9902 9901 9128 9127 9126 9122 9112 9111 9101 9098 9097 9096 9095 9094 9093 9092 9091 9299 8080 6387 6380 6379; do
+    for p in 29101 9909 9908 9903 9902 9901 9128 9127 9126 9122 9112 9111 9101 9098 9097 9096 9095 9094 9093 9092 9091 9299 8080 6387 6381 6380 6379; do
         new_p=$((base_port + (p % 100)))
         [ $p -eq 9299 ] && new_p=$base_port
         perl -pi -e "s/\b${p}\b/${new_p}/g" "$tmp_suite"
