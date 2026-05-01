@@ -100,9 +100,26 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     }
 
     // 3. Task: Main Gateway Loop (Conditional)
+    let p_profile_s = profile.to_string();
     let stream_task = if supports_webhooks {
         tokio::spawn(async move {
-            client.start().await
+            let status_file = crate::core::config::get_app_dir().join(format!("{}_status.json", p_profile_s));
+
+            // Use the SDK's internal reconnection loop, but hook into its status callbacks
+            let res = client.start_with_callback(move |state| {
+                let state_str = match state {
+                    connector_sdk::ConnectionState::Connecting => "Connecting",
+                    connector_sdk::ConnectionState::Connected => "Connected",
+                    connector_sdk::ConnectionState::Disconnected => "Disconnected",
+                };
+                let _ = std::fs::write(&status_file, format!("{{\"state\":\"{}\"}}", state_str));
+            }).await;
+
+            if let Err(e) = res {
+                tracing::error!(target: "sys", error = %e, "Stream client loop terminated");
+                return Err(e);
+            }
+            Ok(())
         })
     } else {
         let mode = config.app_mode;

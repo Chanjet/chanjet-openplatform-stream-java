@@ -144,7 +144,7 @@ endif
 prepare-podman-image: prepare-podman-machine
 	@if ! podman image exists $(BUILDER_IMAGE); then \
 		echo "🛠️ Creating custom builder image $(BUILDER_IMAGE)..."; \
-		printf "FROM docker.io/library/rust:1.85\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu libc6-amd64-cross python3 python3-aiohttp sqlite3 curl procps && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
+		printf "FROM docker.io/library/rust:latest\nRUN apt-get update && apt-get install -y g++-x86-64-linux-gnu libc6-amd64-cross python3 python3-aiohttp sqlite3 curl procps lsof && rustup target add x86_64-unknown-linux-gnu" | podman build -t $(BUILDER_IMAGE) -; \
 	fi
 
 # 提速版 Podman 构建 (系统依赖 + Rust 依赖双缓存)

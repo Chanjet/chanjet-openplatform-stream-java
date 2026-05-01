@@ -157,6 +157,16 @@ async def handle_broadcast(request):
             count += 1
     return web.json_response({"broadcast_to": count})
 
+async def handle_kill_connections(request):
+    """Force close all active WS connections to simulate network drop or server restart"""
+    count = 0
+    for ws in list(MOCK_STATE["active_ws_clients"]):
+        if not ws.closed:
+            await ws.close()
+            count += 1
+    print(f"🔪 [MOCK] Force closed {count} WS connections.")
+    return web.json_response({"killed": count})
+
 # --- Server Start ---
 
 async def run_server():
@@ -182,6 +192,7 @@ async def run_server():
     app.router.add_post("/webhook_sink", handle_webhook_sink)
     app.router.add_get("/control/webhooks", handle_get_webhook_messages)
     app.router.add_post("/control/broadcast", handle_broadcast)
+    app.router.add_post("/control/kill_connections", handle_kill_connections)
     
     runner = web.AppRunner(app)
     await runner.setup()

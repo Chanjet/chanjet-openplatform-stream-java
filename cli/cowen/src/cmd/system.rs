@@ -539,7 +539,7 @@ impl StatusCollector for DaemonCollector {
         let is_running = found_daemon_pid.is_some();
         let (display_name, efficiency_tip) = auth.get_daemon_display_info(ctx.config, is_running);
 
-        let (level, msg, children) = if let Some(pid) = found_daemon_pid {
+        let (mut level, msg, mut children) = if let Some(pid) = found_daemon_pid {
             (
                 StatusLevel::OK, 
                 format!("[RUNNING] (PID: {})", pid),
@@ -572,6 +572,41 @@ impl StatusCollector for DaemonCollector {
                 ]
             )
         };
+
+        // Inject Connection State if running
+        if found_daemon_pid.is_some() {
+            let status_file = app_dir().join(format!("{}_status.json", ctx.profile));
+            let conn_state = if let Ok(content) = std::fs::read_to_string(status_file) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string()
+                } else {
+                    "Unknown".to_string()
+                }
+            } else {
+                "Unknown".to_string()
+            };
+
+            let (conn_level, conn_icon) = match conn_state.as_str() {
+                "Connected" => (StatusLevel::OK, "🌐"),
+                "Connecting" => (StatusLevel::WARN, "⏳"),
+                "Reconnecting" => (StatusLevel::ERROR, "📡"),
+                _ => (StatusLevel::WARN, "❓"),
+            };
+
+            if conn_level as i32 > level as i32 {
+                level = conn_level;
+            }
+
+            children.push(StatusEntry {
+                name: "Bridge Connection".to_string(),
+                icon: conn_icon.to_string(),
+                level: conn_level,
+                message: conn_state,
+                reason: None,
+                details: vec![],
+                children: vec![],
+            });
+        }
 
         let mut details = vec![];
         if let Some(bid) = found_build_id {

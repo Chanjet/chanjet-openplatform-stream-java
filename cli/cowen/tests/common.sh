@@ -67,7 +67,10 @@ cleanup_suite() {
             if [ -n "$pid" ]; then taskkill //F //PID "$pid" >/dev/null 2>&1 || true; fi
         else
             # Unix kill logic
-            lsof -ti ":$port" | xargs kill -9 >/dev/null 2>&1 || true
+            pids=$(lsof -ti ":$port" 2>/dev/null) || true
+            if [ -n "$pids" ]; then
+                echo "$pids" | xargs kill -9 >/dev/null 2>&1 || true
+            fi
         fi
     }
 
