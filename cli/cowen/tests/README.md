@@ -95,7 +95,7 @@ cargo build && bash tests/case_15_store_app_shared_storage.sh
 ### 3. 安全与拦截验证 (Security Debt)
 - [ ] **Case 21: OpenAPI 白名单强制校验 (CLI 侧)**: 
   > [!NOTE]
-  > 当前白名单拦截逻辑主要在 CLI `api` 命令层实现，Daemon Proxy 层尚未强制拦截。
+  > 仅适用于 `self-built` (自建应用) 与 `oauth2` (三方授权) 模式。当前白名单拦截逻辑主要在 CLI `api` 命令层实现，Daemon Proxy 层尚未强制拦截。
   - 验证：使用 `cowen api [METHOD] [PATH]` 访问不在白名单的路径，应由 CLI 拦截并提示权限不足。
   - 验证：动态更新 Spec 后，CLI 的拦截行为是否同步。
 
