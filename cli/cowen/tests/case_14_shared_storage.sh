@@ -12,13 +12,19 @@ sleep 1
 
 echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
 
-SHARED_DB="$(pwd)/.cowen_test_shared.db"
-rm -f "$SHARED_DB"
-MOCK_URL="http://127.0.0.1:9299"
-
 HOME_1="$(pwd)/.cowen_test_dist_sync_node_1"
 HOME_2="$(pwd)/.cowen_test_dist_sync_node_2"
+SHARED_DB="$(pwd)/.cowen_test_shared.db"
+
+function final_cleanup {
+    echo -e "\n${YELLOW}🧹 Cleaning up Case 14 environment...${NC}"
+    cleanup_suite
+    rm -rf "$HOME_1" "$HOME_2"
+}
+trap final_cleanup EXIT
+
 rm -rf "$HOME_1" "$HOME_2"
+rm -f "$SHARED_DB"* "shared_cowen.db"*
 mkdir -p "$HOME_1" "$HOME_2"
 
 # --- Node 1: Initializer ---
@@ -149,7 +155,3 @@ else
 fi
 
 echo -e "\n${GREEN}🎊 Case 14 Passed!${NC}"
-
-# Cleanup
-pkill -9 cowen || true
-rm -rf "$HOME_1" "$HOME_2" "$SHARED_DB"

@@ -91,10 +91,14 @@ cleanup_suite() {
         kill_port 9299
     fi
 
-    # 4. Remove workspace directory if it's a test one
+    # 4. Remove workspace directory and any shared DB artifacts
     if [ -n "$COWEN_HOME" ] && [[ "$COWEN_HOME" == *"_test_"* ]]; then
         rm -rf "$COWEN_HOME"
     fi
+    
+    # Clean up any leftover test databases in the current dir
+    rm -f .cowen_test_*.db .cowen_test_*.db-shm .cowen_test_*.db-wal
+    rm -f shared_cowen.db shared_cowen.db-shm shared_cowen.db-wal
 }
 
 # Assertions

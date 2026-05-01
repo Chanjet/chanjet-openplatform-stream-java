@@ -5,8 +5,18 @@
 source tests/common.sh
 
 # Define nodes
-HOME_A="$(pwd)/.cowen_test_dist_node_a"
-HOME_B="$(pwd)/.cowen_test_dist_node_b"
+HOME_A="$(pwd)/.cowen_test_dist_lb_node_a"
+HOME_B="$(pwd)/.cowen_test_dist_lb_node_b"
+
+function final_cleanup {
+    echo -e "\n${YELLOW}🧹 Cleaning up Case 13 environment...${NC}"
+    cleanup_suite "case_13"
+    rm -rf "$HOME_A" "$HOME_B"
+}
+trap final_cleanup EXIT
+
+rm -rf "$HOME_A" "$HOME_B"
+mkdir -p "$HOME_A" "$HOME_B"
 
 echo -e "${BOLD}1. Setup Node A and Node B${NC}"
 
@@ -109,5 +119,3 @@ else
 fi
 
 echo -e "\n${GREEN}🎊 Case 13 Passed!${NC}"
-cleanup_suite "case_13"
-rm -rf "$HOME_A" "$HOME_B"
