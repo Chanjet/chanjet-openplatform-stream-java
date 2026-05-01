@@ -71,12 +71,14 @@ PARALLEL_SUITES=(
     "tests/case_26_cluster_idempotency.sh"
     "tests/case_27_hybrid_data_drift.sh"
     "tests/case_28_store_app_multi_org_stress.sh"
+    "tests/case_29_sidecar_startup.sh"
 )
 
 # Group 2: Sensitive Serial Suites (Known to be flaky in high parallelism)
 SERIAL_SUITES=(
     "tests/case_18_redis_fault_tolerance.sh"
     "tests/case_20_oauth2_refresh.sh"
+    "tests/case_30_sidecar_scaling_stress.sh"
 )
 
 run_job() {

@@ -102,4 +102,100 @@ cowen store migrate --to "mysql://user:pass@host:3306/db"
 
 ---
 
+---
+
+## 🏗️ 最佳实践：部署为 Sidecar (侧车)
+
+在生产环境下，推荐将 `cowen` 与您的主应用部署在同一个 Pod (K8s) 或 Task (ECS) 中。
+
+### 1. Kubernetes (K8s) 最佳实践
+在 K8s 中，通过 `Deployment` 的多容器定义实现。由于 `cowen` 依赖本地持久化配置，建议使用 **Startup Script** 模式。
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saas-gateway
+spec:
+  template:
+    spec:
+      containers:
+      - name: main-app
+        image: my-saas-app:latest
+        env:
+        - name: COWEN_PROXY
+          value: "http://127.0.0.1:8080"
+      - name: cowen-sidecar
+        image: chanjet/cowen:latest
+        # 使用环境变量驱动的一键启动模式 (One-Liner)
+        # 侧车启动时会自动检测环境变量并完成隐式初始化
+        command: ["cowen"]
+        args: ["--profile", "isv-sidecar", "daemon", "start", "--foreground"]
+        env:
+        - name: COWEN_APP_MODE
+          value: "store-app"
+        - name: COWEN_APP_KEY
+          valueFrom: { secretKeyRef: { name: cowen-secret, key: app-key } }
+        - name: COWEN_APP_SECRET
+          valueFrom: { secretKeyRef: { name: cowen-secret, key: app-secret } }
+        - name: COWEN_ENCRYPT_KEY
+          valueFrom: { secretKeyRef: { name: cowen-secret, key: encrypt-key } }
+        - name: COWEN_WEBHOOK_TARGET
+          value: "http://127.0.0.1:5000/callback"
+        - name: COWEN_PROXY_PORT
+          value: "8080"
+        - name: COWEN_STORE_TYPE
+          value: "mysql"
+        - name: COWEN_DB_URL
+          value: "mysql://user:pass@mysql-master:3306/cowen_db"
+        - name: COWEN_CACHE_TYPE
+          value: "redis"
+        - name: COWEN_CACHE_URL
+          value: "redis://redis-service:6379"
+```
+
+### 2. Docker Compose 最佳实践
+```yaml
+services:
+  app:
+    image: my-app
+    ports:
+      - "5000:5000" # Webhook 接收端口
+    environment:
+      COWEN_URL: http://127.0.0.1:8080 # 共享网络栈，直接访问 localhost
+  cowen:
+    image: chanjet/cowen:latest
+    network_mode: "service:app" # 【关键】共享 app 的网络命名空间以绕过 SSRF 限制
+    command: daemon start --foreground
+    environment:
+      - COWEN_APP_MODE=store-app
+      - COWEN_APP_KEY=${APP_KEY}
+      - COWEN_APP_SECRET=${APP_SECRET}
+      - COWEN_ENCRYPT_KEY=${ENCRYPT_KEY}
+      - COWEN_WEBHOOK_TARGET=http://127.0.0.1:5000/callback
+      - COWEN_STORE_TYPE=redis
+      - COWEN_DB_URL=redis://redis:6379
+```
+
+### 3. AWS ECS (Fargate) 最佳实践
+- **容器编排**: 在同一个 Task Definition 中定义主应用和 `cowen` 容器。
+- **共享命名空间**: ECS Fargate 默认在同一个任务内的容器共享 `localhost` 网络。
+- **日志路由**: 建议将 `cowen` 的 `sys` 和 `audit` 日志通过 `awslogs` 驱动发送至 CloudWatch。
+
+---
+
+## 💡 侧车模式下的关键运维建议
+
+1.  **无盘化与共享存储**: 侧车实例通常是易失的（Ephemeral）。**必须使用外置 MySQL/Redis** 存储租户令牌。
+2.  **健康检查 (Liveness/Readiness)**:
+    *   **Liveness**: 检查 `cowen` 进程是否存在。
+    *   **Readiness**: 调用 `curl -f http://localhost:8080/v1/telemetry/health`，确保代理已就绪且能够连通开放平台。
+3.  **资源分配**: 
+    *   `cowen` 核心使用 Rust 编写，内存占用极低。
+    *   **推荐配额**: `Requests: 64MiB / 0.1 CPU`, `Limits: 128MiB / 0.5 CPU`。
+4.  **优雅停机**: 
+    *   确保 K8s 给 `cowen` 足够的 `terminationGracePeriodSeconds`（建议 30s），以便 Daemon 完成最后的日志上报与死信归档。
+
+---
+
 ## ⚠️ 能力边界

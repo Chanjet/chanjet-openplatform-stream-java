@@ -40,13 +40,13 @@ use std::io::Write;
     long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。"
 )]
 pub struct Cli {
-    #[arg(short, long, global = true, help = "配置环境名称 (缺省则使用当前激活的 Profile)")]
+    #[arg(short, long, global = true, env = "COWEN_PROFILE", help = "配置环境名称 (缺省则使用当前激活的 Profile)")]
     pub profile: Option<String>,
 
-    #[arg(short = 'o', long, default_value = "text", global = true, help = "输出格式 (text, json, yaml)")]
+    #[arg(short = 'o', long, default_value = "text", global = true, env = "COWEN_FORMAT", help = "输出格式 (text, json, yaml)")]
     pub format: String,
 
-    #[arg(long, default_value = "error", global = true, help = "日志输出级别 (debug, info, warn, error)")]
+    #[arg(long, default_value = "error", global = true, env = "COWEN_LOG_LEVEL", help = "日志输出级别 (debug, info, warn, error)")]
     pub log_level: String,
 
     #[arg(long, global = true, help = "禁用遥测数据上报")]
@@ -64,23 +64,23 @@ pub enum Commands {
     /// 初始化应用配置与安全凭据
     #[command(long_about = "初始化 CLI 的应用环境与安全凭据。这是治理工具的第一步。\nCLI 会引导您输入 AppKey, AppSecret 等核心参数，并将其加密存储在本地安全存储 (Vault) 中。\n\n支持基于 Profile 的多环境隔离 (default/inte/prod)。")]
     Init {
-        #[arg(long, help = "开放平台 AppKey")]
+        #[arg(long, env = "COWEN_APP_KEY", help = "开放平台 AppKey")]
         app_key: Option<String>,
-        #[arg(long, help = "开放平台 AppSecret (将被安全加密存储)")]
+        #[arg(long, env = "COWEN_APP_SECRET", help = "开放平台 AppSecret (将被安全加密存储)")]
         app_secret: Option<String>,
-        #[arg(short = 'c', long, help = "自建应用证书 (Certificate)")]
+        #[arg(short = 'c', long, env = "COWEN_CERTIFICATE", help = "自建应用证书 (Certificate)")]
         certificate: Option<String>,
-        #[arg(long, help = "消息加解密密钥 (AES Encrypt Key)")]
+        #[arg(long, env = "COWEN_ENCRYPT_KEY", help = "消息加解密密钥 (AES Encrypt Key)")]
         encrypt_key: Option<String>,
-        #[arg(long, help = "本地 Webhook 接收地址")]
+        #[arg(long, env = "COWEN_WEBHOOK_TARGET", help = "本地 Webhook 接收地址")]
         webhook_target: Option<String>,
-        #[arg(long, help = "OpenAPI 基础 URL 覆盖")]
+        #[arg(long, env = "COWEN_OPENAPI_URL", help = "OpenAPI 基础 URL 覆盖")]
         openapi_url: Option<String>,
-        #[arg(long, help = "Stream Gateway 基础 URL 覆盖")]
+        #[arg(long, env = "COWEN_STREAM_URL", help = "Stream Gateway 基础 URL 覆盖")]
         stream_url: Option<String>,
-        #[arg(long, help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用)")]
+        #[arg(long, env = "COWEN_APP_MODE", help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用)")]
         app_mode: Option<String>,
-        #[arg(long, help = "本地代理监听端口")]
+        #[arg(long, env = "COWEN_PROXY_PORT", help = "本地代理监听端口")]
         proxy_port: Option<u16>,
     },
     /// 调用开放平台 API 或管理接口规范
@@ -194,13 +194,13 @@ pub enum SystemCommands {
 pub enum StoreCommands {
     /// 设置全局存储配置
     Set {
-        #[arg(long, help = "存储后端: local (本地文件), mysql, postgres, mssql")]
+        #[arg(long, env = "COWEN_STORE_TYPE", help = "存储后端: local (本地文件), mysql, postgres, mssql, redis")]
         store: Option<String>,
-        #[arg(long, help = "数据库连接 URL")]
+        #[arg(long, env = "COWEN_DB_URL", help = "数据库连接 URL")]
         db_url: Option<String>,
-        #[arg(long, help = "缓存后端: none, redis")]
+        #[arg(long, env = "COWEN_CACHE_TYPE", help = "缓存后端: none, redis")]
         cache: Option<String>,
-        #[arg(long, help = "缓存连接 URL (Redis)")]
+        #[arg(long, env = "COWEN_CACHE_URL", help = "缓存连接 URL (Redis)")]
         cache_url: Option<String>,
     },
     /// 查看存储状态并验证连接性
@@ -454,6 +454,24 @@ async fn run() -> Result<()> {
         Err(_) => crate::core::config::Config::default_with_profile(&active_profile),
     };
 
+    // --- Cloud-Native Override ---
+    if let Ok(key) = std::env::var("COWEN_APP_KEY") { config.app_key = key; }
+    if let Ok(secret) = std::env::var("COWEN_APP_SECRET") { config.app_secret = secret; }
+    if let Ok(ek) = std::env::var("COWEN_ENCRYPT_KEY") { config.encrypt_key = ek; }
+    if let Ok(target) = std::env::var("COWEN_WEBHOOK_TARGET") { config.webhook_target = target; }
+    if let Ok(url) = std::env::var("COWEN_OPENAPI_URL") { config.openapi_url = url; }
+    if let Ok(url) = std::env::var("COWEN_STREAM_URL") { config.stream_url = url; }
+    if let Ok(port) = std::env::var("COWEN_PROXY_PORT") {
+        if let Ok(p) = port.parse::<u16>() { config.proxy_port = p; }
+    }
+    if let Ok(mode) = std::env::var("COWEN_APP_MODE") {
+        config.app_mode = match mode.as_str() {
+            "self-built" => crate::auth::models::AuthMode::SelfBuilt,
+            "store-app" => crate::auth::models::AuthMode::StoreApp,
+            _ => crate::auth::models::AuthMode::Oauth2,
+        };
+    }
+
     // Override config flags if CLI provides them
     if cli.no_telemetry {
         config.telemetry_enabled = false;
@@ -583,6 +601,7 @@ async fn run() -> Result<()> {
                 stream_url,
                 app_mode,
                 proxy_port,
+                true,
             ).await?;
         }
         Commands::Api { method, path, data, data_file, action } => {

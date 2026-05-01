@@ -45,9 +45,39 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     let app_dir = crate::core::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
-    // 基础配置校验
+    // --- Cloud-Native: Implicit Auto-Initialization ---
     if config.app_key.trim().is_empty() {
-        anyhow::bail!("AppKey is empty for profile '{}'. Please run 'cowen init' first.", profile);
+        if let (Ok(ak), Ok(mode_str)) = (std::env::var("COWEN_APP_KEY"), std::env::var("COWEN_APP_MODE")) {
+            tracing::info!(target: "sys", profile = %profile, "Detected missing config but env vars present. Triggering implicit auto-initialization...");
+            println!("🪄 Missing profile '{}'. Bootstrapping from environment variables...", profile);
+            
+            // Execute init logic silently
+            crate::cmd::init::execute(
+                profile,
+                cfg_mgr,
+                &mut cfg_mgr.load_app_config().await?,
+                vault.clone(),
+                &Some(ak),
+                &std::env::var("COWEN_APP_SECRET").ok(),
+                &std::env::var("COWEN_CERTIFICATE").ok(),
+                &std::env::var("COWEN_ENCRYPT_KEY").ok(),
+                &std::env::var("COWEN_WEBHOOK_TARGET").ok(),
+                &std::env::var("COWEN_OPENAPI_URL").ok(),
+                &std::env::var("COWEN_STREAM_URL").ok(),
+                &Some(mode_str),
+                &std::env::var("COWEN_PROXY_PORT").ok().and_then(|p| p.parse().ok()),
+                false,
+            ).await?;
+
+            // Reload config after init
+            let mut new_config = cfg_mgr.load(profile).await?;
+            // Ensure runtime overrides still apply
+            if let Ok(key) = std::env::var("COWEN_APP_KEY") { new_config.app_key = key; }
+            if let Ok(secret) = std::env::var("COWEN_APP_SECRET") { new_config.app_secret = secret; }
+            
+            return Box::pin(do_start(profile, &new_config, new_config.proxy_port, new_config.proxy_enabled, foreground, cfg_mgr, vault)).await;
+        }
+        anyhow::bail!("AppKey is empty for profile '{}'. Please run 'cowen init' first or provide COWEN_APP_KEY/COWEN_APP_MODE.", profile);
     }
     
     if !foreground {

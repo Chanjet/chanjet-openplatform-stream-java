@@ -424,16 +424,18 @@ impl AuthProvider for OAuth2Provider {
         orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr).await?;
 
         // 7. Automatically start the daemon (OCP: Consistent experience across all modes)
-        let _ = crate::cmd::daemon::start(
-            profile, 
-            config, 
-            config.proxy_port, 
-            config.proxy_enabled, 
-            false, 
-            false, 
-            cfg_mgr, 
-            vault
-        ).await;
+        if params.auto_start {
+            let _ = crate::cmd::daemon::start(
+                profile, 
+                config, 
+                config.proxy_port, 
+                config.proxy_enabled, 
+                false, 
+                false, 
+                cfg_mgr, 
+                vault
+            ).await;
+        }
 
         Ok(())
     }

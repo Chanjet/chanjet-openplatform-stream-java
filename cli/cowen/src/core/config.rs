@@ -251,6 +251,25 @@ impl ConfigManager {
             validator.validate_load(profile, &config, is_db_mode, _exists)?;
         }
 
+        let mut config = config;
+        // --- Cloud-Native Override ---
+        if let Ok(key) = std::env::var("COWEN_APP_KEY") { config.app_key = key; }
+        if let Ok(secret) = std::env::var("COWEN_APP_SECRET") { config.app_secret = secret; }
+        if let Ok(ek) = std::env::var("COWEN_ENCRYPT_KEY") { config.encrypt_key = ek; }
+        if let Ok(target) = std::env::var("COWEN_WEBHOOK_TARGET") { config.webhook_target = target; }
+        if let Ok(url) = std::env::var("COWEN_OPENAPI_URL") { config.openapi_url = url; }
+        if let Ok(url) = std::env::var("COWEN_STREAM_URL") { config.stream_url = url; }
+        if let Ok(port) = std::env::var("COWEN_PROXY_PORT") {
+            if let Ok(p) = port.parse::<u16>() { config.proxy_port = p; }
+        }
+        if let Ok(mode) = std::env::var("COWEN_APP_MODE") {
+            config.app_mode = match mode.as_str() {
+                "self-built" => crate::auth::models::AuthMode::SelfBuilt,
+                "store-app" => crate::auth::models::AuthMode::StoreApp,
+                _ => crate::auth::models::AuthMode::Oauth2,
+            };
+        }
+
         Ok(config)
     }
     async fn load_local_profile_with_status(&self, profile: &str) -> Result<(Config, bool)> {
@@ -330,18 +349,41 @@ impl ConfigManager {
                 }
             }
 
-            let app_config = if use_local {
+            let mut app_config = if use_local {
                 AppConfig { storage: StorageConfig { store: "local".to_string(), ..Default::default() } }
             } else {
                 let db_path = self.app_dir.join("cowen.db");
                 let db_url = format!("innerdb://{}", db_path.to_string_lossy());
                 AppConfig { storage: StorageConfig { store: "innerdb".to_string(), db_url: Some(db_url), ..Default::default() } }
             };
+
+            // Apply overrides before first save to avoid unnecessary disk writes with wrong settings
+            if let Ok(store) = std::env::var("COWEN_STORE_TYPE") { app_config.storage.store = store; }
+            if let Ok(db_url) = std::env::var("COWEN_DB_URL") { app_config.storage.db_url = Some(db_url); }
+            if let Ok(cache) = std::env::var("COWEN_CACHE_TYPE") { app_config.storage.cache = cache; }
+            if let Ok(cache_url) = std::env::var("COWEN_CACHE_URL") { app_config.storage.cache_url = Some(cache_url); }
+
             let _ = self.save_app_config(&app_config).await;
             return Ok(app_config);
         }
         let content = fs::read_to_string(path)?;
-        let config: AppConfig = serde_yaml::from_str(&content)?;
+        let mut config: AppConfig = serde_yaml::from_str(&content)?;
+
+        // --- Cloud-Native Override ---
+        // Environment variables take precedence over file-based config
+        if let Ok(store) = std::env::var("COWEN_STORE_TYPE") {
+            config.storage.store = store;
+        }
+        if let Ok(db_url) = std::env::var("COWEN_DB_URL") {
+            config.storage.db_url = Some(db_url);
+        }
+        if let Ok(cache) = std::env::var("COWEN_CACHE_TYPE") {
+            config.storage.cache = cache;
+        }
+        if let Ok(cache_url) = std::env::var("COWEN_CACHE_URL") {
+            config.storage.cache_url = Some(cache_url);
+        }
+
         Ok(config)
     }
 

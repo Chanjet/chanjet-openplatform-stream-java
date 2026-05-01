@@ -345,18 +345,19 @@ impl AuthProvider for StoreAppProvider {
             profile
         );
         println!("💡 Please perform authorization through your main application.");
-        println!("🚀 Sidecar is ready. Starting background daemon...");
-
-        let _ = crate::cmd::daemon::start(
-            profile, 
-            config, 
-            config.proxy_port, 
-            config.proxy_enabled, 
-            false, 
-            false, 
-            cfg_mgr, 
-            vault
-        ).await;
+        if params.auto_start {
+            println!("🚀 Sidecar is ready. Starting background daemon...");
+            let _ = crate::cmd::daemon::start(
+                profile, 
+                config, 
+                config.proxy_port, 
+                config.proxy_enabled, 
+                false, 
+                false, 
+                cfg_mgr, 
+                vault
+            ).await;
+        }
         Ok(())
     }
 

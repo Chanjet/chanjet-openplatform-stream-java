@@ -319,18 +319,22 @@ impl AuthProvider for SelfBuiltProvider {
             return Err(anyhow!("Missing required credentials for SelfBuilt mode"));
         }
 
-        println!("✅ Profile '{}' initialized successfully.", profile);
-        // Automatically start the daemon for Self-Built mode to avoid OFFLINE status on first check
-        let _ = crate::cmd::daemon::start(
-            profile, 
-            config, 
-            config.proxy_port, 
-            config.proxy_enabled, 
-            false, 
-            false, 
-            cfg_mgr, 
-            vault
-        ).await;
+        if params.auto_start {
+            println!("✅ Profile '{}' initialized successfully.", profile);
+            // Automatically start the daemon for Self-Built mode to avoid OFFLINE status on first check
+            let _ = crate::cmd::daemon::start(
+                profile, 
+                config, 
+                config.proxy_port, 
+                config.proxy_enabled, 
+                false, 
+                false, 
+                cfg_mgr, 
+                vault
+            ).await;
+        } else {
+            println!("✅ Profile '{}' initialized successfully (Auto-start disabled).", profile);
+        }
         Ok(())
     }
 

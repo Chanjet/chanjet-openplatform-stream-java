@@ -18,6 +18,7 @@ pub async fn execute(
     stream_url: &Option<String>,
     app_mode: &Option<String>,
     proxy_port: &Option<u16>,
+    auto_start: bool,
 ) -> Result<()> {
     let is_new = !cfg_mgr.exists(profile).await;
     let mut config = cfg_mgr.load(profile).await?;
@@ -84,6 +85,7 @@ pub async fn execute(
         openapi_url: openapi_url.clone(),
         stream_url: stream_url.clone(),
         proxy_port: proxy_port.clone(),
+        auto_start,
     };
 
     // Assign a unique port if this is a new profile or it's currently 0 or 8080 (the old default)

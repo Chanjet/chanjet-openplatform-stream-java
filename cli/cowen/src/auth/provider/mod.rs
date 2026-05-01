@@ -24,6 +24,7 @@ pub struct InitParams {
     pub openapi_url: Option<String>,
     pub stream_url: Option<String>,
     pub proxy_port: Option<u16>,
+    pub auto_start: bool,
 }
 
 #[derive(Debug, Clone)]
