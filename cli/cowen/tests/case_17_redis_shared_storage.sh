@@ -1,0 +1,104 @@
+#!/bin/bash
+# Case 17: Redis Shared Storage & Distributed Token Sync
+# Verifies:
+#   1. Node 1 and Node 2 can share tokens via Redis.
+#   2. Token retrieved by Node 1 is immediately available to Node 2 without extra API calls.
+
+source tests/common.sh
+
+echo -e "${BOLD}1. Setup Redis and Node 1${NC}"
+
+# Define nodes
+TEST_BASE="$(pwd)/target/cowen_tests"
+HOME_1="$TEST_BASE/.cowen_test_redis_node_1"
+HOME_2="$TEST_BASE/.cowen_test_redis_node_2"
+REDIS_URL="redis://127.0.0.1:6379/0"
+
+rm -rf "$HOME_1" "$HOME_2"
+mkdir -p "$HOME_1" "$HOME_2"
+
+clear_redis "$REDIS_URL"
+start_mock
+
+# --- Node 1: Initializer ---
+export COWEN_HOME="$HOME_1"
+cat > "$HOME_1/app.yaml" <<EOF
+storage:
+  store: redis
+  db_url: "$REDIS_URL"
+log:
+  level: debug
+telemetry_enabled: false
+ai_enabled: false
+EOF
+
+"$COWEN_BIN" init --profile main \
+    --app-mode self-built \
+    --app-key AK_REDIS \
+    --app-secret AS_REDIS \
+    --certificate CERT_REDIS \
+    --encrypt-key 1234567890123456 \
+    --openapi-url $MOCK_URL \
+    --stream-url $MOCK_WS \
+    --webhook-target "$MOCK_URL/webhook_sink" \
+    --proxy-port 9097
+
+assert_pass "Node 1 initialized with Redis storage"
+
+# 2. Get Token on Node 1
+echo -e "${BOLD}2. Get Token on Node 1${NC}"
+TOKEN_1=$(extract_token "main")
+if [[ -z "$TOKEN_1" ]]; then
+    echo -e "   ${RED}[FAILED]${NC} Failed to get token on Node 1"
+    exit 1
+fi
+echo -e "   ✓ Node 1 Token: ${TOKEN_1:0:15}..."
+echo "     Redis Keys:"
+redis-cli -n 0 KEYS "*"
+sleep 2
+
+# --- Node 2: Follower ---
+echo -e "${BOLD}3. Setup Node 2 and Verify Token Sharing${NC}"
+export COWEN_HOME="$HOME_2"
+cat > "$HOME_2/app.yaml" <<EOF
+storage:
+  store: redis
+  db_url: "$REDIS_URL"
+log:
+  level: debug
+telemetry_enabled: false
+ai_enabled: false
+EOF
+
+# Node 2 doesn't need to 'init' because it shares the same Redis DB
+# But it needs the local app.yaml to know where Redis is.
+
+# Verify Node 2 can see the same token
+TOKEN_2=$(extract_token "main")
+
+if [[ "$TOKEN_1" == "$TOKEN_2" ]]; then
+    echo -e "   ${GREEN}✓${NC} Node 2 successfully retrieved the SAME token from Redis"
+else
+    echo -e "   ${RED}[FAILED]${NC} Token mismatch or sync failed"
+    echo "     Node 1: $TOKEN_1"
+    echo "     Node 2: $TOKEN_2"
+    exit 1
+fi
+
+# 4. Invalidate Token in Redis and Verify Renewal
+echo -e "${BOLD}4. Invalidate Token in Redis and Verify Renewal${NC}"
+# Clear Redis specifically for this key (Global App Profile with cfg: prefix)
+redis-cli -n 0 DEL "app:AK_REDIS:cfg:access_token" > /dev/null
+
+TOKEN_3=$(extract_token "main")
+echo "     TOKEN_1: $TOKEN_1"
+echo "     TOKEN_3: $TOKEN_3"
+if [[ "$TOKEN_3" != "$TOKEN_1" && -n "$TOKEN_3" ]]; then
+    echo -e "   ${GREEN}✓${NC} Node 2 successfully renewed token after Redis deletion"
+    echo "     New Token: ${TOKEN_3:0:15}..."
+else
+    echo -e "   ${RED}[FAILED]${NC} Token renewal failed or returned old token"
+    exit 1
+fi
+
+echo -e "\n${GREEN}🎊 Case 17 Passed!${NC}"

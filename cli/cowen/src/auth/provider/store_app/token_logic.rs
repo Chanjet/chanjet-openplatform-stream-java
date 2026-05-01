@@ -52,70 +52,66 @@ pub(crate) async fn get_user_token(
 
     // 2. Slow path via Vault pair
     let key_pair = storage::get_user_token_key(app_key, org_id, uid);
-    let pair_str = pool
-        .as_vault()
-        .get(profile, &key_pair)
-        .await
-        .map_err(|_| {
-            anyhow!(
-                "User token not found for userId: {} in org: {}",
-                uid,
-                org_id
-            )
-        })?;
+    let pair_result = pool.as_vault().get(profile, &key_pair).await;
 
-    let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
+    match pair_result {
+        Ok(pair_str) => {
+            let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
 
-    // If AccessToken is still valid, use it
-    if Utc::now() < pair.expires_at {
-        let token = Token {
-            value: pair.access_token.clone(),
-            expires_at: pair.expires_at,
-            created_at: pair.created_at,
-        };
-        pool.set_access_token(&custom_profile, &token).await?;
-        return Ok(token);
-    }
+            // If AccessToken is still valid, use it
+            if Utc::now() < pair.expires_at {
+                let token = Token {
+                    value: pair.access_token.clone(),
+                    expires_at: pair.expires_at,
+                    created_at: pair.created_at,
+                };
+                pool.set_access_token(&custom_profile, &token).await?;
+                return Ok(token);
+            }
 
-    // 3. Refresh logic for user token
-    let refresh_result = if Utc::now() < pair.refresh_expires_at {
-            client::refresh_token(pool, http_sender, profile, cfg, &pair.refresh_token).await
-    } else {
-        Err(anyhow!("User refresh token expired"))
-    };
-
-    match refresh_result {
-        Ok(t) => {
-            // Success via Refresh Token
-            let new_pair = OAuth2TokenPair {
-                access_token: t.value.clone(),
-                refresh_token: pair.refresh_token.clone(), 
-                expires_at: t.expires_at,
-                refresh_expires_at: pair.refresh_expires_at,
-                created_at: Utc::now(),
+            // 3. Refresh logic for user token
+            let refresh_result = if Utc::now() < pair.refresh_expires_at {
+                    client::refresh_token(pool, http_sender, profile, cfg, &pair.refresh_token).await
+            } else {
+                Err(anyhow!("User refresh token expired"))
             };
-            pool
-                .as_vault()
-                .set(profile, &key_pair, &serde_json::to_string(&new_pair)?)
-                .await?;
-            pool.set_access_token(&custom_profile, &t).await?;
-            Ok(t)
-        }
-        Err(e) => {
-            // 🚀 Fallback to User Permanent Auth Code ("Fire Seed")
-            tracing::info!(target: "sys", userId = %uid, orgId = %org_id, "Refresh token failed or expired. Attempting recovery via Permanent Auth Code...");
-            
-            match try_permanent_code_recovery(pool, http_sender, profile, cfg, org_id, Some(uid)).await {
+
+            match refresh_result {
                 Ok(t) => {
+                    // Success via Refresh Token
+                    let new_pair = OAuth2TokenPair {
+                        access_token: t.value.clone(),
+                        refresh_token: pair.refresh_token.clone(), 
+                        expires_at: t.expires_at,
+                        refresh_expires_at: pair.refresh_expires_at,
+                        created_at: Utc::now(),
+                    };
+                    let _ = pool.as_vault().set(profile, &key_pair, &serde_json::to_string(&new_pair)?).await;
                     pool.set_access_token(&custom_profile, &t).await?;
-                    tracing::info!(target: "audit", userId = %uid, "Successfully recovered user token via Permanent Auth Code");
-                    Ok(t)
+                    return Ok(t);
                 }
-                Err(err) => {
-                    tracing::error!(target: "sys", userId = %uid, "Recovery via Permanent Auth Code failed: {}", err);
-                    Err(anyhow!("User session expired and recovery failed: {}", e))
+                Err(e) => {
+                    tracing::warn!(target: "sys", userId = %uid, orgId = %org_id, error = %e, "User refresh token failed. Attempting recovery...");
                 }
             }
+        },
+        Err(_) => {
+            tracing::info!(target: "sys", userId = %uid, orgId = %org_id, "No token pair found. Attempting initial recovery via permanent code...");
+        }
+    }
+
+    // 🚀 Fallback to User Permanent Auth Code ("Fire Seed")
+    tracing::info!(target: "sys", userId = %uid, orgId = %org_id, "Attempting recovery via Permanent Auth Code...");
+    
+    match try_permanent_code_recovery(pool, http_sender, profile, cfg, org_id, Some(uid)).await {
+        Ok(t) => {
+            pool.set_access_token(&custom_profile, &t).await?;
+            tracing::info!(target: "audit", userId = %uid, "Successfully recovered user token via Permanent Auth Code");
+            Ok(t)
+        }
+        Err(err) => {
+            tracing::error!(target: "sys", userId = %uid, "Recovery via Permanent Auth Code failed: {}", err);
+            Err(anyhow!("User session expired and recovery failed: {}", err))
         }
     }
 }
@@ -140,38 +136,42 @@ pub(crate) async fn get_org_token(
 
     // 2. Slow path via Vault pair
     let key_pair = storage::get_org_token_key(app_key, org_id);
-    let pair_str = pool
-        .as_vault()
-        .get(profile, &key_pair)
-        .await
-        .map_err(|_| anyhow!("Organization token not found for orgId: {}", org_id))?;
+    let pair_result = pool.as_vault().get(profile, &key_pair).await;
 
-    let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
+    match pair_result {
+        Ok(pair_str) => {
+            let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
 
-    if Utc::now() < pair.expires_at {
-        let token = Token {
-            value: pair.access_token.clone(),
-            expires_at: pair.expires_at,
-            created_at: pair.created_at,
-        };
-        pool.set_access_token(&custom_profile, &token).await?;
-        return Ok(token);
-    }
-
-    // 3. Refresh logic
-    if Utc::now() < pair.refresh_expires_at {
-        match client::refresh_token(pool, http_sender, profile, cfg, &pair.refresh_token).await {
-            Ok(t) => {
-                pool.set_access_token(&custom_profile, &t).await?;
-                return Ok(t);
+            if Utc::now() < pair.expires_at {
+                let token = Token {
+                    value: pair.access_token.clone(),
+                    expires_at: pair.expires_at,
+                    created_at: pair.created_at,
+                };
+                pool.set_access_token(&custom_profile, &token).await?;
+                return Ok(token);
             }
-            Err(e) => {
-                tracing::warn!(target: "sys", orgId = %org_id, error = %e, "Org refresh token failed. Attempting recovery...");
+
+            // 3. Refresh logic
+            if Utc::now() < pair.refresh_expires_at {
+                match client::refresh_token(pool, http_sender, profile, cfg, &pair.refresh_token).await {
+                    Ok(t) => {
+                        pool.set_access_token(&custom_profile, &t).await?;
+                        return Ok(t);
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: "sys", orgId = %org_id, error = %e, "Org refresh token failed. Attempting recovery...");
+                    }
+                }
             }
+        },
+        Err(_) => {
+            tracing::info!(target: "sys", orgId = %org_id, "No token pair found. Attempting initial recovery via permanent code...");
         }
     }
 
     // 4. Permanent code recovery
+
     match try_permanent_code_recovery(pool, http_sender, profile, cfg, org_id, None).await {
         Ok(t) => {
             pool.set_access_token(&custom_profile, &t).await?;

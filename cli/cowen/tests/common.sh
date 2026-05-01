@@ -29,8 +29,8 @@ export COWEN_RAW_OUTPUT="true"
 # Isolation
 setup_workspace() {
     local suite=$1
-    local test_base="$(pwd)/target/cowen_tests"
-    export COWEN_HOME="$test_base/.cowen_test_$suite"
+    export TEST_BASE="$(pwd)/target/cowen_tests"
+    export COWEN_HOME="$TEST_BASE/.cowen_test_$suite"
     echo -e "${BLUE}▶ Starting Suite: $suite${NC}"
     echo -e "  Workspace: $COWEN_HOME"
     rm -rf "$COWEN_HOME"
@@ -145,7 +145,21 @@ start_mock() {
 # Token Extraction
 extract_token() {
     local prof=$1
-    "$COWEN_BIN" auth token --profile "$prof" --format json 2>/dev/null | python3 -c "import sys, json; d=json.loads(sys.stdin.read() or '{}'); print(d.get('access_token') or d.get('value') or '')"
+    "$COWEN_BIN" auth token --profile "$prof" --format json 2>/dev/null | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+try:
+    # Try to find the JSON part if there is noise
+    start = raw.find('{')
+    end = raw.rfind('}') + 1
+    if start >= 0 and end > start:
+        d = json.loads(raw[start:end])
+        print(d.get('access_token') or d.get('value') or '')
+    else:
+        print('')
+except:
+    print('')
+"
 }
 
 # Global Cleanup
@@ -160,6 +174,20 @@ cleanup_all_workspaces() {
     else
         pkill -9 cowen >/dev/null 2>&1 || true
         lsof -ti :9299 | xargs kill -9 2>/dev/null || true
+    fi
+}
+
+# Redis Helpers
+clear_redis() {
+    local url=${1:-"redis://127.0.0.1:6379/0"}
+    echo -e "  Clearing Redis at $url..."
+    if [[ "$url" =~ redis://([^:]+):([0-9]+)/([0-9]+) ]]; then
+        local host=${BASH_REMATCH[1]}
+        local port=${BASH_REMATCH[2]}
+        local db=${BASH_REMATCH[3]}
+        redis-cli -h "$host" -p "$port" -n "$db" FLUSHDB >/dev/null 2>&1 || true
+    else
+        redis-cli FLUSHALL >/dev/null 2>&1 || true
     fi
 }
 

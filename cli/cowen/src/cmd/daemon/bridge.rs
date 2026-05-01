@@ -65,8 +65,11 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         
         dispatcher.on_ent_auth_code(move |msg| {
             let temp_code = msg.biz_content.temp_auth_code.trim().to_string();
-            // Try to extract org_id from the message headers if available
-            let org_id = msg.base.headers.get("orgId").cloned().unwrap_or_default(); 
+            // Try to extract org_id from the message headers (camelCase or snake_case)
+            let org_id = msg.base.headers.get("orgId")
+                .or_else(|| msg.base.headers.get("org_id"))
+                .cloned()
+                .unwrap_or_default(); 
             
             let t_pool_inner = t_pool.clone();
             let t_profile_inner = t_profile.clone();

@@ -13,6 +13,9 @@ MOCK_STATE = {
     "active_ws_clients": {}, # keyed by client_id
     "webhook_messages": [],
     "token_expiration_mode": False, # If True, tokens will expire very quickly or return error
+    "token_expires_in": 3600,
+    "force_error": None, # e.g. {"code": "401", "message": "invalid_token"}
+    "webhook_sink_status": 200,
 }
 
 def hmac_sha256(data, key):
@@ -26,9 +29,22 @@ async def handle_self_built_token(request):
         "result": True,
         "value": {
             "accessToken": f"mock_at_sb_{uuid.uuid4().hex[:8]}",
-            "expiresIn": 3600 
+            "expiresIn": MOCK_STATE["token_expires_in"]
         }
     })
+
+async def handle_generic_success(request):
+    open_token = request.headers.get("openToken", "")
+    app_key = request.headers.get("appKey", "")
+    return web.json_response({
+        "code": "200", 
+        "message": "success", 
+        "data": {
+            "openToken": open_token,
+            "appKey": app_key
+        }
+    })
+
 
 async def handle_oauth2_token(request):
     """OAuth2 mode token exchange (code/refresh)"""
@@ -37,19 +53,26 @@ async def handle_oauth2_token(request):
     print(f"📥 [MOCK] OAuth2 Token Request: grant_type={grant_type}")
     
     return web.json_response({
-        "access_token": f"mock_at_oa2_{uuid.uuid4().hex[:8]}",
+        "access_token": f"mock_at_oa2_{grant_type}_{uuid.uuid4().hex[:8]}",
         "refresh_token": f"mock_rt_oa2_{uuid.uuid4().hex[:8]}",
-        "expires_in": 3600,
+        "expires_in": MOCK_STATE["token_expires_in"],
         "refresh_expires_in": 86400
     })
 
 async def handle_store_app_token(request):
-    """Store-App mode token exchange"""
-    print(f"📥 [MOCK] Store-App Token Request")
+    """Store-App mode token exchange with org-specific context"""
+    try:
+        data = await request.json()
+    except:
+        data = {}
+    
+    org_id = data.get("orgId") or data.get("org_id", "unknown")
+    print(f"📥 [MOCK] Store-App Token Request for Org: {org_id}")
+    
     return web.json_response({
         "result": {
-            "appAccessToken": f"mock_at_sa_{uuid.uuid4().hex[:8]}",
-            "expiresIn": 3600
+            "appAccessToken": f"mock_at_sa_{org_id}_{uuid.uuid4().hex[:4]}",
+            "expiresIn": MOCK_STATE["token_expires_in"]
         }
     })
 
@@ -82,7 +105,49 @@ async def handle_push(request):
     
     return web.json_response({"code": "200", "message": "success"})
 
+async def handle_permanent_auth_code(request):
+    """Store-App mode exchange: temp code -> permanent code"""
+    print(f"📥 [MOCK] Permanent Auth Code Exchange Request")
+    return web.json_response({
+        "result": {
+            "appName": "MockStoreApp",
+            "appId": "12345",
+            "permanentAuthCode": f"mock_opc_{uuid.uuid4().hex[:8]}",
+            "orgId": "900000000"
+        },
+        "code": "200",
+        "message": "success"
+    })
+
 # --- OpenAPI Spec ---
+
+async def handle_openapi_spec(request):
+    return web.json_response({
+        "paths": {
+            "/v1/app/data/get": {"post": {}},
+            "/v1/app/data/save": {"post": {}},
+        }
+    })
+
+async def handle_get_interface_list(request):
+    return web.json_response({
+        "value": {
+            "currentPage": 1,
+            "totalPages": 1,
+            "resultList": [
+                {
+                    "requestPath": "/v1/app/data/get",
+                    "requestHttpMethod": "POST",
+                    "interfaceName": "Get Data"
+                },
+                {
+                    "requestPath": "/v1/app/data/save",
+                    "requestHttpMethod": "POST",
+                    "interfaceName": "Save Data"
+                }
+            ]
+        }
+    })
 
 async def handle_spec(request):
     return web.json_response({
@@ -188,19 +253,24 @@ async def handle_ws(request):
     return ws
 
 async def handle_webhook_sink(request):
-    """Receive forwarded messages from Cowen Daemon"""
+    """Mock receiver for webhooks sent by the Sidecar/Daemon"""
     body = await request.read()
     try:
         data = json.loads(body)
     except:
         data = {"raw": body.decode('utf-8')}
-        
+
     headers = dict(request.headers)
     print(f"📥 [MOCK SINK] Received forwarded webhook: {headers.get('Authorization', 'no-auth')}")
     MOCK_STATE["webhook_messages"].append({
         "body": data,
         "headers": headers
     })
+
+    status = MOCK_STATE.get("webhook_sink_status", 200)
+    if status != 200:
+        return web.Response(status=status, text=f"Mocking HTTP {status} Error")
+
     return web.json_response({"status": "received"})
 
 async def handle_get_webhook_messages(request):
@@ -209,8 +279,9 @@ async def handle_get_webhook_messages(request):
 async def handle_broadcast(request):
     """Trigger a custom WS broadcast for testing (Supports Load Balancing)"""
     data = await request.json()
-    msg_type = data.get("msg_type", "DATA_PUSH")
-    payload = data.get("payload", {})
+    msg_type = data.get("msgType") or data.get("msg_type", "DATA_PUSH")
+    app_key = data.get("appKey") or data.get("app_key", "unknown")
+    payload = data.get("payload") or data.get("bizContent") or {}
     mode = data.get("mode", "broadcast") # broadcast or lb
     
     # Prune dead connections first
@@ -224,15 +295,26 @@ async def handle_broadcast(request):
 
     count = 0
     failed_keys = []
+    
+    msg_id = data.get("msgId") or data.get("msg_id") or uuid.uuid4().hex
+    
+    msg_payload = {
+        "msgType": msg_type,
+        "msg_type": msg_type,
+        "msgId": msg_id,
+        "appKey": app_key,
+        "app_key": app_key,
+        "headers": data.get("headers", {}),
+        "bizContent": payload,
+        "biz_content": payload,
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
     if mode == "lb":
         import random
         cid, ws = random.choice(active)
         try:
-            await ws.send_json({
-                "msg_type": msg_type,
-                "msgId": uuid.uuid4().hex,
-                "biz_content": payload
-            })
+            await ws.send_json(msg_payload)
             count = 1
         except Exception as e:
             print(f"   [LB] Send to {cid} failed: {e}")
@@ -240,11 +322,7 @@ async def handle_broadcast(request):
     else:
         for cid, ws in active:
             try:
-                await ws.send_json({
-                    "msg_type": msg_type,
-                    "msgId": uuid.uuid4().hex,
-                    "biz_content": payload
-                })
+                await ws.send_json(msg_payload)
                 count += 1
             except Exception as e:
                 print(f"   [BROADCAST] Send to {cid} failed: {e}")
@@ -279,6 +357,15 @@ async def handle_connection_count(request):
         del MOCK_STATE["active_ws_clients"][k]
     clients = {k: not ws.closed for k, ws in MOCK_STATE["active_ws_clients"].items()}
     return web.json_response({"count": len(clients), "clients": clients})
+    
+async def handle_config(request):
+    """Update MOCK_STATE configuration"""
+    data = await request.json()
+    for k, v in data.items():
+        if k in MOCK_STATE:
+            MOCK_STATE[k] = v
+    print(f"⚙️ [MOCK] Config updated: {data}")
+    return web.json_response({"status": "ok", "current_state": {k: v for k, v in MOCK_STATE.items() if k != "active_ws_clients"}})
 
 # --- Server Start ---
 
@@ -289,13 +376,20 @@ async def run_server():
     app.router.add_post("/v1/common/auth/selfBuiltApp/generateToken", handle_self_built_token)
     app.router.add_post("/auth/appTicket/resend", handle_push)
     app.router.add_get("/developer/api/apiPermissions/isv/open/getInterfaceList", handle_interface_list)
-    app.router.add_get("/v1/common/auth/selfBuiltApp/generateNonce", handle_nonce)
+    app.router.add_post("/v1/common/auth/selfBuiltApp/generateNonce", handle_nonce)
     app.router.add_post("/v1/common/auth/oauth2/token", handle_oauth2_token)
     app.router.add_post("/oauth2/token", handle_oauth2_token)
+    app.router.add_post("/auth/orgAuth/getPermanentAuthCode", handle_permanent_auth_code)
     app.router.add_post("/auth/appAuth/getAppAccessToken", handle_store_app_token)
+
     
     # OpenAPI Endpoints
-    app.router.add_get("/v1/common/openapi/spec", handle_spec)
+    app.router.add_get("/v1/common/auth/openapi/spec", handle_openapi_spec)
+    app.router.add_get("/v1/common/openapi/spec", handle_openapi_spec)
+    app.router.add_get("/developer/api/apiPermissions/isv/open/getInterfaceList", handle_get_interface_list)
+    app.router.add_post("/v1/app/data/get", handle_generic_success)
+    app.router.add_post("/v1/app/data/save", handle_generic_success)
+    
     app.router.add_get("/v1/mock/ping", handle_ping)
     app.router.add_get("/v1/mock/secure", handle_secure)
     
@@ -310,6 +404,7 @@ async def run_server():
     app.router.add_post("/control/kill_connections", handle_kill_connections)
     app.router.add_post("/control/clear_webhooks", handle_clear_webhooks)
     app.router.add_get("/control/connection_count", handle_connection_count)
+    app.router.add_post("/control/config", handle_config)
     
     runner = web.AppRunner(app)
     await runner.setup()

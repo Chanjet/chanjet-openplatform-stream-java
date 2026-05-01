@@ -360,6 +360,20 @@ impl AuthProvider for StoreAppProvider {
         Ok(())
     }
 
+    async fn trigger_push(&self, _profile: &str, config: &Config, _force: bool) -> Result<()> {
+        let url = format!(
+            "{}/auth/appTicket/resend",
+            config.openapi_url.trim_end_matches('/')
+        );
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("appKey", config.app_key.trim().parse()?);
+        headers.insert("appSecret", config.app_secret.trim().parse()?);
+        
+        let body = serde_json::json!({});
+        let _ = self.http_sender.post(&url, headers, body).await?;
+        Ok(())
+    }
+
     async fn hydrate_config(&self, profile: &str, config: &mut Config, vault: std::sync::Arc<dyn crate::core::vault::Vault>) -> Result<()> {
         if let Ok(as_val) = vault.get_secret(profile, "app_secret").await { config.app_secret = as_val; }
         if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }

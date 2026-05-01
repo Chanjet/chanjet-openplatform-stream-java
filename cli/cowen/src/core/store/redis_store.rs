@@ -88,7 +88,15 @@ impl Store for RedisStore {
         // Lua script for atomic CAS
         let script = r#"
             local old = redis.call('GET', KEYS[1])
-            if not old then return 0 end
+            if not old then
+                if tonumber(ARGV[1]) == 0 then
+                    local data = { v = 1, d = ARGV[2] }
+                    redis.call('SET', KEYS[1], cjson.encode(data))
+                    return 1
+                else
+                    return 0
+                end
+            end
             local data = cjson.decode(old)
             if data.v == tonumber(ARGV[1]) then
                 data.v = data.v + 1

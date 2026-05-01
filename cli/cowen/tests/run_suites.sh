@@ -40,6 +40,18 @@ SUITES=(
     "tests/case_13_distributed_lb.sh"
     "tests/case_14_shared_storage.sh"
     "tests/case_15_store_app_shared_storage.sh"
+    "tests/case_16_migration_block.sh"
+    "tests/case_17_redis_shared_storage.sh"
+    "tests/case_18_redis_fault_tolerance.sh"
+    "tests/case_19_ticket_auto_resend.sh"
+    "tests/case_20_oauth2_refresh.sh"
+    "tests/case_21_openapi_whitelist.sh"
+    "tests/case_22_dlq_manual_retry.sh"
+    "tests/case_24_completion.sh"
+    "tests/case_25_status_all.sh"
+    "tests/case_26_cluster_idempotency.sh"
+    "tests/case_27_hybrid_data_drift.sh"
+    "tests/case_28_store_app_multi_org_stress.sh"
 )
 
 PASSED=0
