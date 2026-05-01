@@ -47,6 +47,8 @@ TOTAL=${#SUITES[@]}
 
 # Disable internal mock start in individual cases
 export COWEN_MOCK_MANAGED="true"
+RESULTS_DIR="target/cowen_tests/results"
+mkdir -p "target/cowen_tests"
 
 for suite in "${SUITES[@]}"; do
     echo -e "\n${BOLD}⏳ Running $suite...${NC}"

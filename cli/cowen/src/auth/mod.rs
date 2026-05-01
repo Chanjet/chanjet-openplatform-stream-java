@@ -55,8 +55,8 @@ impl AuthProviderValidator {
 }
 
 impl crate::core::config::ConfigValidator for AuthProviderValidator {
-    fn validate_load(&self, profile: &str, config: &crate::core::config::Config, is_distributed: bool) -> Result<()> {
-        if is_distributed {
+    fn validate_load(&self, profile: &str, config: &crate::core::config::Config, is_distributed: bool, exists: bool) -> Result<()> {
+        if is_distributed && exists {
             let provider = self.client.provider(&config.app_mode);
             if !provider.is_allowed_in_distributed_storage() {
                 let msg = format!("⚠️  Skipping profile '{}': Auth mode '{:?}' is not allowed in distributed storage scenarios (shared database/redis).", profile, config.app_mode);

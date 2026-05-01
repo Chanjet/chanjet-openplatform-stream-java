@@ -313,9 +313,11 @@ async def run_server():
     
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '127.0.0.1', 9299)
+    import os
+    port = int(os.environ.get("MOCK_PORT", 9299))
+    site = web.TCPSite(runner, '127.0.0.1', port)
     await site.start()
-    print("🚀 Mock Server (Full Capability) running on http://127.0.0.1:9299")
+    print(f"🚀 Mock Server (Full Capability) running on http://127.0.0.1:{port}")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":

@@ -7,14 +7,17 @@
 source tests/common.sh
 
 # Force cleanup before starting
-pkill -9 cowen || true
+# pkill -9 cowen || true
 sleep 1
 
 echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
 
-HOME_1="$(pwd)/.cowen_test_dist_sync_node_1"
-HOME_2="$(pwd)/.cowen_test_dist_sync_node_2"
-SHARED_DB="$(pwd)/.cowen_test_shared.db"
+# Define nodes
+TEST_BASE="$(pwd)/target/cowen_tests"
+HOME_1="$TEST_BASE/.cowen_test_dist_sync_node_1"
+HOME_2="$TEST_BASE/.cowen_test_dist_sync_node_2"
+SHARED_DB="$TEST_BASE/.cowen_test_shared.db"
+mkdir -p "$TEST_BASE"
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 14 environment...${NC}"

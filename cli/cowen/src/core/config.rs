@@ -135,7 +135,7 @@ impl Config {
 }
 
 pub trait ConfigValidator: Send + Sync {
-    fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool) -> Result<()>;
+    fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool, exists: bool) -> Result<()>;
     fn validate_save(&self, profile: &str, config: &Config, is_distributed: bool) -> Result<()>;
 }
 
@@ -248,7 +248,7 @@ impl ConfigManager {
         // Validate: Delegate to injected validator if present
         // This decouples core logic from specific auth mode restrictions (e.g. OAuth2 in distributed mode)
         if let Some(validator) = self.validator.get() {
-            validator.validate_load(profile, &config, is_db_mode)?;
+            validator.validate_load(profile, &config, is_db_mode, _exists)?;
         }
 
         Ok(config)

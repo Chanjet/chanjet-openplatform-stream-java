@@ -8,9 +8,12 @@ source tests/common.sh
 
 echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
 
-HOME_1="$(pwd)/.cowen_test_store_app_node_1"
-HOME_2="$(pwd)/.cowen_test_store_app_node_2"
-SHARED_DB="$(pwd)/.cowen_test_store_app_shared.db"
+# Define nodes
+TEST_BASE="$(pwd)/target/cowen_tests"
+HOME_1="$TEST_BASE/.cowen_test_store_app_node_1"
+HOME_2="$TEST_BASE/.cowen_test_store_app_node_2"
+SHARED_DB="$TEST_BASE/.cowen_test_store_app_shared.db"
+mkdir -p "$TEST_BASE"
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 15 environment...${NC}"

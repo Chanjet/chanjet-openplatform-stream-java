@@ -5,13 +5,13 @@
 source tests/common.sh
 
 # Force cleanup
-pkill -9 cowen || true
-sleep 1
+# sleep 1
 
 echo -e "${BOLD}1. Setup Local OAuth2 Profile${NC}"
-HOME_MIGRATE="$(pwd)/.cowen_test_migration_block"
-SHARED_DB="$(pwd)/.cowen_test_migrated_target.db"
-rm -rf "$HOME_MIGRATE"
+TEST_BASE="$(pwd)/target/cowen_tests"
+HOME_MIGRATE="$TEST_BASE/.cowen_test_migration_block"
+SHARED_DB="$TEST_BASE/.cowen_test_migrated_target.db"
+mkdir -p "$TEST_BASE"
 rm -f "$SHARED_DB"*
 mkdir -p "$HOME_MIGRATE"
 
@@ -73,7 +73,7 @@ else
     exit 1
 fi
 
-echo -e "\n🎊 ${GREEN}Verification Successful! Migrated OAuth2 profiles are correctly blocked.${NC}"
+echo -e "\n🎊 ${GREEN}Case 16 Passed!${NC}"
 
 # Cleanup
 rm -rf "$HOME_MIGRATE"
