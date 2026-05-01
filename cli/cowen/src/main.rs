@@ -26,7 +26,6 @@ mod cmd;
 mod daemon;
 
 use clap::Parser;
-use std::sync::OnceLock;
 use crate::core::config::ConfigManager;
 use crate::core::security;
 use crate::core::utils::get_bin_name;
