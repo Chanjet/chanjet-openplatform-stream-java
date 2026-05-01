@@ -16,7 +16,7 @@ assert_pass "Local profile created"
 
 echo -e "${BOLD}2. Migrate to SQLite (InnerDB)${NC}"
 # MODE move: copy and delete source
-"$COWEN_BIN" store migrate --to innerdb --mode move >/dev/null
+"$COWEN_BIN" store migrate --to "innerdb://$COWEN_HOME/cowen.db" --mode move >/dev/null
 assert_pass "Migration finished"
 
 echo -e "${BOLD}3. Integrity Check${NC}"
