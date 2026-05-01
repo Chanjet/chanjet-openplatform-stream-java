@@ -19,5 +19,6 @@ scratch/
 
 # Mac
 .DS_Store
-cowen.db
-innerdb
+# Local DB (Temporary)
+innerdb*
+cowen.db*
