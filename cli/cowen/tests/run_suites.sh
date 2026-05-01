@@ -36,6 +36,7 @@ SUITES=(
     "tests/case_09_dlq_retries.sh"
     "tests/case_10_profile_management.sh"
     "tests/case_11_reconnect_resilience.sh"
+    "tests/case_12_daemon_recovery.sh"
 )
 
 PASSED=0

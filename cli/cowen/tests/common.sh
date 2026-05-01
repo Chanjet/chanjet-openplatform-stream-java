@@ -151,3 +151,14 @@ cleanup_all_workspaces() {
         lsof -ti :9299 | xargs kill -9 2>/dev/null || true
     fi
 }
+
+# Helper to get daemon PID from lock file
+get_daemon_pid() {
+    local prof=$1
+    local pid_file="$COWEN_HOME/${prof}_daemon.pid"
+    if [ -f "$pid_file" ]; then
+        cat "$pid_file" | head -n 1
+    else
+        echo ""
+    fi
+}
