@@ -77,7 +77,7 @@ async fn test_get_token_with_org_only_isolation() {
     let vault = Arc::new(MockVault {});
     let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault));
     let sender = Arc::new(MockHttpSender {});
-    let provider = StoreAppProvider::new(pool, sender);
+    let _provider = StoreAppProvider::new(pool, sender);
     
     let mut config = Config::default_with_profile("test");
     config.app_key = "test_app".to_string();
@@ -91,7 +91,7 @@ async fn test_get_token_with_user_isolation() {
     let vault = Arc::new(MockVault {});
     let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault));
     let sender = Arc::new(MockHttpSender {});
-    let provider = StoreAppProvider::new(pool, sender);
+    let _provider = StoreAppProvider::new(pool, sender);
     
     let mut config = Config::default_with_profile("test");
     config.app_key = "test_app".to_string();

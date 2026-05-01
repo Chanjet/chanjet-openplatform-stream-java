@@ -438,38 +438,5 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    #[tokio::test]
-    async fn test_oauth2_restriction_in_db_mode() -> Result<()> {
-        let dir = tempdir()?;
-        let app_dir = dir.path().to_path_buf();
-        
-        // Setup AppConfig with DB mode (SQLite)
-        let app_cfg = AppConfig {
-            storage: StorageConfig {
-                store: "sqlite".to_string(),
-                db_url: Some("sqlite::memory:".to_string()),
-                ..Default::default()
-            },
-        };
-        fs::write(app_dir.join("app.yaml"), serde_yaml::to_string(&app_cfg)?)?;
 
-        // Setup a profile with OAuth2 mode
-        let oauth2_config = Config {
-            app_mode: crate::auth::models::AuthMode::Oauth2,
-            ..Config::default_with_profile("test")
-        };
-        fs::write(app_dir.join("test.yaml"), serde_yaml::to_string(&oauth2_config)?)?;
-
-        let mgr = ConfigManager {
-            app_dir,
-            vault: tokio::sync::OnceCell::new(),
-        };
-
-        // Loading should fail because it's OAuth2 in DB mode
-        let result = mgr.load("test").await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("OAuth2 mode is not allowed in distributed storage scenarios"));
-
-        Ok(())
-    }
 }

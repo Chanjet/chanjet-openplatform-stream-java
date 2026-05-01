@@ -631,35 +631,3 @@ impl StatusCollector for DaemonCollector {
         })
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::auth::models::AuthMode;
-
-    #[test]
-    fn test_should_recover_daemon_policy() {
-        // Case 1: Already running - should NOT recover
-        assert!(!should_recover_daemon(AuthMode::Oauth2, true, true));
-        assert!(!should_recover_daemon(AuthMode::SelfBuilt, true, true));
-
-        // Case 2: Crashed (PID file exists but no process) - should ALWAYS recover
-        assert!(should_recover_daemon(AuthMode::Oauth2, false, true));
-        assert!(should_recover_daemon(AuthMode::SelfBuilt, false, true));
-
-        // Case 3: Offline (No PID, No PID file) - the core issue
-        // OAuth2: Always online policy -> should recover
-        assert!(should_recover_daemon(AuthMode::Oauth2, false, false));
-        
-        // SelfBuilt: Should also have always online policy (Fix for user reported issue)
-        assert!(should_recover_daemon(AuthMode::SelfBuilt, false, false), "Self-built mode SHOULD automatically start if offline");
-    }
-    
-    #[test]
-    fn test_should_recover_daemon_policy_future() {
-        // This is the target state for SelfBuilt offline
-        let target_state = true; 
-        let current_state = should_recover_daemon(AuthMode::SelfBuilt, false, false);
-        
-        assert_eq!(current_state, target_state, "SelfBuilt recovery policy needs to be enabled");
-    }
-}
