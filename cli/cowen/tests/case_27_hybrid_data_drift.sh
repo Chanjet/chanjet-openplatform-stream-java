@@ -14,24 +14,42 @@ start_mock
 
 REDIS_PORT=6387
 REDIS_URL="redis://127.0.0.1:$REDIS_PORT/0"
-REDIS_PID_FILE="target/cowen_tests/redis_case27.pid"
+REDIS_PID_FILE="$COWEN_HOME/redis.pid"
 
 start_test_redis() {
     echo -e "  Starting test Redis on port $REDIS_PORT..."
+    if ! command -v redis-server >/dev/null 2>&1; then
+        echo -e "  ${RED}[FAILED]${NC} redis-server not found in PATH"
+        echo "  PATH is: $PATH"
+        exit 1
+    fi
     lsof -ti ":$REDIS_PORT" | xargs kill -9 2>/dev/null || true
-    redis-server --port $REDIS_PORT --daemonize yes --pidfile $(pwd)/$REDIS_PID_FILE
-    sleep 2
+    
+    # Start Redis in background without daemonize for better log capture
+    # CD into COWEN_HOME to ensure it doesn't load dump.rdb from the current directory
+    (cd "$COWEN_HOME" && redis-server --port $REDIS_PORT --save "" --appendonly no --loglevel warning > "redis.log" 2>&1 &)
+    
+    # Give it a moment to write PID if we were using --pidfile, but here we just wait for port
+    
+    # Wait for Redis to be ready
+    for i in {1..5}; do
+        if redis-cli -p $REDIS_PORT ping >/dev/null 2>&1; then
+            echo -e "  ${GREEN}[REDIS READY]${NC}"
+            return 0
+        fi
+        sleep 1
+    done
+    echo -e "  ${RED}[REDIS FAILED TO START]${NC}"
+    echo "--- Redis Log ---"
+    cat "$COWEN_HOME/redis.log"
+    exit 1
 }
 
 stop_test_redis() {
     echo -e "  Stopping test Redis on port $REDIS_PORT..."
     pkill -f "cowen.*$PROF" 2>/dev/null || true
-    if [ -f "$REDIS_PID_FILE" ]; then
-        kill $(cat $REDIS_PID_FILE) || true
-        rm -f $REDIS_PID_FILE
-    else
-        redis-cli -p $REDIS_PORT shutdown || true
-    fi
+    lsof -ti ":$REDIS_PORT" | xargs kill -9 2>/dev/null || true
+    rm -f "$REDIS_PID_FILE"
     sleep 1
 }
 
