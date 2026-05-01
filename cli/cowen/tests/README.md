@@ -100,7 +100,6 @@ cargo build && bash tests/case_15_store_app_shared_storage.sh
   - 验证：动态更新 Spec 后，CLI 的拦截行为是否同步。
 
 ### 4. 极端场景与弹性测试 (Reliability)
-- [ ] **Case 22: 海量配置加载性能**: 在单个 Profile 下写入 10,000 条配置，验证 `config` 命令的响应时间。
 - [ ] **Case 23: 混合存储 (Hybrid) 降级测试**: 模拟分布式 SQL 挂掉，验证系统是否能根据策略回退到本地 FileStore 或内存缓存读取关键凭据。
 
 ### 5. CLI 辅助功能验证 (Usability)
