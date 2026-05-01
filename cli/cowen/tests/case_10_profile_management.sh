@@ -100,4 +100,4 @@ LIST=$("$COWEN_BIN" profile list)
 # Let's see behavior.
 
 echo -e "\n${GREEN}🎊 Case 10 Passed!${NC}"
-cleanup_suite
+exit 0

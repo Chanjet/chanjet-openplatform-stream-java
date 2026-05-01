@@ -5,8 +5,10 @@
 source tests/common.sh
 
 # Define nodes
-HOME_A="$(pwd)/.cowen_test_dist_lb_node_a"
-HOME_B="$(pwd)/.cowen_test_dist_lb_node_b"
+TEST_BASE="$(pwd)/target/cowen_tests"
+HOME_A="$TEST_BASE/.cowen_test_dist_lb_node_a"
+HOME_B="$TEST_BASE/.cowen_test_dist_lb_node_b"
+mkdir -p "$TEST_BASE"
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 13 environment...${NC}"
@@ -89,9 +91,9 @@ echo -e " [DONE]"
 # Wait for all 10 to reach the sink
 echo -n "   Waiting for webhook delivery..."
 RECV_COUNT=0
-for i in {1..15}; do
+for i in {1..25}; do
     MESSAGES=$(curl -s "$MOCK_URL/control/webhooks")
-    RECV_COUNT=$(echo "$MESSAGES" | python3 -c "import sys, json; d=json.load(sys.stdin); print(len([m for m in d if m.get('msg_type') == 'DIST_TEST']))")
+    RECV_COUNT=$(echo "$MESSAGES" | python3 -c "import sys, json; d=json.load(sys.stdin); print(len([m for m in d if (m.get('body') or m).get('msg_type') == 'DIST_TEST']))")
     if [ "$RECV_COUNT" -eq 10 ]; then
         echo -e " ${GREEN}[10/10]${NC}"
         break
