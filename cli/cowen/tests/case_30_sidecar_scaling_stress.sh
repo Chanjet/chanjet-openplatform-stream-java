@@ -1,12 +1,16 @@
 #!/bin/bash
 source tests/common.sh
 
+setup_workspace "scaling_stress"
+
 # Use a specific port for Redis to avoid conflicts
 REDIS_PORT=6381
-redis-server --port $REDIS_PORT --daemonize yes
+echo -e "  Starting isolated test Redis on port $REDIS_PORT..."
+# --dir $COWEN_HOME: Isolates dump.rdb
+# --save "": Disables persistence to avoid IO race and disk pollution
+redis-server --port $REDIS_PORT --dir "$COWEN_HOME" --save "" --daemonize yes
 trap "redis-cli -p $REDIS_PORT shutdown >/dev/null 2>&1; cleanup_suite" EXIT
 
-setup_workspace "scaling_stress"
 start_mock
 
 # One-liner config for all pods
