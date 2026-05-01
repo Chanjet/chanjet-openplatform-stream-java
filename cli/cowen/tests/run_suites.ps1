@@ -51,7 +51,8 @@ $Suites = @(
     "tests/case_27_hybrid_data_drift.sh",
     "tests/case_28_store_app_multi_org_stress.sh",
     "tests/case_29_sidecar_startup.sh",
-    "tests/case_30_sidecar_scaling_stress.sh"
+    "tests/case_30_sidecar_scaling_stress.sh",
+    "tests/case_31_sidecar_self_built_stress.sh"
 )
 
 $Passed = 0
