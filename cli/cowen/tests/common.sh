@@ -54,19 +54,28 @@ apply_fixture() {
 
 # Cleanup
 cleanup_suite() {
-    echo -e "${YELLOW}  Cleaning up daemons...${NC}"
-    # Try graceful stop first
-    "$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
+    echo -e "${YELLOW}  Cleaning up daemons and environment...${NC}"
     
-    # Force kill processes by port (Cross-platform helper)
+    # 1. Force kill all cowen processes (daemons and any stuck CLI commands)
+    if [ "$IS_WINDOWS" = true ]; then
+        taskkill //F //IM cowen.exe >/dev/null 2>&1 || true
+    else
+        pkill -9 cowen >/dev/null 2>&1 || true
+    fi
+    
+    # 2. Cleanup mock server state for next case
+    if [ "$COWEN_MOCK_MANAGED" == "true" ]; then
+        curl -s -X POST "$MOCK_URL/control/kill_connections" >/dev/null 2>&1 || true
+        curl -s -X POST "$MOCK_URL/control/clear_webhooks" >/dev/null 2>&1 || true
+    fi
+    
+    # 3. Double check and kill anything on known ports
     kill_port() {
         local port=$1
         if [ "$IS_WINDOWS" = true ]; then
-            # Windows taskkill logic
             local pid=$(netstat -ano | grep ":$port" | grep "LISTENING" | awk '{print $5}' | head -n 1)
             if [ -n "$pid" ]; then taskkill //F //PID "$pid" >/dev/null 2>&1 || true; fi
         else
-            # Unix kill logic
             pids=$(lsof -ti ":$port" 2>/dev/null) || true
             if [ -n "$pids" ]; then
                 echo "$pids" | xargs kill -9 >/dev/null 2>&1 || true
@@ -74,13 +83,17 @@ cleanup_suite() {
         fi
     }
 
-    # Clean up standard proxy and mock ports
-    for p in 9091 9092 9093 9903 9908 9909; do
+    for p in 9091 9092 9093 9901 9902 9903 9908 9909; do
         kill_port $p
     done
     
     if [ "$COWEN_MOCK_MANAGED" != "true" ]; then
         kill_port 9299
+    fi
+
+    # 4. Remove workspace directory if it's a test one
+    if [ -n "$COWEN_HOME" ] && [[ "$COWEN_HOME" == *"_test_"* ]]; then
+        rm -rf "$COWEN_HOME"
     fi
 }
 
@@ -143,11 +156,13 @@ extract_token() {
 cleanup_all_workspaces() {
     echo -e "\n${BLUE}🧹 Cleaning up temporary test workspaces...${NC}"
     rm -rf .cowen_test_*
-    # Ensure mock server is stopped
+    # Force kill all processes
     if [ "$IS_WINDOWS" = true ]; then
+        taskkill //F //IM cowen.exe >/dev/null 2>&1 || true
         local pid=$(netstat -ano | grep ":9299" | grep "LISTENING" | awk '{print $5}' | head -n 1)
         if [ -n "$pid" ]; then taskkill //F //PID "$pid" >/dev/null 2>&1 || true; fi
     else
+        pkill -9 cowen >/dev/null 2>&1 || true
         lsof -ti :9299 | xargs kill -9 2>/dev/null || true
     fi
 }

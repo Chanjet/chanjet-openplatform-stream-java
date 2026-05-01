@@ -10,7 +10,7 @@ from datetime import datetime
 # Global state
 MOCK_STATE = {
     "ping_fail_count": 0,
-    "active_ws_clients": set(),
+    "active_ws_clients": {}, # keyed by client_id
     "webhook_messages": [],
     "token_expiration_mode": False, # If True, tokens will expire very quickly or return error
 }
@@ -59,7 +59,7 @@ async def handle_resend(request):
     print(f"   [MOCK] AppTicket Resend Requested for {app_key}. Proactively pushing to all WS clients...")
     
     # Broadcast APP_TICKET to all active WS connections
-    for ws in list(MOCK_STATE["active_ws_clients"]):
+    for ws in list(MOCK_STATE["active_ws_clients"].values()):
         if not ws.closed:
             try:
                 await ws.send_json({
@@ -110,13 +110,20 @@ async def handle_challenge(request):
     return web.json_response({"data": {"nonce": nonce}})
 
 async def handle_ws(request):
-    app_key = request.query.get("app_key")
-    client_id = request.query.get("client_id")
+    app_key = request.query.get("app_key", "unknown")
+    client_id = request.query.get("client_id", "default")
     print(f"🔌 [MOCK] WS Connection: {app_key} ({client_id})")
     
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    MOCK_STATE["active_ws_clients"].add(ws)
+    
+    # Close old connection for same client_id if exists
+    if client_id in MOCK_STATE["active_ws_clients"]:
+        old_ws = MOCK_STATE["active_ws_clients"][client_id]
+        if not old_ws.closed:
+            await old_ws.close()
+            
+    MOCK_STATE["active_ws_clients"][client_id] = ws
     
     try:
         async for msg in ws:
@@ -125,8 +132,9 @@ async def handle_ws(request):
                 if data.get("msg_type") == "ping":
                     await ws.send_str(json.dumps({"msg_type": "pong"}))
     finally:
-        MOCK_STATE["active_ws_clients"].remove(ws)
-        print(f"🔌 [MOCK] WS Disconnected: {app_key}")
+        if MOCK_STATE["active_ws_clients"].get(client_id) == ws:
+            del MOCK_STATE["active_ws_clients"][client_id]
+        print(f"🔌 [MOCK] WS Disconnected: {app_key} ({client_id})")
     return ws
 
 async def handle_webhook_sink(request):
@@ -141,31 +149,78 @@ async def handle_get_webhook_messages(request):
     return web.json_response(MOCK_STATE["webhook_messages"])
 
 async def handle_broadcast(request):
-    """Trigger a custom WS broadcast for testing"""
+    """Trigger a custom WS broadcast for testing (Supports Load Balancing)"""
     data = await request.json()
     msg_type = data.get("msg_type", "DATA_PUSH")
     payload = data.get("payload", {})
+    mode = data.get("mode", "broadcast") # broadcast or lb
     
+    # Prune dead connections first
+    dead_keys = [k for k, ws in MOCK_STATE["active_ws_clients"].items() if ws.closed]
+    for k in dead_keys:
+        del MOCK_STATE["active_ws_clients"][k]
+    
+    active = list(MOCK_STATE["active_ws_clients"].items())
+    if not active:
+        return web.json_response({"broadcast_to": 0, "total_connections": 0})
+
     count = 0
-    for ws in list(MOCK_STATE["active_ws_clients"]):
-        if not ws.closed:
+    failed_keys = []
+    if mode == "lb":
+        import random
+        cid, ws = random.choice(active)
+        try:
             await ws.send_json({
                 "msg_type": msg_type,
                 "msgId": uuid.uuid4().hex,
                 "biz_content": payload
             })
-            count += 1
-    return web.json_response({"broadcast_to": count})
+            count = 1
+        except Exception as e:
+            print(f"   [LB] Send to {cid} failed: {e}")
+            failed_keys.append(cid)
+    else:
+        for cid, ws in active:
+            try:
+                await ws.send_json({
+                    "msg_type": msg_type,
+                    "msgId": uuid.uuid4().hex,
+                    "biz_content": payload
+                })
+                count += 1
+            except Exception as e:
+                print(f"   [BROADCAST] Send to {cid} failed: {e}")
+                failed_keys.append(cid)
+    
+    for k in failed_keys:
+        MOCK_STATE["active_ws_clients"].pop(k, None)
+            
+    return web.json_response({"broadcast_to": count, "mode": mode, "total_connections": len(MOCK_STATE["active_ws_clients"])})
 
 async def handle_kill_connections(request):
     """Force close all active WS connections to simulate network drop or server restart"""
     count = 0
-    for ws in list(MOCK_STATE["active_ws_clients"]):
+    for ws in list(MOCK_STATE["active_ws_clients"].values()):
         if not ws.closed:
             await ws.close()
             count += 1
+    MOCK_STATE["active_ws_clients"].clear()
     print(f"🔪 [MOCK] Force closed {count} WS connections.")
     return web.json_response({"killed": count})
+
+async def handle_clear_webhooks(request):
+    """Clear accumulated webhook messages for test isolation"""
+    count = len(MOCK_STATE["webhook_messages"])
+    MOCK_STATE["webhook_messages"].clear()
+    return web.json_response({"cleared": count})
+
+async def handle_connection_count(request):
+    """Return exact count of active WS connections (prunes dead ones first)"""
+    dead_keys = [k for k, ws in MOCK_STATE["active_ws_clients"].items() if ws.closed]
+    for k in dead_keys:
+        del MOCK_STATE["active_ws_clients"][k]
+    clients = {k: not ws.closed for k, ws in MOCK_STATE["active_ws_clients"].items()}
+    return web.json_response({"count": len(clients), "clients": clients})
 
 # --- Server Start ---
 
@@ -193,6 +248,8 @@ async def run_server():
     app.router.add_get("/control/webhooks", handle_get_webhook_messages)
     app.router.add_post("/control/broadcast", handle_broadcast)
     app.router.add_post("/control/kill_connections", handle_kill_connections)
+    app.router.add_post("/control/clear_webhooks", handle_clear_webhooks)
+    app.router.add_get("/control/connection_count", handle_connection_count)
     
     runner = web.AppRunner(app)
     await runner.setup()

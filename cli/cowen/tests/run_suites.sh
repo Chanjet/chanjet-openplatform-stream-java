@@ -37,6 +37,7 @@ SUITES=(
     "tests/case_10_profile_management.sh"
     "tests/case_11_reconnect_resilience.sh"
     "tests/case_12_daemon_recovery.sh"
+    "tests/case_13_distributed_lb.sh"
 )
 
 PASSED=0
@@ -48,10 +49,12 @@ export COWEN_MOCK_MANAGED="true"
 for suite in "${SUITES[@]}"; do
     echo -e "\n${BOLD}⏳ Running $suite...${NC}"
     if bash "$suite"; then
-        ((PASSED+=1))
+        PASSED=$((PASSED+1))
     else
         echo -e "${RED}❌ $suite FAILED${NC}"
     fi
+    # Ensure isolation by cleaning up after every single case
+    cleanup_suite "$suite"
 done
 
 echo -e "\n${BLUE}${BOLD}========================================================${NC}"
