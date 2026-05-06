@@ -189,7 +189,7 @@ impl ConfigManager {
         self.app_dir.join(format!("{}.yaml", profile))
     }
 
-    fn is_distributed_storage(&self, app_cfg: &AppConfig) -> bool {
+    pub fn is_distributed_storage(&self, app_cfg: &AppConfig) -> bool {
         match app_cfg.storage.store.as_str() {
             "local" => false,
             "innerdb" => {

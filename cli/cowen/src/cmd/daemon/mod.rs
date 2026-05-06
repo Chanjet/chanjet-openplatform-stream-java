@@ -159,7 +159,9 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
             // 🚀 OCP: Unified Engine for all modes. 
             // The bridge::run now uses generic AuthClient hooks and handles both 
             // streaming events and background maintenance.
-            bridge::run(profile, &current_config, vault.clone(), proxy_port, enable_proxy).await
+            let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+            let is_dist = cfg_mgr.is_distributed_storage(&app_cfg);
+            bridge::run(profile, &current_config, vault.clone(), proxy_port, enable_proxy, is_dist).await
         };
 
         if let Some(mut stream) = stream_opt {
