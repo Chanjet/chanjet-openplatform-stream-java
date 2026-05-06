@@ -26,6 +26,8 @@ pub struct ClientOptions {
     pub reconnect_interval: Duration,
     /// Maximum backoff delay after consecutive failures (default: 60s)
     pub max_backoff: Duration,
+    /// Whether to use exclusive connection mode (kicks other connections for same app_key)
+    pub exclusive: bool,
 }
 
 impl Default for ClientOptions {
@@ -37,6 +39,7 @@ impl Default for ClientOptions {
             gateway_url: String::new(),
             reconnect_interval: Duration::from_secs(1),
             max_backoff: Duration::from_secs(60),
+            exclusive: false,
         }
     }
 }
@@ -177,6 +180,10 @@ impl GatewayClient {
             .append_pair("nonce", &nonce)
             .append_pair("sign", &sign)
             .append_pair("client_id", client_id);
+        
+        if options.exclusive {
+            url.query_pairs_mut().append_pair("exclusive", "true");
+        }
 
         let full_url = url.to_string();
 
