@@ -13,11 +13,16 @@ use tokio::time::{sleep, Duration};
 /// 自建模式专用流桥执行器
 /// 负责处理 WebSocket 长连接、API 反向代理以及消息转发
 pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_port: u16, enable_proxy: bool) -> Result<()> {
+    let exclusive = std::env::var("COWEN_EXCLUSIVE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or_else(|_| config.app_mode != crate::auth::models::AuthMode::Oauth2);
+
     let options = ClientOptions {
         app_key: config.app_key.clone(),
         app_secret: config.app_secret.clone(),
         encrypt_key: Some(config.encrypt_key.clone()),
         gateway_url: config.stream_url.clone(),
+        exclusive,
         ..Default::default()
     };
     let client = Arc::new(GatewayClient::new(options));
