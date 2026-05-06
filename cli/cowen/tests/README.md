@@ -9,11 +9,28 @@
 - **SQLite3**: 验证数据库状态。
 - **Cargo**: 用于编译待测二进制文件。
 - **Redis**: 运行 `case_17` 和 `case_18` 需要本地 Redis 服务。
+- **数据库 (MySQL/PostgreSQL)**:
+    - **方法 A (推荐 - 稳定)**: 通过 Homebrew 在本地安装并运行。
+      ```bash
+      make brew-deps-install # 安装依赖
+      make local-db-up       # 启动服务
+      ```
+    - **方法 B (Podman/Docker)**: 运行 `case_32` 和 `case_33` 需要容器环境。
+      ```bash
+      make db-up             # 启动容器 (自动处理 podman machine)
+      ```
 
 ### 执行测试
 运行所有测试用例：
 ```bash
-bash tests/run_suites.sh
+# 1. 启动数据库 (推荐使用本地 brew 模式)
+make local-db-up
+
+# 2. 运行测试
+./tests/run_parallel.sh
+
+# 3. 清理环境
+make local-db-down
 ```
 
 运行单个测试用例（例如 Case 28）：
@@ -38,7 +55,7 @@ cargo build && bash tests/case_28_store_app_multi_org_stress.sh
 | 维度 | 已验证能力 | 验证说明 |
 | :--- | :--- | :--- |
 | **单机架构 (Local)** | 文件系统读写、降级迁移 | 验证了默认 `innerdb` 的可靠性以及禁止从 SQL 降级回 File 的保护策略。 |
-| **分布式同步 (SQL/Redis)**| 共享存储、状态隔离 | 验证了多节点挂载统一 SQLite 或 Redis 时，凭据和缓存的同步一致性。 |
+| **分布式同步 (SQL/Redis)**| 共享存储、状态隔离 | 验证了多节点挂载统一 SQLite, MySQL, PostgreSQL 或 Redis 时，凭据和缓存的同步一致性。 |
 | **高可用与韧性 (HA)** | 故障恢复、断线重连 | 验证了 Redis 宕机重启后的平滑恢复 (Case 18)、Daemon 崩溃自动重启、WebSocket 断线自愈等极端情况。 |
 
 ---
@@ -52,6 +69,8 @@ cargo build && bash tests/case_28_store_app_multi_org_stress.sh
 | `case_13` | 分布式负载均衡 | 多节点场景下的 Webhook 负载均衡接收。 |
 | `case_14-15`| SQL 分布式协同 | 验证多节点下的应用票据与 Token 共享竞争。 |
 | `case_17-18`| Redis 高可用 | 验证 Redis 后端下的 Token 同步与宕机自适应恢复。 |
+| `case_32` | MySQL 共享存储 | 验证 MySQL 后端下的 Token 同步与多节点协同。 |
+| `case_33` | PostgreSQL 共享存储 | 验证 PostgreSQL 后端下的 Token 同步与多节点协同。 |
 | `case_19-20`| 自动化保活 | 验证 AppTicket 缺失主动重发与 OAuth2 Refresh 自动续期。 |
 | `case_21` | 零信任安全拦截 | 验证 CLI 对非白名单接口的本地主动拦截防线。 |
 | `case_22` | 死信手动运维 | 验证管理员执行 `cowen dlq retry` 的全链路闭环，消除 DLQ 介入盲区。 |

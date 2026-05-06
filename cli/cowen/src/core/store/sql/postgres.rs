@@ -46,6 +46,16 @@ impl SqlDriver for PostgresDriver {
         let res = sqlx::query("UPDATE cowen_config SET item_value = $1, version = version + 1 WHERE profile = $2 AND item_key = $3 AND version = $4")
             .bind(value).bind(profile).bind(key).bind(expected_version as i64).execute(&self.pool).await?;
         if res.rows_affected() == 0 {
+            if expected_version == 0 {
+                // If expected version is 0 and update failed, record might not exist.
+                // Try to insert it, but ignore if someone else just inserted it (which IS a conflict).
+                let insert_res = sqlx::query("INSERT INTO cowen_config (profile, item_key, item_value, version) VALUES ($1, $2, $3, 1) ON CONFLICT DO NOTHING")
+                    .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
+                if insert_res.rows_affected() == 0 {
+                    return Err(anyhow::anyhow!("Conflict: Config was created by another node concurrently"));
+                }
+                return Ok(());
+            }
             return Err(anyhow::anyhow!("Conflict: Config has been modified by another node (expected version {}, but found different)", expected_version));
         }
         Ok(())
@@ -93,15 +103,15 @@ impl SqlDriver for PostgresDriver {
     // --- Audit Domain ---
     async fn save_audit(&self, entry: &super::super::AuditEntry) -> Result<()> {
         sqlx::query("INSERT INTO cowen_audit (id, profile, timestamp, level, target, message, fields) VALUES ($1, $2, $3, $4, $5, $6, $7)")
-            .bind(&entry.id).bind(&entry.profile).bind(entry.timestamp).bind(&entry.level).bind(&entry.target).bind(&entry.message).bind(&entry.fields).execute(&self.pool).await?;
+            .bind(&entry.id).bind(&entry.profile).bind(entry.timestamp).bind(&entry.level).bind(&entry.target).bind(&entry.message).bind(serde_json::to_string(&entry.fields)?).execute(&self.pool).await?;
         Ok(())
     }
     async fn list_audit(&self, profile: &str, limit: usize) -> Result<Vec<super::super::AuditEntry>> {
-        let rows = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, String, String, String, String, serde_json::Value)>(
+        let rows = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, String, String, String, String, String)>(
             "SELECT id, timestamp, profile, level, target, message, fields FROM cowen_audit WHERE profile = $1 ORDER BY timestamp DESC LIMIT $2"
         ).bind(profile).bind(limit as i64).fetch_all(&self.pool).await?;
         Ok(rows.into_iter().map(|r| super::super::AuditEntry {
-            id: r.0, timestamp: r.1, profile: r.2, level: r.3, target: r.4, message: r.5, fields: r.6
+            id: r.0, timestamp: r.1, profile: r.2, level: r.3, target: r.4, message: r.5, fields: serde_json::from_str(&r.6).unwrap_or_default()
         }).collect())
     }
 
@@ -196,11 +206,11 @@ impl SqlBuilder for PostgresBuilder {
         let pool = sqlx::PgPool::connect(url).await?;
         
         let ddl = [
-            "CREATE TABLE IF NOT EXISTS cowen_config (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, version INTEGER DEFAULT 0, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
-            "CREATE TABLE IF NOT EXISTS cowen_secret (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
+            "CREATE TABLE IF NOT EXISTS cowen_config (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, version BIGINT DEFAULT 0, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
+            "CREATE TABLE IF NOT EXISTS cowen_secret (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
             "CREATE TABLE IF NOT EXISTS cowen_token (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NULL, PRIMARY KEY (profile, item_key))",
-            "CREATE TABLE IF NOT EXISTS cowen_audit (id VARCHAR(36) PRIMARY KEY, profile VARCHAR(255) NOT NULL, timestamp TIMESTAMP WITH TIME ZONE NOT NULL, level VARCHAR(20) NOT NULL, target VARCHAR(255) NOT NULL, message TEXT NOT NULL, fields JSONB)",
-            "CREATE TABLE IF NOT EXISTS cowen_dlq (id BIGSERIAL PRIMARY KEY, profile VARCHAR(255) NOT NULL, topic VARCHAR(255) NOT NULL, payload TEXT NOT NULL, retry_count INT DEFAULT 0, error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS cowen_audit (id VARCHAR(36) PRIMARY KEY, profile VARCHAR(255) NOT NULL, timestamp TIMESTAMP WITH TIME ZONE NOT NULL, level VARCHAR(20) NOT NULL, target VARCHAR(255) NOT NULL, message TEXT NOT NULL, fields TEXT)",
+            "CREATE TABLE IF NOT EXISTS cowen_dlq (id BIGSERIAL PRIMARY KEY, profile VARCHAR(255) NOT NULL, topic VARCHAR(255) NOT NULL, payload TEXT NOT NULL, retry_count INT DEFAULT 0, error TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)",
         ];
 
         for sql in ddl { sqlx::query(sql).execute(&pool).await?; }

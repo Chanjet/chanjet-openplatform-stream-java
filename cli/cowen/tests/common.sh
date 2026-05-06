@@ -26,6 +26,13 @@ export MOCK_URL="http://127.0.0.1:$MOCK_PORT"
 export MOCK_WS="ws://127.0.0.1:$MOCK_PORT"
 export COWEN_RAW_OUTPUT="true"
 
+# Database Isolation
+get_case_db_name() {
+    local suite=$1
+    # Replace dots and dashes with underscores to ensure valid DB name
+    echo "cowen_test_$(echo $suite | tr '.-' '__')"
+}
+
 # Isolation
 setup_workspace() {
     local suite=$1

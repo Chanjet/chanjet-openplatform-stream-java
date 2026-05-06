@@ -124,12 +124,20 @@ linux-x86_64:
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
-# 确保 Podman 虚拟机已启动 (仅 macOS/Windows)
+# 确保 Podman 虚拟机已启动并响应 (仅 macOS/Windows)
 prepare-podman-machine:
 ifeq ($(HOST_OS),macos)
-	@if podman machine list --format '{{.Default}} {{.Running}}' 2>/dev/null | grep -q '^true false'; then \
+	@if ! podman machine list --format '{{.Default}} {{.Running}}' 2>/dev/null | grep -q '^true true'; then \
 		echo "🚀 Starting Podman machine..."; \
-		podman machine start; \
+		podman machine start || true; \
+		echo "⌛ Waiting for Podman socket to be ready..."; \
+		sleep 5; \
+	fi
+	@if ! podman ps > /dev/null 2>&1; then \
+		echo "⚠️  Podman is running but not responsive. Attempting to set DOCKER_HOST..."; \
+		export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null); \
+		if [ -z "$$DOCKER_HOST" ]; then export DOCKER_HOST="unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"; fi; \
+		echo "   Using DOCKER_HOST=$$DOCKER_HOST"; \
 	fi
 endif
 
@@ -299,6 +307,61 @@ test-macos:
 	TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/run_parallel.sh
 
 # --- 其他 ---
+
+# --- 数据库管理 (Database Management) ---
+
+# 探测 Compose 工具
+COMPOSE_BIN := $(shell command -v docker-compose 2> /dev/null || command -v podman-compose 2> /dev/null)
+
+# --- Homebrew 本地数据库支持 (Homebrew Local DB Support) ---
+brew-deps-install:
+	@echo "🍺 Installing MySQL and PostgreSQL via Homebrew..."
+	brew install mysql postgresql@15
+	@echo "✅ Dependencies installed."
+
+local-db-up:
+	@echo "🚀 Starting local MySQL and PostgreSQL services..."
+	brew services start mysql || brew services restart mysql
+	brew services start postgresql@15 || brew services restart postgresql@15
+	@echo "⌛ Waiting for local services to be ready..."
+	@sleep 5
+	@mysql -u root -e "CREATE DATABASE IF NOT EXISTS cowen_test;" || echo "⚠️ MySQL DB create failed, might already exist"
+	@psql -d postgres -c "CREATE DATABASE cowen_test;" || echo "⚠️ Postgres DB create failed, might already exist"
+	@echo "✅ Local databases are ready."
+
+local-db-down:
+	@echo "🛑 Stopping local MySQL and PostgreSQL services..."
+	brew services stop mysql || true
+	brew services stop postgresql@15 || true
+
+db-up: prepare-podman-machine
+	@echo "🚀 Starting MySQL and PostgreSQL containers..."
+	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
+	if [ "$(COMPOSE_BIN)" = "" ]; then \
+		echo "⚠️  No compose provider found, falling back to 'podman run'..."; \
+		podman start cowen-mysql 2>/dev/null || podman run -d --name cowen-mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=cowen_test --health-cmd="mysqladmin ping -h localhost" --health-interval=5s mysql:8.0; \
+		podman start cowen-postgres 2>/dev/null || podman run -d --name cowen-postgres -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=cowen_test --health-cmd="pg_isready -U postgres" --health-interval=5s postgres:15; \
+	else \
+		echo "🚀 Using $(COMPOSE_BIN)..."; \
+		cd tests && $(COMPOSE_BIN) up -d || (echo "❌ Failed to start containers." && exit 1); \
+	fi; \
+	echo "⌛ Waiting for databases to be ready..."; \
+	MAX_WAIT=30; count=0; \
+	until [ $$count -ge $$MAX_WAIT ] || (podman ps 2>/dev/null | grep -q 'healthy'); do \
+		echo -n "."; sleep 2; count=$$((count + 1)); \
+	done; \
+	echo " ✅ Databases should be ready now (or check logs if failed)."
+
+db-down:
+	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
+	echo "🛑 Stopping and removing containers..."; \
+	if [ "$(COMPOSE_BIN)" = "" ]; then \
+		podman stop cowen-mysql cowen-postgres 2>/dev/null || true; \
+		podman rm cowen-mysql cowen-postgres 2>/dev/null || true; \
+	else \
+		cd tests && $(COMPOSE_BIN) down -v; \
+	fi; \
+	$(MAKE) stop-podman-machine
 
 clean:
 	cargo clean
