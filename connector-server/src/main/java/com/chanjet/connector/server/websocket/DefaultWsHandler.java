@@ -53,20 +53,35 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             // 我们需要确保 clientId 的唯一性。
             
             if (appKey != null) {
+                Boolean exclusive = (Boolean) session.getAttributes().get("exclusive");
                 Set<String> existingRoutes = routeStore.getNodes(appKey);
                 if (existingRoutes != null) {
                     for (String route : existingRoutes) {
-                        if (route.endsWith(":" + clientId)) {
-                            String oldNodeId = route.substring(0, route.lastIndexOf(":"));
+                        int lastColonIndex = route.lastIndexOf(":");
+                        if (lastColonIndex == -1) continue;
+
+                        String oldNodeId = route.substring(0, lastColonIndex);
+                        String oldClientId = route.substring(lastColonIndex + 1);
+
+                        // 情况 A：同一 ClientId 在不同节点（抢占式下线探测）
+                        if (oldClientId.equals(clientId)) {
                             if (!oldNodeId.equals(this.nodeId)) {
                                 log.info("Proactive Eviction: Removing zombie route and notifying remote node [{}] to close conflicting session for [{}]", oldNodeId, clientId);
-                                
-                                // 主动从 Redis 中移除这个僵尸/冲突路由
-                                // 防止目标节点已崩溃导致 P2P 驱逐请求失败，进而导致旧路由像僵尸一样一直残留在 Redis 中
                                 routeStore.remove(appKey, oldNodeId, clientId);
-
-                                String finalClientId = clientId;
-                                new Thread(() -> p2pClient.evict(oldNodeId, finalClientId)).start();
+                                new Thread(() -> p2pClient.evict(oldNodeId, clientId)).start();
+                            }
+                        }
+                        // 情况 B：开启互斥模式，下线该 AppKey 的所有【其它】本地或远程连接
+                        else if (Boolean.TRUE.equals(exclusive)) {
+                            log.info("Exclusive Mode Eviction: AppKey [{}] requested exclusive access. Evicting client [{}] on node [{}]", appKey, oldClientId, oldNodeId);
+                            if (oldNodeId.equals(this.nodeId)) {
+                                sessionRegistry.getSession(oldClientId).ifPresent(s -> {
+                                    try { s.close(); } catch (Exception ignored) {}
+                                });
+                            } else {
+                                // 远程节点：清理 Redis 路由并发送 P2P 驱逐指令
+                                routeStore.remove(appKey, oldNodeId, oldClientId);
+                                new Thread(() -> p2pClient.evict(oldNodeId, oldClientId)).start();
                             }
                         }
                     }

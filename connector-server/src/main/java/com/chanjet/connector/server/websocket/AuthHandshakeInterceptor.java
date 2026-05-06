@@ -61,6 +61,7 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
         // 3. 存储关键信息至 Session Attributes
         attributes.put("appKey", appKey);
         attributes.put("clientId", params.getOrDefault("client_id", appKey + "@local"));
+        attributes.put("exclusive", "true".equalsIgnoreCase(params.get("exclusive")));
 
         log.info("Handshake pre-check success for AppKey: {}. Proceeding to upgrade.", appKey);
         return true;

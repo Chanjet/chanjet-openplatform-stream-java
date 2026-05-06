@@ -81,4 +81,27 @@ class DefaultWsHandlerUnitTest {
         verify(p2pClient, never()).evict("node-2", "client-2");
         verify(p2pClient, never()).evict("node-old", "client-2");
     }
+
+    @Test
+    void shouldKickAllOtherClientsWhenExclusiveModeIsOn() throws Exception {
+        WebSocketSession session = mock(WebSocketSession.class);
+        Map<String, Object> attrs = new HashMap<>();
+        attrs.put("clientId", "client-new");
+        attrs.put("appKey", "app-1");
+        attrs.put("exclusive", true); // 开启互斥模式
+        when(session.getAttributes()).thenReturn(attrs);
+
+        java.util.Set<String> existingRoutes = new java.util.HashSet<>();
+        existingRoutes.add("node-1:client-old-local");
+        existingRoutes.add("node-2:client-old-remote");
+        when(routeStore.getNodes("app-1")).thenReturn(existingRoutes);
+
+        handler.afterConnectionEstablished(session);
+
+        // 验证：对于远程旧连接，应该发起 P2P 驱逐
+        verify(p2pClient).evict("node-2", "client-old-remote");
+        
+        // 验证：新连接自身不应该被驱逐
+        verify(p2pClient, never()).evict("node-1", "client-new");
+    }
 }
