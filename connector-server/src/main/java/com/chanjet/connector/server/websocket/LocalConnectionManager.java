@@ -57,7 +57,9 @@ public class LocalConnectionManager implements IConnectionManager {
         sessionRegistry.getSession(clientId).ifPresent(session -> {
             try {
                 session.close();
-            } catch (IOException ignored) {}
+            } catch (java.io.IOException e) {
+                log.warn("Failed to close session [{}]: {}", clientId, e.getMessage());
+            }
         });
     }
 

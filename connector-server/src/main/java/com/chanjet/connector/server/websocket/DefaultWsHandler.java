@@ -76,7 +76,11 @@ public class DefaultWsHandler extends TextWebSocketHandler {
                             log.info("Exclusive Mode Eviction: AppKey [{}] requested exclusive access. Evicting client [{}] on node [{}]", appKey, oldClientId, oldNodeId);
                             if (oldNodeId.equals(this.nodeId)) {
                                 sessionRegistry.getSession(oldClientId).ifPresent(s -> {
-                                    try { s.close(); } catch (Exception ignored) {}
+                                    try {
+                                        s.close();
+                                    } catch (Exception e) {
+                                        log.warn("Failed to close local session [{}] during exclusive eviction: {}", oldClientId, e.getMessage());
+                                    }
                                 });
                             } else {
                                 // 远程节点：清理 Redis 路由并发送 P2P 驱逐指令

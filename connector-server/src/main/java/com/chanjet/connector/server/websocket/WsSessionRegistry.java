@@ -41,7 +41,10 @@ public class WsSessionRegistry {
             log.info("Client [{}] reconnected to same node. Closing previous ghost session.", clientId);
             try {
                 oldSession.close();
-            } catch (IOException ignored) {}
+            } catch (java.io.IOException e) {
+                log.warn("Failed to close ghost session for client [{}]: {}", clientId, e.getMessage());
+            }
+
         }
     }
 
@@ -102,7 +105,10 @@ public class WsSessionRegistry {
                 if (session != null) {
                     try {
                         session.close();
-                    } catch (IOException ignored) {}
+                    } catch (java.io.IOException e) {
+                        log.warn("Failed to close stale session [{}]: {}", clientId, e.getMessage());
+                    }
+
                 }
                 unregister(clientId);
             }
