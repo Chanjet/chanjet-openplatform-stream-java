@@ -232,11 +232,35 @@ async def handle_ws(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     
-    # Close old connection for same client_id if exists
+    # Protocol Support: Handle exclusive mode eviction
+    is_exclusive = request.query.get("exclusive") == "true"
+    if is_exclusive:
+        # Evict all other clients for the same app_key
+        to_evict = []
+        for cid, old_ws in MOCK_STATE["active_ws_clients"].items():
+            if cid != client_id and not old_ws.closed:
+                # In a real system, we'd check if this cid belongs to the same app_key
+                # For mock simplicity, we assume one app_key per test or check prefix
+                if cid.startswith(app_key + "@") or cid == app_key:
+                    to_evict.append(cid)
+        
+        for cid in to_evict:
+            print(f"🔪 [MOCK] Exclusive Eviction: AppKey {app_key} requested exclusive access. Kicking client {cid}", flush=True)
+            old_ws = MOCK_STATE["active_ws_clients"].pop(cid, None)
+            if old_ws and not old_ws.closed:
+                try:
+                    await old_ws.close()
+                except:
+                    pass
+
+    # Standard Support: Close old connection for same client_id if exists
     if client_id in MOCK_STATE["active_ws_clients"]:
-        old_ws = MOCK_STATE["active_ws_clients"][client_id]
-        if not old_ws.closed:
-            await old_ws.close()
+        old_ws = MOCK_STATE["active_ws_clients"].get(client_id)
+        if old_ws and not old_ws.closed:
+            try:
+                await old_ws.close()
+            except:
+                pass
             
     MOCK_STATE["active_ws_clients"][client_id] = ws
     

@@ -19,6 +19,7 @@ trap final_cleanup EXIT
 
 rm -rf "$HOME_A" "$HOME_B"
 mkdir -p "$HOME_A" "$HOME_B"
+export COWEN_EXCLUSIVE=false
 
 echo -e "${BOLD}1. Setup Node A and Node B${NC}"
 

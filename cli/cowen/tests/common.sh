@@ -25,6 +25,7 @@ export MOCK_PORT="${MOCK_PORT:-9299}"
 export MOCK_URL="http://127.0.0.1:$MOCK_PORT"
 export MOCK_WS="ws://127.0.0.1:$MOCK_PORT"
 export COWEN_RAW_OUTPUT="true"
+export COWEN_EXCLUSIVE="false"
 
 # Database Isolation
 get_case_db_name() {
