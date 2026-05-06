@@ -66,6 +66,8 @@ pub struct Config {
     pub encrypt_key: String,
     #[serde(default)]
     pub version: u64,
+    #[serde(default)]
+    pub exclusive: Option<bool>,
 }
 
 impl std::fmt::Debug for Config {
@@ -86,6 +88,7 @@ impl std::fmt::Debug for Config {
             .field("certificate", &mask_string(&self.certificate))
             .field("encrypt_key", &mask_string(&self.encrypt_key))
             .field("version", &self.version)
+            .field("exclusive", &self.exclusive)
             .finish()
     }
 }
@@ -130,6 +133,7 @@ impl Config {
             certificate: "".to_string(),
             encrypt_key: "".to_string(),
             version: 0,
+            exclusive: None,
         }
     }
 }
@@ -268,6 +272,9 @@ impl ConfigManager {
                 "store-app" => crate::auth::models::AuthMode::StoreApp,
                 _ => crate::auth::models::AuthMode::Oauth2,
             };
+        }
+        if let Ok(val) = std::env::var("COWEN_EXCLUSIVE") {
+            config.exclusive = Some(val == "true" || val == "1");
         }
 
         Ok(config)
