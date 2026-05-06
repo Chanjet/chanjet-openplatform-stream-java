@@ -44,7 +44,8 @@ public class ToleranceManager {
         if (now - failStart >= THIRTY_MIN_MS) {
             log.error("Tolerance period (30min) exceeded for AppKey [{}]. Disabling push.", appKey);
             pushControl.setPushEnabled(appKey, false);
-            doClear(appKey);
+            // 超过容忍期后清理计时器，但不允许自动恢复推送状态
+            doClear(appKey, false);
             return PushStatus.SUSPENDED;
         }
         
@@ -60,7 +61,7 @@ public class ToleranceManager {
         
         if (isDirty) {
             log.info("Optimized clearing fail timer for AppKey [{}] (Reason: Local Dirty).", appKey);
-            doClear(appKey);
+            doClear(appKey, true);
             return;
         }
 
@@ -82,12 +83,14 @@ public class ToleranceManager {
      */
     public void resetFailureState(String appKey) {
         log.info("Force resetting fail state for AppKey [{}].", appKey);
-        doClear(appKey);
+        doClear(appKey, true);
     }
 
-    private void doClear(String appKey) {
+    private void doClear(String appKey, boolean reEnable) {
         failStore.clear(appKey);
-        pushControl.setPushEnabled(appKey, true);
+        if (reEnable) {
+            pushControl.setPushEnabled(appKey, true);
+        }
         dirtyKeys.remove(appKey);
         lastCleanTime.put(appKey, new AtomicLong(System.currentTimeMillis()));
     }

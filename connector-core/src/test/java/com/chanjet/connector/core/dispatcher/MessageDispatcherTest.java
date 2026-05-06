@@ -40,6 +40,7 @@ class MessageDispatcherTest {
         resilienceManager = mock(IResilienceManager.class);
 
         when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
+        when(connectionManager.push(anyString(), any())).thenReturn(true);
 
         dispatcher = new MessageDispatcher(
                 "node-1",
@@ -84,5 +85,29 @@ class MessageDispatcherTest {
 
         // 验证：发起了 P2P 转发
         verify(p2pClient).forward(eq("node-2"), any());
+    }
+
+    @Test
+    void shouldNotClearToleranceWhenLocalPushFails() {
+        String appKey = "test-app";
+        EventFrame frame = new EventFrame("event", "m1", "t1", appKey, null, Map.of(), "data", 1000L);
+
+        // 1. 本地虽然有连接记录，但推送物理失败 (例如连接已僵死)
+        when(connectionManager.getClientsByAppKey(appKey)).thenReturn(List.of("client-dead"));
+        when(connectionManager.push(anyString(), any())).thenReturn(false);
+        
+        // 2. 集群路由也为空 (模拟最糟糕情况)
+        when(routeStore.getNodes(appKey)).thenReturn(Collections.emptySet());
+
+        try {
+            dispatcher.dispatch(frame);
+        } catch (com.chanjet.connector.api.exception.NoOnlineClientException e) {
+            // Expected
+        }
+
+        // 验证：因为全部推送失败，绝对不能调用 handleReconnect (即不能清除容忍计时)
+        verify(toleranceManager, never()).handleReconnect(anyString());
+        // 验证：最终触发了 handleFailure (进入失败计时逻辑)
+        verify(toleranceManager).handleFailure(eq(appKey), anyLong());
     }
 }

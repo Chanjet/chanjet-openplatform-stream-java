@@ -79,7 +79,6 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             // 2. 如果提供了 appKey，则注册物理路由并重置失败计时
             if (appKey != null) {
                 routeStore.add(appKey, nodeId, clientId);
-                toleranceManager.resetFailureState(appKey);
             }
             
             log.info("Client connected and registered: {} (App: {})", clientId, appKey != null ? appKey : "NONE");

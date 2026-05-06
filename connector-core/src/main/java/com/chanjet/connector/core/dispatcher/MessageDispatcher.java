@@ -68,9 +68,18 @@ public class MessageDispatcher {
         List<String> localClients = connectionManager.getClientsByAppKey(appKey);
         if (localClients != null && !localClients.isEmpty()) {
             log.debug("Local-First: Found {} clients on current node {}. Pushing locally.", localClients.size(), nodeId);
-            localClients.forEach(clientId -> connectionManager.push(clientId, frame));
-            toleranceManager.handleReconnect(appKey);
-            return true;
+            boolean anySuccess = false;
+            for (String clientId : localClients) {
+                if (connectionManager.push(clientId, frame)) {
+                    anySuccess = true;
+                }
+            }
+            if (anySuccess) {
+                toleranceManager.handleReconnect(appKey);
+                return true;
+            }
+            // 如果本地所有连接都推送失败（可能是僵尸连接），则 fallback 到集群查找或失败处理
+            log.warn("Local-First: All {} local clients failed to receive push for AppKey [{}].", localClients.size(), appKey);
         }
 
         // 2. 防环路检查：如果该帧已经经过转发且本地没有连接，则不再继续转发
@@ -123,6 +132,7 @@ public class MessageDispatcher {
                 toleranceManager.handleReconnect(appKey);
                 return true; // 转发成功，流程结束
             }
+            log.warn("Cluster-Retry: Failed to forward message to target node [{}] for AppKey [{}].", targetNodeId, appKey);
             log.warn("P2P attempt {} failed for node {}, trying next...", i + 1, targetNodeId);
         }
 

@@ -10,6 +10,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
+import org.mockito.InOrder;
+
 
 @ExtendWith(MockitoExtension.class)
 class ToleranceManagerTest {
@@ -52,7 +54,12 @@ class ToleranceManagerTest {
         PushStatus status = toleranceManager.handleFailure(APP_KEY, now);
 
         assertThat(status).isEqualTo(PushStatus.SUSPENDED);
-        verify(pushControl).setPushEnabled(APP_KEY, false);
+        
+        // 验证调用顺序：必须调用了禁用，且之后没有调用启用
+        InOrder inOrder = inOrder(pushControl);
+        inOrder.verify(pushControl).setPushEnabled(APP_KEY, false);
+        verify(pushControl, never()).setPushEnabled(APP_KEY, true);
+        
         verify(failStore).clear(APP_KEY);
     }
 
