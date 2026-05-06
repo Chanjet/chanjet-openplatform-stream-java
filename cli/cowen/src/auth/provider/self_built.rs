@@ -57,7 +57,25 @@ impl SelfBuiltProvider {
         let max_attempts = 65; 
         
         let ticket = loop {
-            match self.pool.get_app_ticket(&cfg.app_key).await {
+            let ticket_res = match self.pool.get_app_ticket(&cfg.app_key).await {
+                Ok(t) => Ok(t),
+                Err(_) => {
+                    // Fallback to profile-based ticket (Legacy)
+                    let vault = self.pool.as_vault();
+                    match vault.get(profile, "app_ticket").await {
+                        Ok(val) => {
+                            let ts_str = vault.get(profile, "app_ticket_created").await.unwrap_or_default();
+                            let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str)
+                                .map(|dt| dt.with_timezone(&Utc))
+                                .unwrap_or_else(|_| Utc::now());
+                            Ok(crate::auth::models::Ticket { value: val, created_at })
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+            };
+
+            match ticket_res {
                 Ok(t) => break t,
                 Err(e) => {
                     if attempts >= max_attempts {
@@ -339,7 +357,13 @@ impl AuthProvider for SelfBuiltProvider {
     }
 
     async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> Result<()> {
-        match self.pool.get_app_access_token(&config.app_key).await {
+        let token_res = if let Ok(t) = self.pool.get_app_access_token(&config.app_key).await {
+            Ok(t)
+        } else {
+            self.pool.get_access_token(profile).await
+        };
+
+        match token_res {
             Ok(token) => {
                 let remaining = token.expires_at.signed_duration_since(Utc::now());
                 if remaining < Duration::minutes(15) {
@@ -430,21 +454,37 @@ impl AuthProvider for SelfBuiltProvider {
         }
     }
 
-    async fn get_status_entries(&self, profile: &str, _config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+    async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
         use crate::core::status::{StatusEntry, StatusLevel};
         let mut entries = Vec::new();
         let vault = self.pool.as_vault();
 
-        // 1. Security Check
+        // 1. Security Check (Vault + Config Fallback)
         let mut missing = Vec::new();
-        if vault.get(profile, "app_secret").await.is_err() { missing.push("app_secret".to_string()); }
-        if vault.get(profile, "certificate").await.is_err() { missing.push("certificate".to_string()); }
-        if vault.get(profile, "encrypt_key").await.is_err() { missing.push("encrypt_key".to_string()); }
+        let mut insecure = Vec::new();
 
-        let (sec_level, sec_msg) = if missing.is_empty() {
-            (StatusLevel::OK, "All core secrets are securely stored.".to_string())
+        // Check app_secret
+        if vault.get_secret(profile, "app_secret").await.is_err() {
+            if config.app_secret.trim().is_empty() { missing.push("app_secret".to_string()); }
+            else { insecure.push("app_secret".to_string()); }
+        }
+        // Check certificate
+        if vault.get_secret(profile, "certificate").await.is_err() {
+            if config.certificate.trim().is_empty() { missing.push("certificate".to_string()); }
+            else { insecure.push("certificate".to_string()); }
+        }
+        // Check encrypt_key
+        if vault.get_secret(profile, "encrypt_key").await.is_err() {
+            if config.encrypt_key.trim().is_empty() { missing.push("encrypt_key".to_string()); }
+            else { insecure.push("encrypt_key".to_string()); }
+        }
+
+        let (sec_level, sec_msg, sec_reason) = if !missing.is_empty() {
+            (StatusLevel::ERROR, format!("Missing: {}", missing.join(", ")), Some("缺少必要凭据，可能导致 API 调用或解密失败。".to_string()))
+        } else if !insecure.is_empty() {
+            (StatusLevel::OK, "Credentials found in local config (Legacy).".to_string(), Some("提示: 凭据当前以明文存储在 YAML 中，建议重新运行 'init' 迁移至 Vault。".to_string()))
         } else {
-            (StatusLevel::WARN, format!("Missing: {}", missing.join(", ")))
+            (StatusLevel::OK, "All core secrets are securely stored.".to_string(), None)
         };
 
         entries.push(StatusEntry {
@@ -452,17 +492,25 @@ impl AuthProvider for SelfBuiltProvider {
             icon: "🛡️".to_string(),
             level: sec_level,
             message: sec_msg,
-            reason: if sec_level == StatusLevel::WARN { Some("缺少必要凭据，可能导致 API 调用或解密失败。".to_string()) } else { None },
+            reason: sec_reason,
             details: vec![],
             children: vec![],
         });
 
-        let global_profile = format!("app:{}", _config.app_key);
+        let global_profile = format!("app:{}", config.app_key);
         
         // 2. Token Check
-        if let Ok(access_token) = vault.get(&global_profile, "access_token").await {
+        let access_token_opt = if let Ok(val) = vault.get(&global_profile, "access_token").await {
+            Some((val, global_profile.clone()))
+        } else if let Ok(val) = vault.get(profile, "access_token").await {
+            Some((val, profile.to_string()))
+        } else {
+            None
+        };
+
+        if let Some((access_token, source_profile)) = access_token_opt {
             if !access_token.trim().is_empty() {
-                let expires_at_str = vault.get(&global_profile, "access_token_expires").await.unwrap_or_default();
+                let expires_at_str = vault.get(&source_profile, "access_token_expires").await.unwrap_or_default();
                 let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_at_str)
                     .map(|dt| dt.with_timezone(&Utc))
                     .ok();
@@ -499,7 +547,15 @@ impl AuthProvider for SelfBuiltProvider {
         }
 
         // 3. AppTicket Check
-        if let Ok(ts_str) = vault.get(&global_profile, "app_ticket_created").await {
+        let ticket_created_at_opt = if let Ok(ts) = vault.get(&global_profile, "app_ticket_created").await {
+            Some(ts)
+        } else if let Ok(ts) = vault.get(profile, "app_ticket_created").await {
+            Some(ts)
+        } else {
+            None
+        };
+
+        if let Some(ts_str) = ticket_created_at_opt {
             let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
             entries.push(StatusEntry {
                 name: "AppTicket".to_string(),

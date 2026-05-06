@@ -137,7 +137,7 @@ impl Vault for StoreVault {
 
 pub async fn create_vault(app_config: &AppConfig, app_dir: &Path, fingerprint: &str) -> Result<Arc<dyn Vault>> {
     use crate::core::store::sql::SqlStore;
-    use crate::core::store::file::FileStore;
+    use crate::core::store::file::{FileStore, MonolithicSealStore};
 
     let storage_cfg = &app_config.storage;
     let store_type = storage_cfg.store.as_str();
@@ -152,8 +152,11 @@ pub async fn create_vault(app_config: &AppConfig, app_dir: &Path, fingerprint: &
         let secret_store: Arc<dyn Store> = if store_type == "sqlite" {
             // In explicit SQLite mode, we use the database for secrets to support distributed sync
             sql_store.clone()
+        } else if seal_path.is_file() {
+            // COMPATIBILITY: Legacy .seal file exists
+            Arc::new(MonolithicSealStore::new(seal_path, fingerprint))
         } else {
-            // COMPATIBILITY: InnerDB pins secrets to local .seal to avoid breaking existing standalone setups
+            // NEW: Use directory-based FileStore
             Arc::new(FileStore::new(seal_path, fingerprint)?)
         };
         (sql_store, secret_store)

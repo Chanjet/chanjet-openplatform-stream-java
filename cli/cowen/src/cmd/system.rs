@@ -596,6 +596,7 @@ impl StatusCollector for DaemonCollector {
             let (conn_level, conn_icon) = match conn_state.as_str() {
                 "Connected" => (StatusLevel::OK, "🌐"),
                 "Connecting" => (StatusLevel::WARN, "⏳"),
+                "Disconnected" => (StatusLevel::WARN, "💤"),
                 "Reconnecting" => (StatusLevel::ERROR, "📡"),
                 _ => (StatusLevel::WARN, "❓"),
             };
@@ -625,7 +626,13 @@ impl StatusCollector for DaemonCollector {
             icon: "📟".to_string(),
             level,
             message: msg,
-            reason: if level == StatusLevel::WARN { Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) } else { None },
+            reason: if found_daemon_pid.is_none() { 
+                Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
+            } else if level != StatusLevel::OK {
+                Some("Daemon 已启动，但当前连接状态异常。".to_string())
+            } else { 
+                None 
+            },
             details,
             children,
         })
