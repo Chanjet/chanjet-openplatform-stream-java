@@ -20,6 +20,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     python3-aiohttp \
     sqlite3 \
     redis-server \
+    default-mysql-client \
+    postgresql-client \
     curl \
     procps \
     lsof \

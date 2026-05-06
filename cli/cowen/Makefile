@@ -287,6 +287,7 @@ endif
 test-linux: prepare-podman-machine prepare-podman-image
 	@echo "🧪 Running Parallel E2E Suite in Linux container (Isolated)..."
 	podman run --rm -it \
+		--network host \
 		-v "$(shell pwd)/../..:/workspace" \
 		-v "$(HOME)/.cargo/registry:/usr/local/cargo/registry" \
 		-v "$(HOME)/.cargo/git:/usr/local/cargo/git" \
