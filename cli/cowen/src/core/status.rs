@@ -3,6 +3,8 @@ use anyhow::Result;
 use std::sync::Arc;
 use crate::core::vault::Vault;
 use crate::core::config::Config;
+use sysinfo::System;
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq)]
 pub enum StatusLevel {
@@ -25,6 +27,84 @@ pub struct StatusEntry {
     pub children: Vec<StatusEntry>,
 }
 
+impl StatusEntry {
+    pub fn new(template: StatusTemplate, level: StatusLevel, message: String) -> Self {
+        let (name, icon) = template.ui();
+        Self {
+            name: name.to_string(),
+            icon: icon.to_string(),
+            level,
+            message,
+            reason: None,
+            details: vec![],
+            children: vec![],
+        }
+    }
+
+    pub fn with_reason(mut self, reason: Option<String>) -> Self {
+        self.reason = reason;
+        self
+    }
+
+    pub fn with_details(mut self, details: Vec<String>) -> Self {
+        self.details = details;
+        self
+    }
+
+    pub fn with_children(mut self, children: Vec<StatusEntry>) -> Self {
+        self.children = children;
+        self
+    }
+}
+
+pub enum StatusTemplate {
+    Configuration,
+    SecurityVault,
+    AccessToken,
+    RefreshToken,
+    AppTicket,
+    SuiteAccessToken,
+    Authentication,
+    AuthenticationStatus,
+    AccessTokenStatus,
+    Daemon(String),        // display_name
+    ProactiveRefresh,
+    BridgeConnection,
+    ModeDiagnostics(String), // mode_name
+    Custom(String, String), // name, icon
+}
+
+impl StatusTemplate {
+    pub fn ui(&self) -> (&str, &str) {
+        match self {
+            Self::Configuration => ("Configuration", "⚙️"),
+            Self::SecurityVault => ("Security (Vault)", "🛡️"),
+            Self::AccessToken => ("AccessToken", "🔑"),
+            Self::RefreshToken => ("RefreshToken", "🔄"),
+            Self::AppTicket => ("AppTicket", "🎫"),
+            Self::SuiteAccessToken => ("SuiteAccessToken", "🎫"),
+            Self::Authentication => ("Authentication", "🔐"),
+            Self::AuthenticationStatus => ("Authentication Status", "🔐"),
+            Self::AccessTokenStatus => ("AccessToken Status", "🔑"),
+            Self::Daemon(name) => (name, "📟"),
+            Self::ProactiveRefresh => ("Proactive Refresh", "🔄"),
+            Self::BridgeConnection => ("Bridge Connection", "🌐"),
+            Self::ModeDiagnostics(mode) => {
+                // Static buffer hack or just return a tuple. Let's use a box for simplicity if needed, 
+                // but actually we can return owned Strings or change the trait.
+                // To keep it simple and &str based:
+                match mode.as_str() {
+                    "SELF-BUILT" => ("SELF-BUILT Mode Diagnostics", "💎"),
+                    "OAUTH2" => ("OAUTH2 Mode Diagnostics", "💎"),
+                    "STORE-APP" => ("STORE-APP Mode Diagnostics", "💎"),
+                    _ => ("App Mode Diagnostics", "💎"),
+                }
+            },
+            Self::Custom(name, icon) => (name, icon),
+        }
+    }
+}
+
 pub struct StatusContext<'a> {
     pub profile: String,
     pub config: &'a Config,
@@ -37,4 +117,137 @@ pub trait StatusCollector: Send + Sync {
     #[allow(dead_code)]
     fn name(&self) -> &str;
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry>;
+}
+
+// --- Helpers for Providers ---
+
+pub fn get_app_dir() -> PathBuf {
+    crate::core::config::get_app_dir()
+}
+
+pub async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) {
+    let pid_file = get_app_dir().join(format!("{}_daemon.pid", profile));
+    if !pid_file.exists() {
+        return (None, None);
+    }
+
+    if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
+        let mut lines = pid_content.lines();
+        if let Some(pid_str) = lines.next() {
+            if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+                let mut s = System::new_all();
+                s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
+                    let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+                    let name = process.name().to_string_lossy().to_lowercase();
+                    if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
+                        let build_id = lines.next().map(|s| s.trim().to_string());
+                        return (Some(pid_val), build_id);
+                    }
+                }
+            }
+        }
+    }
+    (None, None)
+}
+
+pub async fn is_port_responsive(port: u16) -> bool {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        tokio::net::TcpStream::connect(addr)
+    ).await {
+        Ok(Ok(_)) => true,
+        _ => false,
+    }
+}
+
+pub async fn collect_daemon_status(
+    ctx: &StatusContext<'_>,
+    display_name: &str,
+    efficiency_tip: &str,
+    supports_webhooks: bool,
+) -> Result<StatusEntry> {
+    let (found_daemon_pid, found_build_id) = get_active_daemon_info(&ctx.profile).await;
+    
+    let (mut level, msg, mut children) = if let Some(pid) = found_daemon_pid {
+        (
+            StatusLevel::OK, 
+            format!("[RUNNING] (PID: {})", pid),
+            vec![
+                StatusEntry::new(
+                    StatusTemplate::ProactiveRefresh,
+                    StatusLevel::OK,
+                    format!("{} 令牌环境将保持热启动状态", efficiency_tip)
+                )
+            ]
+        )
+    } else {
+        (
+            StatusLevel::WARN, 
+            "[OFFLINE] (未检测到活跃后台进程)".to_string(),
+            vec![
+                StatusEntry::new(
+                    StatusTemplate::Custom("Efficiency Tip".to_string(), "💡".to_string()),
+                    StatusLevel::WARN,
+                    efficiency_tip.to_string()
+                )
+            ]
+        )
+    };
+
+    // Inject Connection State if running
+    if found_daemon_pid.is_some() {
+        let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
+        let mut conn_state = if let Ok(content) = std::fs::read_to_string(status_file) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string()
+            } else {
+                "Unknown".to_string()
+            }
+        } else {
+            "Unknown".to_string()
+        };
+
+        // COMPATIBILITY: If state is Unknown, try probing the proxy port
+        if conn_state == "Unknown" && is_port_responsive(ctx.config.proxy_port).await {
+            conn_state = "Connected (Legacy)".to_string();
+        }
+
+        let (conn_level, conn_icon_override) = match conn_state.as_str() {
+            s if s.starts_with("Connected") => (StatusLevel::OK, None),
+            "Connecting" => (StatusLevel::WARN, Some("⏳")),
+            "Disconnected" => (StatusLevel::WARN, Some("💤")),
+            "Reconnecting" => (StatusLevel::ERROR, Some("📡")),
+            _ => (StatusLevel::WARN, Some("❓")),
+        };
+
+        if conn_level as i32 > level as i32 && conn_level != StatusLevel::WARN {
+            level = conn_level;
+        }
+
+        if supports_webhooks {
+            let mut entry = StatusEntry::new(StatusTemplate::BridgeConnection, conn_level, conn_state);
+            if let Some(icon) = conn_icon_override {
+                entry.icon = icon.to_string();
+            }
+            children.push(entry);
+        }
+    }
+
+    let mut details = vec![];
+    if let Some(bid) = found_build_id {
+        details.push(format!("Build ID: {}", bid));
+    }
+
+    Ok(StatusEntry::new(StatusTemplate::Daemon(display_name.to_string()), level, msg)
+        .with_reason(if found_daemon_pid.is_none() { 
+            Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
+        } else if level == StatusLevel::ERROR {
+            Some("Daemon 已启动，但当前连接状态异常。".to_string())
+        } else { 
+            None 
+        })
+        .with_details(details)
+        .with_children(children))
 }

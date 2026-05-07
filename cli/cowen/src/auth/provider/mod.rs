@@ -198,7 +198,8 @@ pub trait AuthProvider: Send + Sync {
         Ok(())
     }
 
-    async fn get_status_entries(&self, _profile: &str, _config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+    /// 🚀 UI/诊断能力：获取该模式下的专属诊断条目（Auth、Daemon等）
+    async fn get_diagnostics(&self, _ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
         Ok(vec![])
     }
 

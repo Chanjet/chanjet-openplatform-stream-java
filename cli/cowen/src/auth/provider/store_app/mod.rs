@@ -444,8 +444,31 @@ impl AuthProvider for StoreAppProvider {
         false
     }
 
-    async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
-        diagnostics::get_status_entries(self.pool.as_ref(), profile, config).await
+    async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
+        use crate::core::status::{collect_daemon_status, StatusEntry, StatusLevel, StatusTemplate};
+        let mut results = Vec::new();
+        
+        // 1. Auth Status (from diagnostics module)
+        let auth_entries = diagnostics::get_diagnostics_entries(self.pool.as_ref(), &ctx.profile, ctx.config).await?;
+        if !auth_entries.is_empty() {
+             let max_level = auth_entries.iter().map(|e| e.level).max_by_key(|l| match l {
+                StatusLevel::ERROR => 3,
+                StatusLevel::WARN => 2,
+                StatusLevel::OK => 1,
+                _ => 0,
+            }).unwrap_or(StatusLevel::OK);
+
+            results.push(StatusEntry::new(StatusTemplate::AuthenticationStatus, max_level, format!("Collected {} status indicators", auth_entries.len()))
+                .with_children(auth_entries));
+        }
+
+        // 2. Daemon Status
+        let (found_pid, _) = crate::core::status::get_active_daemon_info(&ctx.profile).await;
+        let is_running = found_pid.is_some();
+        let (display_name, efficiency_tip) = self.get_daemon_display_info(is_running);
+        results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks()).await?);
+
+        Ok(results)
     }
 
     fn get_default_app_key(&self) -> Option<String> {

@@ -461,11 +461,19 @@ impl AuthProvider for OAuth2Provider {
         }
     }
 
-    async fn get_status_entries(&self, profile: &str, _config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
-        use crate::core::status::{StatusEntry, StatusLevel};
-        let mut entries = Vec::new();
-        let vault = self.pool.as_vault();
+    async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
+        use crate::core::status::{StatusEntry, StatusLevel, StatusTemplate, collect_daemon_status};
+        let mut results = Vec::new();
+        let profile = &ctx.profile;
+        let vault = ctx.vault.clone();
 
+        // 1. Authentication Summary
+        let mut auth_entries = Vec::new();
+
+        // 1.1 Security Check
+        auth_entries.push(StatusEntry::new(StatusTemplate::SecurityVault, StatusLevel::OK, "All core secrets are securely stored.".to_string()));
+
+        // 1.2 Token Status
         let refresh_error = vault.get(profile, "last_refresh_error").await.ok();
         let ref_revoked = vault.get(profile, "oauth2_revoked").await.is_ok();
 
@@ -474,38 +482,24 @@ impl AuthProvider for OAuth2Provider {
             let is_expired = Utc::now() > pair.expires_at;
             let ref_expired = Utc::now() > pair.refresh_expires_at;
 
-            let children = vec![
-                StatusEntry {
-                    name: "AccessToken".to_string(),
-                    icon: "🔑".to_string(),
-                    level: if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK },
-                    message: format!("[{}] (Expires: {})", 
+            let token_children = vec![
+                StatusEntry::new(StatusTemplate::AccessToken, if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
                         if is_expired || ref_revoked { "EXPIRED" } else { "VALID" },
-                        pair.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")),
-                    reason: if ref_revoked {
+                        pair.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
+                    .with_reason(if ref_revoked {
                         Some("关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。".to_string())
                     } else if is_expired { 
                         refresh_error.map(|e| format!("自动续约失败: {}", e))
                             .or(Some("AccessToken 已过期，正在等待后台续约进程处理...".to_string()))
-                    } else { None },
-                    details: vec![],
-                    children: vec![],
-                },
-                StatusEntry {
-                    name: "RefreshToken".to_string(),
-                    icon: "🔄".to_string(),
-                    level: if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK },
-                    message: format!("[{}] (Expires: {})", 
+                    } else { None }),
+                StatusEntry::new(StatusTemplate::RefreshToken, if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
                         if ref_revoked { "REVOKED" } else if ref_expired { "EXPIRED" } else { "VALID" },
-                        pair.refresh_expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")),
-                    reason: if ref_revoked {
+                        pair.refresh_expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
+                    .with_reason(if ref_revoked {
                         Some("令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。".to_string())
                     } else if ref_expired { 
                         Some("RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。".to_string()) 
-                    } else { None },
-                    details: vec![],
-                    children: vec![],
-                }
+                    } else { None }),
             ];
 
             let mut details = vec![];
@@ -521,18 +515,32 @@ impl AuthProvider for OAuth2Provider {
                 details.push(format!("App ID:  {}", identity.app_id));
             }
 
-            entries.push(StatusEntry {
-                name: "Authentication".to_string(),
-                icon: "🔐".to_string(),
-                level: if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK },
-                message: "OAuth2 tokens are locally managed.".to_string(),
-                reason: if ref_revoked { Some("会话已失效 (Revoked)".to_string()) } else { None },
-                details,
-                children,
-            });
+            auth_entries.push(StatusEntry::new(StatusTemplate::Authentication, if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK }, "OAuth2 tokens are locally managed.".to_string())
+                .with_reason(if ref_revoked { Some("会话已失效 (Revoked)".to_string()) } else { None })
+                .with_details(details)
+                .with_children(token_children));
         }
 
-        Ok(entries)
+        // Wrap Authentication Summary
+        if !auth_entries.is_empty() {
+            let max_level = auth_entries.iter().map(|e| e.level).max_by_key(|l| match l {
+                StatusLevel::ERROR => 3,
+                StatusLevel::WARN => 2,
+                StatusLevel::OK => 1,
+                _ => 0,
+            }).unwrap_or(StatusLevel::OK);
+
+            results.push(StatusEntry::new(StatusTemplate::AuthenticationStatus, max_level, format!("Collected {} status indicators", auth_entries.len()))
+                .with_children(auth_entries));
+        }
+
+        // 2. Daemon Status
+        let (found_pid, _) = crate::core::status::get_active_daemon_info(profile).await;
+        let is_running = found_pid.is_some();
+        let (display_name, efficiency_tip) = self.get_daemon_display_info(is_running);
+        results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks()).await?);
+
+        Ok(results)
     }
 
     fn get_default_app_key(&self) -> Option<String> {
@@ -563,6 +571,12 @@ impl AuthProvider for OAuth2Provider {
         let _ = vault.delete(profile, "oauth2_revoked");
         let _ = vault.delete(profile, "last_refresh_error");
         Ok(())
+    }
+
+    fn get_daemon_display_info(&self, is_running: bool) -> (String, String) {
+        let name = "Token Renewer (Daemon)";
+        let tip = if is_running { "主动续约: [ACTIVE]" } else { "若需实现令牌自动续约，请运行 'cowen daemon start'" };
+        (name.to_string(), tip.to_string())
     }
 }
 impl Pkce {

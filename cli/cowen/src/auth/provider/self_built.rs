@@ -454,26 +454,27 @@ impl AuthProvider for SelfBuiltProvider {
         }
     }
 
-    async fn get_status_entries(&self, profile: &str, config: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
-        use crate::core::status::{StatusEntry, StatusLevel};
-        let mut entries = Vec::new();
-        let vault = self.pool.as_vault();
+    async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
+        use crate::core::status::{StatusEntry, StatusLevel, StatusTemplate, collect_daemon_status};
+        let mut results = Vec::new();
+        let profile = &ctx.profile;
+        let config = ctx.config;
+        let vault = ctx.vault.clone();
 
-        // 1. Security Check (Vault + Config Fallback)
+        // 1. Authentication Summary (Legacy get_status_entries logic)
+        let mut auth_entries = Vec::new();
+        
+        // 1.1 Security Check
         let mut missing = Vec::new();
         let mut insecure = Vec::new();
-
-        // Check app_secret
         if vault.get_secret(profile, "app_secret").await.is_err() {
             if config.app_secret.trim().is_empty() { missing.push("app_secret".to_string()); }
             else { insecure.push("app_secret".to_string()); }
         }
-        // Check certificate
         if vault.get_secret(profile, "certificate").await.is_err() {
             if config.certificate.trim().is_empty() { missing.push("certificate".to_string()); }
             else { insecure.push("certificate".to_string()); }
         }
-        // Check encrypt_key
         if vault.get_secret(profile, "encrypt_key").await.is_err() {
             if config.encrypt_key.trim().is_empty() { missing.push("encrypt_key".to_string()); }
             else { insecure.push("encrypt_key".to_string()); }
@@ -487,19 +488,12 @@ impl AuthProvider for SelfBuiltProvider {
             (StatusLevel::OK, "All core secrets are securely stored.".to_string(), None)
         };
 
-        entries.push(StatusEntry {
-            name: "Security (Vault)".to_string(),
-            icon: "🛡️".to_string(),
-            level: sec_level,
-            message: sec_msg,
-            reason: sec_reason,
-            details: vec![],
-            children: vec![],
-        });
+        auth_entries.push(StatusEntry::new(StatusTemplate::SecurityVault, sec_level, sec_msg)
+            .with_reason(sec_reason));
 
         let global_profile = format!("app:{}", config.app_key);
         
-        // 2. Token Check
+        // 1.2 Token Check
         let access_token_opt = if let Ok(val) = vault.get(&global_profile, "access_token").await {
             Some((val, global_profile.clone()))
         } else if let Ok(val) = vault.get(profile, "access_token").await {
@@ -532,21 +526,13 @@ impl AuthProvider for SelfBuiltProvider {
                     details.push(format!("App ID:  {}", identity.app_id));
                 }
 
-                entries.push(StatusEntry {
-                    name: "AccessToken".to_string(),
-                    icon: "🔑".to_string(),
-                    level: if is_expired { StatusLevel::ERROR } else { StatusLevel::OK },
-                    message: format!("[{}] (Expires: {})", 
-                        if is_expired { "EXPIRED" } else { "VALID" },
-                        exp_msg),
-                    reason: if is_expired { Some("令牌已过期，正在等待后台任务进行续约。".to_string()) } else { None },
-                    details,
-                    children: vec![],
-                });
+                auth_entries.push(StatusEntry::new(StatusTemplate::AccessToken, if is_expired { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", if is_expired { "EXPIRED" } else { "VALID" }, exp_msg))
+                    .with_reason(if is_expired { Some("令牌已过期，正在等待后台任务进行续约。".to_string()) } else { None })
+                    .with_details(details));
             }
         }
 
-        // 3. AppTicket Check
+        // 1.3 AppTicket Check
         let ticket_created_at_opt = if let Ok(ts) = vault.get(&global_profile, "app_ticket_created").await {
             Some(ts)
         } else if let Ok(ts) = vault.get(profile, "app_ticket_created").await {
@@ -557,28 +543,31 @@ impl AuthProvider for SelfBuiltProvider {
 
         if let Some(ts_str) = ticket_created_at_opt {
             let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
-            entries.push(StatusEntry {
-                name: "AppTicket".to_string(),
-                icon: "🎫".to_string(),
-                level: StatusLevel::OK,
-                message: format!("[CACHED] (Received: {})", created_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")),
-                reason: None,
-                details: vec![],
-                children: vec![],
-            });
+            auth_entries.push(StatusEntry::new(StatusTemplate::AppTicket, StatusLevel::OK, format!("[CACHED] (Received: {})", created_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"))));
         } else {
-            entries.push(StatusEntry {
-                name: "AppTicket".to_string(),
-                icon: "🎫".to_string(),
-                level: StatusLevel::NONE,
-                message: "[NONE] (等待 Daemon 接收推送)".to_string(),
-                reason: None,
-                details: vec![],
-                children: vec![],
-            });
+            auth_entries.push(StatusEntry::new(StatusTemplate::AppTicket, StatusLevel::NONE, "[NONE] (等待 Daemon 接收推送)".to_string()));
         }
 
-        Ok(entries)
+        // Wrap Authentication Summary
+        if !auth_entries.is_empty() {
+            let max_level = auth_entries.iter().map(|e| e.level).max_by_key(|l| match l {
+                StatusLevel::ERROR => 3,
+                StatusLevel::WARN => 2,
+                StatusLevel::OK => 1,
+                _ => 0,
+            }).unwrap_or(StatusLevel::OK);
+
+            results.push(StatusEntry::new(StatusTemplate::AccessTokenStatus, max_level, format!("Collected {} status indicators", auth_entries.len()))
+                .with_children(auth_entries));
+        }
+
+        // 2. Daemon Status
+        let (found_pid, _) = crate::core::status::get_active_daemon_info(profile).await;
+        let is_running = found_pid.is_some();
+        let (display_name, efficiency_tip) = self.get_daemon_display_info(is_running);
+        results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks()).await?);
+
+        Ok(results)
     }
 
     fn decorate_openapi_request(&self, _url: &mut String, headers: &mut reqwest::header::HeaderMap, token: &Token, config: &Config) {

@@ -16,12 +16,12 @@ impl SimpleResponse {
         self.status >= 200 && self.status < 300
     }
 
-    pub async fn json<T: for<'de> serde::Deserialize<'de>>(&self) -> Result<T> {
-        serde_json::from_str(&self.body).map_err(|e| anyhow!("JSON parse error: {}", e))
+    pub async fn json<T: serde::de::DeserializeOwned>(self) -> Result<T> {
+        serde_json::from_str(&self.body).map_err(|e| anyhow!("Failed to parse response JSON: {}", e))
     }
 
-    pub fn text(&self) -> String {
-        self.body.clone()
+    pub fn text(self) -> String {
+        self.body
     }
 }
 
@@ -36,107 +36,30 @@ pub struct ReqwestSender {
     client: HttpClient,
 }
 
-#[cfg(feature = "inte")]
-pub struct MockHttpSender {
-    pub real_sender: ReqwestSender,
-}
-
-#[cfg(feature = "inte")]
-#[async_trait::async_trait]
-impl HttpSender for MockHttpSender {
-    async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
-        if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
-            if url.contains("/oauth2/token") {
-                return Ok(SimpleResponse {
-                    status: 200,
-                    body: serde_json::json!({
-                        "access_token": "mock_access_token",
-                        "refresh_token": "mock_refresh_token",
-                        "expires_in": 7200,
-                        "refresh_token_expires_in": 604800
-                    }).to_string(),
-                });
-            }
-        }
-        self.real_sender.post(url, headers, body).await
-    }
-
-    async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
-        if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
-            if url.contains("/oauth2/token") || url.contains("/user/v2/token") {
-                return Ok(SimpleResponse {
-                    status: 200,
-                    body: serde_json::json!({
-                        "access_token": "mock_access_token",
-                        "refresh_token": "mock_refresh_token",
-                        "expires_in": 7200,
-                        "refresh_token_expires_in": 604800
-                    }).to_string(),
-                });
-            }
-        }
-        self.real_sender.post_form(url, headers, body).await
-    }
-
-    async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
-        if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
-            if url.contains("/v1/common/openapi/spec") {
-                return Ok(SimpleResponse {
-                    status: 200,
-                    body: serde_json::json!({
-                        "openapi": "3.0.0",
-                        "paths": { "/mock-api": { "get": { "responses": { "200": { "description": "OK" } } } } }
-                    }).to_string(),
-                });
-            }
-        }
-        self.real_sender.get(url, headers).await
-    }
-}
-
 impl ReqwestSender {
     pub fn new() -> Self {
-        Self {
-            client: HttpClient::new(),
-        }
+        Self { client: HttpClient::new() }
     }
 }
 
 #[async_trait::async_trait]
 impl HttpSender for ReqwestSender {
     async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
-        let resp = self.client.post(url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Network error: {}", e))?;
-        
+        let resp = self.client.post(url).headers(headers).json(&body).send().await?;
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
         Ok(SimpleResponse { status, body })
     }
 
     async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
-        let resp = self.client.post(url)
-            .headers(headers)
-            .form(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Network error: {}", e))?;
-        
+        let resp = self.client.post(url).headers(headers).form(&body).send().await?;
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
         Ok(SimpleResponse { status, body })
     }
 
     async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
-        let resp = self.client.get(url)
-            .headers(headers)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Network error: {}", e))?;
-            
+        let resp = self.client.get(url).headers(headers).send().await?;
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
         Ok(SimpleResponse { status, body })
@@ -168,14 +91,14 @@ pub trait Client: Send + Sync {
     async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> Result<()>;
     fn requires_initial_push(&self, cfg: &Config) -> bool;
     async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::auth::provider::PlatformEvent) -> Result<()>;
-    fn get_auth_display_info(&self, cfg: &Config) -> (String, String);
-    fn get_daemon_display_info(&self, cfg: &Config, is_running: bool) -> (String, String);
     #[allow(dead_code)]
     fn requires_ticket(&self, cfg: &Config) -> bool;
     fn supports_webhooks(&self, cfg: &Config) -> bool;
     fn supports_api_call(&self, cfg: &Config) -> bool;
     async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>) -> Result<()>;
-    async fn get_status_entries(&self, profile: &str, cfg: &Config) -> Result<Vec<crate::core::status::StatusEntry>>;
+
+    /// 🚀 UI/诊断能力：获取该模式下的专属诊断条目（Auth、Daemon等）
+    async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>>;
 }
 
 use crate::auth::provider::AuthProvider;
@@ -258,25 +181,14 @@ impl Client for AuthClient {
         self.provider(&cfg.app_mode).perform_login(profile, cfg, force, finalize).await
     }
 
-    async fn get_status_entries(&self, profile: &str, cfg: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
-        self.provider(&cfg.app_mode).get_status_entries(profile, cfg).await
+    async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> Result<()> {
+        self.provider(&cfg.app_mode).on_maintenance_tick(profile, cfg).await
     }
 
     fn requires_initial_push(&self, cfg: &Config) -> bool {
         self.provider(&cfg.app_mode).requires_initial_push(cfg)
     }
 
-    async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> Result<()> {
-        self.provider(&cfg.app_mode).on_maintenance_tick(profile, cfg).await
-    }
-
-    fn get_auth_display_info(&self, cfg: &Config) -> (String, String) {
-        self.provider(&cfg.app_mode).get_auth_display_info()
-    }
-
-    fn get_daemon_display_info(&self, cfg: &Config, is_running: bool) -> (String, String) {
-        self.provider(&cfg.app_mode).get_daemon_display_info(is_running)
-    }
     fn requires_ticket(&self, cfg: &Config) -> bool {
         self.provider(&cfg.app_mode).requires_ticket()
     }
@@ -324,6 +236,10 @@ impl Client for AuthClient {
 
     async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> Result<serde_json::Value> {
         self.provider(&cfg.app_mode).intercept_exchange(profile, cfg, body_bytes).await
+    }
+
+    async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
+        self.provider(&ctx.config.app_mode).get_diagnostics(ctx).await
     }
 
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> Result<serde_json::Value> {
@@ -613,4 +529,3 @@ pub fn get_operation(spec: &serde_json::Value, path: &str, method: &str) -> Opti
 pub fn is_path_in_whitelist(req_path: &str, spec: &serde_json::Value) -> bool {
     find_matching_spec_path(req_path, spec).is_some()
 }
-

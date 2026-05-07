@@ -93,8 +93,7 @@ async fn get_system_status(
 
     let collectors: Vec<Box<dyn StatusCollector>> = vec![
         Box::new(ConfigCollector),
-        Box::new(AuthStatusCollector),
-        Box::new(DaemonCollector),
+        Box::new(ProviderCollector),
     ];
 
     let mut entries = Vec::new();
@@ -177,47 +176,6 @@ fn render_entry(entry: &StatusEntry, indent: usize) {
     }
 }
 
-fn app_dir() -> std::path::PathBuf {
-    crate::core::config::get_app_dir()
-}
-
-async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) {
-    let pid_file = app_dir().join(format!("{}_daemon.pid", profile));
-    if !pid_file.exists() {
-        return (None, None);
-    }
-
-    if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
-        let mut lines = pid_content.lines();
-        if let Some(pid_str) = lines.next() {
-            if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
-                let mut s = System::new_all();
-                s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-                if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
-                    let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-                    let name = process.name().to_string_lossy().to_lowercase();
-                    if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
-                        let build_id = lines.next().map(|s| s.trim().to_string());
-                        return (Some(pid_val), build_id);
-                    }
-                }
-            }
-        }
-    }
-    (None, None)
-}
-
-async fn is_port_responsive(port: u16) -> bool {
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        tokio::net::TcpStream::connect(addr)
-    ).await {
-        Ok(Ok(_)) => true,
-        _ => false,
-    }
-}
-
 pub async fn ensure_daemon_running(
     profile: &str, 
     config: &crate::core::config::Config, 
@@ -226,9 +184,10 @@ pub async fn ensure_daemon_running(
     auth_cli: &crate::auth::AuthClient,
 ) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().await.unwrap_or_else(|_| vec![profile.to_string()]);
+    let app_dir = crate::core::status::get_app_dir();
     
     for p in profiles {
-        let (pid, _build_id) = get_active_daemon_info(&p).await;
+        let (pid, _build_id) = crate::core::status::get_active_daemon_info(&p).await;
         let mut p_cfg = if p == profile { 
             config.clone() 
         } else { 
@@ -245,11 +204,11 @@ pub async fn ensure_daemon_running(
             if let Ok(ek) = vault.get_secret(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
         }
         
-        let pid_file = app_dir().join(format!("{}_daemon.pid", p));
+        let pid_file = app_dir.join(format!("{}_daemon.pid", p));
         
         // 1. Hanging detection (Process exists but port unresponsive)
         if let Some(pid_val) = pid {
-            if !is_port_responsive(p_cfg.proxy_port).await {
+            if !crate::core::status::is_port_responsive(p_cfg.proxy_port).await {
                 tracing::warn!(target: "sys", profile = %p, pid = %pid_val, port = %p_cfg.proxy_port, "Daemon process found but port is not responsive (Hanging). Killing and restarting...");
                 
                 let mut s = System::new_all();
@@ -321,7 +280,7 @@ pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigMa
     if let Some(v) = vault {
         let _ = v.clear_profile(_profile).await;
     }
-    let base_dir = app_dir();
+    let base_dir = crate::core::status::get_app_dir();
     let targets = vec![
         base_dir.join(format!("{}.yaml", _profile)),
         base_dir.join(format!("{}_openapi.json", _profile)),
@@ -387,7 +346,7 @@ pub async fn rename_profile(
     }
 
     // 1. Stop Daemon if running
-    let (pid, _) = get_active_daemon_info(old_name).await;
+    let (pid, _) = crate::core::status::get_active_daemon_info(old_name).await;
     let was_running = pid.is_some();
     if was_running {
         eprintln!("🛑 Stopping daemon for '{}' before rename...", old_name);
@@ -395,7 +354,7 @@ pub async fn rename_profile(
     }
 
     // 2. Rename config and cache files
-    let base_dir = app_dir();
+    let base_dir = crate::core::status::get_app_dir();
     let file_map = vec![
         ("", ".yaml"),
         ("_openapi", ".json"),
@@ -455,16 +414,20 @@ struct ConfigCollector;
 impl StatusCollector for ConfigCollector {
     fn name(&self) -> &str { "Config" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
+        use crate::core::status::StatusTemplate;
         let mode_str = serde_json::to_string(&ctx.config.app_mode).unwrap_or_default().trim_matches('"').to_string();
         let mut details = vec![
             format!("OpenAPI: {}", ctx.config.openapi_url),
             format!("Stream:  {}", ctx.config.stream_url),
         ];
         
-        details.push(format!("Storage: {} ({})", 
-            ctx.app_config.storage.store, 
-            ctx.app_config.storage.db_url.as_deref().unwrap_or("none")
-        ));
+        // COMPATIBILITY: Only show storage/cache details if they are NOT the default local/none
+        if ctx.app_config.storage.store != "local" {
+            details.push(format!("Storage: {} ({})", 
+                ctx.app_config.storage.store, 
+                ctx.app_config.storage.db_url.as_deref().unwrap_or("none")
+            ));
+        }
         if ctx.app_config.storage.cache != "none" {
             details.push(format!("Cache:   {} ({})", 
                 ctx.app_config.storage.cache, 
@@ -478,170 +441,31 @@ impl StatusCollector for ConfigCollector {
             (StatusLevel::ERROR, "Profile not initialized or AppKey empty.".to_string())
         };
 
-        Ok(StatusEntry {
-            name: "Configuration".to_string(),
-            icon: "⚙️".to_string(),
-            level,
-            message: msg,
-            reason: if level == StatusLevel::ERROR { Some("请运行 'cowen init' 进行初始化".to_string()) } else { None },
-            details,
-            children: vec![],
-        })
+        Ok(StatusEntry::new(StatusTemplate::Configuration, level, msg)
+            .with_reason(if level == StatusLevel::ERROR { Some("请运行 'cowen init' 进行初始化".to_string()) } else { None })
+            .with_details(details))
     }
 }
 
-struct AuthStatusCollector;
+struct ProviderCollector;
 #[async_trait::async_trait]
-impl StatusCollector for AuthStatusCollector {
-    fn name(&self) -> &str { "Authentication" }
+impl StatusCollector for ProviderCollector {
+    fn name(&self) -> &str { "Provider" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
+        use crate::core::status::StatusTemplate;
         let auth = crate::auth::create_auth_client_with_vault(ctx.vault.clone());
+        let mode_str = serde_json::to_string(&ctx.config.app_mode).unwrap_or_default().trim_matches('"').to_uppercase();
         
-        let mut entries = auth.get_status_entries(&ctx.profile, ctx.config).await?;
+        let children: Vec<StatusEntry> = auth.get_diagnostics(ctx).await?;
         
-        if entries.is_empty() {
-             let (name, icon) = auth.get_auth_display_info(ctx.config);
-             return Ok(StatusEntry {
-                name: name.to_string(),
-                icon: icon.to_string(),
-                level: StatusLevel::WARN,
-                message: "[NONE] (未获取到有效令牌)".to_string(),
-                reason: Some(format!("请先执行 `{} auth login` 或 `init` 完成授权。", crate::core::utils::get_bin_name())),
-                details: vec![],
-                children: vec![],
-            });
-        }
+        let max_level = children.iter().map(|e| e.level).max_by_key(|l| match l {
+            StatusLevel::ERROR => 3,
+            StatusLevel::WARN => 2,
+            StatusLevel::OK => 1,
+            _ => 0,
+        }).unwrap_or(StatusLevel::OK);
 
-        // Use the first entry as the root if there's only one, otherwise wrap them
-        if entries.len() == 1 {
-            Ok(entries.remove(0))
-        } else {
-            let (name, icon) = auth.get_auth_display_info(ctx.config);
-            Ok(StatusEntry {
-                name: format!("{} Status", name),
-                icon,
-                level: entries.iter().map(|e| e.level).max_by_key(|l| match l {
-                    StatusLevel::ERROR => 3,
-                    StatusLevel::WARN => 2,
-                    StatusLevel::OK => 1,
-                    _ => 0,
-                }).unwrap_or(StatusLevel::OK),
-                message: format!("Collected {} status indicators", entries.len()),
-                reason: None,
-                details: vec![],
-                children: entries,
-            })
-        }
-    }
-}
-
-struct DaemonCollector;
-#[async_trait::async_trait]
-impl StatusCollector for DaemonCollector {
-    fn name(&self) -> &str { "Daemon" }
-    async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        let (found_daemon_pid, found_build_id) = get_active_daemon_info(&ctx.profile).await;
-        
-        let auth = crate::auth::create_auth_client_with_vault(ctx.vault.clone());
-        let is_running = found_daemon_pid.is_some();
-        let (display_name, efficiency_tip) = auth.get_daemon_display_info(ctx.config, is_running);
-
-        let (mut level, msg, mut children) = if let Some(pid) = found_daemon_pid {
-            (
-                StatusLevel::OK, 
-                format!("[RUNNING] (PID: {})", pid),
-                vec![
-                    StatusEntry {
-                        name: "Proactive Refresh".to_string(),
-                        icon: "🔄".to_string(),
-                        level: StatusLevel::OK,
-                        message: format!("{}: 令牌环境将保持热启动状态", efficiency_tip),
-                        reason: None,
-                        details: vec![],
-                        children: vec![],
-                    }
-                ]
-            )
-        } else {
-            (
-                StatusLevel::WARN, 
-                "[OFFLINE] (未检测到活跃后台进程)".to_string(),
-                vec![
-                    StatusEntry {
-                        name: "Efficiency Tip".to_string(),
-                        icon: "💡".to_string(),
-                        level: StatusLevel::WARN,
-                        message: efficiency_tip,
-                        reason: None,
-                        details: vec![],
-                        children: vec![],
-                    }
-                ]
-            )
-        };
-
-        // Inject Connection State if running
-        if found_daemon_pid.is_some() {
-            let status_file = app_dir().join(format!("{}_status.json", ctx.profile));
-            let mut conn_state = if let Ok(content) = std::fs::read_to_string(status_file) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string()
-                } else {
-                    "Unknown".to_string()
-                }
-            } else {
-                "Unknown".to_string()
-            };
-
-            // COMPATIBILITY: If state is Unknown, try probing the proxy port
-            if conn_state == "Unknown" && is_port_responsive(ctx.config.proxy_port).await {
-                conn_state = "Connected (Legacy)".to_string();
-            }
-
-            let (conn_level, conn_icon) = match conn_state.as_str() {
-                s if s.starts_with("Connected") => (StatusLevel::OK, "🌐"),
-                "Connecting" => (StatusLevel::WARN, "⏳"),
-                "Disconnected" => (StatusLevel::WARN, "💤"),
-                "Reconnecting" => (StatusLevel::ERROR, "📡"),
-                _ => (StatusLevel::WARN, "❓"),
-            };
-
-            // Only escalate if the connection is actually BROKEN (ERROR) or it's a new version
-            // For Unknown/Legacy, we keep it as OK if the process is alive
-            if conn_level as i32 > level as i32 && conn_level != StatusLevel::WARN {
-                level = conn_level;
-            }
-
-            children.push(StatusEntry {
-                name: "Bridge Connection".to_string(),
-                icon: conn_icon.to_string(),
-                level: conn_level,
-                message: conn_state,
-                reason: None,
-                details: vec![],
-                children: vec![],
-            });
-        }
-
-        let mut details = vec![];
-        if let Some(bid) = found_build_id {
-            details.push(format!("Build ID: {}", bid));
-        }
-
-        Ok(StatusEntry {
-            name: display_name.to_string(),
-            icon: "📟".to_string(),
-            level,
-            message: msg,
-            reason: if found_daemon_pid.is_none() { 
-                Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
-            } else if level == StatusLevel::ERROR {
-                Some("Daemon 已启动，但当前连接状态异常。".to_string())
-            } else { 
-                None 
-            },
-            details,
-            children,
-        })
+        Ok(StatusEntry::new(StatusTemplate::ModeDiagnostics(mode_str), max_level, format!("Collected {} status indicators", children.len()))
+            .with_children(children))
     }
 }
