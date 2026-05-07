@@ -583,7 +583,7 @@ impl StatusCollector for DaemonCollector {
         // Inject Connection State if running
         if found_daemon_pid.is_some() {
             let status_file = app_dir().join(format!("{}_status.json", ctx.profile));
-            let conn_state = if let Ok(content) = std::fs::read_to_string(status_file) {
+            let mut conn_state = if let Ok(content) = std::fs::read_to_string(status_file) {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                     json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string()
                 } else {
@@ -593,15 +593,22 @@ impl StatusCollector for DaemonCollector {
                 "Unknown".to_string()
             };
 
+            // COMPATIBILITY: If state is Unknown, try probing the proxy port
+            if conn_state == "Unknown" && is_port_responsive(ctx.config.proxy_port).await {
+                conn_state = "Connected (Legacy)".to_string();
+            }
+
             let (conn_level, conn_icon) = match conn_state.as_str() {
-                "Connected" => (StatusLevel::OK, "🌐"),
+                s if s.starts_with("Connected") => (StatusLevel::OK, "🌐"),
                 "Connecting" => (StatusLevel::WARN, "⏳"),
                 "Disconnected" => (StatusLevel::WARN, "💤"),
                 "Reconnecting" => (StatusLevel::ERROR, "📡"),
                 _ => (StatusLevel::WARN, "❓"),
             };
 
-            if conn_level as i32 > level as i32 {
+            // Only escalate if the connection is actually BROKEN (ERROR) or it's a new version
+            // For Unknown/Legacy, we keep it as OK if the process is alive
+            if conn_level as i32 > level as i32 && conn_level != StatusLevel::WARN {
                 level = conn_level;
             }
 
@@ -628,7 +635,7 @@ impl StatusCollector for DaemonCollector {
             message: msg,
             reason: if found_daemon_pid.is_none() { 
                 Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
-            } else if level != StatusLevel::OK {
+            } else if level == StatusLevel::ERROR {
                 Some("Daemon 已启动，但当前连接状态异常。".to_string())
             } else { 
                 None 
