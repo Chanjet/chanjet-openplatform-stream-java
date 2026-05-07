@@ -8,7 +8,7 @@ source tests/common.sh
 # sleep 1
 
 echo -e "${BOLD}1. Setup Local OAuth2 Profile${NC}"
-TEST_BASE="$(pwd)/target/cowen_tests"
+export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
 HOME_MIGRATE="$TEST_BASE/.cowen_test_migration_block"
 SHARED_DB="$TEST_BASE/.cowen_test_migrated_target.db"
 mkdir -p "$TEST_BASE"

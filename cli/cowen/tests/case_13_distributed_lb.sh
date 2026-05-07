@@ -5,7 +5,7 @@
 source tests/common.sh
 
 # Define nodes
-TEST_BASE="$(pwd)/target/cowen_tests"
+export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
 HOME_A="$TEST_BASE/.cowen_test_dist_lb_node_a"
 HOME_B="$TEST_BASE/.cowen_test_dist_lb_node_b"
 mkdir -p "$TEST_BASE"

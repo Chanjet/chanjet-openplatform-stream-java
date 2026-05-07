@@ -8,7 +8,7 @@ source tests/common.sh
 
 REDIS_PORT=6379
 REDIS_URL="redis://127.0.0.1:$REDIS_PORT/0"
-REDIS_PID_FILE="target/cowen_tests/redis_case17.pid"
+REDIS_PID_FILE="$TEST_BASE/redis_case17.pid"
 
 start_test_redis() {
     echo -e "  Starting isolated test Redis on port $REDIS_PORT..."
@@ -35,7 +35,7 @@ setup_workspace "case_17"
 start_test_redis
 
 # Define nodes
-TEST_BASE="$(pwd)/target/cowen_tests"
+export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
 HOME_1="$TEST_BASE/.cowen_test_redis_node_1"
 HOME_2="$TEST_BASE/.cowen_test_redis_node_2"
 

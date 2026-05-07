@@ -13,7 +13,7 @@ sleep 1
 echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
 
 # Define nodes
-TEST_BASE="$(pwd)/target/cowen_tests"
+export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
 HOME_1="$TEST_BASE/.cowen_test_dist_sync_node_1"
 HOME_2="$TEST_BASE/.cowen_test_dist_sync_node_2"
 SHARED_DB="$TEST_BASE/.cowen_test_shared.db"
@@ -35,7 +35,7 @@ export COWEN_HOME="$HOME_1"
 cat > "$HOME_1/app.yaml" <<EOF
 storage:
   store: sqlite
-  db_url: "sqlite:///$SHARED_DB"
+  db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
 telemetry_enabled: false
@@ -63,7 +63,7 @@ export COWEN_HOME="$HOME_2"
 cat > "$HOME_2/app.yaml" <<EOF
 storage:
   store: sqlite
-  db_url: "sqlite:///$SHARED_DB"
+  db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
 telemetry_enabled: false

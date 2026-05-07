@@ -37,7 +37,7 @@ else
 fi
 
 # Define nodes
-TEST_BASE="$(pwd)/target/cowen_tests"
+export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
 HOME_1="$TEST_BASE/.cowen_test_pg_node_1"
 HOME_2="$TEST_BASE/.cowen_test_pg_node_2"
 

@@ -62,7 +62,7 @@ else
 fi
 
 # Check mock server logs for redundant resend requests
-RESEND_COUNT=$(grep -c "auth/appTicket/resend" "target/cowen_tests/mock_server_$MOCK_PORT.log" || true)
+RESEND_COUNT=$(grep -c "auth/appTicket/resend" "$TEST_BASE/mock_server_$MOCK_PORT.log" || true)
 echo -e "  Resend requests triggered: $RESEND_COUNT"
 
 echo -e "\n${BOLD}2. Scaling from 4 to 8 Pods${NC}"

@@ -9,7 +9,7 @@ source tests/common.sh
 
 REDIS_PORT=6380
 REDIS_URL="redis://127.0.0.1:$REDIS_PORT/0"
-REDIS_PID_FILE="target/cowen_tests/redis_case18.pid"
+REDIS_PID_FILE="$TEST_BASE/redis_case18.pid"
 
 start_test_redis() {
     echo -e "  Starting isolated test Redis on port $REDIS_PORT..."

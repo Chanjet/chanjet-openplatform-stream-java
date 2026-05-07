@@ -58,7 +58,7 @@ sleep 5
 echo -e "${BOLD}4. Verify Eviction Logic${NC}"
 # In exclusive mode, only ONE should be active (the latest one)
 # The mock server log should show an eviction
-grep -q "Exclusive Eviction" "target/cowen_tests/mock_server_$MOCK_PORT.log"
+grep -q "Exclusive Eviction" "$TEST_BASE/mock_server_$MOCK_PORT.log"
 assert_pass "Server log confirms exclusive eviction"
 
 # Check connection count
