@@ -177,17 +177,33 @@ except:
 
 # Global Cleanup
 cleanup_all_workspaces() {
+    # 1. Kill all cowen related processes
+    if [ "$IS_WINDOWS" = true ]; then
+        taskkill //F //IM cowen.exe >/dev/null 2>&1 || true
+    else
+        # Kill by name and by path to be thorough
+        pkill -9 cowen >/dev/null 2>&1 || true
+        pkill -9 -f "target/debug/cowen" >/dev/null 2>&1 || true
+        pkill -9 -f "target/release/cowen" >/dev/null 2>&1 || true
+    fi
+
+    # 2. Kill all mock servers
+    if [ "$IS_WINDOWS" = true ]; then
+        # On Windows, we usually kill by port or process name if known
+        local pids=$(netstat -ano | grep LISTENING | grep -E ":(9299|16000|18000)" | awk '{print $5}' | sort -u)
+        for pid in $pids; do taskkill //F //PID "$pid" >/dev/null 2>&1 || true; done
+    else
+        pkill -9 -f "mock_server.py" >/dev/null 2>&1 || true
+        # Also kill anything listening on the test port range (16000-19500)
+        # This is a bit aggressive but safe for a test environment
+        if command -v lsof >/dev/null; then
+            lsof -ti :9299,16000-19500 | xargs kill -9 >/dev/null 2>&1 || true
+        fi
+    fi
+
     # 3. Handle workspaces - Always cleanup the large workspace directories to keep env clean
     rm -rf target/cowen_tests/.cowen_test_*
     rm -f target/cowen_tests/.cowen_test_*.db target/cowen_tests/.cowen_test_*.db-shm target/cowen_tests/.cowen_test_*.db-wal
-    if [ "$IS_WINDOWS" = true ]; then
-        taskkill //F //IM cowen.exe >/dev/null 2>&1 || true
-        local pid=$(netstat -ano | grep ":9299" | grep "LISTENING" | awk '{print $5}' | head -n 1)
-        if [ -n "$pid" ]; then taskkill //F //PID "$pid" >/dev/null 2>&1 || true; fi
-    else
-        pkill -9 cowen >/dev/null 2>&1 || true
-        lsof -ti :9299 | xargs kill -9 2>/dev/null || true
-    fi
 }
 
 # Redis Helpers

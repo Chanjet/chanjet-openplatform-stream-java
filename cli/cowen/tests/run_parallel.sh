@@ -20,6 +20,10 @@ final_parallel_cleanup() {
     if [ "$CLEANUP_DONE" == "true" ]; then return; fi
     CLEANUP_DONE="true"
     echo -e "\n${BLUE}🧹 Performing final cleanup...${NC}"
+    
+    # Kill all leftover processes from all jobs
+    cleanup_all_workspaces
+    
     rm -rf "$TEST_BASE"/.cowen_test_job_*
     if [ "${FAILED_COUNT:-0}" -eq 0 ] && [ "$KEEP_TEST_ENV" != "true" ]; then
         rm -rf "$RESULTS_DIR"
