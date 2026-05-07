@@ -148,7 +148,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: LogCommands,
     },
-    /// 管理并配置全局存储后端与缓存
+    /// 管理并配置全局存储后端与缓存 (此命令为全局操作，不受 -p 参数影响)
     Store {
         #[command(subcommand)]
         action: StoreCommands,
@@ -205,7 +205,7 @@ pub enum StoreCommands {
     },
     /// 查看存储状态并验证连接性
     Status,
-    /// 迁移全量数据到新的存储后端
+    /// 迁移全量数据到新的存储后端 (此操作为全量迁移，涉及所有 Profile)
     Migrate {
         /// 目标存储 URL (如 mysql://user:pass@host/db 或 local)
         #[arg(long, help = "目标存储 URL")]
@@ -545,6 +545,9 @@ async fn run() -> Result<()> {
     // Handle 'store' command early before Vault creation to allow fixing broken storage configs
     // Handle 'store' commands that don't need a vault first (Set/Status)
     if let Commands::Store { action } = &cli.command {
+        if cli.profile.is_some() && cli.format == "text" {
+            println!("\x1b[33m⚠️  Warning: 'store' command is a global operation and affects all profiles. The -p/--profile flag will be ignored.\x1b[0m\n");
+        }
         match action {
             StoreCommands::Set { store, db_url, cache, cache_url } => {
                 cmd::store::set(&mut app_config, &cfg_mgr, store, db_url, cache, cache_url).await?;
