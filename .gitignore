@@ -45,3 +45,4 @@ cli/cjtCli/cjtCli-test
 /assets/search/models/
 
 .gemini/
+dump.rdb
