@@ -83,4 +83,15 @@ class ToleranceManagerTest {
         verify(pushControl).setPushEnabled(APP_KEY, true);
         verify(failStore).clear(APP_KEY);
     }
+
+    @Test
+    void shouldPerformDistributedSelfHealingWhenGhostTimerExists() {
+        // 模拟分布式环境：本地没有脏标记，但 Redis 中存在其他节点留下的计时器
+        when(failStore.clear(APP_KEY)).thenReturn(true); 
+        
+        toleranceManager.handleReconnect(APP_KEY);
+
+        // 验证：应当触发自愈，重置推送状态
+        verify(pushControl).setPushEnabled(APP_KEY, true);
+    }
 }

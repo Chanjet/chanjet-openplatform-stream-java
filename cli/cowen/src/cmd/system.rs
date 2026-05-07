@@ -32,6 +32,9 @@ pub async fn status(
     let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
     let _ = ensure_daemon_running(active_profile, &active_cfg, cfg_mgr, vault.clone(), &auth_cli).await;
 
+    let app_cfg = cfg_mgr.load_app_config().await?;
+    let global_entries = get_global_entries(&app_cfg);
+
     let mut statuses = Vec::new();
     let mut errors = Vec::new();
     for profile in &profiles {
@@ -46,22 +49,34 @@ pub async fn status(
     }
 
     if format == "json" || format == "yaml" {
-        if let Some(s) = statuses.first() {
-            if !all {
-                return crate::core::utils::render(s, format);
-            }
+        #[derive(Serialize)]
+        struct FullReport {
+            global: Vec<StatusEntry>,
+            profiles: Vec<SystemStatus>,
         }
-        return crate::core::utils::render(&statuses, format);
+        let report = FullReport {
+            global: global_entries,
+            profiles: statuses,
+        };
+        return crate::core::utils::render(&report, format);
     }
 
     let bin_name = crate::core::utils::get_bin_name().to_uppercase();
+    println!("🔍 {} System Status Diagnostics", if all { "(All Profiles)" } else { "" });
+    println!("==================================================");
+    
+    // 1. Print Global Instance Infrastructure
+    for entry in &global_entries {
+        render_entry(entry, 0);
+    }
+    println!();
+
+    // 2. Print Profile Specifics
     if !all {
         if let Some(s) = statuses.first() {
             print_single_status(&bin_name, s, false);
         }
     } else {
-        println!("🔍 {} System Status Diagnostics (All Profiles)", bin_name);
-        println!("==================================================");
         for full_status in statuses {
             print_single_status(&bin_name, &full_status, true);
             println!();
@@ -75,6 +90,16 @@ pub async fn status(
         }
     }
     Ok(())
+}
+
+fn get_global_entries(app_cfg: &crate::core::config::AppConfig) -> Vec<StatusEntry> {
+    use crate::core::status::CommonTemplate;
+    vec![
+        StatusEntry::new(CommonTemplate::Storage, StatusLevel::OK, 
+            format!("{} ({})", app_cfg.storage.store, app_cfg.storage.db_url.as_deref().unwrap_or("none"))),
+        StatusEntry::new(CommonTemplate::Cache, StatusLevel::OK, 
+            format!("{} ({})", app_cfg.storage.cache, app_cfg.storage.cache_url.as_deref().unwrap_or("none"))),
+    ]
 }
 
 async fn get_system_status(
@@ -423,15 +448,12 @@ impl StatusCollector for ConfigCollector {
         
         let mut children = vec![];
         
-        // COMPATIBILITY: Show storage/cache details as standardized child entries if not default
-        if ctx.app_config.storage.store != "local" {
-            children.push(StatusEntry::new(CommonTemplate::Storage, StatusLevel::OK, 
-                format!("{} ({})", ctx.app_config.storage.store, ctx.app_config.storage.db_url.as_deref().unwrap_or("none"))));
-        }
-        if ctx.app_config.storage.cache != "none" {
-            children.push(StatusEntry::new(CommonTemplate::Cache, StatusLevel::OK, 
-                format!("{} ({})", ctx.app_config.storage.cache, ctx.app_config.storage.cache_url.as_deref().unwrap_or("none"))));
-        }
+        // Show storage and cache details as standardized child entries (Templated)
+        children.push(StatusEntry::new(CommonTemplate::Storage, StatusLevel::OK, 
+            format!("{} ({})", ctx.app_config.storage.store, ctx.app_config.storage.db_url.as_deref().unwrap_or("none"))));
+        
+        children.push(StatusEntry::new(CommonTemplate::Cache, StatusLevel::OK, 
+            format!("{} ({})", ctx.app_config.storage.cache, ctx.app_config.storage.cache_url.as_deref().unwrap_or("none"))));
         
         let (level, msg) = if !ctx.config.app_key.is_empty() {
             (StatusLevel::OK, format!("AppKey: {} (Mode: {})", ctx.config.app_key, mode_str))

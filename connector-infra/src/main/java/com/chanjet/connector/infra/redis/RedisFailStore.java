@@ -32,9 +32,10 @@ public class RedisFailStore implements IFailStore {
     }
 
     @Override
-    public void clear(String appKey) {
+    public boolean clear(String appKey) {
         String key = KEY_PREFIX + appKey;
-        redisTemplate.delete(key);
+        Boolean deleted = redisTemplate.delete(key);
+        return deleted != null && deleted;
     }
 
     @Override

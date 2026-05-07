@@ -72,8 +72,11 @@ public class ToleranceManager {
         
         if (now - lastVal > FORCE_CLEAN_INTERVAL_MS) {
             if (last.compareAndSet(lastVal, now)) {
-                // 只有在确定 Redis 中可能存在残留时才真正 DEL (这里为了绝对健壮，直接 DEL 是最简单的)
-                failStore.clear(appKey);
+                // 分布式兜底：如果清理了其他节点留下的计时器，说明集群已恢复健康，必须重置推送状态
+                if (failStore.clear(appKey)) {
+                    log.info("Distributed self-healing: Cleared ghost fail timer and re-enabling push for AppKey [{}].", appKey);
+                    pushControl.setPushEnabled(appKey, true);
+                }
             }
         }
     }

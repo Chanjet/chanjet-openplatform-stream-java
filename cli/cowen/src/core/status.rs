@@ -180,43 +180,36 @@ pub async fn collect_daemon_status(
         )
     };
 
-    // Inject Connection State if running
+    // Inject Connection State if running AND new version (status file exists)
     if found_daemon_pid.is_some() {
         let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
-        let mut conn_state = if let Ok(content) = std::fs::read_to_string(status_file) {
+        if let Ok(content) = std::fs::read_to_string(status_file) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string()
-            } else {
-                "Unknown".to_string()
+                let conn_state = json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
+                
+                let (conn_level, conn_icon_override) = match conn_state.as_str() {
+                    "Connected" => (StatusLevel::OK, None),
+                    "Connecting" => (StatusLevel::OK, Some("⏳")), // OK during startup
+                    "Disconnected" => (StatusLevel::WARN, Some("💤")),
+                    "Reconnecting" => (StatusLevel::ERROR, Some("📡")),
+                    _ => (StatusLevel::WARN, Some("❓")),
+                };
+
+                if conn_level as i32 > level as i32 && conn_level != StatusLevel::WARN {
+                    level = conn_level;
+                }
+
+                if supports_webhooks {
+                    let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, conn_state);
+                    if let Some(icon) = conn_icon_override {
+                        entry.icon = icon.to_string();
+                    }
+                    children.push(entry);
+                }
             }
-        } else {
-            "Unknown".to_string()
-        };
-
-        // COMPATIBILITY: If state is Unknown, try probing the proxy port
-        if conn_state == "Unknown" && is_port_responsive(ctx.config.proxy_port).await {
-            conn_state = "Connected (Legacy)".to_string();
         }
-
-        let (conn_level, conn_icon_override) = match conn_state.as_str() {
-            s if s.starts_with("Connected") => (StatusLevel::OK, None),
-            "Connecting" => (StatusLevel::WARN, Some("⏳")),
-            "Disconnected" => (StatusLevel::WARN, Some("💤")),
-            "Reconnecting" => (StatusLevel::ERROR, Some("📡")),
-            _ => (StatusLevel::WARN, Some("❓")),
-        };
-
-        if conn_level as i32 > level as i32 && conn_level != StatusLevel::WARN {
-            level = conn_level;
-        }
-
-        if supports_webhooks {
-            let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, conn_state);
-            if let Some(icon) = conn_icon_override {
-                entry.icon = icon.to_string();
-            }
-            children.push(entry);
-        }
+        // COMPATIBILITY: If status file is missing, we don't show Bridge Connection at all 
+        // to match v0.2.1 behavior.
     }
 
     let mut details = vec![];

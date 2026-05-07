@@ -118,4 +118,19 @@ class DefaultWsHandlerUnitTest {
         // 验证：建立连接后应立即重置失败状态以恢复推送 (Stream Start)
         verify(toleranceManager).resetFailureState("app-1");
     }
+
+    @Test
+    void shouldClearFailureStateOnHeartbeat() throws Exception {
+        WebSocketSession session = mock(WebSocketSession.class);
+        Map<String, Object> attrs = new HashMap<>();
+        attrs.put("clientId", "client-1");
+        attrs.put("appKey", "app-1");
+        when(session.getAttributes()).thenReturn(attrs);
+
+        // 收到心跳消息
+        handler.handleTextMessage(session, new TextMessage("{\"msg_type\":\"pong\"}"));
+
+        // 验证：心跳也应触发故障状态清理，避免 stale timer 导致误判
+        verify(toleranceManager).handleReconnect("app-1");
+    }
 }

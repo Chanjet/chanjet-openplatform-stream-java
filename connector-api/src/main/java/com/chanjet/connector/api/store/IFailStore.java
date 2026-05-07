@@ -16,8 +16,9 @@ public interface IFailStore {
 
     /**
      * 清理计时器。
+     * @return 如果实际清理了键则返回 true，否则返回 false
      */
-    void clear(String appKey);
+    boolean clear(String appKey);
 
     /**
      * 获取失败开始时间。

@@ -131,6 +131,7 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             sessionRegistry.updateActiveTime(clientId);
             if (appKey != null) {
                 routeStore.add(appKey, nodeId, clientId);
+                toleranceManager.handleReconnect(appKey);
             }
         }
     }
