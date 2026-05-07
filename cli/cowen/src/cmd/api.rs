@@ -688,12 +688,11 @@ mod tests {
         async fn perform_login(&self, _profile: &str, _cfg: &Config, _force: bool, _finalize: Option<&str>) -> Result<()> {
             Ok(())
         }
-        async fn get_status_entries(&self, _profile: &str, _cfg: &Config) -> Result<Vec<crate::core::status::StatusEntry>> {
+        async fn get_diagnostics(&self, _ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
             Ok(vec![])
         }
         fn requires_initial_push(&self, _cfg: &Config) -> bool { false }
         async fn on_maintenance_tick(&self, _profile: &str, _cfg: &Config) -> Result<()> { Ok(()) }
-        fn get_daemon_display_info(&self, _cfg: &Config, _is_running: bool) -> (String, String) { ("".to_string(), "".to_string()) }
         fn requires_ticket(&self, _cfg: &Config) -> bool { false }
         fn supports_webhooks(&self, _cfg: &Config) -> bool { true }
         fn supports_api_call(&self, _cfg: &Config) -> bool { true }

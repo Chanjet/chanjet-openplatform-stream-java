@@ -37,7 +37,7 @@ get_case_db_name() {
 # Isolation
 setup_workspace() {
     local suite=$1
-    export TEST_BASE="$(pwd)/target/cowen_tests"
+    export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
     export COWEN_HOME="$TEST_BASE/.cowen_test_$suite"
     echo -e "${BLUE}▶ Starting Suite: $suite${NC}"
     echo -e "  Workspace: $COWEN_HOME"
@@ -141,7 +141,7 @@ start_mock() {
         lsof -ti ":$MOCK_PORT" | xargs kill -9 2>/dev/null || true
     fi
     sleep 1
-    MOCK_PORT=$MOCK_PORT python3 tests/mock_server.py > "target/cowen_tests/mock_server_$MOCK_PORT.log" 2>&1 &
+    MOCK_PORT=$MOCK_PORT python3 tests/mock_server.py > "$TEST_BASE/mock_server_$MOCK_PORT.log" 2>&1 &
     MOCK_PID=$!
     for i in {1..10}; do
         if curl -s $MOCK_URL/v1/mock/ping > /dev/null; then

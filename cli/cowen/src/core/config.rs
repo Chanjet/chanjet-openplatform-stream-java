@@ -115,8 +115,8 @@ impl Config {
     pub fn default_with_profile(_p: &str) -> Self {
         Self {
             app_key: "".to_string(),
-            openapi_url: "https://api.chanjet.com".to_string(),
-            stream_url: "wss://stream.chanjet.com".to_string(),
+            openapi_url: env!("DEF_OPENAPI_URL").to_string(),
+            stream_url: env!("DEF_STREAM_URL").to_string(),
             webhook_target: "http://localhost:8080".to_string(),
             log: LogConfig { 
                 level: "info".to_string(),
@@ -175,8 +175,6 @@ impl ConfigManager {
     }
 
     pub async fn exists(&self, profile: &str) -> bool {
-        // A profile exists if it has a local config file OR entries in the vault.
-        // We don't just check list_profiles() because that includes the current default profile even if empty.
         let path = self.app_dir.join(format!("{}.yaml", profile));
         if path.exists() {
             return true;
@@ -198,12 +196,10 @@ impl ConfigManager {
             "local" => false,
             "innerdb" => {
                 if let Some(url) = &app_cfg.storage.db_url {
-                    // It's the default local innerdb if it points to {app_dir}/cowen.db
                     let db_path = self.app_dir.join("cowen.db");
                     let expected_sqlite = format!("sqlite://{}", db_path.to_string_lossy());
                     let expected_innerdb = format!("innerdb://{}", db_path.to_string_lossy());
                     
-                    // Note: starts_with is used because sometimes the URL might have query params like ?mode=rwc
                     url != &expected_sqlite && url != &expected_innerdb 
                         && !url.starts_with(&format!("{}?", expected_sqlite))
                         && !url.starts_with(&format!("{}?", expected_innerdb))
@@ -211,7 +207,7 @@ impl ConfigManager {
                     false
                 }
             },
-            _ => true, // mysql, postgres, redis, and explicit "sqlite" are all considered distributed
+            _ => true,
         }
     }
 
@@ -220,14 +216,11 @@ impl ConfigManager {
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
         let (config, _exists) = if let Some(vault) = self.vault.get() {
-            // Priority 1: Cloud/Shared Storage (Database)
             if is_db_mode {
                 if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
                     match serde_yaml::from_str::<Config>(&item.value) {
                         Ok(mut config) => {
                             config.version = item.version;
-                            
-                            // Hydrate sensitive fields from Vault (soft-fail: not all modes use all secrets)
                             if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
                             if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
                             if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
@@ -239,7 +232,6 @@ impl ConfigManager {
                         }
                     }
                 } else {
-                    // Fallback to local if shared manifest missing
                     self.load_local_profile_with_status(profile).await?
                 }
             } else {
@@ -249,14 +241,11 @@ impl ConfigManager {
             self.load_local_profile_with_status(profile).await?
         };
 
-        // Validate: Delegate to injected validator if present
-        // This decouples core logic from specific auth mode restrictions (e.g. OAuth2 in distributed mode)
         if let Some(validator) = self.validator.get() {
             validator.validate_load(profile, &config, is_db_mode, _exists)?;
         }
 
         let mut config = config;
-        // --- Cloud-Native Override ---
         if let Ok(key) = std::env::var("COWEN_APP_KEY") { config.app_key = key; }
         if let Ok(secret) = std::env::var("COWEN_APP_SECRET") { config.app_secret = secret; }
         if let Ok(ek) = std::env::var("COWEN_ENCRYPT_KEY") { config.encrypt_key = ek; }
@@ -279,13 +268,12 @@ impl ConfigManager {
 
         Ok(config)
     }
+
     async fn load_local_profile_with_status(&self, profile: &str) -> Result<(Config, bool)> {
         let profile_path = self.get_profile_path(profile);
         if profile_path.exists() {
             let content = fs::read_to_string(&profile_path)?;
             let mut config: Config = serde_yaml::from_str(&content)?;
-            
-            // Re-hydrate sensitive fields from Vault
             if let Some(vault) = self.vault.get() {
                 if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
                 if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
@@ -293,8 +281,6 @@ impl ConfigManager {
             }
             return Ok((config, true));
         }
-
-        // Fallback: New profile
         Ok((Config::default_with_profile(profile), false))
     }
 
@@ -302,13 +288,11 @@ impl ConfigManager {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
-        // Validate: Delegate to injected validator if present
         if let Some(validator) = self.validator.get() {
             validator.validate_save(profile, config, is_db_mode)?;
         }
 
         if let Some(vault) = self.vault.get() {
-            // Only save secrets if they are not empty to avoid overwriting with defaults during partial loads
             if !config.app_secret.is_empty() {
                 let _ = vault.set_secret(profile, "app_secret", &config.app_secret).await;
             }
@@ -325,8 +309,6 @@ impl ConfigManager {
             } else {
                 let _ = vault.set_config(profile, "system:manifest", &manifest).await;
             }
-
-            // Trigger notification for profile configuration change
             let _ = vault.notify_config_changed(profile, "system:manifest").await;
         }
 
@@ -364,7 +346,6 @@ impl ConfigManager {
                 AppConfig { storage: StorageConfig { store: "innerdb".to_string(), db_url: Some(db_url), ..Default::default() } }
             };
 
-            // Apply overrides before first save to avoid unnecessary disk writes with wrong settings
             if let Ok(store) = std::env::var("COWEN_STORE_TYPE") { app_config.storage.store = store; }
             if let Ok(db_url) = std::env::var("COWEN_DB_URL") { app_config.storage.db_url = Some(db_url); }
             if let Ok(cache) = std::env::var("COWEN_CACHE_TYPE") { app_config.storage.cache = cache; }
@@ -376,20 +357,10 @@ impl ConfigManager {
         let content = fs::read_to_string(path)?;
         let mut config: AppConfig = serde_yaml::from_str(&content)?;
 
-        // --- Cloud-Native Override ---
-        // Environment variables take precedence over file-based config
-        if let Ok(store) = std::env::var("COWEN_STORE_TYPE") {
-            config.storage.store = store;
-        }
-        if let Ok(db_url) = std::env::var("COWEN_DB_URL") {
-            config.storage.db_url = Some(db_url);
-        }
-        if let Ok(cache) = std::env::var("COWEN_CACHE_TYPE") {
-            config.storage.cache = cache;
-        }
-        if let Ok(cache_url) = std::env::var("COWEN_CACHE_URL") {
-            config.storage.cache_url = Some(cache_url);
-        }
+        if let Ok(store) = std::env::var("COWEN_STORE_TYPE") { config.storage.store = store; }
+        if let Ok(db_url) = std::env::var("COWEN_DB_URL") { config.storage.db_url = Some(db_url); }
+        if let Ok(cache) = std::env::var("COWEN_CACHE_TYPE") { config.storage.cache = cache; }
+        if let Ok(cache_url) = std::env::var("COWEN_CACHE_URL") { config.storage.cache_url = Some(cache_url); }
 
         Ok(config)
     }
@@ -406,13 +377,11 @@ impl ConfigManager {
 
     pub fn get_default_profile(&self) -> String {
         let path = self.app_dir.join("current_profile");
-        let p = if let Ok(p) = fs::read_to_string(&path) { 
+        if let Ok(p) = fs::read_to_string(&path) { 
             p.trim().to_string() 
         } else {
             "default".to_string()
-        };
-        tracing::debug!(target: "sys", path = %path.display(), profile = %p, "Loaded default profile name");
-        p
+        }
     }
 
     pub fn set_default_profile(&self, profile: &str) -> Result<()> {
@@ -423,8 +392,6 @@ impl ConfigManager {
 
     pub async fn list_profiles(&self) -> Result<Vec<String>> {
         let mut profiles = std::collections::HashSet::new();
-        
-        // 1. Scan Store (Distributed Registry)
         if let Some(vault) = self.vault.get() {
             if let Ok(remote_profiles) = vault.list_all_profiles().await {
                 for p in remote_profiles {
@@ -434,23 +401,18 @@ impl ConfigManager {
                 }
             }
         }
-
-        // 2. Scan Filesystem (Local source)
         if let Ok(entries) = fs::read_dir(&self.app_dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
-                        if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                            if !name.contains("_openapi") && name != "app" {
-                                profiles.insert(name.to_string());
-                            }
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
+                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                        if !name.contains("_openapi") && name != "app" {
+                            profiles.insert(name.to_string());
                         }
                     }
                 }
             }
         }
-        
         let mut res: Vec<String> = profiles.into_iter().collect();
         res.sort();
         Ok(res)
@@ -469,13 +431,10 @@ impl ConfigManager {
     }
 
     pub async fn delete(&self, profile: &str) -> Result<()> {
-        // 1. Delete local file
         let path = self.get_profile_path(profile);
         if path.exists() {
             fs::remove_file(path)?;
         }
-
-        // 2. Delete from Vault (all keys associated with this profile)
         if let Some(vault) = self.vault.get() {
             let _ = vault.clear_profile(profile).await;
         }
@@ -496,4 +455,16 @@ pub fn get_app_dir() -> PathBuf {
     }
     let home = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
     home.join(".cowen")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_urls() {
+        let config = Config::default_with_profile("test");
+        assert_eq!(config.openapi_url, env!("DEF_OPENAPI_URL"));
+        assert_eq!(config.stream_url, env!("DEF_STREAM_URL"));
+    }
 }

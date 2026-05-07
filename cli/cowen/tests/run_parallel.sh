@@ -83,6 +83,7 @@ PARALLEL_SUITES=(
     "tests/case_32_mysql_shared_storage.sh"
     "tests/case_33_postgres_shared_storage.sh"
     "tests/case_34_exclusive_connection.sh"
+    "tests/case_35_daemon_recovery_enhanced.sh"
     "tests/case_40_init_cleanup.sh"
 )
 
@@ -108,6 +109,7 @@ telemetry_enabled: false
 ai_enabled: false
 EOF
 
+    export TEST_BASE="$workspace"
     export COWEN_HOME="$workspace"
     export MOCK_PORT=$mock_port
     

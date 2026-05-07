@@ -42,6 +42,28 @@ impl ReqwestSender {
     }
 }
 
+#[cfg(feature = "inte")]
+pub struct MockHttpSender {
+    pub real_sender: ReqwestSender,
+}
+
+#[cfg(feature = "inte")]
+#[async_trait::async_trait]
+impl HttpSender for MockHttpSender {
+    async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
+        // 🚀 OCP: Integration tests can intercept or log platform calls here
+        self.real_sender.post(url, headers, body).await
+    }
+
+    async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
+        self.real_sender.post_form(url, headers, body).await
+    }
+
+    async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
+        self.real_sender.get(url, headers).await
+    }
+}
+
 #[async_trait::async_trait]
 impl HttpSender for ReqwestSender {
     async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> Result<SimpleResponse> {
