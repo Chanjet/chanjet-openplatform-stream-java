@@ -196,6 +196,9 @@ impl ConfigManager {
             "local" => false,
             "innerdb" => {
                 if let Some(url) = &app_cfg.storage.db_url {
+                    // Check for default literal or expanded local paths
+                    if url == "innerdb" { return false; }
+                    
                     let db_path = self.app_dir.join("cowen.db");
                     let expected_sqlite = format!("sqlite://{}", db_path.to_string_lossy());
                     let expected_innerdb = format!("innerdb://{}", db_path.to_string_lossy());
@@ -460,6 +463,35 @@ pub fn get_app_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_distributed_storage() {
+        let mgr = ConfigManager::new().unwrap();
+        
+        // 1. Local is NOT distributed
+        let mut app_cfg = AppConfig::default();
+        app_cfg.storage.store = "local".to_string();
+        assert!(!mgr.is_distributed_storage(&app_cfg));
+
+        // 2. Default innerdb literal is NOT distributed
+        app_cfg.storage.store = "innerdb".to_string();
+        app_cfg.storage.db_url = Some("innerdb".to_string());
+        assert!(!mgr.is_distributed_storage(&app_cfg));
+
+        // 3. Default innerdb full path is NOT distributed
+        let db_path = mgr.app_dir.join("cowen.db");
+        app_cfg.storage.db_url = Some(format!("innerdb://{}", db_path.to_string_lossy()));
+        assert!(!mgr.is_distributed_storage(&app_cfg));
+
+        // 4. Custom SQLite path IS distributed (potential sharing)
+        app_cfg.storage.db_url = Some("sqlite:///tmp/other.db".to_string());
+        assert!(mgr.is_distributed_storage(&app_cfg));
+
+        // 5. MySQL IS distributed
+        app_cfg.storage.store = "mysql".to_string();
+        app_cfg.storage.db_url = Some("mysql://user:pass@host/db".to_string());
+        assert!(mgr.is_distributed_storage(&app_cfg));
+    }
 
     #[test]
     fn test_default_urls() {
