@@ -2,7 +2,25 @@ use crate::core::config::Config;
 use anyhow::Result;
 use chrono::{Utc, Local};
 use crate::auth::pool::TokenPool;
-use crate::core::status::{StatusEntry, StatusLevel, StatusTemplate};
+use crate::core::status::{StatusEntry, StatusLevel, AsStatusUI};
+
+pub enum StoreAppTemplate {
+    SecurityVault,
+    SuiteAccessToken,
+    AppTicket,
+    AuthenticationStatus,
+}
+
+impl AsStatusUI for StoreAppTemplate {
+    fn ui(&self) -> (String, String) {
+        match self {
+            Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
+            Self::SuiteAccessToken => ("SuiteAccessToken".to_string(), "🎫".to_string()),
+            Self::AppTicket => ("AppTicket".to_string(), "🎫".to_string()),
+            Self::AuthenticationStatus => ("Authentication Status".to_string(), "🔐".to_string()),
+        }
+    }
+}
 
 pub(crate) async fn get_diagnostics_entries(
     pool: &(dyn TokenPool + Send + Sync),
@@ -24,7 +42,7 @@ pub(crate) async fn get_diagnostics_entries(
         (StatusLevel::ERROR, format!("Missing: {}", missing.join(", ")))
     };
 
-    entries.push(StatusEntry::new(StatusTemplate::SecurityVault, sec_level, sec_msg)
+    entries.push(StatusEntry::new(StoreAppTemplate::SecurityVault, sec_level, sec_msg)
         .with_reason(if sec_level == StatusLevel::ERROR { Some("缺少必要凭据，可能导致 API 调用或解密失败。".to_string()) } else { None }));
 
     let global_profile = format!("app:{}", config.app_key);
@@ -37,7 +55,7 @@ pub(crate) async fn get_diagnostics_entries(
             details.push(format!("App ID:  {}", identity.app_id));
         }
 
-        entries.push(StatusEntry::new(StatusTemplate::SuiteAccessToken, if is_expired { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
+        entries.push(StatusEntry::new(StoreAppTemplate::SuiteAccessToken, if is_expired { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
                 if is_expired { "EXPIRED" } else { "VALID" },
                 token.expires_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S")))
             .with_reason(if is_expired { Some("套件令牌已过期。".to_string()) } else { None })
@@ -47,9 +65,9 @@ pub(crate) async fn get_diagnostics_entries(
     // 3. AppTicket (Global)
     if let Ok(ts_str) = vault.get(&global_profile, "app_ticket_created").await {
         let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
-        entries.push(StatusEntry::new(StatusTemplate::AppTicket, StatusLevel::OK, format!("[CACHED] (Received: {})", created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S"))));
+        entries.push(StatusEntry::new(StoreAppTemplate::AppTicket, StatusLevel::OK, format!("[CACHED] (Received: {})", created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S"))));
     } else {
-        entries.push(StatusEntry::new(StatusTemplate::AppTicket, StatusLevel::NONE, "[NONE] (等待 Daemon 接收推送)".to_string()));
+        entries.push(StatusEntry::new(StoreAppTemplate::AppTicket, StatusLevel::NONE, "[NONE] (等待 Daemon 接收推送)".to_string()));
     }
 
     Ok(entries)

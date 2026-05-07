@@ -414,25 +414,23 @@ struct ConfigCollector;
 impl StatusCollector for ConfigCollector {
     fn name(&self) -> &str { "Config" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        use crate::core::status::StatusTemplate;
+        use crate::core::status::CommonTemplate;
         let mode_str = serde_json::to_string(&ctx.config.app_mode).unwrap_or_default().trim_matches('"').to_string();
-        let mut details = vec![
+        let details = vec![
             format!("OpenAPI: {}", ctx.config.openapi_url),
             format!("Stream:  {}", ctx.config.stream_url),
         ];
         
-        // COMPATIBILITY: Only show storage/cache details if they are NOT the default local/none
+        let mut children = vec![];
+        
+        // COMPATIBILITY: Show storage/cache details as standardized child entries if not default
         if ctx.app_config.storage.store != "local" {
-            details.push(format!("Storage: {} ({})", 
-                ctx.app_config.storage.store, 
-                ctx.app_config.storage.db_url.as_deref().unwrap_or("none")
-            ));
+            children.push(StatusEntry::new(CommonTemplate::Storage, StatusLevel::OK, 
+                format!("{} ({})", ctx.app_config.storage.store, ctx.app_config.storage.db_url.as_deref().unwrap_or("none"))));
         }
         if ctx.app_config.storage.cache != "none" {
-            details.push(format!("Cache:   {} ({})", 
-                ctx.app_config.storage.cache, 
-                ctx.app_config.storage.cache_url.as_deref().unwrap_or("none")
-            ));
+            children.push(StatusEntry::new(CommonTemplate::Cache, StatusLevel::OK, 
+                format!("{} ({})", ctx.app_config.storage.cache, ctx.app_config.storage.cache_url.as_deref().unwrap_or("none"))));
         }
         
         let (level, msg) = if !ctx.config.app_key.is_empty() {
@@ -441,9 +439,10 @@ impl StatusCollector for ConfigCollector {
             (StatusLevel::ERROR, "Profile not initialized or AppKey empty.".to_string())
         };
 
-        Ok(StatusEntry::new(StatusTemplate::Configuration, level, msg)
+        Ok(StatusEntry::new(CommonTemplate::Configuration, level, msg)
             .with_reason(if level == StatusLevel::ERROR { Some("请运行 'cowen init' 进行初始化".to_string()) } else { None })
-            .with_details(details))
+            .with_details(details)
+            .with_children(children))
     }
 }
 
@@ -452,7 +451,7 @@ struct ProviderCollector;
 impl StatusCollector for ProviderCollector {
     fn name(&self) -> &str { "Provider" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        use crate::core::status::StatusTemplate;
+        use crate::core::status::CommonTemplate;
         let auth = crate::auth::create_auth_client_with_vault(ctx.vault.clone());
         let mode_str = serde_json::to_string(&ctx.config.app_mode).unwrap_or_default().trim_matches('"').to_uppercase();
         
@@ -465,7 +464,8 @@ impl StatusCollector for ProviderCollector {
             _ => 0,
         }).unwrap_or(StatusLevel::OK);
 
-        Ok(StatusEntry::new(StatusTemplate::ModeDiagnostics(mode_str), max_level, format!("Collected {} status indicators", children.len()))
+        Ok(StatusEntry::new(CommonTemplate::
+ProviderSummary(format!("{} Mode Diagnostics", mode_str), "💎".to_string()), max_level, format!("Collected {} status indicators", children.len()))
             .with_children(children))
     }
 }

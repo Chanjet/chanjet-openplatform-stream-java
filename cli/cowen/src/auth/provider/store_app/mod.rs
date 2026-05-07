@@ -445,7 +445,7 @@ impl AuthProvider for StoreAppProvider {
     }
 
     async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
-        use crate::core::status::{collect_daemon_status, StatusEntry, StatusLevel, StatusTemplate};
+        use crate::core::status::{collect_daemon_status, StatusEntry, StatusLevel, CommonTemplate};
         let mut results = Vec::new();
         
         // 1. Auth Status (from diagnostics module)
@@ -458,7 +458,7 @@ impl AuthProvider for StoreAppProvider {
                 _ => 0,
             }).unwrap_or(StatusLevel::OK);
 
-            results.push(StatusEntry::new(StatusTemplate::AuthenticationStatus, max_level, format!("Collected {} status indicators", auth_entries.len()))
+            results.push(StatusEntry::new(CommonTemplate::ProviderSummary("Authentication Status".to_string(), "🔐".to_string()), max_level, format!("Collected {} status indicators", auth_entries.len()))
                 .with_children(auth_entries));
         }
 

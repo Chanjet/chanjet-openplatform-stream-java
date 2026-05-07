@@ -16,6 +16,10 @@ pub enum StatusLevel {
     NONE,
 }
 
+pub trait AsStatusUI {
+    fn ui(&self) -> (String, String);
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct StatusEntry {
     pub name: String,
@@ -28,11 +32,11 @@ pub struct StatusEntry {
 }
 
 impl StatusEntry {
-    pub fn new(template: StatusTemplate, level: StatusLevel, message: String) -> Self {
+    pub fn new(template: impl AsStatusUI, level: StatusLevel, message: String) -> Self {
         let (name, icon) = template.ui();
         Self {
-            name: name.to_string(),
-            icon: icon.to_string(),
+            name,
+            icon,
             level,
             message,
             reason: None,
@@ -57,50 +61,30 @@ impl StatusEntry {
     }
 }
 
-pub enum StatusTemplate {
+pub enum CommonTemplate {
     Configuration,
+    Storage,
+    Cache,
     SecurityVault,
-    AccessToken,
-    RefreshToken,
-    AppTicket,
-    SuiteAccessToken,
-    Authentication,
-    AuthenticationStatus,
-    AccessTokenStatus,
     Daemon(String),        // display_name
     ProactiveRefresh,
     BridgeConnection,
-    ModeDiagnostics(String), // mode_name
+    ProviderSummary(String, String), // dynamic_name, dynamic_icon
     Custom(String, String), // name, icon
 }
 
-impl StatusTemplate {
-    pub fn ui(&self) -> (&str, &str) {
+impl AsStatusUI for CommonTemplate {
+    fn ui(&self) -> (String, String) {
         match self {
-            Self::Configuration => ("Configuration", "⚙️"),
-            Self::SecurityVault => ("Security (Vault)", "🛡️"),
-            Self::AccessToken => ("AccessToken", "🔑"),
-            Self::RefreshToken => ("RefreshToken", "🔄"),
-            Self::AppTicket => ("AppTicket", "🎫"),
-            Self::SuiteAccessToken => ("SuiteAccessToken", "🎫"),
-            Self::Authentication => ("Authentication", "🔐"),
-            Self::AuthenticationStatus => ("Authentication Status", "🔐"),
-            Self::AccessTokenStatus => ("AccessToken Status", "🔑"),
-            Self::Daemon(name) => (name, "📟"),
-            Self::ProactiveRefresh => ("Proactive Refresh", "🔄"),
-            Self::BridgeConnection => ("Bridge Connection", "🌐"),
-            Self::ModeDiagnostics(mode) => {
-                // Static buffer hack or just return a tuple. Let's use a box for simplicity if needed, 
-                // but actually we can return owned Strings or change the trait.
-                // To keep it simple and &str based:
-                match mode.as_str() {
-                    "SELF-BUILT" => ("SELF-BUILT Mode Diagnostics", "💎"),
-                    "OAUTH2" => ("OAUTH2 Mode Diagnostics", "💎"),
-                    "STORE-APP" => ("STORE-APP Mode Diagnostics", "💎"),
-                    _ => ("App Mode Diagnostics", "💎"),
-                }
-            },
-            Self::Custom(name, icon) => (name, icon),
+            Self::Configuration => ("Configuration".to_string(), "⚙️".to_string()),
+            Self::Storage => ("Storage".to_string(), "📦".to_string()),
+            Self::Cache => ("Cache".to_string(), "⚡".to_string()),
+            Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
+            Self::Daemon(name) => (name.clone(), "📟".to_string()),
+            Self::ProactiveRefresh => ("Proactive Refresh".to_string(), "🔄".to_string()),
+            Self::BridgeConnection => ("Bridge Connection".to_string(), "🌐".to_string()),
+            Self::ProviderSummary(name, icon) => (name.clone(), icon.clone()),
+            Self::Custom(name, icon) => (name.clone(), icon.clone()),
         }
     }
 }
@@ -176,7 +160,7 @@ pub async fn collect_daemon_status(
             format!("[RUNNING] (PID: {})", pid),
             vec![
                 StatusEntry::new(
-                    StatusTemplate::ProactiveRefresh,
+                    CommonTemplate::ProactiveRefresh,
                     StatusLevel::OK,
                     format!("{} 令牌环境将保持热启动状态", efficiency_tip)
                 )
@@ -188,7 +172,7 @@ pub async fn collect_daemon_status(
             "[OFFLINE] (未检测到活跃后台进程)".to_string(),
             vec![
                 StatusEntry::new(
-                    StatusTemplate::Custom("Efficiency Tip".to_string(), "💡".to_string()),
+                    CommonTemplate::Custom("Efficiency Tip".to_string(), "💡".to_string()),
                     StatusLevel::WARN,
                     efficiency_tip.to_string()
                 )
@@ -227,7 +211,7 @@ pub async fn collect_daemon_status(
         }
 
         if supports_webhooks {
-            let mut entry = StatusEntry::new(StatusTemplate::BridgeConnection, conn_level, conn_state);
+            let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, conn_state);
             if let Some(icon) = conn_icon_override {
                 entry.icon = icon.to_string();
             }
@@ -240,7 +224,7 @@ pub async fn collect_daemon_status(
         details.push(format!("Build ID: {}", bid));
     }
 
-    Ok(StatusEntry::new(StatusTemplate::Daemon(display_name.to_string()), level, msg)
+    Ok(StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
         .with_reason(if found_daemon_pid.is_none() { 
             Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
         } else if level == StatusLevel::ERROR {

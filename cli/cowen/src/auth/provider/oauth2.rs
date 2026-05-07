@@ -462,7 +462,25 @@ impl AuthProvider for OAuth2Provider {
     }
 
     async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
-        use crate::core::status::{StatusEntry, StatusLevel, StatusTemplate, collect_daemon_status};
+        use crate::core::status::{StatusEntry, StatusLevel, CommonTemplate, AsStatusUI, collect_daemon_status};
+        
+        enum OAuth2Template {
+            SecurityVault,
+            AccessToken,
+            RefreshToken,
+            Authentication,
+        }
+        impl AsStatusUI for OAuth2Template {
+            fn ui(&self) -> (String, String) {
+                match self {
+                    Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
+                    Self::AccessToken => ("AccessToken".to_string(), "🔑".to_string()),
+                    Self::RefreshToken => ("RefreshToken".to_string(), "🔄".to_string()),
+                    Self::Authentication => ("Authentication".to_string(), "🔐".to_string()),
+                }
+            }
+        }
+
         let mut results = Vec::new();
         let profile = &ctx.profile;
         let vault = ctx.vault.clone();
@@ -471,7 +489,7 @@ impl AuthProvider for OAuth2Provider {
         let mut auth_entries = Vec::new();
 
         // 1.1 Security Check
-        auth_entries.push(StatusEntry::new(StatusTemplate::SecurityVault, StatusLevel::OK, "All core secrets are securely stored.".to_string()));
+        auth_entries.push(StatusEntry::new(OAuth2Template::SecurityVault, StatusLevel::OK, "All core secrets are securely stored.".to_string()));
 
         // 1.2 Token Status
         let refresh_error = vault.get(profile, "last_refresh_error").await.ok();
@@ -483,16 +501,16 @@ impl AuthProvider for OAuth2Provider {
             let ref_expired = Utc::now() > pair.refresh_expires_at;
 
             let token_children = vec![
-                StatusEntry::new(StatusTemplate::AccessToken, if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
+                StatusEntry::new(OAuth2Template::AccessToken, if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
                         if is_expired || ref_revoked { "EXPIRED" } else { "VALID" },
                         pair.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
                     .with_reason(if ref_revoked {
                         Some("关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。".to_string())
                     } else if is_expired { 
-                        refresh_error.map(|e| format!("自动续约失败: {}", e))
+                        refresh_error.as_ref().map(|e| format!("自动续约失败: {}", e))
                             .or(Some("AccessToken 已过期，正在等待后台续约进程处理...".to_string()))
                     } else { None }),
-                StatusEntry::new(StatusTemplate::RefreshToken, if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
+                StatusEntry::new(OAuth2Template::RefreshToken, if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
                         if ref_revoked { "REVOKED" } else if ref_expired { "EXPIRED" } else { "VALID" },
                         pair.refresh_expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
                     .with_reason(if ref_revoked {
@@ -515,7 +533,7 @@ impl AuthProvider for OAuth2Provider {
                 details.push(format!("App ID:  {}", identity.app_id));
             }
 
-            auth_entries.push(StatusEntry::new(StatusTemplate::Authentication, if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK }, "OAuth2 tokens are locally managed.".to_string())
+            auth_entries.push(StatusEntry::new(OAuth2Template::Authentication, if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK }, "OAuth2 tokens are locally managed.".to_string())
                 .with_reason(if ref_revoked { Some("会话已失效 (Revoked)".to_string()) } else { None })
                 .with_details(details)
                 .with_children(token_children));
@@ -530,7 +548,7 @@ impl AuthProvider for OAuth2Provider {
                 _ => 0,
             }).unwrap_or(StatusLevel::OK);
 
-            results.push(StatusEntry::new(StatusTemplate::AuthenticationStatus, max_level, format!("Collected {} status indicators", auth_entries.len()))
+            results.push(StatusEntry::new(CommonTemplate::ProviderSummary("Authentication Status".to_string(), "🔐".to_string()), max_level, format!("Collected {} status indicators", auth_entries.len()))
                 .with_children(auth_entries));
         }
 

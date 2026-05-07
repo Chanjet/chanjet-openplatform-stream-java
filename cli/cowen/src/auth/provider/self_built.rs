@@ -455,7 +455,25 @@ impl AuthProvider for SelfBuiltProvider {
     }
 
     async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
-        use crate::core::status::{StatusEntry, StatusLevel, StatusTemplate, collect_daemon_status};
+        use crate::core::status::{StatusEntry, StatusLevel, CommonTemplate, AsStatusUI, collect_daemon_status};
+        
+        enum SelfBuiltTemplate {
+            SecurityVault,
+            AccessToken,
+            AppTicket,
+            AuthSummary,
+        }
+        impl AsStatusUI for SelfBuiltTemplate {
+            fn ui(&self) -> (String, String) {
+                match self {
+                    Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
+                    Self::AccessToken => ("AccessToken".to_string(), "🔑".to_string()),
+                    Self::AppTicket => ("AppTicket".to_string(), "🎫".to_string()),
+                    Self::AuthSummary => ("AccessToken Status".to_string(), "🔑".to_string()),
+                }
+            }
+        }
+
         let mut results = Vec::new();
         let profile = &ctx.profile;
         let config = ctx.config;
@@ -488,7 +506,7 @@ impl AuthProvider for SelfBuiltProvider {
             (StatusLevel::OK, "All core secrets are securely stored.".to_string(), None)
         };
 
-        auth_entries.push(StatusEntry::new(StatusTemplate::SecurityVault, sec_level, sec_msg)
+        auth_entries.push(StatusEntry::new(SelfBuiltTemplate::SecurityVault, sec_level, sec_msg)
             .with_reason(sec_reason));
 
         let global_profile = format!("app:{}", config.app_key);
@@ -526,7 +544,7 @@ impl AuthProvider for SelfBuiltProvider {
                     details.push(format!("App ID:  {}", identity.app_id));
                 }
 
-                auth_entries.push(StatusEntry::new(StatusTemplate::AccessToken, if is_expired { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", if is_expired { "EXPIRED" } else { "VALID" }, exp_msg))
+                auth_entries.push(StatusEntry::new(SelfBuiltTemplate::AccessToken, if is_expired { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", if is_expired { "EXPIRED" } else { "VALID" }, exp_msg))
                     .with_reason(if is_expired { Some("令牌已过期，正在等待后台任务进行续约。".to_string()) } else { None })
                     .with_details(details));
             }
@@ -543,9 +561,9 @@ impl AuthProvider for SelfBuiltProvider {
 
         if let Some(ts_str) = ticket_created_at_opt {
             let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
-            auth_entries.push(StatusEntry::new(StatusTemplate::AppTicket, StatusLevel::OK, format!("[CACHED] (Received: {})", created_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"))));
+            auth_entries.push(StatusEntry::new(SelfBuiltTemplate::AppTicket, StatusLevel::OK, format!("[CACHED] (Received: {})", created_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"))));
         } else {
-            auth_entries.push(StatusEntry::new(StatusTemplate::AppTicket, StatusLevel::NONE, "[NONE] (等待 Daemon 接收推送)".to_string()));
+            auth_entries.push(StatusEntry::new(SelfBuiltTemplate::AppTicket, StatusLevel::NONE, "[NONE] (等待 Daemon 接收推送)".to_string()));
         }
 
         // Wrap Authentication Summary
@@ -557,7 +575,7 @@ impl AuthProvider for SelfBuiltProvider {
                 _ => 0,
             }).unwrap_or(StatusLevel::OK);
 
-            results.push(StatusEntry::new(StatusTemplate::AccessTokenStatus, max_level, format!("Collected {} status indicators", auth_entries.len()))
+            results.push(StatusEntry::new(SelfBuiltTemplate::AuthSummary, max_level, format!("Collected {} status indicators", auth_entries.len()))
                 .with_children(auth_entries));
         }
 
