@@ -65,7 +65,7 @@ fi
 
 # Wait for WAL to flush by killing daemon
 echo "   Killing daemon $DAEMON_PID..."
-kill -9 $DAEMON_PID 2>/dev/null
+kill -9 $DAEMON_PID 2>/dev/null || true
 # Use a more specific pattern to avoid killing the test script itself
 pkill -f "bin/cowen daemon.*--profile $PROF" 2>/dev/null || true
 pkill -f "debug/cowen daemon.*--profile $PROF" 2>/dev/null || true
@@ -110,11 +110,11 @@ for i in 1 10 $ORG_COUNT; do
         echo -e " ${GREEN}[MATCH]${NC}"
     else
         echo -e " ${RED}[MISMATCH]${NC} ($RECEIVED_TOKEN)"
-        kill -9 $DAEMON_PID 2>/dev/null
+        kill -9 $DAEMON_PID 2>/dev/null || true
         exit 1
     fi
 done
 
 # Cleanup
-kill -9 $DAEMON_PID 2>/dev/null
+kill -9 $DAEMON_PID 2>/dev/null || true
 echo -e "\n${GREEN}🎊 Case 28 Passed!${NC}"

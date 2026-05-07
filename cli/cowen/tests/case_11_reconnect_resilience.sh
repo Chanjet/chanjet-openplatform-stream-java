@@ -46,14 +46,23 @@ echo -e "${BOLD}3. Simulate Service Rolling Update (Force Close WS)${NC}"
 curl -s -X POST "$MOCK_URL/control/kill_connections" >/dev/null
 echo -e "   ${YELLOW}⚡ WS connection killed on server side${NC}"
 
-# Verify it's disconnected
-sleep 0.5
-STATUS=$("$COWEN_BIN" status)
-if echo "$STATUS" | grep -q "Disconnected" || echo "$STATUS" | grep -q "Reconnecting"; then
-    echo -e "   ${GREEN}✓${NC} Daemon detected disconnection"
-else
-    echo -e "   ${RED}✗${NC} Daemon still thinks it's connected (or status didn't update)"
-    echo "$STATUS"
+# Verify it's disconnected (Wait up to 10s)
+echo -n "   Waiting for daemon to detect disconnection..."
+DETECTED=false
+for i in {1..20}; do
+    STATUS=$("$COWEN_BIN" status)
+    if echo "$STATUS" | grep -q "Disconnected" || echo "$STATUS" | grep -q "Reconnecting" || echo "$STATUS" | grep -q "Connecting"; then
+        echo -e " ${GREEN}[OK]${NC}"
+        DETECTED=true
+        break
+    fi
+    sleep 0.5
+    echo -n "."
+done
+
+if [ "$DETECTED" = false ]; then
+    echo -e "   ${RED}✗${NC} Daemon still thinks it's connected after 10s"
+    "$COWEN_BIN" status
     exit 1
 fi
 

@@ -86,10 +86,11 @@ pub async fn execute(
         stream_url: stream_url.clone(),
         proxy_port: proxy_port.clone(),
         auto_start,
+        is_new,
     };
 
-    // Assign a unique port if this is a new profile or it's currently 0 or 8080 (the old default)
-    if config.proxy_port == 0 || config.proxy_port == 8080 {
+    // Assign a unique port if this is a new profile or it's currently 0 or 8080/57612 (defaults)
+    if config.proxy_port == 0 || config.proxy_port == 8080 || config.proxy_port == 57612 {
         config.proxy_port = cfg_mgr.find_free_port().await;
     }
 

@@ -65,7 +65,6 @@ pub enum CommonTemplate {
     Configuration,
     Storage,
     Cache,
-    SecurityVault,
     Daemon(String),        // display_name
     ProactiveRefresh,
     BridgeConnection,
@@ -79,7 +78,6 @@ impl AsStatusUI for CommonTemplate {
             Self::Configuration => ("Configuration".to_string(), "⚙️".to_string()),
             Self::Storage => ("Storage".to_string(), "📦".to_string()),
             Self::Cache => ("Cache".to_string(), "⚡".to_string()),
-            Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
             Self::Daemon(name) => (name.clone(), "📟".to_string()),
             Self::ProactiveRefresh => ("Proactive Refresh".to_string(), "🔄".to_string()),
             Self::BridgeConnection => ("Bridge Connection".to_string(), "🌐".to_string()),
@@ -115,16 +113,33 @@ pub async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<Strin
         return (None, None);
     }
 
+    // BUG FIX: Use file locking for reliable liveness detection.
+    // If we CAN acquire an exclusive lock, it means the daemon is NOT running.
+    let is_alive = if let Ok(f) = std::fs::File::open(&pid_file) {
+        use fs2::FileExt;
+        // If try_lock_exclusive fails, it means someone (the daemon) has it.
+        f.try_lock_exclusive().is_err()
+    } else {
+        false
+    };
+
+    if !is_alive {
+        return (None, None);
+    }
+
     if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
         let mut lines = pid_content.lines();
         if let Some(pid_str) = lines.next() {
             if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+                // Secondary check: verify the process actually exists and looks like us.
                 let mut s = System::new_all();
                 s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
                 if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
                     let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
                     let name = process.name().to_string_lossy().to_lowercase();
-                    if name.contains(env!("CARGO_PKG_NAME")) || cmdline.contains("daemon") {
+                    let bin_name = crate::core::utils::get_bin_name().to_lowercase();
+                    
+                    if name.contains(&bin_name) || cmdline.contains(&bin_name) {
                         let build_id = lines.next().map(|s| s.trim().to_string());
                         return (Some(pid_val), build_id);
                     }
@@ -187,12 +202,23 @@ pub async fn collect_daemon_status(
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                 let conn_state = json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
                 
-                let (conn_level, conn_icon_override) = match conn_state.as_str() {
-                    "Connected" => (StatusLevel::OK, None),
-                    "Connecting" => (StatusLevel::OK, Some("⏳")), // OK during startup
-                    "Disconnected" => (StatusLevel::WARN, Some("💤")),
-                    "Reconnecting" => (StatusLevel::ERROR, Some("📡")),
-                    _ => (StatusLevel::WARN, Some("❓")),
+                // Freshness check: If the status file is older than 1 minute, it's considered stale
+                let is_fresh = if let Some(ts_str) = json.get("updated_at").and_then(|v| v.as_str()) {
+                    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+                        chrono::Utc::now().signed_duration_since(ts).num_seconds() < 60
+                    } else { false }
+                } else { false };
+
+                let (conn_level, conn_icon_override, final_state) = if !is_fresh {
+                    (StatusLevel::WARN, Some("💤"), format!("{} (Stale)", conn_state))
+                } else {
+                    match conn_state.as_str() {
+                        "Connected" => (StatusLevel::OK, None, conn_state),
+                        "Connecting" => (StatusLevel::OK, Some("⏳"), conn_state), // OK during startup
+                        "Disconnected" => (StatusLevel::WARN, Some("💤"), conn_state),
+                        "Reconnecting" => (StatusLevel::ERROR, Some("📡"), conn_state),
+                        _ => (StatusLevel::WARN, Some("❓"), conn_state),
+                    }
                 };
 
                 if conn_level as i32 > level as i32 && conn_level != StatusLevel::WARN {
@@ -200,7 +226,7 @@ pub async fn collect_daemon_status(
                 }
 
                 if supports_webhooks {
-                    let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, conn_state);
+                    let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state);
                     if let Some(icon) = conn_icon_override {
                         entry.icon = icon.to_string();
                     }

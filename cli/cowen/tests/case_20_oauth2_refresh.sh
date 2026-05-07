@@ -47,7 +47,7 @@ done
 if [[ -z "$STATE" ]]; then
     echo -e "   ${RED}[FAILED]${NC} Failed to extract OAuth2 context from logs"
     cat "$COWEN_HOME/init.log"
-    kill -9 "$INIT_PID" 2>/dev/null
+    kill -9 "$INIT_PID" 2>/dev/null || true
     exit 1
 fi
 

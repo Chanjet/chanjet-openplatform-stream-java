@@ -145,6 +145,20 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     let build_id = env!("BUILD_ID");
     fs::write(&pid_file, format!("{}\n{}", pid, build_id))?;
     
+    // BUG FIX: Hold an exclusive lock on the PID file to allow reliable liveness detection.
+    // The lock will be released automatically by the OS if the process crashes or exits.
+    let _pid_lock = if let Ok(f) = std::fs::File::open(&pid_file) {
+        use fs2::FileExt;
+        if f.try_lock_exclusive().is_ok() {
+            Some(f)
+        } else {
+            tracing::warn!(target: "sys", "Could not acquire exclusive lock on PID file. Another instance might be running?");
+            None
+        }
+    } else {
+        None
+    };
+    
     let mut current_config = config.clone();
     #[allow(unused_assignments)]
     let mut result: Result<()> = Ok(());

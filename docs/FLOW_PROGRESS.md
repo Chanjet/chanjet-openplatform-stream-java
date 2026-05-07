@@ -17,7 +17,7 @@
 | **3** | **详细设计 (LLD)** | `COMPLETED` | [LLD.md](./lld/index.md) | `PASS` | 2026-04-29 |
 | **4** | **任务拆解 (WBS)** | `COMPLETED` | [WBS.md](./wbs/index.md) | `PASS` | 2026-04-29 |
 | **4.5** | **分工确认环节** | `COMPLETED` | `N/A` | `PASS` | 2026-04-29 |
-| **5** | **开发与 E2E 验证** | `IN_PROGRESS` | [TEST_REPORT.md](#) | `DRAFT` | - |
+| **5** | **开发与 E2E 验证** | `COMPLETED` | [TEST_REPORT.md](#) | `PASS` | 2026-05-07 |
 | **6** | **结项对账** | `NOT_STARTED` | [CLOSURE_REPORT.md](#) | `DRAFT` | - |
 
 ---

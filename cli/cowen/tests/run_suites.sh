@@ -55,6 +55,10 @@ SUITES=(
     "tests/case_29_sidecar_startup.sh"
     "tests/case_30_sidecar_scaling_stress.sh"
     "tests/case_31_sidecar_self_built_stress.sh"
+    "tests/case_32_mysql_shared_storage.sh"
+    "tests/case_33_postgres_shared_storage.sh"
+    "tests/case_34_exclusive_connection.sh"
+    "tests/case_40_init_cleanup.sh"
 )
 
 PASSED=0

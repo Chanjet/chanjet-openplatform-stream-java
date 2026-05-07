@@ -208,58 +208,49 @@ pub async fn ensure_daemon_running(
     vault: Arc<dyn Vault>,
     auth_cli: &crate::auth::AuthClient,
 ) -> Result<()> {
-    let profiles = cfg_mgr.list_profiles().await.unwrap_or_else(|_| vec![profile.to_string()]);
     let app_dir = crate::core::status::get_app_dir();
     
-    for p in profiles {
-        let (pid, _build_id) = crate::core::status::get_active_daemon_info(&p).await;
-        let mut p_cfg = if p == profile { 
-            config.clone() 
-        } else { 
-            match cfg_mgr.load(&p).await {
-                Ok(c) => c,
-                Err(e) if e.to_string().contains("SKIPPED:") => continue,
-                Err(_) => crate::core::config::Config::default_with_profile(&p),
+    // OCP: Only ensure daemon for the ACTIVE profile.
+    // Iterating through all profiles is expensive and can trigger unexpected recovery for half-initialized profiles.
+    let p = profile.to_string();
+    let p_cfg = config.clone();
+    
+    let (pid, _build_id) = crate::core::status::get_active_daemon_info(&p).await;
+    let pid_file = app_dir.join(format!("{}_daemon.pid", p));
+    
+    // 1. Hanging detection (Process exists but port unresponsive)
+    if let Some(pid_val) = pid {
+        if !crate::core::status::is_port_responsive(p_cfg.proxy_port).await {
+            tracing::warn!(target: "sys", profile = %p, pid = %pid_val, port = %p_cfg.proxy_port, "Daemon process found but port is not responsive (Hanging). Killing and restarting...");
+            
+            let mut s = System::new_all();
+            s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+            if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
+                process.kill_with(sysinfo::Signal::Kill);
             }
-        };
-        
-        if p != profile {
-            if let Ok(as_val) = vault.get_secret(&p, "app_secret").await { p_cfg.app_secret = as_val; }
-            if let Ok(cert) = vault.get_secret(&p, "certificate").await { p_cfg.certificate = cert; }
-            if let Ok(ek) = vault.get_secret(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
-        }
-        
-        let pid_file = app_dir.join(format!("{}_daemon.pid", p));
-        
-        // 1. Hanging detection (Process exists but port unresponsive)
-        if let Some(pid_val) = pid {
-            if !crate::core::status::is_port_responsive(p_cfg.proxy_port).await {
-                tracing::warn!(target: "sys", profile = %p, pid = %pid_val, port = %p_cfg.proxy_port, "Daemon process found but port is not responsive (Hanging). Killing and restarting...");
-                
-                let mut s = System::new_all();
-                s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-                if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
-                    process.kill_with(sysinfo::Signal::Kill);
-                }
-                let _ = std::fs::remove_file(&pid_file);
-                
-                // Trigger restart
-                let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault.clone()).await;
-                continue;
-            }
-        }
-        
-        // 2. Normal missing process detection
-        if pid.is_none() {
-            let provider = auth_cli.provider(&p_cfg.app_mode);
-            if provider.should_auto_recover(&p_cfg, pid.is_some(), pid_file.exists()) {
-                tracing::info!(target: "sys", profile = %p, mode = ?p_cfg.app_mode, "Daemon recovery triggered. Launching background worker...");
-                let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault.clone()).await;
-            }
+            let _ = std::fs::remove_file(&pid_file);
+            
+            // Trigger restart
+            let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault.clone()).await;
+            return Ok(());
         }
     }
+    
+    // 2. Normal missing process detection
+    if pid.is_none() {
+        let provider = auth_cli.provider(&p_cfg.app_mode);
+        if provider.should_auto_recover(&p_cfg, pid.is_some(), pid_file.exists()) {
+            if p == profile {
+                eprintln!("🚀 Daemon for profile '{}' was not found. Automatically restarting in background...", p);
+            }
+            tracing::info!(target: "sys", profile = %p, mode = ?p_cfg.app_mode, "Daemon recovery triggered. Launching background worker...");
+            let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault.clone()).await;
+        }
+    }
+    
     Ok(())
 }
+
 
 pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Result<()> {
     let cfg = cfg_mgr.load(_profile).await?;

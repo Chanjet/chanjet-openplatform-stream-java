@@ -78,6 +78,8 @@ PARALLEL_SUITES=(
     "tests/case_31_sidecar_self_built_stress.sh"
     "tests/case_32_mysql_shared_storage.sh"
     "tests/case_33_postgres_shared_storage.sh"
+    "tests/case_34_exclusive_connection.sh"
+    "tests/case_40_init_cleanup.sh"
 )
 
 # Group 2: Sensitive Serial Suites (Empty for now, all moved to parallel)

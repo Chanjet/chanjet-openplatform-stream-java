@@ -11,8 +11,41 @@ pub async fn wait_for_token_exchange(
     vault: Arc<dyn Vault>, 
     finalizer_pid: u32,
     is_new: bool,
-    cfg_mgr: &ConfigManager,
+    _cfg_mgr: &ConfigManager,
 ) -> Result<()> {
+    // RAII Guard: Ensures cleanup on return OR cancellation (Drop)
+    struct CleanupGuard {
+        profile: String,
+        vault: Arc<dyn Vault>,
+        pid: u32,
+        is_new: bool,
+        active: bool,
+    }
+    impl Drop for CleanupGuard {
+        fn drop(&mut self) {
+            if self.active {
+                let profile = self.profile.clone();
+                let vault = self.vault.clone();
+                let pid = self.pid;
+                let is_new = self.is_new;
+                
+                tokio::spawn(async move {
+                    if let Ok(cfg_mgr) = crate::core::config::ConfigManager::new() {
+                        perform_failure_cleanup(&profile, vault, pid, is_new, &cfg_mgr).await;
+                    }
+                });
+            }
+        }
+    }
+    
+    let mut guard = CleanupGuard {
+        profile: profile.to_string(),
+        vault: vault.clone(),
+        pid: finalizer_pid,
+        is_new,
+        active: true,
+    };
+
     let start_time = Instant::now();
     let timeout = Duration::from_secs(300); // 5 minutes
     let log_file = crate::core::config::get_app_dir().join("logs").join(format!("{}_auth.log", profile));
@@ -30,7 +63,7 @@ pub async fn wait_for_token_exchange(
         if elapsed > timeout {
             println!("\n❌ 授权超时 (5 分钟)。请检查网络或重新运行 `init`。");
             render_last_auth_error(profile)?;
-            perform_failure_cleanup(profile, vault, finalizer_pid, is_new, cfg_mgr).await;
+            // Guard will handle cleanup
             return Err(anyhow::anyhow!("Authorization timeout"));
         }
 
@@ -41,6 +74,7 @@ pub async fn wait_for_token_exchange(
         // 1. Success check: Token pair exists
         if vault.get(profile, "oauth2_token_pair").await.is_ok() {
             println!("\n✅ 授权成功！命令行已就绪。");
+            guard.active = false; // Disarm guard on success
             return Ok(());
         }
 
@@ -58,7 +92,7 @@ pub async fn wait_for_token_exchange(
                         if l.contains("ERROR") {
                             println!("\n❌ 令牌交换失败！");
                             println!("\x1b[31m🔍 错误原因: {}\x1b[0m", l);
-                            perform_failure_cleanup(profile, vault, finalizer_pid, is_new, cfg_mgr).await;
+                            // Guard will handle cleanup
                             return Err(anyhow::anyhow!("Token exchange failed"));
                         }
                     }
@@ -76,21 +110,12 @@ pub async fn wait_for_token_exchange(
             if vault.get(profile, "oauth2_token_pair").await.is_err() {
                 println!("\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。");
                 render_last_auth_error(profile)?;
-                perform_failure_cleanup(profile, vault, finalizer_pid, is_new, cfg_mgr).await;
+                // Guard will handle cleanup
                 return Err(anyhow::anyhow!("Authorization state invalid"));
             }
         }
         
-        tokio::select! {
-            _ = sleep(Duration::from_millis(1000)) => {
-                // Continue loop
-            }
-            _ = tokio::signal::ctrl_c() => {
-                println!("\n🛑 收到中断信号 (Ctrl+C)。正在取消授权并关闭监听...");
-                perform_failure_cleanup(profile, vault, finalizer_pid, is_new, cfg_mgr).await;
-                return Err(anyhow::anyhow!("Operation cancelled by user"));
-            }
-        }
+        sleep(Duration::from_millis(1000)).await;
     }
 }
 

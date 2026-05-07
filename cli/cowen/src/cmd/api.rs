@@ -693,7 +693,6 @@ mod tests {
         }
         fn requires_initial_push(&self, _cfg: &Config) -> bool { false }
         async fn on_maintenance_tick(&self, _profile: &str, _cfg: &Config) -> Result<()> { Ok(()) }
-        fn get_auth_display_info(&self, _cfg: &Config) -> (String, String) { ("".to_string(), "".to_string()) }
         fn get_daemon_display_info(&self, _cfg: &Config, _is_running: bool) -> (String, String) { ("".to_string(), "".to_string()) }
         fn requires_ticket(&self, _cfg: &Config) -> bool { false }
         fn supports_webhooks(&self, _cfg: &Config) -> bool { true }

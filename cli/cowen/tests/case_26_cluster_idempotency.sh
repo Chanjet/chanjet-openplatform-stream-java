@@ -53,7 +53,7 @@ done
 
 if [ "$CONNECTED" = false ]; then
     echo -e " ${RED}[FAILED]${NC} Nodes failed to connect"
-    kill -9 $NODE_A_PID $NODE_B_PID 2>/dev/null
+    kill -9 $NODE_A_PID $NODE_B_PID 2>/dev/null || true
     exit 1
 fi
 
@@ -81,7 +81,7 @@ echo -e "${BOLD}3. Verifying Sink Received Exactly ONE Request${NC}"
 WEBHOOKS=$(curl -s "$MOCK_URL/control/webhooks")
 RECEIVED_COUNT=$(echo "$WEBHOOKS" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(len([m for m in data if (m.get('body') or m).get('msgId') == '$MSG_ID']))" 2>/dev/null)
 
-kill -9 $NODE_A_PID $NODE_B_PID 2>/dev/null
+kill -9 $NODE_A_PID $NODE_B_PID 2>/dev/null || true
 
 if [ "$RECEIVED_COUNT" -eq 1 ]; then
     echo -e "   ${GREEN}✓${NC} Idempotency successful! Only 1 message received at sink."

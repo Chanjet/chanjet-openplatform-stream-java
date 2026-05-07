@@ -126,7 +126,7 @@ impl Config {
             },
             telemetry_enabled: true,
             ai_enabled: true,
-            proxy_port: 8080,
+            proxy_port: 57612,
             proxy_enabled: true,
             app_mode: crate::auth::models::AuthMode::Oauth2,
             app_secret: "".to_string(),
@@ -406,8 +406,13 @@ impl ConfigManager {
 
     pub fn get_default_profile(&self) -> String {
         let path = self.app_dir.join("current_profile");
-        if let Ok(p) = fs::read_to_string(path) { return p.trim().to_string(); }
-        "default".to_string()
+        let p = if let Ok(p) = fs::read_to_string(&path) { 
+            p.trim().to_string() 
+        } else {
+            "default".to_string()
+        };
+        tracing::debug!(target: "sys", path = %path.display(), profile = %p, "Loaded default profile name");
+        p
     }
 
     pub fn set_default_profile(&self, profile: &str) -> Result<()> {
@@ -463,14 +468,25 @@ impl ConfigManager {
         }
     }
 
+    pub async fn delete(&self, profile: &str) -> Result<()> {
+        // 1. Delete local file
+        let path = self.get_profile_path(profile);
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+
+        // 2. Delete from Vault (all keys associated with this profile)
+        if let Some(vault) = self.vault.get() {
+            let _ = vault.clear_profile(profile).await;
+        }
+        Ok(())
+    }
+
     pub async fn find_free_port(&self) -> u16 {
         use std::net::TcpListener;
-        for port in 8080..9000 {
-            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
-                return port;
-            }
-        }
-        8080
+        TcpListener::bind("127.0.0.1:0")
+            .map(|l| l.local_addr().unwrap().port())
+            .unwrap_or(8080)
     }
 }
 

@@ -370,6 +370,9 @@ impl AuthProvider for OAuth2Provider {
             config.proxy_port = port;
         }
 
+        // 1.1 Use is_new from params (as Init already anchored the identity)
+        let is_new = params.is_new;
+
         // 2. Persist config early so callback listeners can see it
         cfg_mgr.save(profile, config).await?;
 
@@ -416,11 +419,6 @@ impl AuthProvider for OAuth2Provider {
         let pid = orchestrator::spawn_finalizer(profile, &session.state)?;
         
         // 6. Wait for Result (Closed Loop)
-        // Note: is_new check is slightly simplified here as we are in provider, but init.rs can pass it or we assume false for existing.
-        // Actually init.rs knows if it's new. I should probably add is_new to initialize signature or handle it.
-        // For now, let's assume init.rs handles the "new profile cleanup" inside initialize? No, initialize should handle it.
-        // I'll add is_new to the signature.
-        let is_new = !cfg_mgr.exists(profile).await; 
         orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr).await?;
 
         // 7. Automatically start the daemon (OCP: Consistent experience across all modes)

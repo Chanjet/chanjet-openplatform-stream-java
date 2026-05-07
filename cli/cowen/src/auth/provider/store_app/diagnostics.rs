@@ -8,7 +8,6 @@ pub enum StoreAppTemplate {
     SecurityVault,
     SuiteAccessToken,
     AppTicket,
-    AuthenticationStatus,
 }
 
 impl AsStatusUI for StoreAppTemplate {
@@ -17,7 +16,6 @@ impl AsStatusUI for StoreAppTemplate {
             Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
             Self::SuiteAccessToken => ("SuiteAccessToken".to_string(), "🎫".to_string()),
             Self::AppTicket => ("AppTicket".to_string(), "🎫".to_string()),
-            Self::AuthenticationStatus => ("Authentication Status".to_string(), "🔐".to_string()),
         }
     }
 }

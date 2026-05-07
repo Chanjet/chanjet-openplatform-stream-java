@@ -225,22 +225,38 @@ impl AuthProvider for SelfBuiltProvider {
     }
 
     async fn get_token(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
+        // 1. First check: Fast path (Pool)
         if let Ok(token) = self.pool.get_app_access_token(&cfg.app_key).await {
             if !token.is_expired() {
                 return Ok(token);
             }
         }
 
+        // 2. Local process lock (Still useful for multi-threaded within same pod)
         let _guard = self.refresh_lock.lock().await;
         
+        // 3. Second check: After local lock
         if let Ok(token) = self.pool.get_app_access_token(&cfg.app_key).await {
             if !token.is_expired() {
                 return Ok(token);
             }
         }
 
-        // We clear the cache using profile here since cache invalidation might still be profile-bound.
-        // Wait, MultiVault doesn't have local memory cache, so clear_cache is a no-op right now.
+        // 4. Distributed coordination: Jitter + Third check
+        // In multi-process environments (Case 31), multiple pods might reach here.
+        // We add a small random delay to allow one pod to "win" the refresh race.
+        let delay_ms = rand::random_range(50..500);
+        tracing::debug!(target: "sys", profile = %profile, delay = %delay_ms, "Token missing, waiting jitter before refresh...");
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+
+        if let Ok(token) = self.pool.get_app_access_token(&cfg.app_key).await {
+            if !token.is_expired() {
+                tracing::info!(target: "sys", profile = %profile, "Token became available after jitter. Skipping network refresh.");
+                return Ok(token);
+            }
+        }
+
+        // 5. Network refresh (Only one pod should ideally reach here)
         self.pool.clear_cache(profile);
         self.perform_network_refresh(profile, cfg).await
     }
@@ -322,6 +338,9 @@ impl AuthProvider for SelfBuiltProvider {
             config.proxy_port = port;
         }
 
+        // 1.1 Use is_new from params (as Init already anchored the identity)
+        let is_new = params.is_new;
+
         // 2. Persist config so daemon can see it
         cfg_mgr.save(profile, config).await?;
 
@@ -331,6 +350,9 @@ impl AuthProvider for SelfBuiltProvider {
             || config.certificate.trim().is_empty()
             || config.encrypt_key.trim().is_empty() 
         {
+            if is_new {
+                let _ = cfg_mgr.delete(profile).await;
+            }
             let bin_name = crate::core::utils::get_bin_name();
             println!("Error: --app-key, --app-secret, --certificate, and --encrypt-key are required for self-built mode.");
             println!("Example: {} init --app-mode self-built --app-key X --app-secret Y --certificate Z --encrypt-key E", bin_name);
@@ -404,10 +426,6 @@ impl AuthProvider for SelfBuiltProvider {
         }
     }
 
-    fn get_auth_display_info(&self) -> (String, String) {
-        ("AccessToken".to_string(), "🔑".to_string())
-    }
-
     fn get_daemon_display_info(&self, is_running: bool) -> (String, String) {
         let name = "Stream Bridge (Daemon)";
         let tip = if is_running { "同步状态: [ACTIVE]" } else { "若需实现实时消息同步，请运行 'cowen daemon start'" };
@@ -455,7 +473,7 @@ impl AuthProvider for SelfBuiltProvider {
     }
 
     async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
-        use crate::core::status::{StatusEntry, StatusLevel, CommonTemplate, AsStatusUI, collect_daemon_status};
+        use crate::core::status::{StatusEntry, StatusLevel, AsStatusUI, collect_daemon_status};
         
         enum SelfBuiltTemplate {
             SecurityVault,

@@ -326,8 +326,8 @@ local-db-up:
 	brew services start postgresql@15 || brew services restart postgresql@15
 	@echo "⌛ Waiting for local services to be ready..."
 	@sleep 5
-	@mysql -u root -e "CREATE DATABASE IF NOT EXISTS cowen_test;" || echo "⚠️ MySQL DB create failed, might already exist"
-	@psql -d postgres -c "CREATE DATABASE cowen_test;" || echo "⚠️ Postgres DB create failed, might already exist"
+	@mysql -u root -h 127.0.0.1 -e "CREATE DATABASE IF NOT EXISTS cowen_test;" || echo "⚠️ MySQL DB create failed, might already exist"
+	@psql -h 127.0.0.1 -d postgres -c "CREATE DATABASE cowen_test;" || echo "⚠️ Postgres DB create failed, might already exist"
 	@echo "✅ Local databases are ready."
 
 local-db-down:

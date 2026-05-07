@@ -322,6 +322,9 @@ impl AuthProvider for StoreAppProvider {
             config.proxy_port = port;
         }
 
+        // 1.1 Use is_new from params (as Init already anchored the identity)
+        let is_new = params.is_new;
+
         // 2. Persist config so daemon can see it
         cfg_mgr.save(profile, config).await?;
 
@@ -331,6 +334,9 @@ impl AuthProvider for StoreAppProvider {
             || config.app_secret.trim().is_empty()
             || config.encrypt_key.trim().is_empty()
         {
+            if is_new {
+                let _ = cfg_mgr.delete(profile).await;
+            }
             let bin_name = crate::core::utils::get_bin_name();
             println!("Error: --app-key, --app-secret, and --encrypt-key are required for store-app (sidecar) mode.");
             println!(

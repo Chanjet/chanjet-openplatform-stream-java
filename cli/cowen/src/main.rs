@@ -364,6 +364,9 @@ mod security_tests;
 
 #[tokio::main]
 async fn main() {
+    // Initialize Rustls Crypto Provider (Mandatory for Rustls 0.23+)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     // CAPTURE PANICS: Ensure background crashes are recorded
     std::panic::set_hook(Box::new(|info| {
         let payload = info.payload().downcast_ref::<&str>().cloned()
@@ -409,8 +412,8 @@ async fn main() {
             }
         }
         _ = shutdown_handle => {
-            // Give a tiny grace period for background tasks to cleanup
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // Give a grace period for background tasks to cleanup (e.g. Auth failure cleanup)
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
         }
     }
 }

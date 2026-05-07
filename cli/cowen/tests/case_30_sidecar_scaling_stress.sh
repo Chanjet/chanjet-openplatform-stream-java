@@ -108,7 +108,7 @@ fi
 
 # Cleanup
 for pid in "${PIDS[@]}"; do
-    kill -9 $pid 2>/dev/null
+    kill -9 $pid 2>/dev/null || true
 done
 
 echo -e "\n${GREEN}🎊 Case 30 Passed! (Scaling Resilience Verified)${NC}"

@@ -101,7 +101,14 @@ def find_entry(entries, name):
         res = find_entry(e.get('children', []), name)
         if res: return res
     return None
-ticket = find_entry(data.get('entries', []), 'AppTicket');
+# Structure fix: Navigate into profiles -> entries
+entries = []
+if 'profiles' in data and len(data['profiles']) > 0:
+    entries = data['profiles'][0].get('entries', [])
+elif 'entries' in data: # Fallback for older versions or simplified output
+    entries = data.get('entries', [])
+
+ticket = find_entry(entries, 'AppTicket');
 print(ticket['message'] if ticket else '')")
 
 if [[ "$ACTUAL_TICKET" == *"[CACHED]"* ]]; then

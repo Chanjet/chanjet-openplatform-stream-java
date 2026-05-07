@@ -114,13 +114,18 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
             let status_file = crate::core::config::get_app_dir().join(format!("{}_status.json", p_profile_s));
 
             // Use the SDK's internal reconnection loop, but hook into its status callbacks
+            let now = chrono::Utc::now().to_rfc3339();
+            let _ = std::fs::write(&status_file, format!("{{\"state\":\"Starting\", \"updated_at\":\"{}\"}}", now));
+            
             let res = client.start_with_callback(move |state| {
                 let state_str = match state {
                     connector_sdk::ConnectionState::Connecting => "Connecting",
                     connector_sdk::ConnectionState::Connected => "Connected",
                     connector_sdk::ConnectionState::Disconnected => "Disconnected",
                 };
-                let _ = std::fs::write(&status_file, format!("{{\"state\":\"{}\"}}", state_str));
+                tracing::info!(target: "stream", profile = %p_profile_s, state = %state_str, "Bridge connection state changed");
+                let now = chrono::Utc::now().to_rfc3339();
+                let _ = std::fs::write(&status_file, format!("{{\"state\":\"{}\", \"updated_at\":\"{}\"}}", state_str, now));
             }).await;
 
             if let Err(e) = res {

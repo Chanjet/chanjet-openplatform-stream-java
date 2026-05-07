@@ -25,6 +25,7 @@ pub struct InitParams {
     pub stream_url: Option<String>,
     pub proxy_port: Option<u16>,
     pub auto_start: bool,
+    pub is_new: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -102,11 +103,6 @@ pub trait AuthProvider: Send + Sync {
     async fn handle_platform_event(&self, profile: &str, config: &Config, event: PlatformEvent) -> Result<()> {
         let _ = (profile, config, event);
         Ok(())
-    }
-
-    /// 🚀 UI/诊断能力：返回该模式在状态列表中显示的图标与名称 (Auth 模块)
-    fn get_auth_display_info(&self) -> (String, String) {
-        ("Authentication".to_string(), "🔐".to_string())
     }
 
     /// 🚀 UI/诊断能力：返回该模式后台进程的显示名称与效率提示

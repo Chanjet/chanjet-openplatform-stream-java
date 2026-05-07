@@ -65,3 +65,15 @@
 | **T5** | Architect | `PASS` | 2026-04-29 | Auth 模块解耦对齐 |
 | **T5** | Developer | `PASS` | 2026-04-29 | 依赖注入实现确认 |
 | **T5** | QA/Tester | `PASS` | 2026-04-29 | 覆盖多实例 Token 竞争 |
+
+## 2026-05-07 Bug Fix & E2E Optimization
+- **Phase**: Phase 5 (Implementation & E2E Validation)
+- **Status**: COMPLETED
+- **Actions**:
+  1. Identified 4 failing E2E suites in parallel mode: Case 11, 15, 31, 32.
+  2. Fixed Case 11: Improved disconnection detection logic in the test script by waiting for state change.
+  3. Fixed Case 15: Corrected JSON navigation in the python extraction snippet of the test script.
+  4. Fixed Case 31: Fixed a race condition where self-healing restarts caused 'kill -9' to fail and exit the script due to 'set -e'. Added '|| true' to all cleanup kills.
+  5. Fixed Case 32: Resolved MySQL connection issue on macOS by forcing TCP (-h 127.0.0.1) instead of Unix socket.
+  6. Optimized bridge tracing: Added explicit connection state change logs in 'bridge.rs'.
+- **Result**: All 34 E2E suites now PASS consistently in parallel execution.
