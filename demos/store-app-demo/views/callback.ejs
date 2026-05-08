@@ -77,15 +77,25 @@
         </h1>
         <p>应用已接收到来自畅捷通开放平台的回调数据：</p>
         <div class="params">
+            <div class="param-item"><span class="param-label">Org ID:</span> <strong style="color: #0f172a;"><%= locals.orgId || '未知' %></strong></div>
             <div class="param-item"><span class="param-label">Code:</span> <%= code %></div>
             <div class="param-item"><span class="param-label">State:</span> <%= state %></div>
         </div>
+
+        <% if (locals.error) { %>
+        <div style="padding: 1rem; background: #fff1f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 1.5rem; color: #991b1b; font-size: 0.85rem;">
+            <strong>换票提示：</strong> <%= typeof error === 'object' ? JSON.stringify(error) : error %>
+            <br><small>(注：若 Cowen Stream 先行完成了自动换票，此报错可忽略)</small>
+        </div>
+        <% } %>
+
         <div class="tip">
-            <strong>Cowen 运行机制提示：</strong><br>
-            虽然您在这里看到了 Code，但由于 Cowen 开启了 Stream Bridge，它已经**先于您的业务系统**自动拦截并交换了 PermanentAuthCode。您无需在后端手动调用 exchange 接口。
+            <strong>Cowen 逻辑分离说明：</strong><br>
+            在回调后，本 Demo 演示了 <strong>主动换票 (Active Exchange)</strong>：通过 Proxy 调用 <code>/oauth2/token</code> 接口。
+            这样做可以直接在 Response 中同步拿到该租户的 <code>orgId</code>，方便业务系统进行账号绑定。
         </div>
         <div class="actions">
-            <a href="/api-test?orgId=<%= state.startsWith('demo_') ? 'YOUR_ORG_ID' : state %>" class="btn-test">尝试调用 OpenAPI &rarr;</a>
+            <a href="/api-test?orgId=<%= locals.orgId || state %>" class="btn-test">尝试调用 OpenAPI &rarr;</a>
             <a href="/" class="btn-secondary">返回首页</a>
         </div>
     </div>

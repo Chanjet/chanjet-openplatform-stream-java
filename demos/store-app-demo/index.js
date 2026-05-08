@@ -29,10 +29,54 @@ app.get('/', (req, res) => {
     res.render('index', { authUrl });
 });
 
-// Auth Callback: Display received parameters
-app.get('/callback', (req, res) => {
+// 2. OAuth2 Callback: Receive Auth Code from Platform
+// --------------------------------------------------
+app.get('/callback', async (req, res) => {
     const { code, state } = req.query;
-    res.render('callback', { code, state });
+    
+    console.log(`\n[Callback] Received code from platform. State: ${state}`);
+
+    try {
+        // [主动模式] 业务系统显式调用 Cowen Proxy 换取令牌
+        // 逻辑说明：
+        // 1. 虽然 Cowen 能够通过 Stream 自动回收，但业务系统主动换票可以立即同步获得 orgId。
+        // 2. Cowen Proxy 会拦截此请求，自动补全 AppSecret 并将结果归档。
+        const response = await axios.post(`${COWEN_PROXY_URL}/oauth2/token`, 
+            new URLSearchParams({
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: REDIRECT_URI
+            }).toString(),
+            {
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            }
+        );
+
+        const tokenData = response.data;
+        const orgId = tokenData.org_id || tokenData.orgId; // 从平台返回中提取租户 ID
+
+        console.log(`[Exchange Success] Tenant Identified: ${orgId}`);
+
+        res.render('callback', { 
+            code, 
+            state, 
+            orgId,
+            tokenData 
+        });
+    } catch (error) {
+        // 异常处理：
+        // 如果 Cowen 的 Stream Bridge 已经先一步完成了换票，这里的 Code 可能会报错“已使用”。
+        // 此时我们尝试从 state 中恢复，或者等待 Webhook 通知。
+        const errorDetail = error.response ? error.response.data : error.message;
+        console.warn(`[Exchange Skip/Fail] Code might be consumed by Stream Bridge or expired:`, errorDetail);
+
+        res.render('callback', { 
+            code, 
+            state, 
+            orgId: state.startsWith('demo_') ? 'Pending (Wait for Webhook)' : state,
+            error: errorDetail
+        });
+    }
 });
 
 // --------------------------------------------------------
@@ -60,7 +104,7 @@ app.get('/api-test', async (req, res) => {
     try {
         // We call the LOCAL Cowen Proxy sidecar
         // Cowen handles token injection based on the x-org-id header.
-        const response = await axios.get(`${COWEN_PROXY_URL}/v1/user/info`, {
+        const response = await axios.get(`${COWEN_PROXY_URL}/accounting/openapi/cc/book/findByEnterpriseId?queryType=BINDING_TO_THIRD_PLATFORM`, {
             headers: {
                 'x-org-id': targetOrgId
             }
