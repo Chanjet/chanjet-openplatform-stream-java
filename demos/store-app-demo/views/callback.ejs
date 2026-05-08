@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>授权跳转成功</title>
+    <style>
+        body { 
+            font-family: -apple-system, sans-serif; 
+            background: #f8fafc; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            min-height: 100vh; 
+            margin: 0; 
+        }
+        .card { 
+            background: white; 
+            padding: 2.5rem; 
+            border-radius: 16px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05); 
+            max-width: 600px; 
+            width: 90%; 
+        }
+        h1 { 
+            color: #10b981; 
+            margin-bottom: 1rem; 
+            display: flex; 
+            align-items: center; 
+            gap: 0.5rem; 
+        }
+        p { color: #475569; margin-bottom: 1.5rem; }
+        .params { 
+            background: #f1f5f9; 
+            padding: 1.25rem; 
+            border-radius: 8px; 
+            font-family: monospace; 
+            border: 1px solid #e2e8f0; 
+            margin-bottom: 1.5rem; 
+        }
+        .param-item { margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .param-label { color: #64748b; font-weight: bold; width: 80px; display: inline-block; }
+        .tip { 
+            padding: 1rem; 
+            background: #f0f9ff; 
+            border-left: 4px solid #3b82f6; 
+            font-size: 0.9rem; 
+            color: #1e40af; 
+            margin-bottom: 2rem; 
+            line-height: 1.5; 
+        }
+        .actions { display: flex; gap: 1rem; }
+        .btn-test { 
+            background: #0f172a; 
+            color: white; 
+            padding: 0.75rem 1.5rem; 
+            border-radius: 6px; 
+            text-decoration: none; 
+            font-weight: 500; 
+            font-size: 0.95rem; 
+        }
+        .btn-secondary {
+            color: #64748b; 
+            text-decoration: none; 
+            align-self: center; 
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M5 13l4 4L19 7"></path>
+            </svg> 
+            授权跳转成功！
+        </h1>
+        <p>应用已接收到来自畅捷通开放平台的回调数据：</p>
+        <div class="params">
+            <div class="param-item"><span class="param-label">Code:</span> <%= code %></div>
+            <div class="param-item"><span class="param-label">State:</span> <%= state %></div>
+        </div>
+        <div class="tip">
+            <strong>Cowen 运行机制提示：</strong><br>
+            虽然您在这里看到了 Code，但由于 Cowen 开启了 Stream Bridge，它已经**先于您的业务系统**自动拦截并交换了 PermanentAuthCode。您无需在后端手动调用 exchange 接口。
+        </div>
+        <div class="actions">
+            <a href="/api-test?orgId=<%= state.startsWith('demo_') ? 'YOUR_ORG_ID' : state %>" class="btn-test">尝试调用 OpenAPI &rarr;</a>
+            <a href="/" class="btn-secondary">返回首页</a>
+        </div>
+    </div>
+</body>
+</html>
