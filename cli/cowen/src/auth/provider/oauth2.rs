@@ -634,11 +634,15 @@ mod tests {
         struct MockVault {}
         #[async_trait::async_trait]
         impl crate::core::vault::Vault for MockVault {
-            async fn notify_config_changed(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
-            async fn watch_config(&self, _: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-                    Ok(Box::pin(tokio_stream::iter(vec![])))
-            }
             fn primary_store(&self) -> Arc<dyn crate::core::store::Store> { unimplemented!() }
+        }
+
+        #[async_trait::async_trait]
+        impl crate::domain::PermanentCodeDomain for MockVault {
+            async fn get_org_permanent_code(&self, _: &str, _: &str) -> Result<String> { Err(anyhow!("not found")) }
+            async fn save_org_permanent_code(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn get_user_permanent_code(&self, _: &str, _: &str, _: &str) -> Result<String> { Err(anyhow!("not found")) }
+            async fn save_user_permanent_code(&self, _: &str, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
         }
 
         #[async_trait::async_trait]

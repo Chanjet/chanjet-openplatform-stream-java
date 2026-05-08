@@ -424,6 +424,9 @@ impl SqlBuilder for MssqlBuilder {
             conn.execute(sql, &[]).await?;
         }
 
+        let _ = conn.execute("IF COL_LENGTH('cowen_tenant_token', 'created_at') IS NULL ALTER TABLE cowen_tenant_token ADD created_at DATETIME2 DEFAULT GETUTCDATE()", &[]).await;
+        let _ = conn.execute("IF COL_LENGTH('cowen_app_token', 'created_at') IS NULL ALTER TABLE cowen_app_token ADD created_at DATETIME2 DEFAULT GETUTCDATE()", &[]).await;
+
         Ok(Arc::new(MssqlDriver::new(pool)))
     }
 }

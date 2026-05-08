@@ -95,14 +95,17 @@ impl SqlDriver for PostgresDriver {
 
     // --- Token Domain ---
     async fn get_access_token(&self, profile: &str) -> Result<crate::auth::models::Token> {
-        let row: (String,) = sqlx::query_as("SELECT token_value FROM cowen_tenant_token WHERE profile = $1 AND token_type = 'access'")
+        let row: (String, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = $1 AND token_type = 'access'")
             .bind(profile).fetch_one(&self.pool).await?;
-        Ok(serde_json::from_str(&row.0)?)
+        Ok(crate::auth::models::Token {
+            value: row.0,
+            expires_at: row.1.unwrap_or_else(chrono::Utc::now),
+            created_at: row.2.unwrap_or_else(chrono::Utc::now),
+        })
     }
     async fn save_access_token(&self, profile: &str, token: crate::auth::models::Token) -> Result<()> {
-        let val = serde_json::to_string(&token)?;
-        sqlx::query("INSERT INTO cowen_tenant_token (profile, token_type, token_value, expires_at) VALUES ($1, 'access', $2, $3) ON CONFLICT(profile, token_type) DO UPDATE SET token_value = EXCLUDED.token_value, expires_at = EXCLUDED.expires_at")
-            .bind(profile).bind(val).bind(token.expires_at).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO cowen_tenant_token (profile, token_type, token_value, expires_at, created_at) VALUES ($1, 'access', $2, $3, $4) ON CONFLICT(profile, token_type) DO UPDATE SET token_value = EXCLUDED.token_value, expires_at = EXCLUDED.expires_at, created_at = EXCLUDED.created_at")
+            .bind(profile).bind(&token.value).bind(token.expires_at).bind(token.created_at).execute(&self.pool).await?;
         Ok(())
     }
     async fn delete_access_token(&self, profile: &str) -> Result<()> {
@@ -111,27 +114,32 @@ impl SqlDriver for PostgresDriver {
         Ok(())
     }
     async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
-        let row: (String,) = sqlx::query_as("SELECT access_token FROM cowen_app_token WHERE app_key = $1")
+        let row: (String, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as("SELECT access_token, expires_at, created_at FROM cowen_app_token WHERE app_key = $1")
             .bind(app_key).fetch_one(&self.pool).await?;
-        Ok(serde_json::from_str(&row.0)?)
+        Ok(crate::auth::models::Token {
+            value: row.0,
+            expires_at: row.1,
+            created_at: row.2.unwrap_or_else(chrono::Utc::now),
+        })
     }
     async fn save_app_access_token(&self, app_key: &str, token: crate::auth::models::Token) -> Result<()> {
-        let val = serde_json::to_string(&token)?;
-        sqlx::query("INSERT INTO cowen_app_token (app_key, access_token, expires_at) VALUES ($1, $2, $3) ON CONFLICT(app_key) DO UPDATE SET access_token = EXCLUDED.access_token, expires_at = EXCLUDED.expires_at")
-            .bind(app_key).bind(val).bind(token.expires_at).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO cowen_app_token (app_key, access_token, expires_at, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT(app_key) DO UPDATE SET access_token = EXCLUDED.access_token, expires_at = EXCLUDED.expires_at, created_at = EXCLUDED.created_at")
+            .bind(app_key).bind(&token.value).bind(token.expires_at).bind(token.created_at).execute(&self.pool).await?;
         Ok(())
     }
 
     // --- Ticket Domain ---
     async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
-        let row: (String,) = sqlx::query_as("SELECT ticket_value FROM cowen_ticket WHERE app_key = $1")
+        let row: (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as("SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = $1")
             .bind(app_key).fetch_one(&self.pool).await?;
-        Ok(serde_json::from_str(&row.0)?)
+        Ok(crate::auth::models::Ticket {
+            value: row.0,
+            created_at: row.1.unwrap_or_else(chrono::Utc::now),
+        })
     }
     async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()> {
-        let val = serde_json::to_string(&ticket)?;
-        sqlx::query("INSERT INTO cowen_ticket (app_key, ticket_value) VALUES ($1, $2) ON CONFLICT(app_key) DO UPDATE SET ticket_value = EXCLUDED.ticket_value")
-            .bind(app_key).bind(val).execute(&self.pool).await?;
+        sqlx::query("INSERT INTO cowen_ticket (app_key, ticket_value, created_at) VALUES ($1, $2, $3) ON CONFLICT(app_key) DO UPDATE SET ticket_value = EXCLUDED.ticket_value, created_at = EXCLUDED.created_at")
+            .bind(app_key).bind(&ticket.value).bind(ticket.created_at).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -271,9 +279,12 @@ impl SqlBuilder for PostgresBuilder {
         ];
 
         for sql in ddl { sqlx::query(sql).execute(&pool).await?; }
-        
-        // Indices
-        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_profile_ts ON cowen_audit (profile, timestamp)").execute(&pool).await;
+
+        // Basic auto-migration for v0.3.0 changes
+        let _ = sqlx::query("ALTER TABLE cowen_tenant_token ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP").execute(&pool).await;
+        let _ = sqlx::query("ALTER TABLE cowen_app_token ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP").execute(&pool).await;
+
+        // Indices        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_profile_ts ON cowen_audit (profile, timestamp)").execute(&pool).await;
         let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_dlq_profile_topic ON cowen_dlq (profile, topic)").execute(&pool).await;
 
         Ok(Arc::new(PostgresDriver::new(pool, url)))
