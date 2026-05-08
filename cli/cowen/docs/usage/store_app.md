@@ -32,11 +32,14 @@ cowen init --profile isv-prod \
 由于 CLI 无法在单次指令中仲裁租户上下文，商店模式下禁用了 `cowen api call` 指令。您必须通过本地代理进行调用：
 
 - **调用方法**：
-  在请求 Header 中携带租户标识（推荐使用 **`orgId`** 或 `x-org-id`）。
+  在请求 Header 中携带租户标识：
+  - **`x-org-id`** (必填): 租户企业 ID。
+  - **`x-user-id`** (可选): 租户下的具体用户 ID，用于调用需要用户授权上下文的 API。
   ```bash
-  # cowen 会根据 orgId 自动找到对应的租户 Token 并注入
+  # cowen 会根据 x-org-id (及可选的 x-user-id) 自动注入对应的租户 Token
   curl http://127.0.0.1:8000/v1/api/path \
-       -H "orgId: tenant_12345"
+       -H "x-org-id: tenant_12345" \
+       -H "x-user-id: user_67890"
   ```
 - **自动注入**：代理会自动补全符合规范的 **`openToken`** 和 **`appKey`**。
 
@@ -47,7 +50,7 @@ cowen init --profile isv-prod \
   ```bash
   cowen config --webhook-target http://127.0.0.1:5000/callback
   ```
-- **多租户识别**：转发时，`cowen` 会在 Header 中自动注入 **`orgId`**，方便您的服务端识别消息归属。
+- **多租户识别**：转发时，消息体中通常包含租户信息（如 `org_id`）。您可以解析消息体来识别租户归属。
 - **安全约束**：出于 SSRF 防护要求，转发目标仅限本地回环地址 (`127.0.0.1` / `localhost` / `[::1]`)。
 
 ## 🔐 租户授权流 (Tenant Authorization Flow)

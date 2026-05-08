@@ -32,10 +32,10 @@ app.get('/api-test', async (req, res) => {
 
     try {
         // We call the LOCAL Cowen Proxy. 
-        // Cowen will handle token retrieval and injection based on the orgId header.
+        // Cowen will handle token retrieval and injection based on the x-org-id header.
         const response = await axios.get(`${COWEN_PROXY_URL}/v1/user/info`, {
             headers: {
-                'orgId': targetOrgId // Critical: Tell Cowen which tenant context to use
+                'x-org-id': targetOrgId // [Standard] Tell Cowen which tenant context to use
             }
         });
 

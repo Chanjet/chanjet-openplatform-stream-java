@@ -23,7 +23,12 @@ docker-compose up -d
 ### 3. 测试 API 调用
 访问以下地址，`cowen` 将自动为指定的租户注入 Token 并调用开放平台：
 ```bash
-curl "http://localhost:5000/api-test?orgId=your_tenant_id"
+curl http://localhost:3000/test-api?orgId=YOUR_TEST_ORG_ID
+```
+
+Your app will internally call:
+```bash
+curl http://cowen:8000/v1/user/info -H "x-org-id: YOUR_TEST_ORG_ID"
 ```
 
 ### 4. 模拟消息推送
