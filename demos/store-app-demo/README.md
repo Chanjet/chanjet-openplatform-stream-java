@@ -20,10 +20,16 @@
 docker-compose up -d
 ```
 
-### 3. 测试 API 调用
-访问以下地址，`cowen` 将自动为指定的租户注入 Token 并调用开放平台：
+### 3. 演示授权流程
+1. 访问首页：`http://localhost:5000`
+2. 点击 **“立即发起授权同步”** 按钮。
+3. 授权完成后，开放平台会跳转回 `http://localhost:5000/callback`。
+4. 在回调页面，您可以看到接收到的 `code`，并点击按钮测试 API 调用。
+
+### 4. 手动测试 API 调用
+如果您已有授权租户，也可以直接测试：
 ```bash
-curl http://localhost:3000/test-api?orgId=YOUR_TEST_ORG_ID
+curl http://localhost:5000/api-test?orgId=YOUR_TEST_ORG_ID
 ```
 
 Your app will internally call:
