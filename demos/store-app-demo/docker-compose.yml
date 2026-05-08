@@ -9,7 +9,8 @@ services:
     environment:
       - COWEN_APP_KEY=${COWEN_APP_KEY:-<APP_KEY>}
       - REDIRECT_URI=http://localhost:5000/callback
-      - COWEN_OPENAPI_URL=${COWEN_OPENAPI_URL:-https://open.chanjet.com}
+      - COWEN_OPENAPI_URL=${COWEN_OPENAPI_URL:-https://openapi.chanjet.com}
+      - COWEN_MARKET_URL=${COWEN_MARKET_URL:-https://market.chanjet.com}
       - COWEN_PROXY_URL=http://127.0.0.1:8080 # Same network namespace as cowen
     depends_on:
       - cowen

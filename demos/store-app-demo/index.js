@@ -18,7 +18,8 @@ const COWEN_PROXY_URL = process.env.COWEN_PROXY_URL || 'http://127.0.0.1:8080';
 // ISV Application Credentials
 const APP_KEY = process.env.COWEN_APP_KEY || '<YOUR_APP_KEY>';
 const REDIRECT_URI = process.env.REDIRECT_URI || `http://localhost:${PORT}/callback`;
-const OPENAPI_URL = process.env.COWEN_OPENAPI_URL || 'https://market.chanjet.com';
+const OPENAPI_URL = process.env.COWEN_OPENAPI_URL || 'https://openapi.chanjet.com';
+const MARKET_URL = process.env.COWEN_MARKET_URL || 'https://market.chanjet.com';
 
 // --------------------------------------------------------
 // 2. UI Routes (Logic separated into EJS templates)
@@ -26,7 +27,7 @@ const OPENAPI_URL = process.env.COWEN_OPENAPI_URL || 'https://market.chanjet.com
 
 // Landing Page: Initiate Authorization
 app.get('/', (req, res) => {
-    const authUrl = `${OPENAPI_URL}/user/v2/authorize?client_id=${APP_KEY}&response_type=code&scope=all&state=demo_${Date.now()}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+    const authUrl = `${MARKET_URL}/user/v2/authorize?client_id=${APP_KEY}&response_type=code&scope=all&state=demo_${Date.now()}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
     res.render('index', { authUrl });
 });
 
