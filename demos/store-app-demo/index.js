@@ -18,6 +18,7 @@ const COWEN_PROXY_URL = process.env.COWEN_PROXY_URL || 'http://127.0.0.1:8080';
 // ISV Application Credentials
 const APP_KEY = process.env.COWEN_APP_KEY || '<YOUR_APP_KEY>';
 const REDIRECT_URI = process.env.REDIRECT_URI || `http://localhost:${PORT}/callback`;
+const OPENAPI_URL = process.env.COWEN_OPENAPI_URL || 'https://market.chanjet.com';
 
 // --------------------------------------------------------
 // 2. UI Routes (Logic separated into EJS templates)
@@ -25,7 +26,7 @@ const REDIRECT_URI = process.env.REDIRECT_URI || `http://localhost:${PORT}/callb
 
 // Landing Page: Initiate Authorization
 app.get('/', (req, res) => {
-    const authUrl = `https://market.chanjet.com/user/v2/authorize?client_id=${APP_KEY}&response_type=code&scope=all&state=demo_${Date.now()}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+    const authUrl = `${OPENAPI_URL}/user/v2/authorize?client_id=${APP_KEY}&response_type=code&scope=all&state=demo_${Date.now()}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
     res.render('index', { authUrl });
 });
 
@@ -33,7 +34,7 @@ app.get('/', (req, res) => {
 // --------------------------------------------------
 app.get('/callback', async (req, res) => {
     const { code, state } = req.query;
-    
+
     console.log(`\n[Callback] Received code from platform. State: ${state}`);
 
     try {
@@ -41,7 +42,7 @@ app.get('/callback', async (req, res) => {
         // 逻辑说明：
         // 1. 虽然 Cowen 能够通过 Stream 自动回收，但业务系统主动换票可以立即同步获得 orgId。
         // 2. Cowen Proxy 会拦截此请求，自动补全 AppSecret 并将结果归档。
-        const response = await axios.post(`${COWEN_PROXY_URL}/oauth2/token`, 
+        const response = await axios.post(`${COWEN_PROXY_URL}/oauth2/token`,
             new URLSearchParams({
                 grant_type: 'authorization_code',
                 code: code,
@@ -57,11 +58,11 @@ app.get('/callback', async (req, res) => {
 
         console.log(`[Exchange Success] Tenant Identified: ${orgId}`);
 
-        res.render('callback', { 
-            code, 
-            state, 
+        res.render('callback', {
+            code,
+            state,
             orgId,
-            tokenData 
+            tokenData
         });
     } catch (error) {
         // 异常处理：
@@ -70,9 +71,9 @@ app.get('/callback', async (req, res) => {
         const errorDetail = error.response ? error.response.data : error.message;
         console.warn(`[Exchange Skip/Fail] Code might be consumed by Stream Bridge or expired:`, errorDetail);
 
-        res.render('callback', { 
-            code, 
-            state, 
+        res.render('callback', {
+            code,
+            state,
             orgId: state.startsWith('demo_') ? 'Pending (Wait for Webhook)' : state,
             error: errorDetail
         });

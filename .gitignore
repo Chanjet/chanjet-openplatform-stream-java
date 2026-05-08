@@ -46,3 +46,4 @@ cli/cjtCli/cjtCli-test
 
 .gemini/
 dump.rdb
+.env
