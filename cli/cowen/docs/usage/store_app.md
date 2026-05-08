@@ -57,9 +57,9 @@ cowen init --profile isv-prod \
 ### 1. 引导租户进行 OAuth2 授权
 ISV 需要引导企业管理员访问畅捷通开放平台的授权页面。
 - **授权 URL 示例**:
-  `https://open.chanjet.com/auth/login?appKey=<YOUR_APP_KEY>&state=tenant_123&redirect_uri=https://your-app.com/callback`
-- **关键参数**:
-    - `appKey`: 您的应用 AppKey。
+  `https://market.chanjet.com/user/v2/authorize?client_id=<YOUR_APP_KEY>&response_type=code&scope=all&state=tenant_123&redirect_uri=https://your-app.com/callback`
+- **关键参数说明**:
+    - `client_id`: 您的应用 AppKey。
     - `state`: 建议填写租户在您系统中的唯一 ID。
     - `redirect_uri`: 授权后的跳转地址（由您的业务系统接收）。
 
