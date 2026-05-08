@@ -50,6 +50,40 @@ cowen init --profile isv-prod \
 - **多租户识别**：转发时，`cowen` 会在 Header 中自动注入 **`orgId`**，方便您的服务端识别消息归属。
 - **安全约束**：出于 SSRF 防护要求，转发目标仅限本地回环地址 (`127.0.0.1` / `localhost` / `[::1]`)。
 
+## 🔐 租户授权流 (Tenant Authorization Flow)
+
+商店应用模式的核心是管理海量租户的授权。`cowen` 提供了两种方式来回收授权码并将其转换为永久码。
+
+### 1. 引导租户进行 OAuth2 授权
+ISV 需要引导企业管理员访问畅捷通开放平台的授权页面。
+- **授权 URL 示例**:
+  `https://open.chanjet.com/auth/login?appKey=<YOUR_APP_KEY>&state=tenant_123&redirect_uri=https://your-app.com/callback`
+- **关键参数**:
+    - `appKey`: 您的应用 AppKey。
+    - `state`: 建议填写租户在您系统中的唯一 ID。
+    - `redirect_uri`: 授权后的跳转地址（由您的业务系统接收）。
+
+### 2. 回收授权码 (Auth Code)
+授权成功后，ISV 有两种方式完成后续的换票过程：
+
+#### A. 全自动回收 (推荐：基于 Stream Bridge)
+如果您的 `cowen` 守护进程已启动（`cowen daemon start`），它会监听开放平台的实时推送：
+1. **自动拦截**: 开放平台通过 WebSocket 直接将 `TempAuthCode` 推送给 `cowen`。
+2. **自动换票**: `cowen` 拦截消息后，会立即自动将其交换为 **`PermanentAuthCode`** (永久授权码)。
+3. **自动归档**: 永久码和初始 Token 会被加密存入您的存储后端（MySQL/Redis），`cowen` 随即开始自动续约。
+
+#### B. 主动交换 (基于 Proxy 代理)
+如果您希望在业务系统的 Callback 逻辑中直接控制换票，可以通过 `cowen` 提供的透明代理接口：
+- **接口地址**: `POST http://127.0.0.1:8000/v1/oauth2/token`
+- **请求参数**: 
+  按照标准 OAuth2 协议发送 `code` 和 `grant_type=authorization_code` 即可。
+- **透明增强**: `cowen` 代理会拦截此请求，**自动注入** `client_id` 和 `client_secret`，并在获取结果后**自动将永久码归档**到存储中。
+
+### 3. 授权成功感知
+虽然 `cowen` 负责了后端的令牌维护，但您的业务系统通常需要通过 `redirect_uri` 的跳转或 Webhook 转发的消息来感知授权已完成，随后即可通过代理（携带 `orgId`）开始调用该租户的 API。
+
+---
+
 ## ⚠️ 能力边界
 
 | 特性 | 支持状态 | 备注 |
@@ -195,7 +229,3 @@ services:
     *   **推荐配额**: `Requests: 64MiB / 0.1 CPU`, `Limits: 128MiB / 0.5 CPU`。
 4.  **优雅停机**: 
     *   确保 K8s 给 `cowen` 足够的 `terminationGracePeriodSeconds`（建议 30s），以便 Daemon 完成最后的日志上报与死信归档。
-
----
-
-## ⚠️ 能力边界

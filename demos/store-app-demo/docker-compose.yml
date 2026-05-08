@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # The ISV Main Application
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - COWEN_PROXY_URL=http://127.0.0.1:8080 # Same network namespace as cowen
+    depends_on:
+      - cowen
+    network_mode: "service:cowen" # [CRITICAL] Share network namespace with cowen sidecar
+
+  # Cowen Sidecar
+  cowen:
+    image: chanjet/cowen:latest
+    ports:
+      - "8080:8080" # Expose proxy to host for debugging if needed
+    environment:
+      - COWEN_APP_MODE=store_app
+      - COWEN_APP_KEY=<YOUR_APP_KEY>
+      - COWEN_APP_SECRET=<YOUR_APP_SECRET>
+      - COWEN_ENCRYPT_KEY=<YOUR_16_BYTE_ENCRYPT_KEY>
+      - COWEN_WEBHOOK_TARGET=http://127.0.0.1:5000/webhook # Points to 'app'
+      - COWEN_PROXY_PORT=8080
+      - COWEN_STORE_TYPE=redis
+      - COWEN_DB_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+
+  # Redis for Distributed Token Storage
+  redis:
+    image: redis:alpine
+    command: redis-server --appendonly yes
