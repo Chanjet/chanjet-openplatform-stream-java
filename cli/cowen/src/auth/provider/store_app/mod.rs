@@ -51,7 +51,7 @@ impl StoreAppProvider {
         &self,
         profile: &str,
         cfg: &Config,
-        org_id: &str,
+        org_id: Option<&str>,
         temp_auth_code: &str,
     ) -> Result<String> {
         client::exchange_permanent_code_by_temp_code(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id, temp_auth_code).await
@@ -78,11 +78,11 @@ impl StoreAppProvider {
         token_logic::get_org_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id).await
     }
 
-    async fn finalize_login(&self, profile: &str, cfg: &Config) -> Result<()> {
-        tracing::info!(target: "sys", profile = %profile, "Finalizer started for StoreApp auth");
+    async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str) -> Result<()> {
+        tracing::info!(target: "sys", profile = %profile, session_id = %session_id, "Finalizer started for StoreApp auth");
         
         let session_manager = AuthSessionManager::new(self.pool.as_ref());
-        let session = session_manager.get_session(profile).await?;
+        let session = session_manager.get_session(session_id).await?;
         
         let (actual_port, rx) = crate::auth::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
         tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
@@ -129,7 +129,7 @@ impl StoreAppProvider {
 #[async_trait]
 impl AuthProvider for StoreAppProvider {
     async fn exchange_temp_code(&self, profile: &str, config: &Config, org_id: &str, temp_code: &str) -> Result<Token> {
-        let _ = self.exchange_permanent_code_by_temp_code(profile, config, org_id, temp_code).await?;
+        let _ = self.exchange_permanent_code_by_temp_code(profile, config, Some(org_id), temp_code).await?;
         self.get_org_token(profile, config, org_id).await
     }
 
@@ -163,7 +163,7 @@ impl AuthProvider for StoreAppProvider {
         let pair_str = self
             .pool
             .as_vault()
-            .get(profile, "oauth2_token_pair")
+            .get_secret(profile, "oauth2_token_pair")
             .await?;
         let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
         self.refresh_token(profile, cfg, &pair.refresh_token).await
@@ -262,8 +262,8 @@ impl AuthProvider for StoreAppProvider {
         // 1. Check AppAccessToken health
         match self.pool.get_app_access_token(&config.app_key).await {
             Ok(token) => {
-                let remaining = token.expires_at.signed_duration_since(chrono::Utc::now());
-                if remaining < chrono::Duration::minutes(15) {
+                if token.is_expired_with_buffer(chrono::Duration::minutes(15)) {
+                    let remaining = token.expires_at.signed_duration_since(chrono::Utc::now());
                     tracing::info!(target: "sys", "StoreApp AppAccessToken expires in {:?}. Proactively refreshing...", remaining);
                     let _ = self.get_app_access_token(profile, config).await;
                 }
@@ -276,10 +276,10 @@ impl AuthProvider for StoreAppProvider {
 
         // 2. Check archived OAuth2 tokens health (Multi-tenant support)
         // For simplicity, we just look at the 'main' pair if archived
-        if let Ok(pair_str) = self.pool.as_vault().get(profile, "oauth2_token_pair").await {
+        if let Ok(pair_str) = self.pool.as_vault().get_secret(profile, "oauth2_token_pair").await {
             if let Ok(pair) = serde_json::from_str::<OAuth2TokenPair>(&pair_str) {
-                let remaining = pair.expires_at.signed_duration_since(chrono::Utc::now());
-                if remaining < chrono::Duration::minutes(15) {
+                if pair.is_expired_with_buffer(chrono::Duration::minutes(15)) {
+                    let remaining = pair.expires_at.signed_duration_since(chrono::Utc::now());
                     tracing::info!(target: "sys", "StoreApp archived OAuth2 token expires in {:?}. Proactively refreshing...", remaining);
                     let _ = self.refresh(profile, config, &Default::default()).await;
                 }
@@ -406,9 +406,8 @@ impl AuthProvider for StoreAppProvider {
             }
             crate::auth::provider::PlatformEvent::TempAuthCode { code, org_id } => {
                 tracing::info!(target: "sys", "Store App TEMP_AUTH_CODE received. Exchanging...");
-                let oid = org_id.ok_or_else(|| anyhow!("Missing org_id in TempAuthCode event for Store App"))?;
-                if let Err(e) = self.exchange_permanent_code_by_temp_code(profile, config, &oid, &code).await {
-                    tracing::error!(target: "sys", error = %e, orgId = %oid, "Failed to exchange TEMP_AUTH_CODE for Store App");
+                if let Err(e) = self.exchange_permanent_code_by_temp_code(profile, config, org_id.as_deref(), &code).await {
+                    tracing::error!(target: "sys", error = %e, "Failed to exchange TEMP_AUTH_CODE for Store App");
                     return Err(e);
                 }
                 Ok(())
@@ -418,8 +417,8 @@ impl AuthProvider for StoreAppProvider {
 
     async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>) -> Result<()> {
         // 1. Finalizer Implementation (Background flow)
-        if let Some(_session_id) = finalize {
-            return self.finalize_login(profile, config).await;
+        if let Some(session_id) = finalize {
+            return self.finalize_login(profile, config, session_id).await;
         }
 
         // 2. Regular Login flow
@@ -436,28 +435,17 @@ impl AuthProvider for StoreAppProvider {
             }
         }
     }
-    fn get_daemon_display_info(&self, is_running: bool) -> (String, String) {
-        let name = "Stream Bridge (Daemon)";
-        let tip = if is_running {
-            "同步状态: [ACTIVE]"
-        } else {
-            "若需实现多租户消息同步，请运行 'cowen daemon start'"
-        };
-        (name.to_string(), tip.to_string())
-    }
-
-    fn supports_api_call(&self) -> bool {
-        false
-    }
 
     async fn get_diagnostics(&self, ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
-        use crate::core::status::{collect_daemon_status, StatusEntry, StatusLevel, CommonTemplate};
+        use crate::core::status::{StatusEntry, StatusLevel, CommonTemplate, collect_daemon_status};
+        
         let mut results = Vec::new();
         
-        // 1. Auth Status (from diagnostics module)
+        // 1. Mode Specific Diagnostics (Authentication, Vault, etc.)
         let auth_entries = diagnostics::get_diagnostics_entries(self.pool.as_ref(), &ctx.profile, ctx.config).await?;
+        
         if !auth_entries.is_empty() {
-             let max_level = auth_entries.iter().map(|e| e.level).max_by_key(|l| match l {
+            let max_level = auth_entries.iter().map(|e| e.level).max_by_key(|l| match l {
                 StatusLevel::ERROR => 3,
                 StatusLevel::WARN => 2,
                 StatusLevel::OK => 1,
@@ -477,6 +465,21 @@ impl AuthProvider for StoreAppProvider {
         Ok(results)
     }
 
+    fn get_daemon_display_info(&self, is_running: bool) -> (String, String) {
+        let name = "Stream Bridge (Daemon)";
+        let tip = if is_running {
+            "同步状态: [ACTIVE]"
+        } else {
+            "若需实现多租户消息同步，请运行 'cowen daemon start'"
+        };
+        (name.to_string(), tip.to_string())
+    }
+
+    fn supports_api_call(&self) -> bool {
+        false
+    }
+
+
     fn get_default_app_key(&self) -> Option<String> {
         Some(crate::auth::models::BUILTIN_CLIENT_ID.to_string())
     }
@@ -488,13 +491,11 @@ impl AuthProvider for StoreAppProvider {
 
     async fn on_logout(&self, profile: &str, _config: &Config) -> Result<()> {
         let vault = self.pool.as_vault();
-        let _ = vault.delete(profile, "oauth2_token_pair");
-        let _ = vault.delete(profile, "pending_auth_session");
-        let _ = vault.delete(profile, "captured_auth_code");
-        let _ = vault.delete(profile, "oauth2_revoked");
-        let _ = vault.delete(profile, "last_refresh_error");
-        let _ = vault.delete(profile, "app_ticket");
-        let _ = vault.delete(profile, "app_ticket_created");
+        let _ = vault.delete_secret(profile, "oauth2_token_pair").await;
+        let _ = vault.delete_config(profile, "oauth2_revoked").await;
+        let _ = vault.delete_config(profile, "last_refresh_error").await;
+        let _ = vault.delete_secret(profile, "app_ticket").await;
+        let _ = vault.delete_config(profile, "app_ticket_created").await;
         Ok(())
     }
 }

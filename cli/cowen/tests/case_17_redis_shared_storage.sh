@@ -114,8 +114,8 @@ fi
 
 # 4. Invalidate Token in Redis and Verify Renewal
 echo -e "${BOLD}4. Invalidate Token in Redis and Verify Renewal${NC}"
-# Clear Redis specifically for this key (Global App Profile with cfg: prefix)
-redis-cli -p $REDIS_PORT -n 0 DEL "app:AK_REDIS:cfg:access_token" > /dev/null
+# Clear Redis specifically for this key (Global App Profile with tok_v2: prefix)
+redis-cli -p $REDIS_PORT -n 0 DEL "app:AK_REDIS:tok_v2:app_access" > /dev/null
 
 TOKEN_3=$(extract_token "main")
 echo "     TOKEN_1: $TOKEN_1"

@@ -1,8 +1,8 @@
 # 商业需求文档 (Business Requirement Document - BRD)
 
 > **项目名称**: cowen v0.3.0 - ISV Sidecar Evolution
-> **版本**: v0.1.0 (Draft)
-> **当前状态**: `DRAFT`
+> **版本**: v0.1.0
+> **当前状态**: `PASS` (2026-05-08)
 
 ## 📖 目录 (Table of Contents)
 

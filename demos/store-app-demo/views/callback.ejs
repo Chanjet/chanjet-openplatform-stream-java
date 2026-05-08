@@ -95,9 +95,68 @@
             这样做可以直接在 Response 中同步拿到该租户的 <code>orgId</code>，方便业务系统进行账号绑定。
         </div>
         <div class="actions">
-            <a href="/api-test?orgId=<%= locals.orgId || state %>" class="btn-test">尝试调用 OpenAPI &rarr;</a>
+            <a href="javascript:void(0)" id="btn-test" onclick="testApi('<%= locals.orgId || state %>')" class="btn-test">尝试调用 OpenAPI &rarr;</a>
             <a href="/" class="btn-secondary">返回首页</a>
         </div>
+
+        <div id="result-container" style="display: none; margin-top: 2rem; border-top: 1px solid #e2e8f0; padding-top: 1.5rem;">
+            <h3 style="font-size: 1rem; color: #0f172a; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M4 6h16M4 12h16m-7 6h7"></path>
+                </svg>
+                调用结果 (JSON Response)
+            </h3>
+            <pre id="result-body" style="background: #0f172a; color: #38bdf8; padding: 1.25rem; border-radius: 8px; font-size: 0.85rem; overflow-x: auto; line-height: 1.6; border: 1px solid #1e293b;"></pre>
+        </div>
     </div>
+
+    <script>
+        async function testApi(orgId) {
+            const btn = document.getElementById('btn-test');
+            const resultContainer = document.getElementById('result-container');
+            const resultBody = document.getElementById('result-body');
+            
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `
+                <svg class="animate-spin" width="18" height="18" viewBox="0 0 24 24" style="display: inline-block; animation: spin 1s linear infinite;">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" style="opacity: 0.25" fill="none"></circle>
+                    <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                请求中...
+            `;
+            btn.style.opacity = '0.7';
+            btn.style.pointerEvents = 'none';
+
+            try {
+                const response = await fetch(`/api-test?orgId=${orgId}`);
+                const data = await response.json();
+                
+                resultContainer.style.display = 'block';
+                resultBody.textContent = JSON.stringify(data, null, 2);
+                
+                // Animation effect
+                resultContainer.style.opacity = '0';
+                resultContainer.style.transition = 'opacity 0.5s ease';
+                setTimeout(() => {
+                    resultContainer.style.opacity = '1';
+                }, 10);
+
+                resultContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } catch (error) {
+                console.error('API Test Error:', error);
+                alert('接口调用异常，请检查控制台输出');
+            } finally {
+                btn.innerHTML = originalText;
+                btn.style.opacity = '1';
+                btn.style.pointerEvents = 'auto';
+            }
+        }
+    </script>
+    <style>
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
 </body>
 </html>

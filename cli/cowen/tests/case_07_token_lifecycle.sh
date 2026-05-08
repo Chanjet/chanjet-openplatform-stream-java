@@ -23,8 +23,8 @@ echo "   Token 1: $T1"
 assert_pass "First token acquired"
 
 echo -e "${BOLD}4. Manual Token Invalidation (simulate expiration)${NC}"
-# Inject an expired timestamp into the InnerDB
-sqlite3 "$COWEN_HOME/cowen.db" "UPDATE cowen_config SET item_value = '2000-01-01T00:00:00Z' WHERE item_key = 'access_token_expires' AND profile = 'app:AK_LIFE';"
+# Inject an expired timestamp into the InnerDB (cowen_app_token for Self-Built mode)
+sqlite3 "$COWEN_HOME/cowen.db" "UPDATE cowen_app_token SET token_value = 'expired-token', expires_at = '2000-01-01T00:00:00Z' WHERE app_key = 'AK_LIFE';"
 assert_pass "Token marked as expired in store"
 
 echo -e "${BOLD}5. Transparent Refresh via Proxy${NC}"

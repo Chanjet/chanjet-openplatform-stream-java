@@ -6,56 +6,22 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[async_trait]
-pub trait Vault: Send + Sync {
-    // --- Config Domain ---
-    #[allow(dead_code)]
-    async fn get_config(&self, profile: &str, key: &str) -> Result<String>;
-    async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item>;
-    async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()>;
-    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> Result<()>;
-    async fn list_configs(&self, profile: &str) -> Result<Vec<String>>;
-    #[allow(dead_code)]
-    async fn delete_config(&self, profile: &str, key: &str) -> Result<()>;
-
-    // --- Secret Domain ---
-    async fn get_secret(&self, profile: &str, key: &str) -> Result<String>;
-    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()>;
-
-    // --- Token Domain ---
-    #[allow(dead_code)]
-    async fn get_token(&self, profile: &str, key: &str) -> Result<String>;
-    #[allow(dead_code)]
-    async fn set_token(&self, profile: &str, key: &str, value: &str, expires_in_secs: u64) -> Result<()>;
-
-    // --- Audit Domain ---
-    async fn save_audit(&self, entry: &AuditEntry) -> Result<()>;
-    async fn list_audit(&self, profile: &str, limit: usize) -> Result<Vec<AuditEntry>>;
-
-    // --- DLQ Domain ---
-    #[allow(dead_code)]
-    async fn push_dlq(&self, msg: &DlqMessage) -> Result<()>;
-    #[allow(dead_code)]
-    async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>>;
-    #[allow(dead_code)]
-    async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>>;
-
-    // --- Legacy / Generic Fallback ---
-    async fn get(&self, profile: &str, key: &str) -> Result<String>;
-    async fn set(&self, profile: &str, key: &str, value: &str) -> Result<()>;
-    async fn delete(&self, profile: &str, key: &str) -> Result<()>;
-    async fn list_keys(&self, profile: &str, prefix: &str) -> Result<Vec<String>>;
-
-    // --- Management ---
-    async fn clear_profile(&self, profile: &str) -> Result<()>;
-    async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()>;
-    async fn list_all_profiles(&self) -> Result<Vec<String>>;
-
+pub trait Vault: 
+    Send + Sync + 
+    crate::domain::TicketDomain + 
+    crate::domain::TokenDomain + 
+    crate::domain::SessionDomain +
+    crate::domain::SecretDomain +
+    crate::domain::ConfigDomain +
+    crate::domain::AuditDomain +
+    crate::domain::DlqDomain +
+    crate::domain::PermanentCodeDomain +
+    crate::domain::ManagementDomain
+{
     // --- Notification ---
-    async fn notify_config_changed(&self, profile: &str, key: &str) -> Result<()>;
-    async fn watch_config(&self, profile: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>>;
 
     // --- Migration Support ---
-    fn primary_store(&self) -> Arc<dyn crate::core::store::Store>;
+    fn primary_store(&self) -> Arc<dyn Store>;
 }
 
 pub struct StoreVault {
@@ -71,39 +37,38 @@ impl StoreVault {
 
 #[async_trait]
 impl Vault for StoreVault {
-    // --- Config Domain (Primary) ---
+
+    fn primary_store(&self) -> Arc<dyn Store> {
+        self.primary.clone()
+    }
+}
+
+#[async_trait]
+impl crate::domain::ConfigDomain for StoreVault {
     async fn get_config(&self, profile: &str, key: &str) -> Result<String> { self.primary.get_config(profile, key).await }
-    async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item> { self.primary.get_config_full(profile, key).await }
+    async fn get_config_full(&self, profile: &str, key: &str) -> Result<crate::core::store::Item> { self.primary.get_config_full(profile, key).await }
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.primary.set_config(profile, key, value).await }
     async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, ev: u64) -> Result<()> { self.primary.set_config_conditional(profile, key, value, ev).await }
     async fn list_configs(&self, profile: &str) -> Result<Vec<String>> { self.primary.list_configs(profile).await }
     async fn delete_config(&self, profile: &str, key: &str) -> Result<()> { self.primary.delete_config(profile, key).await }
+}
 
-    // --- Secret Domain (Routed based on Stateless requirement) ---
-    async fn get_secret(&self, profile: &str, key: &str) -> Result<String> { self.sensitive.get_secret(profile, key).await }
-    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.sensitive.set_secret(profile, key, value).await }
+#[async_trait]
+impl crate::domain::AuditDomain for StoreVault {
+    async fn save_audit(&self, entry: &crate::core::store::AuditEntry) -> Result<()> { self.primary.save_audit(entry).await }
+    async fn list_audit(&self, profile: &str, limit: usize) -> Result<Vec<crate::core::store::AuditEntry>> { self.primary.list_audit(profile, limit).await }
+}
 
-    // --- Token Domain (Primary) ---
-    async fn get_token(&self, profile: &str, key: &str) -> Result<String> { self.primary.get_token(profile, key).await }
-    async fn set_token(&self, profile: &str, key: &str, value: &str, exp: u64) -> Result<()> { self.primary.set_token(profile, key, value, exp).await }
+#[async_trait]
+impl crate::domain::DlqDomain for StoreVault {
+    async fn push_dlq(&self, msg: &crate::core::store::DlqMessage) -> Result<()> { self.primary.push_dlq(msg).await }
+    async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<crate::core::store::DlqMessage>> { self.primary.pop_dlq(profile, topic).await }
+    async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<crate::core::store::DlqMessage>> { self.primary.list_dlq(profile, limit).await }
+    async fn list_all_dlq(&self, profile: &str) -> Result<Vec<crate::core::store::DlqMessage>> { self.primary.list_all_dlq(profile).await }
+}
 
-    // --- Audit Domain (Primary) ---
-    async fn save_audit(&self, entry: &AuditEntry) -> Result<()> { self.primary.save_audit(entry).await }
-    async fn list_audit(&self, profile: &str, limit: usize) -> Result<Vec<AuditEntry>> { self.primary.list_audit(profile, limit).await }
-
-    // --- DLQ Domain (Primary) ---
-    async fn push_dlq(&self, msg: &DlqMessage) -> Result<()> { self.primary.push_dlq(msg).await }
-    async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>> { self.primary.pop_dlq(profile, topic).await }
-    async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>> { self.primary.list_dlq(profile, limit).await }
-
-
-    // --- Legacy Fallback ---
-    async fn get(&self, profile: &str, key: &str) -> Result<String> { self.primary.get(profile, key).await }
-    async fn set(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.primary.set(profile, key, value).await }
-    async fn delete(&self, profile: &str, key: &str) -> Result<()> { self.primary.delete(profile, key).await }
-    async fn list_keys(&self, profile: &str, prefix: &str) -> Result<Vec<String>> { self.primary.list_keys(profile, prefix).await }
-
-    // --- Management ---
+#[async_trait]
+impl crate::domain::ManagementDomain for StoreVault {
     async fn clear_profile(&self, profile: &str) -> Result<()> {
         let _ = self.sensitive.clear_profile(profile).await;
         if !Arc::ptr_eq(&self.sensitive, &self.primary) {
@@ -119,19 +84,81 @@ impl Vault for StoreVault {
         Ok(())
     }
     async fn list_all_profiles(&self) -> Result<Vec<String>> {
-        // We primary use 'primary' to list profiles since it has configs
         self.primary.list_all_profiles().await
     }
+}
 
-    async fn notify_config_changed(&self, profile: &str, key: &str) -> Result<()> {
-        self.primary.notify_config_changed(profile, key).await
+#[async_trait]
+impl crate::domain::TicketDomain for StoreVault {
+    async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
+        self.sensitive.get_app_ticket(app_key).await
     }
-    async fn watch_config(&self, profile: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-        self.primary.watch_config(profile).await
+    async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()> {
+        self.sensitive.save_app_ticket(app_key, ticket).await
     }
+}
 
-    fn primary_store(&self) -> Arc<dyn crate::core::store::Store> {
-        self.primary.clone()
+#[async_trait]
+impl crate::domain::TokenDomain for StoreVault {
+    async fn get_access_token(&self, profile: &str) -> Result<crate::auth::models::Token> {
+        self.primary.get_access_token(profile).await
+    }
+    async fn save_access_token(&self, profile: &str, token: crate::auth::models::Token) -> Result<()> {
+        self.primary.save_access_token(profile, token).await
+    }
+    async fn delete_access_token(&self, profile: &str) -> Result<()> {
+        self.primary.delete_access_token(profile).await
+    }
+    async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
+        self.primary.get_app_access_token(app_key).await
+    }
+    async fn save_app_access_token(&self, app_key: &str, token: crate::auth::models::Token) -> Result<()> {
+        self.primary.save_app_access_token(app_key, token).await
+    }
+}
+
+#[async_trait]
+impl crate::domain::SessionDomain for StoreVault {
+    async fn get_session(&self, state: &str) -> Result<crate::auth::models::AuthSession> {
+        let json = self.primary.get_token("global", &format!("session:{}", state)).await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_session(&self, session: crate::auth::models::AuthSession) -> Result<()> {
+        let json = serde_json::to_string(&session)?;
+        let ttl = (session.expires_at - chrono::Utc::now()).num_seconds().max(0) as u64;
+        self.primary.set_token("global", &format!("session:{}", session.state), &json, ttl).await
+    }
+    async fn delete_session(&self, state: &str) -> Result<()> {
+        self.primary.delete_token("global", &format!("session:{}", state)).await
+    }
+}
+
+#[async_trait]
+impl crate::domain::PermanentCodeDomain for StoreVault {
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
+        self.sensitive.get_org_permanent_code(app_key, org_id).await
+    }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
+        self.sensitive.save_org_permanent_code(app_key, org_id, code).await
+    }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
+        self.sensitive.get_user_permanent_code(app_key, org_id, user_id).await
+    }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
+        self.sensitive.save_user_permanent_code(app_key, org_id, user_id, code).await
+    }
+}
+
+#[async_trait]
+impl crate::domain::SecretDomain for StoreVault {
+    async fn get_secret(&self, profile: &str, key: &str) -> Result<String> {
+        self.sensitive.get_secret(profile, key).await
+    }
+    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()> {
+        self.sensitive.set_secret(profile, key, value).await
+    }
+    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()> {
+        self.sensitive.delete_secret(profile, key).await
     }
 }
 
@@ -150,13 +177,10 @@ pub async fn create_vault(app_config: &AppConfig, app_dir: &Path, fingerprint: &
         let sql_store: Arc<dyn Store> = Arc::new(SqlStore::from_url(db_url).await?);
         
         let secret_store: Arc<dyn Store> = if store_type == "sqlite" {
-            // In explicit SQLite mode, we use the database for secrets to support distributed sync
             sql_store.clone()
         } else if seal_path.is_file() {
-            // COMPATIBILITY: Legacy .seal file exists
             Arc::new(MonolithicSealStore::new(seal_path, fingerprint))
         } else {
-            // NEW: Use directory-based FileStore
             Arc::new(FileStore::new(seal_path, fingerprint)?)
         };
         (sql_store, secret_store)
@@ -173,7 +197,6 @@ pub async fn create_vault(app_config: &AppConfig, app_dir: &Path, fingerprint: &
         if let Some(pair) = found {
             pair
         } else if SqlStore::is_supported(store_type) {
-            // Fallback for direct SQL schemes not yet wrapped in StoreBuilder
             let db_url = storage_cfg.db_url.as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Database URL is required for remote SQL storage"))?;
             let sql_store: Arc<dyn Store> = Arc::new(SqlStore::from_url(db_url).await?);
@@ -183,7 +206,6 @@ pub async fn create_vault(app_config: &AppConfig, app_dir: &Path, fingerprint: &
         }
     };
 
-    // 2. Apply Cache Decorator (if any)
     let mut final_primary = primary;
     if storage_cfg.cache != "none" {
         let mut applied = false;

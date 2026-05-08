@@ -107,13 +107,57 @@ async def handle_push(request):
 
 async def handle_permanent_auth_code(request):
     """Store-App mode exchange: temp code -> permanent code"""
-    print(f"📥 [MOCK] Permanent Auth Code Exchange Request")
+    try:
+        data = await request.json()
+        temp_code = data.get("tempAuthCode", "unknown")
+    except:
+        temp_code = "unknown"
+        
+    print(f"📥 [MOCK] Permanent Auth Code Exchange Request for: {temp_code}")
+    
+    # Extract orgId from temp_code to allow dynamic testing
+    org_id = temp_code.replace("code_", "") if temp_code.startswith("code_") else "900000000"
+
     return web.json_response({
         "result": {
             "appName": "MockStoreApp",
             "appId": "12345",
             "permanentAuthCode": f"mock_opc_{uuid.uuid4().hex[:8]}",
-            "orgId": "900000000"
+            "orgId": org_id
+        },
+        "code": "200",
+        "message": "success"
+    })
+
+async def handle_org_access_token(request):
+    """Store-App mode exchange: permanent code -> org access token"""
+    try:
+        data = await request.json()
+        opc = data.get("permanentAuthCode", "unknown")
+    except:
+        opc = "unknown"
+    print(f"📥 [MOCK] Org Access Token Request for OPC: {opc}")
+    return web.json_response({
+        "result": {
+            "accessToken": f"mock_at_oa2_permanent_code_{uuid.uuid4().hex[:8]}",
+            "expireTime": MOCK_STATE["token_expires_in"]
+        },
+        "code": "200",
+        "message": "success"
+    })
+
+async def handle_user_access_token(request):
+    """Store-App mode exchange: user permanent code -> user access token"""
+    try:
+        data = await request.json()
+        upc = data.get("userPermanentCode", "unknown")
+    except:
+        upc = "unknown"
+    print(f"📥 [MOCK] User Access Token Request for UPC: {upc}")
+    return web.json_response({
+        "result": {
+            "accessToken": f"mock_at_oa2_user_permanent_code_{uuid.uuid4().hex[:8]}",
+            "expireTime": MOCK_STATE["token_expires_in"]
         },
         "code": "200",
         "message": "success"
@@ -409,6 +453,8 @@ async def run_server():
     app.router.add_post("/v1/common/auth/oauth2/token", handle_oauth2_token)
     app.router.add_post("/oauth2/token", handle_oauth2_token)
     app.router.add_post("/auth/orgAuth/getPermanentAuthCode", handle_permanent_auth_code)
+    app.router.add_post("/auth/orgAuth/getOrgAccessToken", handle_org_access_token)
+    app.router.add_post("/auth/userAuth/getUserAccessToken", handle_user_access_token)
     app.router.add_post("/auth/appAuth/getAppAccessToken", handle_store_app_token)
 
     

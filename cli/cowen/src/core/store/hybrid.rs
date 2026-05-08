@@ -53,6 +53,95 @@ impl Store for HybridStore {
     async fn set_secret(&self, p: &str, k: &str, v: &str) -> Result<()> {
         self.persistence.set_secret(p, k, v).await
     }
+    async fn delete_secret(&self, p: &str, k: &str) -> Result<()> {
+        self.persistence.delete_secret(p, k).await
+    }
+    async fn list_secrets(&self, p: &str) -> Result<Vec<String>> {
+        self.persistence.list_secrets(p).await
+    }
+
+    async fn get_access_token(&self, p: &str) -> Result<crate::auth::models::Token> {
+        match self.cache.get_access_token(p).await {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                let v = self.persistence.get_access_token(p).await?;
+                let _ = self.cache.save_access_token(p, v.clone()).await;
+                Ok(v)
+            }
+        }
+    }
+    async fn save_access_token(&self, p: &str, t: crate::auth::models::Token) -> Result<()> {
+        self.persistence.save_access_token(p, t.clone()).await?;
+        let _ = self.cache.save_access_token(p, t).await;
+        Ok(())
+    }
+    async fn delete_access_token(&self, p: &str) -> Result<()> {
+        let _ = self.cache.delete_access_token(p).await;
+        self.persistence.delete_access_token(p).await
+    }
+    async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
+        match self.cache.get_app_access_token(app_key).await {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                let v = self.persistence.get_app_access_token(app_key).await?;
+                let _ = self.cache.save_app_access_token(app_key, v.clone()).await;
+                Ok(v)
+            }
+        }
+    }
+    async fn save_app_access_token(&self, app_key: &str, t: crate::auth::models::Token) -> Result<()> {
+        self.persistence.save_app_access_token(app_key, t.clone()).await?;
+        let _ = self.cache.save_app_access_token(app_key, t).await;
+        Ok(())
+    }
+
+    async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
+        match self.cache.get_app_ticket(app_key).await {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                let v = self.persistence.get_app_ticket(app_key).await?;
+                let _ = self.cache.save_app_ticket(app_key, v.clone()).await;
+                Ok(v)
+            }
+        }
+    }
+    async fn save_app_ticket(&self, app_key: &str, t: crate::auth::models::Ticket) -> Result<()> {
+        self.persistence.save_app_ticket(app_key, t.clone()).await?;
+        let _ = self.cache.save_app_ticket(app_key, t).await;
+        Ok(())
+    }
+
+    // --- Permanent Code ---
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
+        match self.cache.get_org_permanent_code(app_key, org_id).await {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                let v = self.persistence.get_org_permanent_code(app_key, org_id).await?;
+                let _ = self.cache.save_org_permanent_code(app_key, org_id, &v).await;
+                Ok(v)
+            }
+        }
+    }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
+        self.persistence.save_org_permanent_code(app_key, org_id, code).await?;
+        let _ = self.cache.save_org_permanent_code(app_key, org_id, code).await;
+        Ok(())
+    }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
+        match self.cache.get_user_permanent_code(app_key, org_id, user_id).await {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                let v = self.persistence.get_user_permanent_code(app_key, org_id, user_id).await?;
+                let _ = self.cache.save_user_permanent_code(app_key, org_id, user_id, &v).await;
+                Ok(v)
+            }
+        }
+    }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
+        self.persistence.save_user_permanent_code(app_key, org_id, user_id, code).await?;
+        let _ = self.cache.save_user_permanent_code(app_key, org_id, user_id, code).await;
+        Ok(())
+    }
 
     async fn get_token(&self, p: &str, k: &str) -> Result<String> {
         match self.cache.get_token(p, k).await {
@@ -68,6 +157,10 @@ impl Store for HybridStore {
         self.persistence.set_token(p, k, v, exp).await?;
         let _ = self.cache.set_token(p, k, v, exp).await;
         Ok(())
+    }
+    async fn delete_token(&self, p: &str, k: &str) -> Result<()> {
+        let _ = self.cache.delete_token(p, k).await;
+        self.persistence.delete_token(p, k).await
     }
     async fn list_tokens(&self, p: &str) -> Result<Vec<String>> {
         self.persistence.list_tokens(p).await
@@ -107,10 +200,4 @@ impl Store for HybridStore {
         self.persistence.list_all_profiles().await
     }
 
-    async fn notify_config_changed(&self, p: &str, k: &str) -> Result<()> {
-        self.persistence.notify_config_changed(p, k).await
-    }
-    async fn watch_config(&self, p: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-        self.persistence.watch_config(p).await
-    }
 }

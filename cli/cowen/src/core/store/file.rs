@@ -57,9 +57,69 @@ impl Store for FileStore {
 
     async fn get_secret(&self, p: &str, k: &str) -> Result<String> { Ok(fs::read_to_string(self.get_path(p, "sec", k))?) }
     async fn set_secret(&self, p: &str, k: &str, v: &str) -> Result<()> { Ok(fs::write(self.get_path(p, "sec", k), v)?) }
+    async fn delete_secret(&self, p: &str, k: &str) -> Result<()> {
+        let path = self.get_path(p, "sec", k);
+        if path.exists() { fs::remove_file(path)?; }
+        Ok(())
+    }
+    async fn list_secrets(&self, p: &str) -> Result<Vec<String>> {
+        let dir = self.root_dir.join(p).join("sec");
+        if !dir.exists() { return Ok(vec![]); }
+        Ok(fs::read_dir(dir)?.filter_map(|e| e.ok().map(|x| x.file_name().to_string_lossy().replace("_", ":"))).collect())
+    }
+
+    async fn get_access_token(&self, p: &str) -> Result<crate::auth::models::Token> {
+        let json = fs::read_to_string(self.get_path(p, "tok_v2", "access"))?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_access_token(&self, p: &str, t: crate::auth::models::Token) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        Ok(fs::write(self.get_path(p, "tok_v2", "access"), json)?)
+    }
+    async fn delete_access_token(&self, p: &str) -> Result<()> {
+        let path = self.get_path(p, "tok_v2", "access");
+        if path.exists() { fs::remove_file(path)?; }
+        Ok(())
+    }
+    async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
+        let json = fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tok_v2", "app_access"))?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_app_access_token(&self, app_key: &str, t: crate::auth::models::Token) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        Ok(fs::write(self.get_path(&format!("app:{}", app_key), "tok_v2", "app_access"), json)?)
+    }
+
+    async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
+        let json = fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tic", "v1"))?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_app_ticket(&self, app_key: &str, t: crate::auth::models::Ticket) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        Ok(fs::write(self.get_path(&format!("app:{}", app_key), "tic", "v1"), json)?)
+    }
+
+    // --- Permanent Code Domain ---
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
+        Ok(fs::read_to_string(self.get_path(&format!("app:{}", app_key), "perm", &format!("{}:org", org_id)))?)
+    }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
+        Ok(fs::write(self.get_path(&format!("app:{}", app_key), "perm", &format!("{}:org", org_id)), code)?)
+    }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
+        Ok(fs::read_to_string(self.get_path(&format!("app:{}", app_key), "perm", &format!("{}:{}:user", org_id, user_id)))?)
+    }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
+        Ok(fs::write(self.get_path(&format!("app:{}", app_key), "perm", &format!("{}:{}:user", org_id, user_id)), code)?)
+    }
 
     async fn get_token(&self, p: &str, k: &str) -> Result<String> { Ok(fs::read_to_string(self.get_path(p, "tok", k))?) }
     async fn set_token(&self, p: &str, k: &str, v: &str, _exp: u64) -> Result<()> { Ok(fs::write(self.get_path(p, "tok", k), v)?) }
+    async fn delete_token(&self, p: &str, k: &str) -> Result<()> {
+        let path = self.get_path(p, "tok", k);
+        if path.exists() { fs::remove_file(path)?; }
+        Ok(())
+    }
     async fn list_tokens(&self, p: &str) -> Result<Vec<String>> {
         let dir = self.root_dir.join(p).join("tok");
         if !dir.exists() { return Ok(vec![]); }
@@ -167,10 +227,6 @@ impl Store for FileStore {
         Ok(profiles)
     }
 
-    async fn notify_config_changed(&self, _profile: &str, _key: &str) -> Result<()> { Ok(()) }
-    async fn watch_config(&self, _profile: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-        Err(anyhow::anyhow!("Notifications not supported for FileStore"))
-    }
 }
 
 pub struct MonolithicSealStore {
@@ -266,9 +322,55 @@ impl Store for MonolithicSealStore {
 
     async fn get_secret(&self, p: &str, k: &str) -> Result<String> { self.get_config(p, k).await }
     async fn set_secret(&self, p: &str, k: &str, v: &str) -> Result<()> { self.set_config(p, k, v).await }
+    async fn delete_secret(&self, p: &str, k: &str) -> Result<()> { self.delete_config(p, k).await }
+    async fn list_secrets(&self, p: &str) -> Result<Vec<String>> { self.list_configs(p).await }
+
+    async fn get_access_token(&self, p: &str) -> Result<crate::auth::models::Token> {
+        let json = self.get_config(p, "access_token_v2").await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_access_token(&self, p: &str, t: crate::auth::models::Token) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        self.set_config(p, "access_token_v2", &json).await
+    }
+    async fn delete_access_token(&self, p: &str) -> Result<()> {
+        self.delete_config(p, "access_token_v2").await
+    }
+    async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
+        let json = self.get_config(&format!("app:{}", app_key), "app_access_token_v2").await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_app_access_token(&self, app_key: &str, t: crate::auth::models::Token) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        self.set_config(&format!("app:{}", app_key), "app_access_token_v2", &json).await
+    }
+
+    async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
+        let json = self.get_config(&format!("app:{}", app_key), "app_ticket_v2").await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_app_ticket(&self, app_key: &str, t: crate::auth::models::Ticket) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        self.set_config(&format!("app:{}", app_key), "app_ticket_v2", &json).await
+    }
+
+    // --- Permanent Code ---
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
+        self.get_config(&format!("app:{}", app_key), &format!("perm:{}:org", org_id)).await
+    }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
+        self.set_config(&format!("app:{}", app_key), &format!("perm:{}:org", org_id), code).await
+    }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
+        self.get_config(&format!("app:{}", app_key), &format!("perm:{}:{}:user", org_id, user_id)).await
+    }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
+        self.set_config(&format!("app:{}", app_key), &format!("perm:{}:{}:user", org_id, user_id), code).await
+    }
 
     async fn get_token(&self, p: &str, k: &str) -> Result<String> { self.get_config(p, k).await }
     async fn set_token(&self, p: &str, k: &str, v: &str, _exp: u64) -> Result<()> { self.set_config(p, k, v).await }
+    async fn delete_token(&self, p: &str, k: &str) -> Result<()> { self.delete_config(p, k).await }
     async fn list_tokens(&self, p: &str) -> Result<Vec<String>> { self.list_configs(p).await }
 
     async fn save_audit(&self, _e: &AuditEntry) -> Result<()> { Ok(()) }
@@ -300,10 +402,6 @@ impl Store for MonolithicSealStore {
         Ok(data.keys().cloned().collect())
     }
 
-    async fn notify_config_changed(&self, _p: &str, _k: &str) -> Result<()> { Ok(()) }
-    async fn watch_config(&self, _p: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-        Err(anyhow!("Notifications not supported for MonolithicSealStore"))
-    }
 }
 
 pub struct LocalStoreBuilder;

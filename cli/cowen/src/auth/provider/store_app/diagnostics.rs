@@ -43,10 +43,8 @@ pub(crate) async fn get_diagnostics_entries(
     entries.push(StatusEntry::new(StoreAppTemplate::SecurityVault, sec_level, sec_msg)
         .with_reason(if sec_level == StatusLevel::ERROR { Some("缺少必要凭据，可能导致 API 调用或解密失败。".to_string()) } else { None }));
 
-    let global_profile = format!("app:{}", config.app_key);
-
     // 2. App Access Token (Global)
-    if let Ok(token) = pool.get_app_access_token(&config.app_key).await {
+    if let Ok(token) = vault.get_app_access_token(&config.app_key).await {
         let is_expired = token.is_expired();
         let mut details = vec![];
         if let Some(identity) = token.extract_identity() {
@@ -61,8 +59,8 @@ pub(crate) async fn get_diagnostics_entries(
     }
 
     // 3. AppTicket (Global)
-    if let Ok(ts_str) = vault.get(&global_profile, "app_ticket_created").await {
-        let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
+    if let Ok(ticket) = vault.get_app_ticket(&config.app_key).await {
+        let created_at = ticket.created_at;
         entries.push(StatusEntry::new(StoreAppTemplate::AppTicket, StatusLevel::OK, format!("[CACHED] (Received: {})", created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S"))));
     } else {
         entries.push(StatusEntry::new(StoreAppTemplate::AppTicket, StatusLevel::NONE, "[NONE] (等待 Daemon 接收推送)".to_string()));

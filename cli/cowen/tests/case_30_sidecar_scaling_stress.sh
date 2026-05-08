@@ -41,7 +41,6 @@ done
 
 echo -e "  Waiting for pods to stabilize (15s)..."
 sleep 15
-
 # Verify all 4 are running
 RUNNING_COUNT=0
 for i in {1..4}; do

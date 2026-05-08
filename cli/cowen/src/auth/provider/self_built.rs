@@ -57,25 +57,7 @@ impl SelfBuiltProvider {
         let max_attempts = 65; 
         
         let ticket = loop {
-            let ticket_res = match self.pool.get_app_ticket(&cfg.app_key).await {
-                Ok(t) => Ok(t),
-                Err(_) => {
-                    // Fallback to profile-based ticket (Legacy)
-                    let vault = self.pool.as_vault();
-                    match vault.get(profile, "app_ticket").await {
-                        Ok(val) => {
-                            let ts_str = vault.get(profile, "app_ticket_created").await.unwrap_or_default();
-                            let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str)
-                                .map(|dt| dt.with_timezone(&Utc))
-                                .unwrap_or_else(|_| Utc::now());
-                            Ok(crate::auth::models::Ticket { value: val, created_at })
-                        }
-                        Err(e) => Err(e),
-                    }
-                }
-            };
-
-            match ticket_res {
+            match self.pool.as_vault().get_app_ticket(&cfg.app_key).await {
                 Ok(t) => break t,
                 Err(e) => {
                     if attempts >= max_attempts {
@@ -149,7 +131,7 @@ impl SelfBuiltProvider {
         
         if !force {
             let now = Utc::now();
-            let last_attempt = if let Some(ts_str) = vault.get(profile, "push_last_attempt_ts").await.ok() {
+            let last_attempt = if let Some(ts_str) = vault.get_config(profile, "push_last_attempt_ts").await.ok() {
                 chrono::DateTime::parse_from_rfc3339(&ts_str)
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now() - Duration::hours(1))
@@ -157,7 +139,7 @@ impl SelfBuiltProvider {
                 Utc::now() - Duration::hours(1)
             };
             
-            let level: u32 = vault.get(profile, "push_backoff_level").await
+            let level: u32 = vault.get_config(profile, "push_backoff_level").await
                 .unwrap_or_else(|_| "0".to_string())
                 .parse()
                 .unwrap_or(0);
@@ -191,17 +173,17 @@ impl SelfBuiltProvider {
             let status = resp.status;
             let err_text = resp.text();
             
-            let level: u32 = vault.get(profile, "push_backoff_level").await.unwrap_or_else(|_| "0".to_string()).parse().unwrap_or(0);
+            let level: u32 = vault.get_config(profile, "push_backoff_level").await.unwrap_or_else(|_| "0".to_string()).parse().unwrap_or(0);
             if status == 409 {
-                let _ = vault.set(profile, "push_backoff_level", &(level + 1).to_string()).await;
+                let _ = vault.set_config(profile, "push_backoff_level", &(level + 1).to_string()).await;
             }
-            let _ = vault.set(profile, "push_last_attempt_ts", &Utc::now().to_rfc3339()).await;
+            let _ = vault.set_config(profile, "push_last_attempt_ts", &Utc::now().to_rfc3339()).await;
             
             return Err(anyhow!("Failed to trigger push (HTTP {}): {}", status, err_text));
         }
 
-        let _ = vault.set(profile, "push_backoff_level", "0").await;
-        let _ = vault.set(profile, "push_last_attempt_ts", &Utc::now().to_rfc3339()).await;
+        let _ = vault.set_config(profile, "push_backoff_level", "0").await;
+        let _ = vault.set_config(profile, "push_last_attempt_ts", &Utc::now().to_rfc3339()).await;
 
         #[derive(Deserialize)]
         struct ResendResp {
@@ -501,8 +483,8 @@ impl AuthProvider for SelfBuiltProvider {
         let mut auth_entries = Vec::new();
         
         // 1.1 Security Check
-        let mut missing = Vec::new();
-        let mut insecure = Vec::new();
+        let mut missing: Vec<String> = Vec::new();
+        let mut insecure: Vec<String> = Vec::new();
         if vault.get_secret(profile, "app_secret").await.is_err() {
             if config.app_secret.trim().is_empty() { missing.push("app_secret".to_string()); }
             else { insecure.push("app_secret".to_string()); }
@@ -530,55 +512,18 @@ impl AuthProvider for SelfBuiltProvider {
         let global_profile = format!("app:{}", config.app_key);
         
         // 1.2 Token Check
-        let access_token_opt = if let Ok(val) = vault.get(&global_profile, "access_token").await {
-            Some((val, global_profile.clone()))
-        } else if let Ok(val) = vault.get(profile, "access_token").await {
-            Some((val, profile.to_string()))
+        let access_token_opt = if let Ok(val) = vault.get_app_access_token(&config.app_key).await {
+            Some(val)
+        } else if let Ok(val) = vault.get_access_token(profile).await {
+            Some(val)
         } else {
             None
         };
 
-        if let Some((access_token, source_profile)) = access_token_opt {
-            if !access_token.trim().is_empty() {
-                let expires_at_str = vault.get(&source_profile, "access_token_expires").await.unwrap_or_default();
-                let expires_at = chrono::DateTime::parse_from_rfc3339(&expires_at_str)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .ok();
-                
-                let is_expired = expires_at.map(|exp| Utc::now() > exp).unwrap_or(false);
-                let exp_msg = expires_at
-                    .map(|exp| exp.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "Unknown".to_string());
-
-                let mut details = vec![];
-                let token_inner = Token {
-                    value: access_token.clone(),
-                    expires_at: expires_at.unwrap_or_else(Utc::now),
-                    created_at: Utc::now(),
-                };
-                if let Some(identity) = token_inner.extract_identity() {
-                    details.push(format!("User ID: {}", identity.user_id));
-                    details.push(format!("Org ID:  {}", identity.org_id));
-                    details.push(format!("App ID:  {}", identity.app_id));
-                }
-
-                auth_entries.push(StatusEntry::new(SelfBuiltTemplate::AccessToken, if is_expired { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", if is_expired { "EXPIRED" } else { "VALID" }, exp_msg))
-                    .with_reason(if is_expired { Some("令牌已过期，正在等待后台任务进行续约。".to_string()) } else { None })
-                    .with_details(details));
-            }
-        }
 
         // 1.3 AppTicket Check
-        let ticket_created_at_opt = if let Ok(ts) = vault.get(&global_profile, "app_ticket_created").await {
-            Some(ts)
-        } else if let Ok(ts) = vault.get(profile, "app_ticket_created").await {
-            Some(ts)
-        } else {
-            None
-        };
-
-        if let Some(ts_str) = ticket_created_at_opt {
-            let created_at = chrono::DateTime::parse_from_rfc3339(&ts_str).map(|dt| dt.with_timezone(&Utc)).unwrap_or(Utc::now());
+        if let Ok(ticket) = vault.get_app_ticket(&config.app_key).await {
+            let created_at = ticket.created_at;
             auth_entries.push(StatusEntry::new(SelfBuiltTemplate::AppTicket, StatusLevel::OK, format!("[CACHED] (Received: {})", created_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"))));
         } else {
             auth_entries.push(StatusEntry::new(SelfBuiltTemplate::AppTicket, StatusLevel::NONE, "[NONE] (等待 Daemon 接收推送)".to_string()));
@@ -611,10 +556,11 @@ impl AuthProvider for SelfBuiltProvider {
         headers.insert("appKey", config.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
     }
 
-    async fn on_logout(&self, profile: &str, _config: &Config) -> Result<()> {
+    async fn on_logout(&self, profile: &str, config: &Config) -> Result<()> {
         let vault = self.pool.as_vault();
-        let _ = vault.delete(profile, "app_ticket");
-        let _ = vault.delete(profile, "app_ticket_created");
+        let _ = vault.delete_access_token(profile).await;
+        // Also cleanup app-scoped token if it exists
+        let _ = vault.delete_access_token(&format!("app:{}", config.app_key)).await;
         Ok(())
     }
 }

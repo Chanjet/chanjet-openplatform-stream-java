@@ -288,8 +288,18 @@ pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Re
     Ok(())
 }
 
-pub async fn reset(_profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigManager) -> Result<()> {
+pub async fn reset(
+    _profile: &str, 
+    vault: Option<&dyn Vault>, 
+    cfg_mgr: &ConfigManager,
+    event_bus: Option<&crate::events::EventBus>,
+) -> Result<()> {
     eprintln!("Resetting profile '{}'...", _profile);
+    
+    // 0. Publish Event
+    if let Some(bus) = event_bus {
+        bus.publish(crate::events::GlobalEvent::ProfileDeleted { name: _profile.to_string() });
+    }
     if let Err(e) = crate::cmd::daemon::stop(_profile, false, cfg_mgr).await {
         tracing::warn!(target: "sys", profile = %_profile, error = %e, "Failed to stop daemon during reset");
     }
@@ -350,6 +360,7 @@ pub async fn rename_profile(
     new_name: &str,
     cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
+    event_bus: &crate::events::EventBus,
 ) -> Result<()> {
     if old_name == new_name {
         return Err(anyhow::anyhow!("Old and new profile names are the same."));
@@ -405,6 +416,12 @@ pub async fn rename_profile(
 
     // 5. Update Vault secrets
     vault.rename_profile(old_name, new_name).await?;
+
+    // 5.1 Publish Event
+    event_bus.publish(crate::events::GlobalEvent::ProfileRenamed { 
+        old: old_name.to_string(), 
+        new: new_name.to_string() 
+    });
 
     // 6. Update default profile pointer if it matched
     if cfg_mgr.get_default_profile() == old_name {

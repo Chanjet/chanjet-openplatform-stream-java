@@ -135,9 +135,77 @@ impl Store for RedisStore {
 
     async fn get_secret(&self, profile: &str, key: &str) -> Result<String> { self.raw_get(profile, &format!("sec:{}", key)).await }
     async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.raw_set(profile, &format!("sec:{}", key), value, None).await }
+    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()> {
+        let mut conn = self.conn.clone();
+        let redis_key = format!("{}:sec:{}", profile, key);
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+    async fn list_secrets(&self, profile: &str) -> Result<Vec<String>> {
+        let mut conn = self.conn.clone();
+        let pattern = format!("{}:sec:*", profile);
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
+        let prefix_len = profile.len() + 5; // "{profile}:sec:"
+        Ok(keys.into_iter().map(|k| k[prefix_len..].to_string()).collect())
+    }
+
+    async fn get_access_token(&self, p: &str) -> Result<crate::auth::models::Token> {
+        let json = self.raw_get(p, "tok_v2:access").await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_access_token(&self, p: &str, t: crate::auth::models::Token) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        let ttl = (t.expires_at - chrono::Utc::now()).num_seconds().max(0) as u64;
+        self.raw_set(p, "tok_v2:access", &json, Some(ttl)).await
+    }
+    async fn delete_access_token(&self, p: &str) -> Result<()> {
+        let mut conn = self.conn.clone();
+        let redis_key = format!("{}:tok_v2:access", p);
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+    async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
+        let json = self.raw_get(&format!("app:{}", app_key), "tok_v2:app_access").await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_app_access_token(&self, app_key: &str, t: crate::auth::models::Token) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        let ttl = (t.expires_at - chrono::Utc::now()).num_seconds().max(0) as u64;
+        self.raw_set(&format!("app:{}", app_key), "tok_v2:app_access", &json, Some(ttl)).await
+    }
+
+    async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
+        let json = self.raw_get(&format!("app:{}", app_key), "tic:v1").await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+
+    async fn save_app_ticket(&self, app_key: &str, t: crate::auth::models::Ticket) -> Result<()> {
+        let json = serde_json::to_string(&t)?;
+        self.raw_set(&format!("app:{}", app_key), "tic:v1", &json, None).await
+    }
+
+    // --- Permanent Code ---
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
+        self.raw_get(&format!("app:{}", app_key), &format!("perm:{}:org", org_id)).await
+    }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
+        self.raw_set(&format!("app:{}", app_key), &format!("perm:{}:org", org_id), code, None).await
+    }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
+        self.raw_get(&format!("app:{}", app_key), &format!("perm:{}:{}:user", org_id, user_id)).await
+    }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
+        self.raw_set(&format!("app:{}", app_key), &format!("perm:{}:{}:user", org_id, user_id), code, None).await
+    }
 
     async fn get_token(&self, profile: &str, key: &str) -> Result<String> { self.raw_get(profile, &format!("tok:{}", key)).await }
     async fn set_token(&self, profile: &str, key: &str, value: &str, expires: u64) -> Result<()> { self.raw_set(profile, &format!("tok:{}", key), value, Some(expires)).await }
+    async fn delete_token(&self, profile: &str, key: &str) -> Result<()> {
+        let mut conn = self.conn.clone();
+        let redis_key = format!("{}:tok:{}", profile, key);
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
     async fn list_tokens(&self, profile: &str) -> Result<Vec<String>> {
         let mut conn = self.conn.clone();
         let pattern = format!("{}:tok:*", profile);
@@ -233,27 +301,6 @@ impl Store for RedisStore {
         let mut conn = self.conn.clone();
         let keys: Vec<String> = redis::cmd("KEYS").arg("*:cfg:system:manifest").query_async(&mut conn).await?;
         Ok(keys.into_iter().map(|k| k.split(':').next().unwrap().to_string()).collect())
-    }
-
-    async fn notify_config_changed(&self, profile: &str, key: &str) -> Result<()> {
-        let mut conn = self.conn.clone();
-        let channel = format!("cowen:config:changed:{}", profile);
-        redis::cmd("PUBLISH").arg(&channel).arg(key).query_async::<()>(&mut conn).await?;
-        Ok(())
-    }
-
-    async fn watch_config(&self, profile: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-        let client = redis::Client::open(self.url.as_str())?;
-        let mut pubsub = client.get_async_pubsub().await?;
-        let channel = format!("cowen:config:changed:{}", profile);
-        pubsub.subscribe(channel).await?;
-        
-        use tokio_stream::StreamExt;
-        let stream = pubsub.into_on_message().map(|msg| {
-            msg.get_payload::<String>().unwrap_or_default()
-        });
-        
-        Ok(Box::pin(stream))
     }
 }
 

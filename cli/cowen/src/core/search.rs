@@ -26,13 +26,13 @@ impl SearchIndex {
     pub async fn save(&self, profile: &str, store: &dyn crate::core::vault::Vault) -> Result<()> {
         let json = serde_json::to_string(self)?;
         let key = "search_index";
-        store.set(profile, key, &json).await?;
+        store.set_config(profile, key, &json).await?;
         Ok(())
     }
 
     pub async fn load(profile: &str, store: &dyn crate::core::vault::Vault) -> Result<Self> {
         let key = "search_index";
-        let json = store.get(profile, key).await.context("Failed to read index from vault")?;
+        let json = store.get_config(profile, key).await.context("Failed to read index from vault")?;
         let index = serde_json::from_str(&json).context("Failed to parse index JSON")?;
         Ok(index)
     }

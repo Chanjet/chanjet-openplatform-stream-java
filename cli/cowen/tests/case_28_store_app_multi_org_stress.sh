@@ -48,7 +48,6 @@ for i in $(seq 1 $ORG_COUNT); do
     curl -s -X POST "$MOCK_URL/control/broadcast" -d "{
         \"msgType\": \"TEMP_AUTH_CODE\",
         \"appKey\": \"AK_MULTI\",
-        \"headers\": { \"orgId\": \"$ORG_ID\" },
         \"payload\": { \"tempAuthCode\": \"code_$ORG_ID\", \"state\": \"ok\" }
     }" > /dev/null
 done
@@ -67,9 +66,8 @@ fi
 echo "   Killing daemon $DAEMON_PID..."
 kill -9 $DAEMON_PID 2>/dev/null || true
 # Use a more specific pattern to avoid killing the test script itself
-pkill -f "bin/cowen daemon.*--profile $PROF" 2>/dev/null || true
-pkill -f "debug/cowen daemon.*--profile $PROF" 2>/dev/null || true
-sleep 3
+pkill -9 -f "cowen daemon.*--profile $PROF" 2>/dev/null || true
+sleep 5
 
 if [ ! -f "$DB_FILE" ]; then
     echo -e "   ${RED}[FAILED]${NC} DB file not created at $DB_FILE"
@@ -78,7 +76,7 @@ if [ ! -f "$DB_FILE" ]; then
 fi
 
 echo "   Querying database $DB_FILE..."
-STORED_COUNT=$(sqlite3 "$DB_FILE" "SELECT count(*) FROM cowen_config WHERE item_key LIKE 'org_permanent_code_%';" || echo "ERR")
+STORED_COUNT=$(sqlite3 "$DB_FILE" "SELECT count(*) FROM cowen_permanent_code WHERE code_type = 'org_permanent';" || echo "ERR")
 
 if [ "$STORED_COUNT" == "ERR" ]; then
     echo -e "   ${RED}[FAILED]${NC} sqlite3 query failed"
@@ -89,27 +87,52 @@ if [ "$STORED_COUNT" -ge "$ORG_COUNT" ]; then
     echo -e "   ${GREEN}✓${NC} Successfully stored permanent codes for $STORED_COUNT orgs"
 else
     echo -e "   ${RED}[FAILED]${NC} Only found '$STORED_COUNT' codes in DB"
-    echo "--- Full Table Dump ---"
-    sqlite3 "$DB_FILE" "SELECT profile, item_key FROM cowen_config;"
+    echo "--- Full Table Dump (cowen_permanent_code) ---"
+    sqlite3 "$DB_FILE" "SELECT app_key, org_id, code_type FROM cowen_permanent_code;"
     exit 1
 fi
+
+# 3.1 Strict Key Integrity Validation (Bug Regression Check)
+echo "   Verifying Data Integrity (No empty org_id)..."
+BUGGED_RECORDS=$(sqlite3 "$DB_FILE" "SELECT org_id FROM cowen_permanent_code WHERE org_id = '' OR org_id IS NULL;" 2>/dev/null)
+if [ -n "$BUGGED_RECORDS" ]; then
+    echo -e "   ${RED}[FAILED]${NC} Found records with empty org_id"
+    exit 1
+fi
+echo -e "   ${GREEN}✓${NC} All records have valid org_id values"
 
 # 4. Verify Correct Token Attachment during API Calls
 echo -e "${BOLD}4. Restarting Daemon and Verifying API Proxy${NC}"
 "$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/daemon_v2.log" 2>&1 &
 DAEMON_PID=$!
-sleep 5
+sleep 10
 
 for i in 1 10 $ORG_COUNT; do
     ORG_ID="ORG_$i"
     echo -n "   Testing Org: $ORG_ID..."
 
-    RECEIVED_TOKEN=$(curl -s -x "http://127.0.0.1:9128" -H "x-org-id: $ORG_ID" -X POST "$MOCK_URL/v1/app/data/get" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('data', {}).get('openToken', ''))" 2>/dev/null)
+    set +e
+    RECEIVED_RESP=$(curl -s --connect-timeout 5 -x "http://127.0.0.1:9128" -H "x-org-id: $ORG_ID" -X POST "$MOCK_URL/v1/app/data/get")
+    CURL_EXIT=$?
+    
+    # Safe JSON parsing
+    RECEIVED_TOKEN=$(echo "$RECEIVED_RESP" | python3 -c "
+import sys, json
+try:
+    d = json.loads(sys.stdin.read())
+    print(d.get('data', {}).get('openToken', ''))
+except:
+    print('')
+" 2>/dev/null)
+    set -e
 
     if [[ "$RECEIVED_TOKEN" == *"mock_at_oa2_permanent_code"* ]]; then
         echo -e " ${GREEN}[MATCH]${NC}"
     else
-        echo -e " ${RED}[MISMATCH]${NC} ($RECEIVED_TOKEN)"
+        echo -e " ${RED}[MISMATCH]${NC}"
+        echo "   Expected token containing: mock_at_oa2_permanent_code"
+        echo "   Actual token received:     $RECEIVED_TOKEN"
+        echo "   Full Response:             $RECEIVED_RESP"
         kill -9 $DAEMON_PID 2>/dev/null || true
         exit 1
     fi

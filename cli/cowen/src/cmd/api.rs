@@ -234,7 +234,7 @@ pub async fn list(
 
     // 1. Capture old count if refreshing
     let old_count = if refresh {
-        if let Ok(data) = vault.get(profile, "openapi_spec").await {
+        if let Ok(data) = vault.get_config(profile, "openapi_spec").await {
             if let Ok(spec) = serde_json::from_str::<Value>(&data) {
                 if let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) {
                     let mut count = 0;

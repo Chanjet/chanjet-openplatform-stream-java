@@ -78,8 +78,96 @@ impl SqlDriver for SqliteDriver {
             .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
         Ok(())
     }
+    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_secret WHERE profile = ? AND item_key = ?")
+            .bind(profile).bind(key).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn list_secrets(&self, profile: &str) -> Result<Vec<String>> {
+        let rows = sqlx::query_as::<_, (String,)>("SELECT item_key FROM cowen_secret WHERE profile = ?")
+            .bind(profile).fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
 
     // --- Token Domain ---
+    async fn get_access_token(&self, profile: &str) -> Result<crate::auth::models::Token> {
+        let row: (String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+            "SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = ? AND token_type = 'access'"
+        ).bind(profile).fetch_one(&self.pool).await?;
+        
+        Ok(crate::auth::models::Token {
+            value: row.0,
+            expires_at: row.1,
+            created_at: row.2,
+        })
+    }
+    async fn save_access_token(&self, profile: &str, token: crate::auth::models::Token) -> Result<()> {
+        sqlx::query("INSERT INTO cowen_tenant_token (profile, token_type, token_value, expires_at, created_at) VALUES (?, 'access', ?, ?, ?) ON CONFLICT(profile, token_type) DO UPDATE SET token_value = excluded.token_value, expires_at = excluded.expires_at, created_at = excluded.created_at")
+            .bind(profile).bind(&token.value).bind(token.expires_at).bind(token.created_at).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn delete_access_token(&self, profile: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_tenant_token WHERE profile = ? AND token_type = 'access'")
+            .bind(profile).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
+        let row: (String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+            "SELECT token_value, expires_at, created_at FROM cowen_app_token WHERE app_key = ?"
+        ).bind(app_key).fetch_one(&self.pool).await?;
+        
+        Ok(crate::auth::models::Token {
+            value: row.0,
+            expires_at: row.1,
+            created_at: row.2,
+        })
+    }
+    async fn save_app_access_token(&self, app_key: &str, token: crate::auth::models::Token) -> Result<()> {
+        sqlx::query("INSERT INTO cowen_app_token (app_key, token_value, expires_at, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(app_key) DO UPDATE SET token_value = excluded.token_value, expires_at = excluded.expires_at, created_at = excluded.created_at")
+            .bind(app_key).bind(&token.value).bind(token.expires_at).bind(token.created_at).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    // --- Ticket Domain ---
+    async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
+        let row: (String, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+            "SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = ?"
+        ).bind(app_key).fetch_one(&self.pool).await?;
+        
+        Ok(crate::auth::models::Ticket {
+            value: row.0,
+            created_at: row.1,
+        })
+    }
+    async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()> {
+        sqlx::query("INSERT INTO cowen_ticket (app_key, ticket_value, created_at) VALUES (?, ?, ?) ON CONFLICT(app_key) DO UPDATE SET ticket_value = excluded.ticket_value, created_at = excluded.created_at")
+            .bind(app_key).bind(&ticket.value).bind(ticket.created_at).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    // --- Permanent Code Domain ---
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
+        let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND user_id = '' AND code_type = 'org_permanent'")
+            .bind(app_key).bind(org_id).fetch_one(&self.pool).await?;
+        Ok(row.0)
+    }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
+        sqlx::query("INSERT INTO cowen_permanent_code (app_key, org_id, user_id, code_type, code_value) VALUES (?, ?, '', 'org_permanent', ?) ON CONFLICT(app_key, org_id, user_id, code_type) DO UPDATE SET code_value = excluded.code_value")
+            .bind(app_key).bind(org_id).bind(code).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
+        let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND user_id = ? AND code_type = 'user_permanent'")
+            .bind(app_key).bind(org_id).bind(user_id).fetch_one(&self.pool).await?;
+        Ok(row.0)
+    }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
+        sqlx::query("INSERT INTO cowen_permanent_code (app_key, org_id, user_id, code_type, code_value) VALUES (?, ?, ?, 'user_permanent', ?) ON CONFLICT(app_key, org_id, user_id, code_type) DO UPDATE SET code_value = excluded.code_value")
+            .bind(app_key).bind(org_id).bind(user_id).bind(code).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    // --- Legacy Support ---
     async fn get_token(&self, profile: &str, key: &str) -> Result<String> {
         let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_token WHERE profile = ? AND item_key = ? AND (expires_at IS NULL OR expires_at > datetime('now'))")
             .bind(profile).bind(key).fetch_one(&self.pool).await?;
@@ -88,6 +176,11 @@ impl SqlDriver for SqliteDriver {
     async fn set_token(&self, profile: &str, key: &str, value: &str, expires_in_secs: u64) -> Result<()> {
         sqlx::query("INSERT INTO cowen_token (profile, item_key, item_value, expires_at) VALUES (?, ?, ?, datetime('now', '+' || ? || ' seconds')) ON CONFLICT(profile, item_key) DO UPDATE SET item_value = excluded.item_value, expires_at = excluded.expires_at")
             .bind(profile).bind(key).bind(value).bind(expires_in_secs as i64).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn delete_token(&self, profile: &str, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_token WHERE profile = ? AND item_key = ?")
+            .bind(profile).bind(key).execute(&self.pool).await?;
         Ok(())
     }
     async fn list_tokens(&self, profile: &str) -> Result<Vec<String>> {
@@ -146,14 +239,14 @@ impl SqlDriver for SqliteDriver {
 
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> Result<()> {
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_tenant_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("DELETE FROM {} WHERE profile = ?", table);
             sqlx::query(&sql).bind(profile).execute(&self.pool).await?;
         }
         Ok(())
     }
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()> {
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_tenant_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("UPDATE {} SET profile = ? WHERE profile = ?", table);
             sqlx::query(&sql).bind(new_name).bind(old_name).execute(&self.pool).await?;
         }
@@ -165,10 +258,6 @@ impl SqlDriver for SqliteDriver {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn notify_config_changed(&self, _profile: &str, _key: &str) -> Result<()> { Ok(()) }
-    async fn watch_config(&self, _profile: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-        Err(anyhow::anyhow!("Notifications not supported for SQLite"))
-    }
 }
 
 pub struct SqliteBuilder;
@@ -189,6 +278,11 @@ impl SqlBuilder for SqliteBuilder {
             "CREATE TABLE IF NOT EXISTS cowen_config (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, version INTEGER DEFAULT 0, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
             "CREATE TABLE IF NOT EXISTS cowen_secret (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
             "CREATE TABLE IF NOT EXISTS cowen_token (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, expires_at DATETIME NULL, PRIMARY KEY (profile, item_key))",
+            "CREATE TABLE IF NOT EXISTS cowen_ticket (app_key TEXT PRIMARY KEY, ticket_value TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS cowen_app_token (app_key TEXT PRIMARY KEY, token_value TEXT NOT NULL, expires_at DATETIME NOT NULL, created_at DATETIME NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS cowen_tenant_token (profile TEXT NOT NULL, token_type TEXT NOT NULL, token_value TEXT NOT NULL, expires_at DATETIME NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (profile, token_type))",
+            "CREATE TABLE IF NOT EXISTS cowen_permanent_code (app_key TEXT NOT NULL, org_id TEXT NOT NULL, user_id TEXT DEFAULT '', code_type TEXT NOT NULL, code_value TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (app_key, org_id, user_id, code_type))",
+            "CREATE TABLE IF NOT EXISTS cowen_vault_secret (profile TEXT NOT NULL, secret_key TEXT NOT NULL, secret_value TEXT NOT NULL, PRIMARY KEY (profile, secret_key))",
             "CREATE TABLE IF NOT EXISTS cowen_audit (id TEXT PRIMARY KEY, profile TEXT NOT NULL, timestamp DATETIME NOT NULL, level TEXT NOT NULL, target TEXT NOT NULL, message TEXT NOT NULL, fields TEXT)",
             "CREATE TABLE IF NOT EXISTS cowen_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, topic TEXT NOT NULL, payload TEXT NOT NULL, retry_count INTEGER DEFAULT 0, error TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
         ];

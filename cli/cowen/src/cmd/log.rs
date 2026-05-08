@@ -33,10 +33,10 @@ pub async fn list(profile: &str, vault: Arc<dyn Vault>) -> Result<()> {
     println!();
     
     // Check Store for audit logs
-    let audit_keys = vault.list_keys(profile, "audit_log:").await?;
-    if !audit_keys.is_empty() {
+    let audit_entries = vault.list_audit(profile, 1).await?;
+    if !audit_entries.is_empty() {
         println!("🗄️ Store-based Audit Logs:");
-        println!("- {:<20} ({} entries in vault)", "audit (store)", audit_keys.len());
+        println!("- {:<20} (Entries found in vault)", "audit (store)");
         println!();
     }
     
@@ -51,11 +51,10 @@ pub async fn view(
     vault: Arc<dyn Vault>,
 ) -> Result<()> {
     if domain == "audit" {
-        // Try reading from Store first if we have keys there
-        let audit_keys = vault.list_keys(profile, "audit_log:").await?;
-        if !audit_keys.is_empty() {
+        // Try reading from Store first
+        let entries = vault.list_audit(profile, lines).await?;
+        if !entries.is_empty() {
             println!("🔍 Reading audit logs from Store (Vault)...");
-            let entries = crate::core::audit::AuditStore::list(vault.as_ref(), profile, lines).await?;
             for entry in entries.into_iter().rev() {
                 println!("[{}] {} {:<5} {}: {}", 
                     entry.timestamp.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"),

@@ -1,4 +1,5 @@
 use super::*;
+use crate::auth::models::{Token, Ticket, AuthSession};
 use crate::auth::client::{HttpSender, SimpleResponse};
 use crate::auth::VaultTokenPool;
 use std::sync::Arc;
@@ -9,35 +10,73 @@ use async_trait::async_trait;
 struct MockVault {}
 #[async_trait]
 impl crate::core::vault::Vault for MockVault {
+    async fn notify_config_changed(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+    async fn watch_config(&self, _: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
+        Ok(Box::pin(tokio_stream::iter(vec![])))
+    }
+    fn primary_store(&self) -> Arc<dyn crate::core::store::Store> {
+        unimplemented!()
+    }
+}
+
+#[async_trait]
+impl crate::domain::TicketDomain for MockVault {
+    async fn get_app_ticket(&self, _: &str) -> Result<Ticket> { Err(anyhow!("not found")) }
+    async fn save_app_ticket(&self, _: &str, _: Ticket) -> Result<()> { Ok(()) }
+}
+
+#[async_trait]
+impl crate::domain::TokenDomain for MockVault {
+    async fn get_access_token(&self, _: &str) -> Result<Token> { Err(anyhow!("not found")) }
+    async fn save_access_token(&self, _: &str, _: Token) -> Result<()> { Ok(()) }
+    async fn delete_access_token(&self, _: &str) -> Result<()> { Ok(()) }
+    async fn get_app_access_token(&self, _: &str) -> Result<Token> { Err(anyhow!("not found")) }
+    async fn save_app_access_token(&self, _: &str, _: Token) -> Result<()> { Ok(()) }
+}
+
+#[async_trait]
+impl crate::domain::SessionDomain for MockVault {
+    async fn get_session(&self, _: &str) -> Result<AuthSession> { Err(anyhow!("not found")) }
+    async fn save_session(&self, _: AuthSession) -> Result<()> { Ok(()) }
+    async fn delete_session(&self, _: &str) -> Result<()> { Ok(()) }
+}
+
+#[async_trait]
+impl crate::domain::SecretDomain for MockVault {
+    async fn get_secret(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
+    async fn set_secret(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+    async fn delete_secret(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+}
+
+#[async_trait]
+impl crate::domain::ConfigDomain for MockVault {
     async fn get_config(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
     async fn get_config_full(&self, _: &str, _: &str) -> Result<crate::core::store::Item> { Err(anyhow!("not found")) }
     async fn set_config(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
     async fn set_config_conditional(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
     async fn list_configs(&self, _: &str) -> Result<Vec<String>> { Ok(vec![]) }
     async fn delete_config(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn get_secret(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
-    async fn set_secret(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn get_token(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
-    async fn set_token(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
+}
+
+#[async_trait]
+impl crate::domain::AuditDomain for MockVault {
     async fn save_audit(&self, _: &crate::core::store::AuditEntry) -> Result<()> { Ok(()) }
     async fn list_audit(&self, _: &str, _: usize) -> Result<Vec<crate::core::store::AuditEntry>> { Ok(vec![]) }
+}
+
+#[async_trait]
+impl crate::domain::DlqDomain for MockVault {
     async fn push_dlq(&self, _: &crate::core::store::DlqMessage) -> Result<()> { Ok(()) }
     async fn pop_dlq(&self, _: &str, _: &str) -> Result<Option<crate::core::store::DlqMessage>> { Ok(None) }
     async fn list_dlq(&self, _: &str, _: usize) -> Result<Vec<crate::core::store::DlqMessage>> { Ok(vec![]) }
-    async fn get(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
-    async fn set(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn delete(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn list_keys(&self, _: &str, _: &str) -> Result<Vec<String>> { Ok(vec![]) }
+    async fn list_all_dlq(&self, _: &str) -> Result<Vec<crate::core::store::DlqMessage>> { Ok(vec![]) }
+}
+
+#[async_trait]
+impl crate::domain::ManagementDomain for MockVault {
     async fn clear_profile(&self, _: &str) -> Result<()> { Ok(()) }
     async fn rename_profile(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
     async fn list_all_profiles(&self) -> Result<Vec<String>> { Ok(vec![]) }
-    async fn notify_config_changed(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn watch_config(&self, _: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-            Ok(Box::pin(tokio_stream::iter(vec![])))
-    }
-    fn primary_store(&self) -> Arc<dyn crate::core::store::Store> {
-        unimplemented!()
-    }
 }
 
 struct MockHttpSender {}

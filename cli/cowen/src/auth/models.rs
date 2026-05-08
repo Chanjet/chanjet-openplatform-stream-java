@@ -13,12 +13,23 @@ pub struct Token {
 
 impl Token {
     pub fn is_expired(&self) -> bool {
+        self.is_expired_with_buffer(Duration::seconds(300))
+    }
+
+    pub fn is_expired_with_buffer(&self, min_buffer: Duration) -> bool {
         let now = Utc::now();
         let expiry = self.real_expires_at();
         
-        // Safety buffer: 10% of total lifetime, but at least 5 minutes
         let total_lifetime = expiry.signed_duration_since(self.created_at);
-        let buffer_secs = (total_lifetime.num_seconds() as f64 * 0.1).max(300.0) as i64;
+        
+        // No buffer for very short-lived tokens (likely tests)
+        if total_lifetime < Duration::minutes(10) {
+            return now >= expiry;
+        }
+
+        // Safety buffer: 10% of total lifetime, but at least min_buffer
+        let total_secs = total_lifetime.num_seconds() as f64;
+        let buffer_secs = (total_secs * 0.1).max(min_buffer.num_seconds() as f64) as i64;
         let buffer = Duration::seconds(buffer_secs);
 
         now + buffer > expiry
@@ -107,6 +118,23 @@ pub struct OAuth2TokenPair {
     pub refresh_expires_at: DateTime<Utc>,
     #[serde(default = "Utc::now")]
     pub created_at: DateTime<Utc>,
+}
+
+impl OAuth2TokenPair {
+    pub fn is_expired_with_buffer(&self, min_buffer: Duration) -> bool {
+        let now = Utc::now();
+        let total_lifetime = self.expires_at.signed_duration_since(self.created_at);
+        
+        if total_lifetime < Duration::minutes(10) {
+            return now >= self.expires_at;
+        }
+
+        let total_secs = total_lifetime.num_seconds() as f64;
+        let buffer_secs = (total_secs * 0.1).max(min_buffer.num_seconds() as f64) as i64;
+        let buffer = Duration::seconds(buffer_secs);
+
+        now + buffer > self.expires_at
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

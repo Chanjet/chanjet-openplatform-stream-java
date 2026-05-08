@@ -37,6 +37,10 @@
 | 2026-04-29 | Developer | `Task Completed` | [Task-T5] | `DONE` | 已完成 Vault 与 TokenPool 的异步化重构，支持分布式存储注入，OpenSpec 归档完成 |
 | 2026-04-29 | Developer | `Task Completed` | [Task-T6] | `DONE` | 扩展了 init 命令与动态 Vault 创建逻辑，支持多后端选择，OpenSpec 归档完成 |
 
+| 2026-05-08 | Master Orchestrator | `Phase Start` | Phase 0: BRD (v0.3.0) | `START` | 开始 cowen v0.3.0 - ISV Sidecar Evolution 商业需求审计 |
+| 2026-05-08 | Auditor | `Audit Result` | Phase 0: BRD (v0.3.0) | `PASS` | 商业愿景清晰，Epic 定义完整且包含物理边界约束，溯源矩阵已物理对齐 |
+| 2026-05-08 | Master Orchestrator | `Phase Start` | Phase 1: PRD (v0.3.0) | `START` | 进入产品需求与业务建模阶段 |
+
 ---
 
 ## 🛑 回滚与打回记录 (Rollback & Rejection History)

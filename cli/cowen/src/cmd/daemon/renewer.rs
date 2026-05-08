@@ -24,9 +24,10 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>) -> Resul
                 let now = Utc::now();
                 let expiry = token.expires_at;
                 let remaining = expiry.signed_duration_since(now);
-                
+
                 // 提前 15 分钟进行刷新，确保平滑过渡
-                if remaining < chrono::Duration::minutes(15) {
+                // OCP: Consistent with Token::is_expired, ensuring no buffer for short-lived tokens (tests)
+                if token.is_expired_with_buffer(chrono::Duration::minutes(15)) {
                     tracing::info!(target: "sys", "Token expires in {:?}. Proactively refreshing...", remaining);
                     match auth.refresh_app_access_token(profile, config).await {
                         Ok(_) => {

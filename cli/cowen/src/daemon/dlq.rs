@@ -53,18 +53,20 @@ impl DlqStore {
 
         let key = format!("dlq:{}", entry.id);
         let data = serde_json::to_string(&entry)?;
-        self.vault.set(&self.profile, &key, &data).await?;
+        self.vault.set_config(&self.profile, &key, &data).await?;
         Ok(())
     }
 
     pub async fn list(&self) -> Result<Vec<DLQEntry>> {
-        let keys = self.vault.list_keys(&self.profile, "dlq:").await?;
+        let keys = self.vault.list_configs(&self.profile).await?;
         let mut entries = Vec::new();
 
         for key in keys {
-            if let Ok(data) = self.vault.get(&self.profile, &key).await {
-                if let Ok(dlq) = serde_json::from_str::<DLQEntry>(&data) {
-                    entries.push(dlq);
+            if key.starts_with("dlq:") {
+                if let Ok(data) = self.vault.get_config(&self.profile, &key).await {
+                    if let Ok(dlq) = serde_json::from_str::<DLQEntry>(&data) {
+                        entries.push(dlq);
+                    }
                 }
             }
         }
@@ -74,13 +76,13 @@ impl DlqStore {
 
     pub async fn delete(&self, id: &str) -> Result<()> {
         let key = format!("dlq:{}", id);
-        self.vault.delete(&self.profile, &key).await?;
+        self.vault.delete_config(&self.profile, &key).await?;
         Ok(())
     }
 
     pub async fn get(&self, id: &str) -> Result<DLQEntry> {
         let key = format!("dlq:{}", id);
-        let data = self.vault.get(&self.profile, &key).await?;
+        let data = self.vault.get_config(&self.profile, &key).await?;
         let entry: DLQEntry = serde_json::from_str(&data)?;
         Ok(entry)
     }

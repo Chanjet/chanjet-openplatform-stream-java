@@ -101,8 +101,82 @@ impl SqlDriver for MySqlDriver {
             .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
         Ok(())
     }
+    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_secret WHERE profile = ? AND item_key = ?")
+            .bind(profile).bind(key).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn list_secrets(&self, profile: &str) -> Result<Vec<String>> {
+        let rows = sqlx::query_as::<_, (String,)>("SELECT item_key FROM cowen_secret WHERE profile = ?")
+            .bind(profile).fetch_all(&self.pool).await?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
 
     // --- Token Domain ---
+    async fn get_access_token(&self, profile: &str) -> Result<crate::auth::models::Token> {
+        let row: (String,) = sqlx::query_as("SELECT token_value FROM cowen_tenant_token WHERE profile = ? AND token_type = 'access'")
+            .bind(profile).fetch_one(&self.pool).await?;
+        Ok(serde_json::from_str(&row.0)?)
+    }
+    async fn save_access_token(&self, profile: &str, token: crate::auth::models::Token) -> Result<()> {
+        let val = serde_json::to_string(&token)?;
+        sqlx::query("INSERT INTO cowen_tenant_token (profile, token_type, token_value, expires_at) VALUES (?, 'access', ?, ?) ON DUPLICATE KEY UPDATE token_value = VALUES(token_value), expires_at = VALUES(expires_at)")
+            .bind(profile).bind(val).bind(token.expires_at).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn delete_access_token(&self, profile: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_tenant_token WHERE profile = ? AND token_type = 'access'")
+            .bind(profile).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
+        let row: (String,) = sqlx::query_as("SELECT access_token FROM cowen_app_token WHERE app_key = ?")
+            .bind(app_key).fetch_one(&self.pool).await?;
+        Ok(serde_json::from_str(&row.0)?)
+    }
+    async fn save_app_access_token(&self, app_key: &str, token: crate::auth::models::Token) -> Result<()> {
+        let val = serde_json::to_string(&token)?;
+        sqlx::query("INSERT INTO cowen_app_token (app_key, access_token, expires_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE access_token = VALUES(access_token), expires_at = VALUES(expires_at)")
+            .bind(app_key).bind(val).bind(token.expires_at).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    // --- Ticket Domain ---
+    async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
+        let row: (String,) = sqlx::query_as("SELECT ticket_value FROM cowen_ticket WHERE app_key = ?")
+            .bind(app_key).fetch_one(&self.pool).await?;
+        Ok(serde_json::from_str(&row.0)?)
+    }
+    async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()> {
+        let val = serde_json::to_string(&ticket)?;
+        sqlx::query("INSERT INTO cowen_ticket (app_key, ticket_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE ticket_value = VALUES(ticket_value)")
+            .bind(app_key).bind(val).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    // --- Permanent Code Domain ---
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
+        let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND user_id = '' AND code_type = 'org_permanent'")
+            .bind(app_key).bind(org_id).fetch_one(&self.pool).await?;
+        Ok(row.0)
+    }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
+        sqlx::query("INSERT INTO cowen_permanent_code (app_key, org_id, user_id, code_type, code_value) VALUES (?, ?, '', 'org_permanent', ?) ON DUPLICATE KEY UPDATE code_value = VALUES(code_value)")
+            .bind(app_key).bind(org_id).bind(code).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
+        let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND user_id = ? AND code_type = 'user_permanent'")
+            .bind(app_key).bind(org_id).bind(user_id).fetch_one(&self.pool).await?;
+        Ok(row.0)
+    }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
+        sqlx::query("INSERT INTO cowen_permanent_code (app_key, org_id, user_id, code_type, code_value) VALUES (?, ?, ?, 'user_permanent', ?) ON DUPLICATE KEY UPDATE code_value = VALUES(code_value)")
+            .bind(app_key).bind(org_id).bind(user_id).bind(code).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    // --- Legacy Support ---
     async fn get_token(&self, profile: &str, key: &str) -> Result<String> {
         let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_token WHERE profile = ? AND item_key = ? AND (expires_at IS NULL OR expires_at > NOW())")
             .bind(profile).bind(key).fetch_one(&self.pool).await?;
@@ -117,6 +191,11 @@ impl SqlDriver for MySqlDriver {
     ) -> Result<()> {
         sqlx::query("INSERT INTO cowen_token (profile, item_key, item_value, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND)) ON DUPLICATE KEY UPDATE item_value = VALUES(item_value), expires_at = VALUES(expires_at)")
             .bind(profile).bind(key).bind(value).bind(expires_in_secs).execute(&self.pool).await?;
+        Ok(())
+    }
+    async fn delete_token(&self, profile: &str, key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_token WHERE profile = ? AND item_key = ?")
+            .bind(profile).bind(key).execute(&self.pool).await?;
         Ok(())
     }
     async fn list_tokens(&self, profile: &str) -> Result<Vec<String>> {
@@ -209,6 +288,7 @@ impl SqlDriver for MySqlDriver {
             "cowen_config",
             "cowen_secret",
             "cowen_token",
+            "cowen_tenant_token",
             "cowen_audit",
             "cowen_dlq",
         ] {
@@ -222,6 +302,7 @@ impl SqlDriver for MySqlDriver {
             "cowen_config",
             "cowen_secret",
             "cowen_token",
+            "cowen_tenant_token",
             "cowen_audit",
             "cowen_dlq",
         ] {
@@ -241,10 +322,6 @@ impl SqlDriver for MySqlDriver {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    async fn notify_config_changed(&self, _profile: &str, _key: &str) -> Result<()> { Ok(()) }
-    async fn watch_config(&self, _profile: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-        Err(anyhow::anyhow!("Notifications not supported for MySQL"))
-    }
 }
 
 pub struct MySqlBuilder;
@@ -260,6 +337,11 @@ impl SqlBuilder for MySqlBuilder {
             "CREATE TABLE IF NOT EXISTS cowen_config (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value LONGTEXT NOT NULL, version INT DEFAULT 0, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
             "CREATE TABLE IF NOT EXISTS cowen_secret (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value LONGTEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
             "CREATE TABLE IF NOT EXISTS cowen_token (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value LONGTEXT NOT NULL, expires_at TIMESTAMP NULL, PRIMARY KEY (profile, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            "CREATE TABLE IF NOT EXISTS cowen_ticket (app_key VARCHAR(255) PRIMARY KEY, ticket_value LONGTEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            "CREATE TABLE IF NOT EXISTS cowen_app_token (app_key VARCHAR(255) PRIMARY KEY, access_token LONGTEXT NOT NULL, expires_at TIMESTAMP NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            "CREATE TABLE IF NOT EXISTS cowen_tenant_token (profile VARCHAR(255) NOT NULL, token_type VARCHAR(50) NOT NULL, token_value LONGTEXT NOT NULL, expires_at TIMESTAMP NULL, PRIMARY KEY (profile, token_type)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            "CREATE TABLE IF NOT EXISTS cowen_permanent_code (app_key VARCHAR(128) NOT NULL, org_id VARCHAR(128) NOT NULL, user_id VARCHAR(128) DEFAULT '', code_type VARCHAR(50) NOT NULL, code_value LONGTEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (app_key, org_id, user_id, code_type)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            "CREATE TABLE IF NOT EXISTS cowen_vault_secret (profile VARCHAR(255) NOT NULL, secret_key VARCHAR(255) NOT NULL, secret_value LONGTEXT NOT NULL, PRIMARY KEY (profile, secret_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
             "CREATE TABLE IF NOT EXISTS cowen_audit (id VARCHAR(36) PRIMARY KEY, profile VARCHAR(255) NOT NULL, timestamp DATETIME(3) NOT NULL, level VARCHAR(20) NOT NULL, target VARCHAR(255) NOT NULL, message TEXT NOT NULL, fields LONGTEXT, INDEX (profile, timestamp), INDEX (level)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
             "CREATE TABLE IF NOT EXISTS cowen_dlq (id BIGINT AUTO_INCREMENT PRIMARY KEY, profile VARCHAR(255) NOT NULL, topic VARCHAR(255) NOT NULL, payload LONGTEXT NOT NULL, retry_count INT DEFAULT 0, error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX (profile, topic)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
         ];

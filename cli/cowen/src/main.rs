@@ -24,6 +24,8 @@ mod core;
 mod auth;
 mod cmd;
 mod daemon;
+mod domain;
+mod events;
 
 use clap::Parser;
 use crate::core::config::ConfigManager;
@@ -440,6 +442,11 @@ async fn run() -> Result<()> {
     let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
     cfg_mgr.set_validator(std::sync::Arc::new(crate::auth::AuthProviderValidator::new(auth_cli.clone())));
 
+    // Use the global static EventBus
+    let _event_bus = crate::events::event_bus();
+    // TODO: Subscribe domain handlers (e.g. cleanup logs, cleanup locks)
+    // _event_bus.subscribe()...
+
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
 
     // Logic Fix: Ensure 'init' always creates a NEW profile instead of overwriting the current one.
@@ -714,7 +721,7 @@ async fn run() -> Result<()> {
             cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?;
         }
         Commands::Reset => {
-            cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr).await?;
+            cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(crate::events::event_bus())).await?;
         }
         Commands::Completion { shell, install, uninstall } => {
             if *uninstall {
@@ -766,7 +773,7 @@ async fn run() -> Result<()> {
                 }
             }
             ProfileCommands::Rename { old_name, new_name } => {
-                cmd::system::rename_profile(old_name, new_name, &cfg_mgr, vault.clone()).await?;
+                cmd::system::rename_profile(old_name, new_name, &cfg_mgr, vault.clone(), crate::events::event_bus()).await?;
             }
         },
         Commands::Dlq { action } => match action {

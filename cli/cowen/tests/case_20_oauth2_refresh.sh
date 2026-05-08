@@ -52,8 +52,10 @@ if [[ -z "$STATE" ]]; then
 fi
 
 # 3. Simulate Callback
-# Set mock server to return tokens that expire in 5 seconds
-curl -s -X POST "$MOCK_URL/control/config" -d '{"token_expires_in": 5}' > /dev/null
+# Set mock server to return tokens that expire in 7 seconds
+# 5s was too short as the 5-minute safety buffer (min-capped) would trigger immediate refresh
+# After fix, short-lived tokens have no buffer, so 7s is fine.
+curl -s -X POST "$MOCK_URL/control/config" -d '{"token_expires_in": 7}' > /dev/null
 echo "   Triggering callback on port $PORT..."
 curl -s "http://127.0.0.1:${PORT}/callback?code=mock_code&state=${STATE}" > /dev/null
 

@@ -72,4 +72,20 @@ if run_bin debug --help 2>&1 | grep -q "debug"; then
     echo "   [OK] CLI module tree (debug) is intact."
 fi
 
+# 5. 安全性扫描 (Security Scan): 检查敏感路径泄露
+echo "🛡️  [Verify] Running security scan for path leakage..."
+# 获取当前用户名以进行针对性检索
+CURRENT_USER=$(whoami)
+# 排除可能误报的路径特征
+LEAK_STRINGS=$(strings "$BINARY_PATH" | grep "/Users/$CURRENT_USER/" || true)
+
+if [ -n "$LEAK_STRINGS" ]; then
+    echo "   ❌ FAIL: Sensitive path leakage detected!"
+    echo "   Detected strings (first 5):"
+    echo "$LEAK_STRINGS" | head -n 5
+    exit 1
+else
+    echo "   [OK] No developer local paths found in binary."
+fi
+
 echo "🎉 [Verify] SUCCESS: Artifact functional verification passed!"

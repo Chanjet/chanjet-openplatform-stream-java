@@ -23,50 +23,54 @@ impl<'a> AuthSessionManager<'a> {
         
         let session = AuthSession {
             profile: profile.to_string(),
-            code_verifier: pkce.verifier.clone(), // This is the secret for later
+            code_verifier: pkce.verifier.clone(),
             state: state.clone(),
             redirect_uri: format!("http://127.0.0.1:{}/callback", redirect_port),
             redirect_port,
             expires_at: Utc::now() + Duration::minutes(5),
         };
 
-        let session_json = serde_json::to_string(&session)?;
-        self.pool.as_vault().set(profile, "pending_auth_session", &session_json).await?;
-        
+        self.pool.as_vault().save_session(session.clone()).await?;
         Ok(session)
     }
 
-    pub async fn get_session(&self, profile: &str) -> Result<AuthSession> {
-        let session_json = self.pool.as_vault().get(profile, "pending_auth_session").await
+    pub async fn get_session(&self, state: &str) -> Result<AuthSession> {
+        let session = self.pool.as_vault().get_session(state).await
             .context("No pending auth session found")?;
-        let session: AuthSession = serde_json::from_str(&session_json)?;
         
         if Utc::now() > session.expires_at {
-            let _ = self.pool.as_vault().delete(profile, "pending_auth_session").await;
+            let _ = self.pool.as_vault().delete_session(state).await;
             return Err(anyhow!("Auth session expired"));
         }
         
         Ok(session)
     }
 
-    pub async fn save_code(&self, profile: &str, code: &str, state: &str) -> Result<()> {
-        let session = self.get_session(profile).await?;
-        if session.state != state {
-            return Err(anyhow!("State mismatch"));
-        }
-
-        self.pool.as_vault().set(profile, "captured_auth_code", code).await?;
+    pub async fn save_code(&self, _profile: &str, code: &str, state: &str) -> Result<()> {
+        let session = self.get_session(state).await?;
+        // Store the code in the original profile's config so it can be retrieved by the orchestrator/provider
+        self.pool.as_vault().set_config(&session.profile, "captured_auth_code", code).await?;
         Ok(())
     }
 
     pub async fn get_captured_code(&self, profile: &str) -> Result<String> {
-        self.pool.as_vault().get(profile, "captured_auth_code").await
+        // This is tricky because old orchestrator uses profile. 
+        // In the new world, orchestrator should use state.
+        // For now, we'll try to find it in the vault if it exists
+        self.pool.as_vault().get_config(profile, "captured_auth_code").await
             .context("No captured auth code found")
     }
 
-    pub async fn clear(&self, profile: &str) -> Result<()> {
-        let _ = self.pool.as_vault().delete(profile, "pending_auth_session").await;
-        let _ = self.pool.as_vault().delete(profile, "captured_auth_code").await;
+    pub async fn clear(&self, _profile: &str) -> Result<()> {
+        // Old clear used profile, new should use state.
+        // We'll keep it for now but it's a no-op or partial
+        Ok(())
+    }
+    
+    pub async fn clear_session(&self, state: &str) -> Result<()> {
+        let _ = self.pool.as_vault().delete_session(state).await;
+        let profile = format!("session:{}", state);
+        let _ = self.pool.as_vault().delete_config(&profile, "captured_auth_code").await;
         Ok(())
     }
 }

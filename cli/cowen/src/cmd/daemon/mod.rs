@@ -166,7 +166,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     loop {
         tracing::info!(target: "sys", "Daemon core logic starting (PID: {}, Mode: {:?}, Version: {})", pid, current_config.app_mode, current_config.version);
         
-        let stream_opt = vault.watch_config(profile).await.ok();
+        let mut event_rx = crate::events::event_bus().subscribe();
         let mut reload = false;
 
         let engine = async {
@@ -178,38 +178,27 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
             bridge::run(profile, &current_config, vault.clone(), proxy_port, enable_proxy, is_dist).await
         };
 
-        if let Some(mut stream) = stream_opt {
-            use tokio_stream::StreamExt;
-            tokio::select! {
-                res = engine => {
-                    tracing::info!(target: "sys", "Engine terminated naturally.");
-                    result = res;
-                    break;
-                },
-                _ = wait_for_termination() => { 
-                    tracing::info!(target: "sys", "Termination signal received"); 
-                    result = Ok(());
-                    break; 
-                },
-                res = stream.next() => {
-                    if let Some(key) = res {
-                        tracing::info!(target: "sys", "Config change detected (key: {}). Hot-reloading daemon...", key);
-                        reload = true;
+        tokio::select! {
+            res = engine => {
+                tracing::info!(target: "sys", "Engine terminated naturally.");
+                result = res;
+                break;
+            },
+            _ = wait_for_termination() => { 
+                tracing::info!(target: "sys", "Termination signal received"); 
+                result = Ok(());
+                break; 
+            },
+            res = event_rx.recv() => {
+                if let Ok(event) = res {
+                    match event {
+                        crate::events::GlobalEvent::ConfigChanged { profile: p, .. } if p == profile || p == "system" => {
+                            tracing::info!(target: "sys", "Config change detected via EventBus for profile '{}'. Hot-reloading daemon...", p);
+                            reload = true;
+                        }
+                        _ => {}
                     }
                 }
-            }
-        } else {
-            tokio::select! {
-                res = engine => {
-                    tracing::info!(target: "sys", "Engine terminated naturally.");
-                    result = res;
-                    break;
-                },
-                _ = wait_for_termination() => { 
-                    tracing::info!(target: "sys", "Termination signal received"); 
-                    result = Ok(());
-                    break; 
-                },
             }
         }
 
@@ -217,9 +206,9 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
             tracing::info!(target: "sys", "Fetching latest configuration...");
             match cfg_mgr.load(profile).await {
                 Ok(mut new_config) => {
-                    if let Ok(as_val) = vault.get(profile, "app_secret").await { new_config.app_secret = as_val; }
-                    if let Ok(cert) = vault.get(profile, "certificate").await { new_config.certificate = cert; }
-                    if let Ok(ek) = vault.get(profile, "encrypt_key").await { new_config.encrypt_key = ek; }
+                    if let Ok(as_val) = vault.get_secret(profile, "app_secret").await { new_config.app_secret = as_val; }
+                    if let Ok(cert) = vault.get_secret(profile, "certificate").await { new_config.certificate = cert; }
+                    if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { new_config.encrypt_key = ek; }
                     current_config = new_config;
                 }
                 Err(e) => {
@@ -278,9 +267,9 @@ pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_p
         let _ = do_stop(&p).await;
         let mut p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| Config::default_with_profile(&p)) };
         if p != profile {
-            if let Ok(as_val) = vault.get(&p, "app_secret").await { p_cfg.app_secret = as_val; }
-            if let Ok(cert) = vault.get(&p, "certificate").await { p_cfg.certificate = cert; }
-            if let Ok(ek) = vault.get(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
+            if let Ok(as_val) = vault.get_secret(&p, "app_secret").await { p_cfg.app_secret = as_val; }
+            if let Ok(cert) = vault.get_secret(&p, "certificate").await { p_cfg.certificate = cert; }
+            if let Ok(ek) = vault.get_secret(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
         }
         let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault.clone()).await;
     }

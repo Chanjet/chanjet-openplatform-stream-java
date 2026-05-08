@@ -113,7 +113,130 @@ impl SqlDriver for MssqlDriver {
                 VALUES (@p1, @p2, @p3);";
         self.execute(sql, &[&profile, &key, &value]).await
     }
+    
+    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()> {
+        self.execute("DELETE FROM cowen_secret WHERE profile = @p1 AND item_key = @p2", &[&profile, &key]).await
+    }
 
+    async fn list_secrets(&self, profile: &str) -> Result<Vec<String>> {
+        let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
+        let rows = conn.query("SELECT item_key FROM cowen_secret WHERE profile = @p1", &[&profile]).await?.into_first_result().await?;
+        Ok(rows.into_iter().map(|r| r.get::<&str, _>(0).unwrap().to_string()).collect())
+    }
+
+    // --- Token Domain ---
+    async fn get_access_token(&self, profile: &str) -> Result<crate::auth::models::Token> {
+        let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
+        let row = conn.query("SELECT token_value FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'access'", &[&profile])
+            .await?.into_row().await?
+            .ok_or_else(|| anyhow!("Access token not found for profile: {}", profile))?;
+        let val: &str = row.get(0).unwrap();
+        Ok(serde_json::from_str(val)?)
+    }
+    async fn save_access_token(&self, profile: &str, token: crate::auth::models::Token) -> Result<()> {
+        let val = serde_json::to_string(&token)?;
+        let sql = "
+            MERGE cowen_tenant_token WITH (HOLDLOCK) AS target
+            USING (SELECT @p1 AS p, 'access' AS t) AS source
+            ON (target.profile = source.p AND target.token_type = source.t)
+            WHEN MATCHED THEN
+                UPDATE SET token_value = @p2, expires_at = @p3
+            WHEN NOT MATCHED THEN
+                INSERT (profile, token_type, token_value, expires_at)
+                VALUES (@p1, 'access', @p2, @p3);";
+        self.execute(sql, &[&profile, &val, &token.expires_at]).await
+    }
+    async fn delete_access_token(&self, profile: &str) -> Result<()> {
+        self.execute("DELETE FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'access'", &[&profile]).await
+    }
+    async fn get_app_access_token(&self, app_key: &str) -> Result<crate::auth::models::Token> {
+        let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
+        let row = conn.query("SELECT access_token FROM cowen_app_token WHERE app_key = @p1", &[&app_key])
+            .await?.into_row().await?
+            .ok_or_else(|| anyhow!("App access token not found for app_key: {}", app_key))?;
+        let val: &str = row.get(0).unwrap();
+        Ok(serde_json::from_str(val)?)
+    }
+    async fn save_app_access_token(&self, app_key: &str, token: crate::auth::models::Token) -> Result<()> {
+        let val = serde_json::to_string(&token)?;
+        let sql = "
+            MERGE cowen_app_token WITH (HOLDLOCK) AS target
+            USING (SELECT @p1 AS k) AS source
+            ON (target.app_key = source.k)
+            WHEN MATCHED THEN
+                UPDATE SET access_token = @p2, expires_at = @p3
+            WHEN NOT MATCHED THEN
+                INSERT (app_key, access_token, expires_at)
+                VALUES (@p1, @p2, @p3);";
+        self.execute(sql, &[&app_key, &val, &token.expires_at]).await
+    }
+
+    // --- Ticket Domain ---
+    async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> {
+        let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
+        let row = conn.query("SELECT ticket_value FROM cowen_ticket WHERE app_key = @p1", &[&app_key])
+            .await?.into_row().await?
+            .ok_or_else(|| anyhow!("App ticket not found for app_key: {}", app_key))?;
+        let val: &str = row.get(0).unwrap();
+        Ok(serde_json::from_str(val)?)
+    }
+    async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()> {
+        let val = serde_json::to_string(&ticket)?;
+        let sql = "
+            MERGE cowen_ticket WITH (HOLDLOCK) AS target
+            USING (SELECT @p1 AS k) AS source
+            ON (target.app_key = source.k)
+            WHEN MATCHED THEN
+                UPDATE SET ticket_value = @p2
+            WHEN NOT MATCHED THEN
+                INSERT (app_key, ticket_value)
+                VALUES (@p1, @p2);";
+        self.execute(sql, &[&app_key, &val]).await
+    }
+
+    // --- Permanent Code Domain ---
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
+        let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
+        let row = conn.query("SELECT code_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND user_id = '' AND code_type = 'org_permanent'", &[&app_key, &org_id])
+            .await?.into_row().await?
+            .ok_or_else(|| anyhow!("Org permanent code not found"))?;
+        let val: &str = row.get(0).unwrap();
+        Ok(val.to_string())
+    }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
+        let sql = "
+            MERGE cowen_permanent_code WITH (HOLDLOCK) AS target
+            USING (SELECT @p1 AS ak, @p2 AS oi, '' AS ui, 'org_permanent' AS ct) AS source
+            ON (target.app_key = source.ak AND target.org_id = source.oi AND target.user_id = source.ui AND target.code_type = source.ct)
+            WHEN MATCHED THEN
+                UPDATE SET code_value = @p3
+            WHEN NOT MATCHED THEN
+                INSERT (app_key, org_id, user_id, code_type, code_value)
+                VALUES (@p1, @p2, '', 'org_permanent', @p3);";
+        self.execute(sql, &[&app_key, &org_id, &code]).await
+    }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
+        let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
+        let row = conn.query("SELECT code_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND user_id = @p3 AND code_type = 'user_permanent'", &[&app_key, &org_id, &user_id])
+            .await?.into_row().await?
+            .ok_or_else(|| anyhow!("User permanent code not found"))?;
+        let val: &str = row.get(0).unwrap();
+        Ok(val.to_string())
+    }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
+        let sql = "
+            MERGE cowen_permanent_code WITH (HOLDLOCK) AS target
+            USING (SELECT @p1 AS ak, @p2 AS oi, @p3 AS ui, 'user_permanent' AS ct) AS source
+            ON (target.app_key = source.ak AND target.org_id = source.oi AND target.user_id = source.ui AND target.code_type = source.ct)
+            WHEN MATCHED THEN
+                UPDATE SET code_value = @p4
+            WHEN NOT MATCHED THEN
+                INSERT (app_key, org_id, user_id, code_type, code_value)
+                VALUES (@p1, @p2, @p3, 'user_permanent', @p4);";
+        self.execute(sql, &[&app_key, &org_id, &user_id, &code]).await
+    }
+
+    // --- Legacy Support ---
     async fn get_token(&self, profile: &str, key: &str) -> Result<String> {
         let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
         let row = conn.query(
@@ -136,6 +259,10 @@ impl SqlDriver for MssqlDriver {
                 INSERT (profile, item_key, item_value, expires_at)
                 VALUES (@p1, @p2, @p3, DATEADD(second, @p4, GETUTCDATE()));";
         self.execute(sql, &[&profile, &key, &value, &(expires_in_secs as i64)]).await
+    }
+
+    async fn delete_token(&self, profile: &str, key: &str) -> Result<()> {
+        self.execute("DELETE FROM cowen_token WHERE profile = @p1 AND item_key = @p2", &[&profile, &key]).await
     }
 
     async fn list_tokens(&self, profile: &str) -> Result<Vec<String>> {
@@ -237,7 +364,7 @@ impl SqlDriver for MssqlDriver {
 
     async fn clear_profile(&self, profile: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_tenant_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("DELETE FROM {} WHERE profile = @p1", table);
             conn.execute(sql, &[&profile]).await?;
         }
@@ -246,7 +373,7 @@ impl SqlDriver for MssqlDriver {
 
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()> {
         let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
-        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_audit", "cowen_dlq"] {
+        for table in ["cowen_config", "cowen_secret", "cowen_token", "cowen_tenant_token", "cowen_audit", "cowen_dlq"] {
             let sql = format!("UPDATE {} SET profile = @p1 WHERE profile = @p2", table);
             conn.execute(sql, &[&new_name, &old_name]).await?;
         }
@@ -259,10 +386,6 @@ impl SqlDriver for MssqlDriver {
         Ok(rows.into_iter().map(|r| r.get::<&str, _>(0).unwrap().to_string()).collect())
     }
 
-    async fn notify_config_changed(&self, _profile: &str, _key: &str) -> Result<()> { Ok(()) }
-    async fn watch_config(&self, _profile: &str) -> Result<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = String> + Send>>> {
-        Err(anyhow!("Notifications not supported for MSSQL (Tiberius)"))
-    }
 }
 
 pub struct MssqlBuilder;
@@ -283,6 +406,14 @@ impl SqlBuilder for MssqlBuilder {
              CREATE TABLE cowen_secret (profile NVARCHAR(255) NOT NULL, item_key NVARCHAR(255) NOT NULL, item_value NVARCHAR(MAX) NOT NULL, updated_at DATETIME2 DEFAULT GETUTCDATE(), PRIMARY KEY (profile, item_key))",
             "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_token' AND xtype='U')
              CREATE TABLE cowen_token (profile NVARCHAR(255) NOT NULL, item_key NVARCHAR(255) NOT NULL, item_value NVARCHAR(MAX) NOT NULL, expires_at DATETIME2 NULL, PRIMARY KEY (profile, item_key))",
+            "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_ticket' AND xtype='U')
+             CREATE TABLE cowen_ticket (app_key NVARCHAR(255) PRIMARY KEY, ticket_value NVARCHAR(MAX) NOT NULL, created_at DATETIME2 DEFAULT GETUTCDATE())",
+            "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_app_token' AND xtype='U')
+             CREATE TABLE cowen_app_token (app_key NVARCHAR(255) PRIMARY KEY, access_token NVARCHAR(MAX) NOT NULL, expires_at DATETIME2 NOT NULL)",
+            "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_tenant_token' AND xtype='U')
+             CREATE TABLE cowen_tenant_token (profile NVARCHAR(255) NOT NULL, token_type NVARCHAR(50) NOT NULL, token_value NVARCHAR(MAX) NOT NULL, expires_at DATETIME2 NULL, PRIMARY KEY (profile, token_type))",
+            "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_permanent_code' AND xtype='U')
+             CREATE TABLE cowen_permanent_code (app_key NVARCHAR(255) NOT NULL, org_id NVARCHAR(255) NOT NULL, user_id NVARCHAR(255) DEFAULT '', code_type NVARCHAR(50) NOT NULL, code_value NVARCHAR(MAX) NOT NULL, created_at DATETIME2 DEFAULT GETUTCDATE(), PRIMARY KEY (app_key, org_id, user_id, code_type))",
             "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_audit' AND xtype='U')
              CREATE TABLE cowen_audit (id NVARCHAR(255) PRIMARY KEY, profile NVARCHAR(255) NOT NULL, timestamp DATETIME2 NOT NULL, level NVARCHAR(50) NOT NULL, target NVARCHAR(255) NOT NULL, message NVARCHAR(MAX) NOT NULL, fields NVARCHAR(MAX))",
             "IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='cowen_dlq' AND xtype='U')

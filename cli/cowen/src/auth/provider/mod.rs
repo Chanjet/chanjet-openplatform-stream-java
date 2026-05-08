@@ -74,8 +74,8 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 守护进程自动恢复策略
-    fn should_auto_recover(&self, _config: &Config, has_pid: bool, _pid_file_exists: bool) -> bool {
-        if has_pid {
+    fn should_auto_recover(&self, config: &Config, has_pid: bool, _pid_file_exists: bool) -> bool {
+        if has_pid || config.app_key.trim().is_empty() {
             return false;
         }
         // 默认策略：始终保持热启动，确保“秒级 API 响应”

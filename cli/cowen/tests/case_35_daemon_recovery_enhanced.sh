@@ -104,8 +104,9 @@ echo -n "   Waiting for auth session..."
 SESSION_JSON=""
 for i in {1..20}; do
     if [ -f "$COWEN_HOME/cowen.db" ]; then
+        # In v0.3.0, sessions are stored in cowen_token with 'global' profile and 'session:' prefix
         SESSION_JSON=$(sqlite3 "$COWEN_HOME/cowen.db" \
-            "SELECT item_value FROM cowen_config WHERE profile='oa2' AND item_key='pending_auth_session' LIMIT 1;" 2>/dev/null)
+            "SELECT item_value FROM cowen_token WHERE profile='global' AND item_key LIKE 'session:%' LIMIT 1;" 2>/dev/null)
         if [ -n "$SESSION_JSON" ]; then
             break
         fi

@@ -312,7 +312,11 @@ impl ConfigManager {
             } else {
                 let _ = vault.set_config(profile, "system:manifest", &manifest).await;
             }
-            let _ = vault.notify_config_changed(profile, "system:manifest").await;
+            // Publish in-process event
+            crate::events::event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
+                profile: profile.to_string(), 
+                key: "system:manifest".to_string() 
+            });
         }
 
         if !is_db_mode {
@@ -373,7 +377,11 @@ impl ConfigManager {
         let content = serde_yaml::to_string(config)?;
         fs::write(path, content)?;
         if let Some(vault) = self.vault.get() {
-            let _ = vault.notify_config_changed("system", "app").await;
+            // Publish in-process event
+            crate::events::event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
+                profile: "system".to_string(), 
+                key: "app".to_string() 
+            });
         }
         Ok(())
     }

@@ -38,7 +38,7 @@ pub fn init_telemetry(
     let mut guards = Vec::new();
 
     let global_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(format!("warn,{}=info,connector_sdk=info,sys=info,audit=info,stream=info,dlq=info", bin_name)));
+        .unwrap_or_else(|_| EnvFilter::new(format!("warn,{}=debug,connector_sdk=debug,sys=debug,audit=debug,stream=debug,dlq=debug", bin_name)));
 
     let console_filter = EnvFilter::new(format!(
         "warn,{}={},connector_sdk={},sys={},audit={},stream={},dlq={}",

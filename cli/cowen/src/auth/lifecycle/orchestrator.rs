@@ -12,6 +12,7 @@ pub async fn wait_for_token_exchange(
     finalizer_pid: u32,
     is_new: bool,
     _cfg_mgr: &ConfigManager,
+    session_id: &str,
 ) -> Result<()> {
     // RAII Guard: Ensures cleanup on return OR cancellation (Drop)
     struct CleanupGuard {
@@ -71,8 +72,8 @@ pub async fn wait_for_token_exchange(
         print!("\r⏳ 正在等待浏览器授权并在后台交换令牌... [剩余 {:3}s] ", remaining);
         std::io::stdout().flush()?;
 
-        // 1. Success check: Token pair exists
-        if vault.get(profile, "oauth2_token_pair").await.is_ok() {
+        // 1. Success check: Access token exists in domain storage
+        if vault.get_access_token(profile).await.is_ok() {
             println!("\n✅ 授权成功！命令行已就绪。");
             guard.active = false; // Disarm guard on success
             return Ok(());
@@ -101,17 +102,15 @@ pub async fn wait_for_token_exchange(
             }
         }
 
-        // 3. State check: If session is cleared but no token pair
-        if vault.get(profile, "pending_auth_session").await.is_err() 
-            && vault.get(profile, "captured_auth_code").await.is_err() 
-            && vault.get(profile, "oauth2_token_pair").await.is_err() {
-            // Wait a small buffer for the final write
+        // 3. State check: If session is GONE but no token was produced
+        if vault.get_session(session_id).await.is_err() {
+            // Give it a tiny bit of time to persist the token if it just happened
             sleep(Duration::from_millis(500)).await;
-            if vault.get(profile, "oauth2_token_pair").await.is_err() {
+            if vault.get_access_token(profile).await.is_err() {
                 println!("\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。");
                 render_last_auth_error(profile)?;
                 // Guard will handle cleanup
-                return Err(anyhow::anyhow!("Authorization state invalid"));
+                return Err(anyhow::anyhow!("Authorization state invalid (Session lost)"));
             }
         }
         
@@ -200,6 +199,6 @@ pub async fn perform_failure_cleanup(
     // 3. If this was a new profile, remove the junk .yaml file
     if is_new {
         println!("🧹 检测到这是新创建的 Profile，正在物理移除临时配置文件...");
-        let _ = crate::cmd::system::reset(profile, Some(vault.as_ref()), cfg_mgr).await;
+        let _ = crate::cmd::system::reset(profile, Some(vault.as_ref()), cfg_mgr, None).await;
     }
 }

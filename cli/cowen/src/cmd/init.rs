@@ -98,9 +98,17 @@ pub async fn execute(
     cfg_mgr.save_app_config(app_config).await?;
 
     // The Provider now handles credential setup, config saving (via cfg_mgr), and daemon startup.
-    auth_cli.provider(&config.app_mode)
+    let init_res = auth_cli.provider(&config.app_mode)
         .initialize(profile, &mut config, vault.clone(), cfg_mgr, params)
-        .await?;
+        .await;
+
+    if let Err(e) = init_res {
+        if is_new {
+            tracing::warn!(target: "sys", profile = %profile, error = %e, "Initialization failed for new profile, performing cleanup");
+            let _ = cfg_mgr.delete(profile).await;
+        }
+        return Err(e);
+    }
 
     // Automatically attempt to install shell completion
     println!("⚙️ Configuring auto-completion...");
