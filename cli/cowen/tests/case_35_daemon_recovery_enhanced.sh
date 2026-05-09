@@ -7,7 +7,7 @@
 
 source tests/common.sh
 setup_workspace "daemon_recovery_enhanced"
-trap cleanup_suite EXIT
+# trap cleanup_suite EXIT
 start_mock
 
 # --- Helpers ---
@@ -45,10 +45,11 @@ check_crash_log_clean() {
 
 # --- Part 1: Self-Built Mode Recovery ---
 echo -e "${BOLD}Part 1: Self-Built Mode Recovery${NC}"
+PROXY_PORT_SB=$(get_unused_port)
 "$COWEN_BIN" init --profile sb \
     --app-mode self-built --app-key AK_SB --app-secret AS_SB \
     --encrypt-key 1234567890123456 --certificate CERT_SB \
-    --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port 18501 >/dev/null
+    --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port $PROXY_PORT_SB >/dev/null
 assert_pass "Self-built profile initialized"
 sleep 3 # Allow daemon to stabilize and bind port
 
@@ -93,10 +94,11 @@ sleep 2  # Allow OS to fully release ports
 
 # --- Part 2: OAuth2 Mode Recovery ---
 echo -e "\n${BOLD}Part 2: OAuth2 Mode Recovery${NC}"
+PROXY_PORT_OA2=$(get_unused_port)
 
 # Launch init in background (it blocks waiting for browser callback)
 "$COWEN_BIN" init --profile oa2 \
-    --app-mode oauth2 --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port 18503 >/dev/null &
+    --app-mode oauth2 --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port $PROXY_PORT_OA2 >/dev/null &
 INIT_PID=$!
 
 

@@ -67,7 +67,7 @@ pub async fn execute(
 
     if is_new {
         // Logic Fix: Save early for new profiles to anchor the identity
-        cfg_mgr.save(profile, &config).await?;
+        cfg_mgr.save(profile, &mut config).await?;
         config.version += 1;
     }
 

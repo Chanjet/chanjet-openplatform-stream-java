@@ -36,7 +36,20 @@ pub async fn start_proxy(
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     crate::core::network::validate_loopback_addr(&addr)?;
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    
+    // Retry logic for binding to handle port release delay during reloads
+    let mut retry_count = 0;
+    let listener = loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => break l,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && retry_count < 5 => {
+                tracing::warn!(target: "sys", "Proxy port {} in use, retrying in 500ms... ({} / 5)", port, retry_count + 1);
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                retry_count += 1;
+            }
+            Err(e) => return Err(anyhow::anyhow!("Failed to bind to proxy port {}: {}", port, e)),
+        }
+    };
     
     tracing::info!(target: "sys", "Local Proxy Server listening on http://127.0.0.1:{}", port);
     

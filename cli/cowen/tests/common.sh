@@ -41,6 +41,17 @@ setup_workspace() {
     export COWEN_HOME="$TEST_BASE/.cowen_test_$suite"
     echo -e "${BLUE}▶ Starting Suite: $suite${NC}"
     echo -e "  Workspace: $COWEN_HOME"
+
+    # 🚀 BUG FIX: Kill old daemons BEFORE nuking the directory containing their .pid files
+    if [ -d "$COWEN_HOME" ]; then
+        find "$COWEN_HOME" -name "*_daemon.pid" 2>/dev/null | while read pid_file; do
+            PID=$(cat "$pid_file" 2>/dev/null)
+            if [ -n "$PID" ]; then
+                kill -9 "$PID" >/dev/null 2>&1 || true
+            fi
+        done
+    fi
+
     rm -rf "$COWEN_HOME"
     mkdir -p "$COWEN_HOME"
     
@@ -218,6 +229,11 @@ clear_redis() {
     else
         redis-cli FLUSHALL >/dev/null 2>&1 || true
     fi
+}
+
+# Helper to get an unused TCP port from the OS
+get_unused_port() {
+    python3 -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()'
 }
 
 # Helper to get daemon PID from lock file

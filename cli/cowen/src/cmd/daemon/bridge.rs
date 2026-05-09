@@ -29,23 +29,6 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     let auth = crate::auth::create_auth_client(pool.clone());
     let supports_webhooks = auth.supports_webhooks(config);
 
-    // 1. Task: Local Proxy
-    let p_profile_proxy = profile.to_string();
-    let p_config_proxy = config.clone();
-    let proxy_task = if enable_proxy {
-        tokio::spawn(async move {
-            if let Err(e) = start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port).await {
-                tracing::error!(target: "sys", error = %e, "Local Proxy Server crashed");
-            }
-            std::future::pending::<()>().await;
-        })
-    } else {
-        tokio::spawn(async move {
-            tracing::info!(target: "sys", "Local Proxy Server is disabled.");
-            std::future::pending::<()>().await;
-        })
-    };
-
     // 2. Setup Dispatchers (Conditional)
     if supports_webhooks {
         let dlq = Arc::new(DlqStore::new(profile, vault.clone())?);
@@ -107,10 +90,29 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         });
     }
 
-    // 3. Task: Main Gateway Loop (Conditional)
+    tracing::info!(target: "sys", "All bridge tasks initialized. Entering watchdog mode.");
+
+    // Define futures directly for select! (NO tokio::spawn here for core tasks)
+    // This ensures that when the run() future is dropped (e.g. during reload),
+    // all component tasks are also cancelled.
+    
+    let p_profile_proxy = profile.to_string();
+    let p_config_proxy = config.clone();
+    let proxy_fut = async move {
+        if enable_proxy {
+            if let Err(e) = start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port).await {
+                tracing::error!(target: "sys", error = %e, "Local Proxy Server crashed");
+                return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
+            }
+        } else {
+            tracing::info!(target: "sys", "Local Proxy Server is disabled.");
+        }
+        std::future::pending::<Result<()>>().await
+    };
+
     let p_profile_s = profile.to_string();
-    let stream_task = if supports_webhooks {
-        tokio::spawn(async move {
+    let stream_fut = async move {
+        if supports_webhooks {
             let status_file = crate::core::config::get_app_dir().join(format!("{}_status.json", p_profile_s));
 
             // Use the SDK's internal reconnection loop, but hook into its status callbacks
@@ -133,20 +135,17 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
                 return Err(e);
             }
             Ok(())
-        })
-    } else {
-        let mode = config.app_mode;
-        tokio::spawn(async move {
+        } else {
+            let mode = config.app_mode;
             tracing::info!(target: "sys", "Streaming bridge is disabled for mode {:?}.", mode);
             std::future::pending::<Result<()>>().await
-        })
+        }
     };
 
-    // 4. Task: Background Maintenance (OCP Generic)
     let p_profile_m = profile.to_string();
     let p_config_m = config.clone();
     let p_pool_m = pool.clone();
-    let maintenance_task = tokio::spawn(async move {
+    let maintenance_fut = async move {
         sleep(Duration::from_secs(2)).await;
         let auth = crate::auth::create_auth_client(p_pool_m.clone());
 
@@ -164,27 +163,24 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
             }
             sleep(Duration::from_secs(600)).await;
         }
-    });
-
-    tracing::info!(target: "sys", "All bridge tasks initialized. Entering watchdog mode.");
+    };
 
     tokio::select! {
-        res = proxy_task => { 
+        res = proxy_fut => { 
             tracing::error!(target: "sys", "Proxy task exited unexpectedly"); 
-            res.map_err(|e| anyhow::anyhow!("Proxy task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Proxy task stopped"))) as Result<()>
+            res.context("Proxy task stopped")
         },
-        res = stream_task => { 
+        res = stream_fut => { 
             if supports_webhooks {
                 tracing::error!(target: "sys", "Stream task exited unexpectedly"); 
-                res.map_err(|e| anyhow::anyhow!("Stream task panicked: {}", e))
-                   .and_then(|r: Result<()>| r.context("Stream client crashed"))
+                res.context("Stream client crashed")
             } else {
                 Ok(())
             }
         },
-        res = maintenance_task => { 
+        _ = maintenance_fut => { 
             tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); 
-            res.map_err(|e| anyhow::anyhow!("Maintenance task panicked: {}", e)).and_then(|_| Err(anyhow::anyhow!("Maintenance task stopped"))) as Result<()>
+            Err(anyhow::anyhow!("Maintenance task stopped"))
         },
     }
 }

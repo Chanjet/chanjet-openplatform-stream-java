@@ -19,6 +19,10 @@ HOME_2="$TEST_BASE/.cowen_test_dist_sync_node_2"
 SHARED_DB="$TEST_BASE/.cowen_test_shared.db"
 mkdir -p "$TEST_BASE"
 
+# 🚀 Dynamic Ports
+PROXY_PORT_1=$(get_unused_port)
+PROXY_PORT_2=$(get_unused_port)
+
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 14 environment...${NC}"
     cleanup_suite
@@ -51,7 +55,7 @@ EOF
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
     --webhook-target "http://127.0.0.1:9299/webhook_sink" \
-    --proxy-port 9093
+    --proxy-port $PROXY_PORT_1
 
 # Stop ghost daemon
 "$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
@@ -122,8 +126,8 @@ fi
 
 echo -e "${BOLD}6. Verify Node 2 Proxy Implementation${NC}"
 export COWEN_HOME="$HOME_2"
-# Start Node 2 daemon to test proxy on port 9094
-"$COWEN_BIN" daemon start --profile main --proxy-port 9094 --foreground > "$HOME_2/daemon.log" 2>&1 &
+# Start Node 2 daemon to test proxy on port PROXY_PORT_2
+"$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 &
 sleep 2
 
 echo -n "   Verifying Node 2 Proxy uses new token..."
@@ -131,7 +135,7 @@ echo -n "   Verifying Node 2 Proxy uses new token..."
 MAX_RETRIES=5
 SUCCESS=0
 for i in $(seq 1 $MAX_RETRIES); do
-    if curl -s -f -X POST -d '{"test":true}' -x "http://127.0.0.1:9094" "$MOCK_URL/webhook_sink" > /dev/null; then
+    if curl -s -f -X POST -d '{"test":true}' -x "http://127.0.0.1:$PROXY_PORT_2" "$MOCK_URL/webhook_sink" > /dev/null; then
         SUCCESS=1
         break
     fi

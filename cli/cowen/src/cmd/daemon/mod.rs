@@ -205,7 +205,10 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
                 result = res;
                 break;
             },
-            _ = watcher => {},
+            _res = watcher => {
+                tracing::info!(target: "sys", "Watcher detected config change. Reloading...");
+                reload = true;
+            },
             _ = wait_for_termination() => { 
                 tracing::info!(target: "sys", "Termination signal received"); 
                 result = Ok(());
@@ -225,9 +228,14 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         }
 
         if reload {
-            tracing::info!(target: "sys", "Fetching latest configuration...");
+            tracing::info!(target: "sys", profile = %profile, "Hot-reloading daemon components...");
+            // Grace period for previous tasks to clean up (port release, etc)
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            
+            tracing::info!(target: "sys", profile = %profile, "Fetching latest configuration...");
             match cfg_mgr.load(profile).await {
                 Ok(mut new_config) => {
+                    tracing::info!(target: "sys", profile = %profile, version = %new_config.version, "Configuration reloaded successfully");
                     let app_key = new_config.app_key.trim();
                     let global_profile = format!("app:{}", app_key);
 
@@ -240,10 +248,15 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
                     if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { new_config.encrypt_key = ek; }
                     else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { new_config.encrypt_key = ek; }
 
+                    // BUG FIX: Re-apply environment variable overrides after reload.
+                    // This ensures that settings like COWEN_PROXY_PORT (which are often pod-specific)
+                    // are preserved and not overwritten by the shared manifest from the database.
+                    new_config.apply_env_overrides();
+
                     current_config = new_config;
                 }
                 Err(e) => {
-                    tracing::error!(target: "sys", "Failed to reload config: {}. Retrying in 5s...", e);
+                    tracing::error!(target: "sys", profile = %profile, error = %e, "Failed to reload config. Retrying in 5s...");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }

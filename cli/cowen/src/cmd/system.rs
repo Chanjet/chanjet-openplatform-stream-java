@@ -221,25 +221,43 @@ pub async fn ensure_daemon_running(
     // 1. Hanging detection (Process exists but port unresponsive)
     if let Some(pid_val) = pid {
         if !crate::core::status::is_port_responsive(p_cfg.proxy_port).await {
-            tracing::warn!(target: "sys", profile = %p, pid = %pid_val, port = %p_cfg.proxy_port, "Daemon process found but port is not responsive (Hanging). Killing and restarting...");
-            
-            let mut s = System::new_all();
-            s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-            if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
-                process.kill_with(sysinfo::Signal::Kill);
+            // BUG FIX: Only consider it "hanging" if it has been running for a while.
+            // A newly started daemon might still be initializing.
+            let mut is_new = false;
+            if let Ok(metadata) = std::fs::metadata(&pid_file) {
+                if let Ok(modified) = metadata.modified() {
+                    if let Ok(elapsed) = modified.elapsed() {
+                        if elapsed.as_secs() < 30 {
+                            tracing::info!(target: "sys", profile = %p, pid = %pid_val, elapsed = ?elapsed, "Daemon is not responsive yet but was started recently. Giving it more time.");
+                            is_new = true;
+                        }
+                    }
+                }
             }
-            let _ = std::fs::remove_file(&pid_file);
-            
-            // Trigger restart
-            let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault.clone()).await;
-            return Ok(());
+
+            if !is_new {
+                tracing::warn!(target: "sys", profile = %p, pid = %pid_val, port = %p_cfg.proxy_port, "Daemon process found but port is not responsive (Hanging). Killing and restarting...");
+
+                let mut s = System::new_all();
+                s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
+                    process.kill_with(sysinfo::Signal::Kill);
+                }
+                let _ = std::fs::remove_file(&pid_file);
+
+                // Allow some time for port release
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+                // Trigger restart
+                let _ = crate::cmd::daemon::start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, false, cfg_mgr, vault.clone()).await;
+                return Ok(());
+            }
         }
-    }
-    
+    }    
     // 2. Normal missing process detection
     if pid.is_none() {
         let provider = auth_cli.provider(&p_cfg.app_mode);
-        if provider.should_auto_recover(&p_cfg, pid.is_some(), pid_file.exists()) {
+        if provider.should_auto_recover(&p, &p_cfg, pid.is_some(), pid_file.exists()).await {
             if p == profile {
                 eprintln!("🚀 Daemon for profile '{}' was not found. Automatically restarting in background...", p);
             }

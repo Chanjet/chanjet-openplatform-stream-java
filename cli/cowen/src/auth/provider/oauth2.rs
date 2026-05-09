@@ -577,6 +577,22 @@ impl AuthProvider for OAuth2Provider {
         Ok(())
     }
 
+    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool) -> bool {
+        if has_pid || config.app_key.trim().is_empty() {
+            return false;
+        }
+
+        // 🚀 OCP: For OAuth2, only auto-recover if we actually have a token pair.
+        // If no token pair exists, it means the profile is not yet authorized,
+        // and starting a daemon will just lead to errors or race conditions during 'init'.
+        let vault = self.pool.as_vault();
+        if vault.get_config(profile, "oauth2_token_pair").await.is_ok() {
+            return true;
+        }
+        
+        false
+    }
+
     fn get_daemon_display_info(&self, is_running: bool) -> (String, String) {
         let name = "Token Renewer (Daemon)";
         let tip = if is_running { "主动续约: [ACTIVE]" } else { "若需实现令牌自动续约，请运行 'cowen daemon start'" };

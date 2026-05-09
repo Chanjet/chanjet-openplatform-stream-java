@@ -465,22 +465,7 @@ async fn run() -> Result<()> {
     };
 
     // --- Cloud-Native Override ---
-    if let Ok(key) = std::env::var("COWEN_APP_KEY") { config.app_key = key; }
-    if let Ok(secret) = std::env::var("COWEN_APP_SECRET") { config.app_secret = secret; }
-    if let Ok(ek) = std::env::var("COWEN_ENCRYPT_KEY") { config.encrypt_key = ek; }
-    if let Ok(target) = std::env::var("COWEN_WEBHOOK_TARGET") { config.webhook_target = target; }
-    if let Ok(url) = std::env::var("COWEN_OPENAPI_URL") { config.openapi_url = url; }
-    if let Ok(url) = std::env::var("COWEN_STREAM_URL") { config.stream_url = url; }
-    if let Ok(port) = std::env::var("COWEN_PROXY_PORT") {
-        if let Ok(p) = port.parse::<u16>() { config.proxy_port = p; }
-    }
-    if let Ok(mode) = std::env::var("COWEN_APP_MODE") {
-        config.app_mode = match mode.as_str() {
-            "self-built" => crate::auth::models::AuthMode::SelfBuilt,
-            "store-app" => crate::auth::models::AuthMode::StoreApp,
-            _ => crate::auth::models::AuthMode::Oauth2,
-        };
-    }
+    config.apply_env_overrides();
 
     // Override config flags if CLI provides them
     if cli.no_telemetry {
@@ -490,17 +475,17 @@ async fn run() -> Result<()> {
         config.ai_enabled = false;
     }
 
+// 3. Initialize Telemetry (Structured & Rotated Logging)
+let (vault_tx, vault_rx) = tokio::sync::watch::channel(None);
+let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {
+    Ok(g) => Some(g),
+    Err(e) => {
+        eprintln!("⚠️ Warning: Telemetry system failed to initialize: {}. Continuing without structured logging.", e);
+        None
+    }
+};
 
-    // 3. Initialize Telemetry (Structured & Rotated Logging)
-    let (vault_tx, vault_rx) = tokio::sync::watch::channel(None);
-    let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {
-        Ok(g) => Some(g),
-        Err(e) => {
-            eprintln!("⚠️ Warning: Telemetry system failed to initialize: {}. Continuing without structured logging.", e);
-            None
-        }
-    };
-    tracing::info!(target: "sys", "{} starting (version {})", bin_name, env!("CARGO_PKG_VERSION"));
+    tracing::info!(target: "sys", "cowen starting (version {})", env!("CARGO_PKG_VERSION"));
     tracing::info!(target: "sys", profile = %active_profile, "active profile loaded");
 
     // 4. Check for Activation (First Run)
@@ -582,7 +567,20 @@ async fn run() -> Result<()> {
     }
 
     // 5. Ensure daemon is running and up to date with this CLI binary
-    if !matches!(&cli.command, Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. }) {
+    // OCP: Only for commands that benefit from a running daemon (api, status, token, etc.)
+    // Avoid triggering recovery during 'init', 'reset', or 'daemon' management.
+    // Also skip during OAuth2 finalize-login to prevent race conditions during the initial exchange.
+    let skip_recovery = matches!(&cli.command, 
+        Commands::Daemon { .. } | 
+        Commands::Reset | 
+        Commands::Init { .. } |
+        Commands::Config |
+        Commands::Status { .. } |
+        Commands::Profile { .. } |
+        Commands::Dlq { .. }
+    ) || matches!(&cli.command, Commands::Auth { action: AuthCommands::Login { finalize: Some(_), .. } });
+
+    if !skip_recovery {
         let _ = crate::cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
     }
 
@@ -654,19 +652,25 @@ async fn run() -> Result<()> {
                 let mut changed = false;
                 
                 if let Some(p) = proxy_port {
-                    updated_config.proxy_port = *p;
-                    changed = true;
+                    if updated_config.proxy_port != *p {
+                        updated_config.proxy_port = *p;
+                        changed = true;
+                    }
                 }
                 if *enable_proxy {
-                    updated_config.proxy_enabled = true;
-                    changed = true;
+                    if !updated_config.proxy_enabled {
+                        updated_config.proxy_enabled = true;
+                        changed = true;
+                    }
                 } else if *no_proxy {
-                    updated_config.proxy_enabled = false;
-                    changed = true;
+                    if updated_config.proxy_enabled {
+                        updated_config.proxy_enabled = false;
+                        changed = true;
+                    }
                 }
                 
                 if changed && !*all {
-                    cfg_mgr.save(&active_profile, &updated_config).await?;
+                    cfg_mgr.save(&active_profile, &mut updated_config).await?;
                 }
 
                 cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone()).await?;
@@ -678,19 +682,25 @@ async fn run() -> Result<()> {
                 let mut updated_config = config.clone();
                 let mut changed = false;
                 if let Some(p) = proxy_port {
-                    updated_config.proxy_port = *p;
-                    changed = true;
+                    if updated_config.proxy_port != *p {
+                        updated_config.proxy_port = *p;
+                        changed = true;
+                    }
                 }
                 if *enable_proxy {
-                    updated_config.proxy_enabled = true;
-                    changed = true;
+                    if !updated_config.proxy_enabled {
+                        updated_config.proxy_enabled = true;
+                        changed = true;
+                    }
                 } else if *no_proxy {
-                    updated_config.proxy_enabled = false;
-                    changed = true;
+                    if updated_config.proxy_enabled {
+                        updated_config.proxy_enabled = false;
+                        changed = true;
+                    }
                 }
 
                 if changed && !*all {
-                    cfg_mgr.save(&active_profile, &updated_config).await?;
+                    cfg_mgr.save(&active_profile, &mut updated_config).await?;
                 }
 
                 cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone()).await?;

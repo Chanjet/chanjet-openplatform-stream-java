@@ -502,4 +502,23 @@ impl AuthProvider for StoreAppProvider {
         let _ = vault.delete_config(profile, "app_ticket_created").await;
         Ok(())
     }
+
+    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool) -> bool {
+        if has_pid || config.app_key.trim().is_empty() {
+            return false;
+        }
+
+        // 🚀 OCP: For StoreApp, only auto-recover if we have the essential secrets.
+        let vault = self.pool.as_vault();
+        let app_key = config.app_key.trim();
+        let global_profile = format!("app:{}", app_key);
+
+        let has_secret = vault.get_secret(profile, "app_secret").await.is_ok() 
+            || vault.get_secret(&global_profile, "app_secret").await.is_ok();
+        
+        let has_ek = vault.get_secret(profile, "encrypt_key").await.is_ok()
+            || vault.get_secret(&global_profile, "encrypt_key").await.is_ok();
+
+        has_secret && has_ek
+    }
 }
