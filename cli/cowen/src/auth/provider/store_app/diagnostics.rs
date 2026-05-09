@@ -30,12 +30,23 @@ pub(crate) async fn get_diagnostics_entries(
 
     // 1. Security Check
     let mut missing = Vec::new();
-    if vault.get_secret(profile, "app_secret").await.is_err() { missing.push("app_secret".to_string()); }
-    if vault.get_secret(profile, "certificate").await.is_err() { missing.push("certificate".to_string()); }
-    if vault.get_secret(profile, "encrypt_key").await.is_err() { missing.push("encrypt_key".to_string()); }
+    let has_secret = vault.get_secret(profile, "app_secret").await.is_ok();
+    let has_cert = vault.get_secret(profile, "certificate").await.is_ok();
+    let has_encrypt_key = vault.get_secret(profile, "encrypt_key").await.is_ok();
+
+    if !has_secret && !has_cert {
+        missing.push("app_secret or certificate".to_string());
+    }
+    if !has_encrypt_key {
+        missing.push("encrypt_key".to_string());
+    }
 
     let (sec_level, sec_msg) = if missing.is_empty() {
-        (StatusLevel::OK, "All core secrets are securely stored.".to_string())
+        if !has_cert {
+            (StatusLevel::OK, "All core secrets (AppSecret + EncryptKey) are securely stored. (Certificate optional)".to_string())
+        } else {
+            (StatusLevel::OK, "All core secrets are securely stored.".to_string())
+        }
     } else {
         (StatusLevel::ERROR, format!("Missing: {}", missing.join(", ")))
     };

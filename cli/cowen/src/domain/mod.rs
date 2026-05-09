@@ -8,6 +8,8 @@ pub trait TicketDomain: Send + Sync {
     async fn get_app_ticket(&self, app_key: &str) -> Result<Ticket>;
     /// 保存应用的 AppTicket
     async fn save_app_ticket(&self, app_key: &str, ticket: Ticket) -> Result<()>;
+    /// 删除应用的 AppTicket (通常由于平台判定过期)
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()>;
 }
 
 #[async_trait]

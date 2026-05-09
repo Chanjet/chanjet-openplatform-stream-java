@@ -70,7 +70,8 @@ app.get('/callback', async (req, res) => {
             code,
             state,
             orgId,
-            tokenData
+            tokenData,
+            cowenProxyUrl: COWEN_PROXY_URL
         });
     } catch (error) {
         // 异常处理：
@@ -83,7 +84,8 @@ app.get('/callback', async (req, res) => {
             code,
             state,
             orgId: state.startsWith('demo_') ? 'Pending (Wait for Webhook)' : state,
-            error: errorDetail
+            error: errorDetail,
+            cowenProxyUrl: COWEN_PROXY_URL
         });
     }
 });
@@ -107,21 +109,30 @@ app.post('/webhook', (req, res) => {
 // API Test Endpoint: Call OpenAPI via Cowen Proxy
 app.get('/api-test', async (req, res) => {
     const targetOrgId = req.query.orgId || 'demo_tenant_001';
+    const targetUserId = req.query.userId;
+    const targetPath = req.query.path || '/accounting/openapi/cc/book/findByEnterpriseId?queryType=BINDING_TO_THIRD_PLATFORM';
 
-    console.log(`\n[API Call] Triggering request for tenant: ${targetOrgId}`);
+    console.log(`\n[API Call] Triggering request for tenant: ${targetOrgId}${targetUserId ? `, user: ${targetUserId}` : ''}`);
+    console.log(`[API Path] ${targetPath}`);
 
     try {
         // We call the LOCAL Cowen Proxy sidecar
-        // Cowen handles token injection based on the x-org-id header.
-        const response = await axios.get(`${COWEN_PROXY_URL}/accounting/openapi/cc/book/findByEnterpriseId?queryType=BINDING_TO_THIRD_PLATFORM`, {
-            headers: {
-                'x-org-id': targetOrgId
-            }
+        const headers = {
+            'x-org-id': targetOrgId
+        };
+        
+        if (targetUserId) {
+            headers['x-user-id'] = targetUserId;
+        }
+
+        const response = await axios.get(`${COWEN_PROXY_URL}${targetPath}`, {
+            headers: headers
         });
 
         res.json({
             success: true,
             orgId: targetOrgId,
+            userId: targetUserId || null,
             data: response.data
         });
     } catch (error) {

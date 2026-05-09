@@ -93,14 +93,13 @@ impl OAuth2Provider {
 
         if !resp.is_success() {
             let status = resp.status;
-            let err_text = resp.text();
+            let err_text = crate::core::utils::mask_sensitive_json(&resp.text());
 
             tracing::error!(
-                target: "sys",
+                target: "audit",
                 profile = %profile,
                 event = "token_rotate",
                 status = "failure",
-                http_status = %status,
                 error = %err_text,
                 "OAuth2 token rotation failed"
             );

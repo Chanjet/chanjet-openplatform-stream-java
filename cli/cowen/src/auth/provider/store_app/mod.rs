@@ -301,12 +301,16 @@ impl AuthProvider for StoreAppProvider {
         if let Some(ak) = params.app_key {
             config.app_key = ak;
         }
+
+        let app_key = config.app_key.trim();
+        let global_profile = format!("app:{}", app_key);
+
         if let Some(as_val) = params.app_secret {
-            vault.set_secret(profile, "app_secret", &as_val).await?;
+            vault.set_secret(&global_profile, "app_secret", &as_val).await?;
             config.app_secret = as_val;
         }
         if let Some(ek) = params.encrypt_key {
-            vault.set_secret(profile, "encrypt_key", &ek).await?;
+            vault.set_secret(&global_profile, "encrypt_key", &ek).await?;
             config.encrypt_key = ek;
         }
         if let Some(url) = params.openapi_url {

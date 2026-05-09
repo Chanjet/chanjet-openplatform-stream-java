@@ -96,6 +96,9 @@ impl crate::domain::TicketDomain for StoreVault {
     async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()> {
         self.sensitive.save_app_ticket(app_key, ticket).await
     }
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        self.sensitive.delete_app_ticket(app_key).await
+    }
 }
 
 #[async_trait]

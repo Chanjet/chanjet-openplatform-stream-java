@@ -140,8 +140,14 @@ impl SqlDriver for SqliteDriver {
         })
     }
     async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_ticket (app_key, ticket_value, created_at) VALUES (?, ?, ?) ON CONFLICT(app_key) DO UPDATE SET ticket_value = excluded.ticket_value, created_at = excluded.created_at")
+        sqlx::query("INSERT INTO cowen_ticket (app_key, ticket_value, created_at) VALUES ($1, $2, $3) ON CONFLICT(app_key) DO UPDATE SET ticket_value = EXCLUDED.ticket_value, created_at = EXCLUDED.created_at")
             .bind(app_key).bind(&ticket.value).bind(ticket.created_at).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_ticket WHERE app_key = $1")
+            .bind(app_key).execute(&self.pool).await?;
         Ok(())
     }
 

@@ -143,6 +143,12 @@ impl SqlDriver for PostgresDriver {
         Ok(())
     }
 
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_ticket WHERE app_key = $1")
+            .bind(app_key).execute(&self.pool).await?;
+        Ok(())
+    }
+
     // --- Permanent Code Domain ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
         let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = $1 AND org_id = $2 AND user_id = '' AND code_type = 'org_permanent'")

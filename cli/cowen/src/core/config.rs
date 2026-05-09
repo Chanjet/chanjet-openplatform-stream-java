@@ -278,9 +278,29 @@ impl ConfigManager {
             let content = fs::read_to_string(&profile_path)?;
             let mut config: Config = serde_yaml::from_str(&content)?;
             if let Some(vault) = self.vault.get() {
-                if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
-                if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
-                if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
+                let app_key = config.app_key.trim();
+                let global_profile = format!("app:{}", app_key);
+                
+                // app_secret
+                if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await {
+                    config.app_secret = s;
+                } else if let Ok(s) = vault.get_secret(profile, "app_secret").await {
+                    config.app_secret = s;
+                }
+
+                // certificate
+                if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await {
+                    config.certificate = cert;
+                } else if let Ok(cert) = vault.get_secret(profile, "certificate").await {
+                    config.certificate = cert;
+                }
+
+                // encrypt_key
+                if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await {
+                    config.encrypt_key = ek;
+                } else if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await {
+                    config.encrypt_key = ek;
+                }
             }
             return Ok((config, true));
         }
@@ -296,14 +316,17 @@ impl ConfigManager {
         }
 
         if let Some(vault) = self.vault.get() {
+            let app_key = config.app_key.trim();
+            let global_profile = format!("app:{}", app_key);
+
             if !config.app_secret.is_empty() {
-                let _ = vault.set_secret(profile, "app_secret", &config.app_secret).await;
+                let _ = vault.set_secret(&global_profile, "app_secret", &config.app_secret).await;
             }
             if !config.certificate.is_empty() {
-                let _ = vault.set_secret(profile, "certificate", &config.certificate).await;
+                let _ = vault.set_secret(&global_profile, "certificate", &config.certificate).await;
             }
             if !config.encrypt_key.is_empty() {
-                let _ = vault.set_secret(profile, "encrypt_key", &config.encrypt_key).await;
+                let _ = vault.set_secret(&global_profile, "encrypt_key", &config.encrypt_key).await;
             }
             
             let manifest = serde_yaml::to_string(config)?;

@@ -99,6 +99,14 @@ impl Store for FileStore {
         Ok(fs::write(self.get_path(&format!("app:{}", app_key), "tic", "v1"), json)?)
     }
 
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        let path = self.get_path(&format!("app:{}", app_key), "tic", "v1");
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
     // --- Permanent Code Domain ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
         Ok(fs::read_to_string(self.get_path(&format!("app:{}", app_key), "perm", &format!("{}:org", org_id)))?)

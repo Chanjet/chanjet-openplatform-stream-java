@@ -162,6 +162,12 @@ impl SqlDriver for MySqlDriver {
         Ok(())
     }
 
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        sqlx::query("DELETE FROM cowen_ticket WHERE app_key = ?")
+            .bind(app_key).execute(&self.pool).await?;
+        Ok(())
+    }
+
     // --- Permanent Code Domain ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
         let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND user_id = '' AND code_type = 'org_permanent'")

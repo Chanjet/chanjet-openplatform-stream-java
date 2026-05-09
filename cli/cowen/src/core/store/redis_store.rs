@@ -184,6 +184,10 @@ impl Store for RedisStore {
         self.raw_set(&format!("app:{}", app_key), "tic:v1", &json, None).await
     }
 
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        self.raw_del(&format!("app:{}", app_key), "tic:v1").await
+    }
+
     // --- Permanent Code ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
         self.raw_get(&format!("app:{}", app_key), &format!("perm:{}:org", org_id)).await

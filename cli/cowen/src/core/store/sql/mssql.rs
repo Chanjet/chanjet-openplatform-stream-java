@@ -194,6 +194,10 @@ impl SqlDriver for MssqlDriver {
         self.execute(sql, &[&app_key, &val]).await
     }
 
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        self.execute("DELETE FROM cowen_ticket WHERE app_key = @p1", &[&app_key]).await
+    }
+
     // --- Permanent Code Domain ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
         let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;

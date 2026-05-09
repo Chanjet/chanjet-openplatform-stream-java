@@ -78,6 +78,9 @@
         <p>应用已接收到来自畅捷通开放平台的回调数据：</p>
         <div class="params">
             <div class="param-item"><span class="param-label">Org ID:</span> <strong style="color: #0f172a;"><%= locals.orgId || '未知' %></strong></div>
+            <% if (locals.tokenData && (tokenData.userId || tokenData.user_id)) { %>
+            <div class="param-item"><span class="param-label">User ID:</span> <strong style="color: #0f172a;"><%= tokenData.userId || tokenData.user_id %></strong></div>
+            <% } %>
             <div class="param-item"><span class="param-label">Code:</span> <%= code %></div>
             <div class="param-item"><span class="param-label">State:</span> <%= state %></div>
         </div>
@@ -94,9 +97,38 @@
             在回调后，本 Demo 演示了 <strong>主动换票 (Active Exchange)</strong>：通过 Proxy 调用 <code>/oauth2/token</code> 接口。
             这样做可以直接在 Response 中同步拿到该租户的 <code>orgId</code>，方便业务系统进行账号绑定。
         </div>
+
+        <div style="margin-bottom: 1.5rem; background: #fff; border: 1px solid #e2e8f0; padding: 1.25rem; border-radius: 8px;">
+            <label style="display: block; font-size: 0.85rem; color: #64748b; font-weight: bold; margin-bottom: 0.5rem;">注入用户 ID (可选 x-user-id):</label>
+            <input type="text" id="input-user-id" placeholder="例如: 60006425377" 
+                   style="width: 100%; padding: 0.6rem; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; font-family: monospace;">
+        </div>
+
         <div class="actions">
-            <a href="javascript:void(0)" id="btn-test" onclick="testApi('<%= locals.orgId || state %>')" class="btn-test">尝试调用 OpenAPI &rarr;</a>
+            <a href="javascript:void(0)" id="btn-test" onclick="testApi('<%= locals.orgId || state %>')" class="btn-test">调用 (仅 OrgID)</a>
+            
+            <% if (locals.tokenData && (tokenData.userId || tokenData.user_id)) { %>
+            <a href="javascript:void(0)" id="btn-test-user" 
+               onclick="testApi('<%= locals.orgId || state %>', '<%= tokenData.userId || tokenData.user_id %>')" 
+               class="btn-test" style="background: #3b82f6;">调用 (带 UserID)</a>
+            <% } %>
+
             <a href="/" class="btn-secondary">返回首页</a>
+        </div>
+
+        <div style="margin-top: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
+            <label style="font-size: 0.85rem; color: #64748b; font-weight: bold;">CIA 用户信息接口测试 (/accounting/cia/api/v1/user):</label>
+            <div style="display: flex; gap: 1rem;">
+                <a href="javascript:void(0)" id="btn-cia-org" 
+                   onclick="testApi('<%= locals.orgId || state %>', null, '/accounting/cia/api/v1/user')" 
+                   class="btn-test" style="background: #6366f1; flex: 1; text-align: center;">CIA (仅 OrgID)</a>
+                
+                <% if (locals.tokenData && (tokenData.userId || tokenData.user_id)) { %>
+                <a href="javascript:void(0)" id="btn-cia-user" 
+                   onclick="testApi('<%= locals.orgId || state %>', '<%= tokenData.userId || tokenData.user_id %>', '/accounting/cia/api/v1/user')" 
+                   class="btn-test" style="background: #8b5cf6; flex: 1; text-align: center;">CIA (带 UserID)</a>
+                <% } %>
+            </div>
         </div>
 
         <div id="result-container" style="display: none; margin-top: 2rem; border-top: 1px solid #e2e8f0; padding-top: 1.5rem;">
@@ -111,24 +143,49 @@
     </div>
 
     <script>
-        async function testApi(orgId) {
-            const btn = document.getElementById('btn-test');
+        const COWEN_PROXY_URL = '<%= locals.cowenProxyUrl || "http://127.0.0.1:8080" %>';
+
+        async function testApi(orgId, explicitUserId, path) {
+            // Use explicitUserId if provided, otherwise fallback to input field
+            const userId = explicitUserId || document.getElementById('input-user-id').value.trim();
+            
+            // Determine button to show loading state
+            let btnId = 'btn-test';
+            if (path === '/accounting/cia/api/v1/user') {
+                btnId = explicitUserId ? 'btn-cia-user' : 'btn-cia-org';
+            } else if (explicitUserId) {
+                btnId = 'btn-test-user';
+            }
+            const btn = document.getElementById(btnId);
             const resultContainer = document.getElementById('result-container');
             const resultBody = document.getElementById('result-body');
             
             const originalText = btn.innerHTML;
-            btn.innerHTML = `
-                <svg class="animate-spin" width="18" height="18" viewBox="0 0 24 24" style="display: inline-block; animation: spin 1s linear infinite;">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" style="opacity: 0.25" fill="none"></circle>
-                    <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                请求中...
-            `;
+            btn.innerHTML = `请求中...`;
             btn.style.opacity = '0.7';
             btn.style.pointerEvents = 'none';
 
             try {
-                const response = await fetch(`/api-test?orgId=${orgId}`);
+                // DEFAULT PATH
+                const apiPath = path || '/accounting/openapi/cc/book/findByEnterpriseId?queryType=BINDING_TO_THIRD_PLATFORM';
+                
+                // Construct target URL directly to Cowen Proxy
+                const url = `${COWEN_PROXY_URL}${apiPath}`;
+                
+                console.log(`[Frontend Call] Directly calling Cowen Proxy: ${url}`);
+
+                const headers = {
+                    'x-org-id': orgId
+                };
+                if (userId) {
+                    headers['x-user-id'] = userId;
+                }
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: headers
+                });
+                
                 const data = await response.json();
                 
                 resultContainer.style.display = 'block';

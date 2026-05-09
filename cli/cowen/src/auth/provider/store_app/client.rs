@@ -62,15 +62,16 @@ pub(crate) async fn intercept_exchange(
     let resp = http_sender.post_form(&url, headers, body_json).await?;
 
     if !resp.is_success() {
-        tracing::error!(target: "sys", status = %resp.status, body = %resp.body, "Platform rejected token exchange");
+        let masked_body = crate::core::utils::mask_sensitive_json(&resp.body);
+        tracing::error!(target: "sys", status = %resp.status, body = %masked_body, "Platform rejected token exchange");
         return Err(anyhow!(
             "Proxy token exchange failed (HTTP {}): {}",
             resp.status,
-            resp.body
+            masked_body
         ));
     }
 
-    tracing::info!(target: "sys", "Platform token exchange successful: {}", resp.body);
+    tracing::info!(target: "sys", "Platform token exchange successful: {}", crate::core::utils::mask_sensitive_json(&resp.body));
 
     let token_resp: StoreAppTokenResponse = serde_json::from_str(&resp.body)?;
     let raw_json: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -96,6 +97,14 @@ pub(crate) async fn intercept_exchange(
     // Determine if it's a user token or org token
     if let Some(identity) = token.extract_identity() {
         let app_key = cfg.app_key.trim();
+
+        // Save OAuth2 pair (containing refresh_token) to vault
+        let key_pair = if !identity.user_id.is_empty() && identity.user_id != "0" {
+            storage::get_user_token_key(app_key, &identity.org_id, &identity.user_id)
+        } else {
+            storage::get_org_token_key(app_key, &identity.org_id)
+        };
+        vault.set_secret(profile, &key_pair, &serde_json::to_string(&pair)?).await?;
 
         if !identity.user_id.is_empty() && identity.user_id != "0" {
             // User-level token path
@@ -185,7 +194,7 @@ pub(crate) async fn get_app_access_token(
 
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
-        return Err(anyhow!("Failed to get appAccessToken: {}", resp.body));
+        return Err(anyhow!("Failed to get appAccessToken: {}", crate::core::utils::mask_sensitive_json(&resp.body)));
     }
 
     let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -240,7 +249,7 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
 
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
-        return Err(anyhow!("getPermanentAuthCode failed: {}", resp.body));
+        return Err(anyhow!("getPermanentAuthCode failed: {}", crate::core::utils::mask_sensitive_json(&resp.body)));
     }
 
     let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -300,10 +309,11 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
 
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
+        let masked_body = crate::core::utils::mask_sensitive_json(&resp.body);
         return Err(anyhow!(
             "getOrgAccessToken failed (HTTP {}): {}",
             resp.status,
-            resp.body
+            masked_body
         ));
     }
 
@@ -314,8 +324,9 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
 
     let token_val = result
         .get("accessToken")
+        .or_else(|| result.get("orgAccessToken"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("accessToken not found in result: {}", resp.body))?;
+        .ok_or_else(|| anyhow!("accessToken/orgAccessToken not found in result: {}", resp.body))?;
 
     let expire_time = result
         .get("expireTime")
@@ -362,10 +373,11 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
 
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
+        let masked_body = crate::core::utils::mask_sensitive_json(&resp.body);
         return Err(anyhow!(
             "getUserAccessToken failed (HTTP {}): {}",
             resp.status,
-            resp.body
+            masked_body
         ));
     }
 
@@ -376,8 +388,9 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
 
     let token_val = result
         .get("accessToken")
+        .or_else(|| result.get("userAccessToken"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("accessToken not found in result: {}", resp.body))?;
+        .ok_or_else(|| anyhow!("accessToken/userAccessToken not found in result: {}", resp.body))?;
 
     let expire_time = result
         .get("expireTime")
@@ -409,7 +422,7 @@ pub(crate) async fn request_token(
 
     if !resp.is_success() {
         let status = resp.status;
-        let err_text = resp.text();
+        let err_text = crate::core::utils::mask_sensitive_json(&resp.text());
 
         tracing::error!(
             target: "audit",

@@ -34,6 +34,7 @@ pub trait SqlDriver: Send + Sync {
     // --- Ticket Domain ---
     async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket>;
     async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()>;
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()>;
 
     // --- Permanent Code Domain ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String>;
@@ -148,8 +149,9 @@ impl Store for SqlStore {
     // --- Ticket ---
     async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket> { self.driver.get_app_ticket(app_key).await }
     async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()> { self.driver.save_app_ticket(app_key, ticket).await }
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> { self.driver.delete_app_ticket(app_key).await }
 
-    // --- Permanent Code ---
+    // --- Permanent Code Domain ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> { self.driver.get_org_permanent_code(app_key, org_id).await }
     async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> { self.driver.save_org_permanent_code(app_key, org_id, code).await }
     async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> { self.driver.get_user_permanent_code(app_key, org_id, user_id).await }

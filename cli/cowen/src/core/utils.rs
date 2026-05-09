@@ -47,6 +47,10 @@ pub fn mask_sensitive_json(input: &str) -> String {
     let patterns = [
         obfs!(r#"(?i)("accessToken"\s*:\s*")([^"]+)(")"#),
         obfs!(r#"(?i)("access_token"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("orgAccessToken"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("userAccessToken"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("refreshToken"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("refresh_token"\s*:\s*")([^"]+)(")"#),
         obfs!(r#"(?i)("appSecret"\s*:\s*")([^"]+)(")"#),
         obfs!(r#"(?i)("app_secret"\s*:\s*")([^"]+)(")"#),
         obfs!(r#"(?i)("certificate"\s*:\s*")([^"]+)(")"#),
@@ -54,6 +58,10 @@ pub fn mask_sensitive_json(input: &str) -> String {
         obfs!(r#"(?i)("app_ticket"\s*:\s*")([^"]+)(")"#),
         obfs!(r#"(?i)("encryptKey"\s*:\s*")([^"]+)(")"#),
         obfs!(r#"(?i)("encrypt_key"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("permanentAuthCode"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("userPermanentCode"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("user_auth_permanent_code"\s*:\s*")([^"]+)(")"#),
+        obfs!(r#"(?i)("tempAuthCode"\s*:\s*")([^"]+)(")"#),
     ];
 
     for p in &patterns {
@@ -73,7 +81,7 @@ pub fn mask_url_query(url: &str) -> String {
     
     // Obfuscated keys to prevent static string scanning in binary
     let patterns = [
-        obfs!(r#"(?i)([?&](accessToken|access_token|token|openToken|appSecret|appTicket|encryptKey)=)([^&]+)"#),
+        obfs!(r#"(?i)([?&](accessToken|access_token|orgAccessToken|userAccessToken|refreshToken|refresh_token|token|openToken|appSecret|app_secret|appTicket|app_ticket|encryptKey|encrypt_key|permanentAuthCode|userPermanentCode|tempAuthCode)=)([^&]+)"#),
     ];
 
     for p in &patterns {
@@ -124,22 +132,28 @@ mod tests {
     #[test]
     fn test_mask_sensitive_json() {
         let input_json = r#"{
-            "accessToken": "very_secret_token_123456789",
+            "accessToken": "<ACCESS_TOKEN_VALUE_FOR_TESTING>",
             "normalField": "visible_data",
-            "appSecret": "another_secret_987654321",
-            "certificate": "cert_1234_long_string"
+            "appSecret": "<APP_SECRET_VALUE_FOR_TESTING>",
+            "certificate": "<CERTIFICATE_VALUE_FOR_TESTING>",
+            "access_token": "eyJhbGci_MOCKED_JWT_FOR_TESTING",
+            "refresh_token": "rt-MOCKED_REFRESH_TOKEN_FOR_TESTING",
+            "user_auth_permanent_code": "up-MOCKED_PERMANENT_CODE_FOR_TESTING"
         }"#;
 
         let output_json = mask_sensitive_json(input_json);
 
         assert!(output_json.contains("\"normalField\": \"visible_data\""));
-        assert!(!output_json.contains("very_secret_token_123456789"));
-        assert!(output_json.contains("very_sec...6789"));
-        assert!(!output_json.contains("another_secret_987654321"));
-        assert!(output_json.contains("another_...4321"));
+        assert!(!output_json.contains("<ACCESS_TOKEN_VALUE_FOR_TESTING>"));
+        assert!(output_json.contains("<ACCESS_...ING>"));
+        assert!(!output_json.contains("<APP_SECRET_VALUE_FOR_TESTING>"));
+        assert!(output_json.contains("<APP_SEC...ING>"));
+        assert!(!output_json.contains("eyJhbGci_MOCKED_JWT_FOR_TESTING"));
+        assert!(!output_json.contains("rt-MOCKED_REFRESH_TOKEN_FOR_TESTING"));
+        assert!(!output_json.contains("up-MOCKED_PERMANENT_CODE_FOR_TESTING"));
         
-        let mask = mask_string("cert_1234_long_string");
+        let mask = mask_string("<CERTIFICATE_VALUE_FOR_TESTING>");
         assert!(output_json.contains(&mask));
-        assert!(!output_json.contains("cert_1234_long_string"));
+        assert!(!output_json.contains("<CERTIFICATE_VALUE_FOR_TESTING>"));
     }
 }
