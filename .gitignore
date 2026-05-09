@@ -47,3 +47,9 @@ cli/cjtCli/cjtCli-test
 .gemini/
 dump.rdb
 .env
+innerdb*
+test.lock
+test_mask.rs
+.cowen_home/
+node_modules/
+package-lock.json
