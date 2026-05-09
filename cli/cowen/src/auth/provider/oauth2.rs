@@ -270,7 +270,7 @@ impl AuthProvider for OAuth2Provider {
 
             // 4. Finalizer Path: Check for captured code
             let session_manager = AuthSessionManager::new(self.pool.as_ref());
-            if let Ok(code) = session_manager.get_captured_code(profile).await {
+            if let Ok(_code) = session_manager.get_captured_code(profile).await {
                 // In the new world, orchestrator should handle this via state.
                 // For now, we use a heuristic or just fall back to refresh.
             }

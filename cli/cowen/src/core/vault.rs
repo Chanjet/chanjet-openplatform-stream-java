@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use crate::core::store::{Store, AuditEntry, DlqMessage, Item};
+use crate::core::store::Store;
 use crate::core::config::AppConfig;
 use std::path::Path;
 use std::sync::Arc;

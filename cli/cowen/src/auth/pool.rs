@@ -1,7 +1,6 @@
 use crate::auth::models::{Ticket, Token};
 use crate::core::vault::Vault;
 use anyhow::Result;
-use chrono::Utc;
 use std::sync::Arc;
 
 use async_trait::async_trait;

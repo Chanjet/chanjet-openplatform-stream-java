@@ -513,18 +513,6 @@ impl AuthProvider for SelfBuiltProvider {
         auth_entries.push(StatusEntry::new(SelfBuiltTemplate::SecurityVault, sec_level, sec_msg)
             .with_reason(sec_reason));
 
-        let global_profile = format!("app:{}", config.app_key);
-        
-        // 1.2 Token Check
-        let access_token_opt = if let Ok(val) = vault.get_app_access_token(&config.app_key).await {
-            Some(val)
-        } else if let Ok(val) = vault.get_access_token(profile).await {
-            Some(val)
-        } else {
-            None
-        };
-
-
         // 1.3 AppTicket Check
         if let Ok(ticket) = vault.get_app_ticket(&config.app_key).await {
             let created_at = ticket.created_at;

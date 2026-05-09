@@ -8,7 +8,8 @@ use reqwest::Client;
 use std::net::SocketAddr;
 use crate::core::config::Config;
 use anyhow::Result;
-use tower_http::cors::{CorsLayer, Any};
+// Remove tower_http imports if not used or just fix the warning
+// use tower_http::cors::{CorsLayer, Any};
 
 #[derive(Clone)]
 pub struct ProxyState {

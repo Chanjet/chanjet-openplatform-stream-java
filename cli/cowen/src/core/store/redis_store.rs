@@ -38,6 +38,13 @@ impl RedisStore {
         }
         Ok(())
     }
+
+    async fn raw_del(&self, profile: &str, key: &str) -> Result<()> {
+        let mut conn = self.conn.clone();
+        let redis_key = format!("{}:{}", profile, key);
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
 }
 
 #[async_trait]

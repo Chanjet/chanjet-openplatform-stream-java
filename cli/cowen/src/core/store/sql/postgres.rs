@@ -2,8 +2,6 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{Postgres, Pool};
 use std::sync::Arc;
-use tokio_stream::StreamExt;
-use sqlx::postgres::PgListener;
 use super::{SqlDriver, SqlBuilder};
 
 pub struct PostgresDriver {

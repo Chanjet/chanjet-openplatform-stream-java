@@ -399,7 +399,7 @@ impl ConfigManager {
         let path = self.app_dir.join("app.yaml");
         let content = serde_yaml::to_string(config)?;
         fs::write(path, content)?;
-        if let Some(vault) = self.vault.get() {
+        if let Some(_vault) = self.vault.get() {
             // Publish in-process event
             crate::events::event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
                 profile: "system".to_string(), 

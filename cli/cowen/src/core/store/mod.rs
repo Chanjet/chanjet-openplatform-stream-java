@@ -66,6 +66,7 @@ pub trait Store: Send + Sync {
     // --- Ticket Domain ---
     async fn get_app_ticket(&self, app_key: &str) -> Result<crate::auth::models::Ticket>;
     async fn save_app_ticket(&self, app_key: &str, ticket: crate::auth::models::Ticket) -> Result<()>;
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()>;
 
     // --- Permanent Code Domain (Authority) ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String>;

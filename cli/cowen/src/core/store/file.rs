@@ -1,4 +1,4 @@
-use anyhow::{Result, Context, anyhow};
+use anyhow::{Result, Context};
 use async_trait::async_trait;
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -360,6 +360,9 @@ impl Store for MonolithicSealStore {
     async fn save_app_ticket(&self, app_key: &str, t: crate::auth::models::Ticket) -> Result<()> {
         let json = serde_json::to_string(&t)?;
         self.set_config(&format!("app:{}", app_key), "app_ticket_v2", &json).await
+    }
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        self.delete_config(&format!("app:{}", app_key), "app_ticket_v2").await
     }
 
     // --- Permanent Code ---

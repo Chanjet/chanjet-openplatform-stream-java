@@ -1,6 +1,6 @@
 use crate::core::config::Config;
 use anyhow::Result;
-use chrono::{Utc, Local};
+use chrono::Local;
 use crate::auth::pool::TokenPool;
 use crate::core::status::{StatusEntry, StatusLevel, AsStatusUI};
 

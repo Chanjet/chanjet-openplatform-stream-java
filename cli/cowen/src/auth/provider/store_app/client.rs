@@ -144,80 +144,93 @@ pub(crate) async fn get_app_access_token(
         }
     }
 
-    // 2. 如果没有或已过期，则从 Pool 提取动态推送的 Ticket 进行换取
-    let mut retry_count = 0;
-    let ticket = loop {
-        match pool.as_vault().get_app_ticket(cfg.app_key.trim()).await {
-            Ok(t) => break t,
-            Err(_) => {
-                if retry_count >= 20 {
-                    return Err(anyhow!("[StoreApp] 尚未接收到平台推送的 appTicket。请确保 daemon 已启动并保持在线。 (Retried 20s)"));
-                }
+    let (token, _val) = loop {
+        // 2. 如果没有或已过期，则从 Pool 提取动态推送的 Ticket 进行换取
+        let mut retry_count = 0;
+        let ticket = loop {
+            match pool.as_vault().get_app_ticket(cfg.app_key.trim()).await {
+                Ok(t) => break t,
+                Err(_) => {
+                    if retry_count >= 20 {
+                        return Err(anyhow!("[StoreApp] 尚未接收到平台推送的 appTicket。请确保 daemon 已启动并保持在线。 (Retried 20s)"));
+                    }
 
-                if retry_count == 0 {
-                    tracing::info!(target: "sys", app_key = %cfg.app_key, "AppTicket missing for StoreApp. Proactively triggering a platform push...");
-                    let url = format!(
-                        "{}/auth/appTicket/resend",
-                        cfg.openapi_url.trim_end_matches('/')
-                    );
-                    let mut headers = reqwest::header::HeaderMap::new();
-                    headers.insert("appKey", cfg.app_key.trim().parse()?);
-                    headers.insert("appSecret", cfg.app_secret.trim().parse()?);
-                    let res = http_sender.post(&url, headers, serde_json::json!({})).await;
-                    match res {
-                        Ok(resp) => {
-                            tracing::info!(target: "sys", status = %resp.status, "Resend request sent successfully")
-                        }
-                        Err(e) => {
-                            tracing::warn!(target: "sys", error = %e, "Failed to send resend request")
+                    if retry_count == 0 {
+                        tracing::info!(target: "sys", app_key = %cfg.app_key, "AppTicket missing for StoreApp. Proactively triggering a platform push...");
+                        let url = format!(
+                            "{}/auth/appTicket/resend",
+                            cfg.openapi_url.trim_end_matches('/')
+                        );
+                        let mut headers = reqwest::header::HeaderMap::new();
+                        headers.insert("appKey", cfg.app_key.trim().parse()?);
+                        headers.insert("appSecret", cfg.app_secret.trim().parse()?);
+                        let res = http_sender.post(&url, headers, serde_json::json!({})).await;
+                        match res {
+                            Ok(resp) => {
+                                tracing::info!(target: "sys", status = %resp.status, "Resend request sent successfully")
+                            }
+                            Err(e) => {
+                                tracing::warn!(target: "sys", error = %e, "Failed to send resend request")
+                            }
                         }
                     }
+
+                    retry_count += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 }
-
-                retry_count += 1;
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
+        };
+
+        let url = format!(
+            "{}/auth/appAuth/getAppAccessToken",
+            cfg.openapi_url.trim_end_matches('/')
+        );
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("appKey", cfg.app_key.trim().parse()?);
+        headers.insert("appSecret", cfg.app_secret.trim().parse()?);
+
+        let body = serde_json::json!({
+            "appTicket": ticket.value
+        });
+
+        let resp = http_sender.post(&url, headers, body).await?;
+        if !resp.is_success() {
+            let body_str = resp.body.clone();
+            if body_str.contains("4031") {
+                tracing::warn!(target: "sys", "AppTicket expired (4031). Clearing invalid ticket and retrying...");
+                let _ = pool.as_vault().delete_app_ticket(cfg.app_key.trim()).await;
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                continue;
+            }
+            return Err(anyhow!("Failed to get appAccessToken: {}", crate::core::utils::mask_sensitive_json(&body_str)));
         }
+
+        let val: serde_json::Value = serde_json::from_str(&resp.body)?;
+        let result = val
+            .get("result")
+            .ok_or_else(|| anyhow!("Invalid response: missing 'result' wrapper"))?;
+
+        let token_val = result
+            .get("appAccessToken")
+            .or_else(|| result.get("accessToken"))
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("appAccessToken not found in result: {}", resp.body))?;
+
+        let expire_time = result
+            .get("expireTime")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(7200); // 默认 2 小时
+
+        let now = Utc::now();
+        let token = Token {
+            value: token_val.to_string(),
+            expires_at: now + Duration::seconds(expire_time),
+            created_at: now,
+        };
+
+        break (token, val);
     };
 
-    let url = format!(
-        "{}/auth/appAuth/getAppAccessToken",
-        cfg.openapi_url.trim_end_matches('/')
-    );
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("appKey", cfg.app_key.trim().parse()?);
-    headers.insert("appSecret", cfg.app_secret.trim().parse()?);
-
-    let body = serde_json::json!({
-        "appTicket": ticket.value
-    });
-
-    let resp = http_sender.post(&url, headers, body).await?;
-    if !resp.is_success() {
-        return Err(anyhow!("Failed to get appAccessToken: {}", crate::core::utils::mask_sensitive_json(&resp.body)));
-    }
-
-    let val: serde_json::Value = serde_json::from_str(&resp.body)?;
-    let result = val
-        .get("result")
-        .ok_or_else(|| anyhow!("Invalid response: missing 'result' wrapper"))?;
-
-    let token_val = result
-        .get("appAccessToken")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("appAccessToken not found in result: {}", resp.body))?;
-
-    let expire_time = result
-        .get("expireTime")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(7200); // 默认 2 小时
-
-    let token = Token {
-        value: token_val.to_string(),
-        expires_at: Utc::now() + Duration::seconds(expire_time),
-        created_at: Utc::now(),
-    };
-    
     pool.as_vault().save_app_access_token(cfg.app_key.trim(), token.clone()).await?;
     Ok(token)
 }

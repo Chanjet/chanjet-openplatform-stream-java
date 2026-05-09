@@ -1,7 +1,6 @@
-use crate::auth::models::{Token, OAuth2TokenPair};
+use crate::auth::models::Token;
 use crate::core::config::Config;
 use anyhow::{Result, anyhow};
-use chrono::Utc;
 use crate::auth::pool::TokenPool;
 use crate::auth::client::HttpSender;
 use super::{client, storage};

@@ -110,6 +110,10 @@ impl Store for HybridStore {
         let _ = self.cache.save_app_ticket(app_key, t).await;
         Ok(())
     }
+    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+        let _ = self.cache.delete_app_ticket(app_key).await;
+        self.persistence.delete_app_ticket(app_key).await
+    }
 
     // --- Permanent Code ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
