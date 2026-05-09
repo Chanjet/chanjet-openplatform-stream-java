@@ -700,6 +700,8 @@ dependencies = [
  "colored",
  "config",
  "connector-sdk",
+ "cowen-ai",
+ "cowen-common",
  "deadpool-tiberius",
  "directories",
  "fs2",
@@ -708,9 +710,7 @@ dependencies = [
  "hostname",
  "inventory",
  "logroller",
- "ndarray",
  "open",
- "ort",
  "predicates",
  "qrcode",
  "rand 0.10.1",
@@ -729,7 +729,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tiberius",
- "tokenizers",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -739,6 +738,32 @@ dependencies = [
  "tracing-subscriber",
  "urlencoding",
  "uuid",
+]
+
+[[package]]
+name = "cowen-ai"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cowen-common",
+ "ndarray",
+ "ort",
+ "serde",
+ "serde_json",
+ "tokenizers",
+ "tracing",
+]
+
+[[package]]
+name = "cowen-common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]

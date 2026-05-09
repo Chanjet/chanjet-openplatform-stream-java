@@ -5,6 +5,30 @@ use reqwest::Method;
 use serde_json::Value;
 use serde_yaml;
 use std::sync::Arc;
+#[cfg(feature = "ai")]
+use anyhow::Context;
+#[cfg(feature = "ai")]
+async fn get_ai_embedder() -> anyhow::Result<cowen_ai::ONNXEmbedder> {
+    let app_dir = crate::core::config::get_app_dir();
+    cowen_ai::SearchIndex::ensure_assets(&app_dir)?;
+    let (m, t) = cowen_ai::SearchIndex::get_asset_paths(&app_dir);
+    cowen_ai::ONNXEmbedder::new(&m, &t)
+}
+
+#[cfg(feature = "ai")]
+async fn load_search_index(profile: &str, vault: &dyn crate::core::vault::Vault) -> anyhow::Result<cowen_ai::SearchIndex> {
+    let json = vault.get_config(profile, "search_index").await.context("No index")?;
+    let index: cowen_ai::SearchIndex = serde_json::from_str(&json)?;
+    Ok(index)
+}
+
+#[cfg(feature = "ai")]
+async fn save_search_index(profile: &str, vault: &dyn crate::core::vault::Vault, index: &cowen_ai::SearchIndex) -> anyhow::Result<()> {
+    let json = serde_json::to_string(index)?;
+    vault.set_config(profile, "search_index", &json).await?;
+    Ok(())
+}
+
 
 pub async fn call(
     profile: &str,
@@ -277,25 +301,25 @@ pub async fn list(
         {
             let index = if refresh {
                 println!("🔄 Rebuilding semantic search index for profile \"{}\"...", profile);
-                let mut embedder = crate::core::search::ONNXEmbedder::new()?;
+                let mut embedder = get_ai_embedder().await?;
                 let new_index = embedder.rebuild_index(&spec)?;
-                new_index.save(profile, vault.as_ref()).await?;
+                save_search_index(profile, vault.as_ref(), &new_index).await?;
                 println!("✅ Index rebuilt and saved to vault.");
                 new_index
             } else {
-                match crate::core::search::SearchIndex::load(profile, vault.as_ref()).await {
+                match load_search_index(profile, vault.as_ref()).await {
                     Ok(idx) => idx,
                     Err(_) => {
                         println!("🔄 Index not found in vault. Building for profile \"{}\"...", profile);
-                        let mut embedder = crate::core::search::ONNXEmbedder::new()?;
+                        let mut embedder = get_ai_embedder().await?;
                         let new_index = embedder.rebuild_index(&spec)?;
-                        new_index.save(profile, vault.as_ref()).await?;
+                        save_search_index(profile, vault.as_ref(), &new_index).await?;
                         new_index
                     }
                 }
             };
 
-            let mut embedder = crate::core::search::ONNXEmbedder::new()?;
+            let mut embedder = get_ai_embedder().await?;
             let query_vec = embedder.embed(_query)?;
             
             // Search internally for enough results to satisfy current page

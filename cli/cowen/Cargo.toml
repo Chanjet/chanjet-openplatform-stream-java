@@ -1,3 +1,9 @@
+[workspace]
+members = [
+    ".",
+    "crates/*"
+]
+
 [package]
 name = "cowen"
 version = "0.3.0"
@@ -46,9 +52,10 @@ deadpool-tiberius = "0.1.9"
 tokio-util = { version = "0.7", features = ["compat"] }
 
 # AI & Search
-ort = { version = "2.0.0-rc.12", features = ["ndarray"], optional = true }
-tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
-ndarray = { version = "0.17", optional = true }
+cowen-ai = { path = "crates/cowen-ai", optional = true }
+cowen-common = { path = "crates/cowen-common" }
+
+
 
 # Observability
 tracing = "0.1"
@@ -66,7 +73,7 @@ tower-http = { version = "0.6.10", features = ["cors"] }
 
 [features]
 default = ["ai"]
-ai = ["dep:ort", "dep:tokenizers", "dep:ndarray"]
+ai = ["dep:cowen-ai"]
 inte = []
 
 [dev-dependencies]
