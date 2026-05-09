@@ -1,5 +1,6 @@
+use cowen_common::{CowenResult, CowenError};
+use async_trait::async_trait;
 use cowen_common::config::Config;
-use anyhow::Result;
 use chrono::Local;
 use crate::pool::TokenPool;
 use cowen_common::status::{StatusEntry, StatusLevel, AsStatusUI};
@@ -24,7 +25,7 @@ pub(crate) async fn get_diagnostics_entries(
     pool: &(dyn TokenPool + Send + Sync),
     profile: &str,
     config: &Config,
-) -> Result<Vec<StatusEntry>> {
+) -> CowenResult<Vec<StatusEntry>> {
     let mut entries = Vec::new();
     let vault = pool.as_vault();
 

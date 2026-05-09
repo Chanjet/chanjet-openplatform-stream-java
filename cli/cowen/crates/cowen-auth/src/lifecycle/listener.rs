@@ -1,3 +1,4 @@
+use cowen_common::{CowenResult, CowenError};
 use axum::{
     extract::{Query, State},
     response::Html,
@@ -29,7 +30,7 @@ pub struct OAuth2CallbackListener;
 
 // Recompile trigger to refresh embedded success.html
 impl OAuth2CallbackListener {
-    pub async fn start(port: u16, profile: String) -> anyhow::Result<(u16, oneshot::Receiver<Result<CallbackResult, String>>)> {
+    pub async fn start(port: u16, profile: String) -> CowenResult<(u16, oneshot::Receiver<Result<CallbackResult, String>>)> {
         let (result_tx, result_rx) = oneshot::channel();
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         
@@ -92,7 +93,9 @@ impl OAuth2CallbackListener {
             }))
             .with_state((shared_result_tx, shared_shutdown_tx, shared_profile));
 
-        let listener = tokio::net::TcpListener::bind(addr).await?;
+        let listener = tokio::net::TcpListener::bind(addr).await
+            .map_err(|e| CowenError::Io(e))?;
+        
         let actual_port = listener.local_addr().unwrap().port();
 
         tokio::spawn(async move {

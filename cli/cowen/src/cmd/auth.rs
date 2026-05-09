@@ -9,7 +9,8 @@ pub async fn login(
     force: bool,
     finalize: Option<&str>,
 ) -> Result<()> {
-    auth_cli.perform_login(profile, cfg, force, finalize).await
+    auth_cli.perform_login(profile, cfg, force, finalize).await.map_err(|e| anyhow::anyhow!(e))?;
+    Ok(())
 }
 
 pub async fn token(
@@ -17,43 +18,49 @@ pub async fn token(
     config: &Config,
     auth_cli: &dyn AuthClientTrait,
     format: &str,
-    force_refresh: bool,
+    refresh: bool,
 ) -> Result<()> {
-    let detail = if force_refresh {
-        auth_cli.refresh_app_access_token(_profile, config).await
+    let res = if refresh {
+        auth_cli.refresh_token(_profile, config, &reqwest::header::HeaderMap::new()).await
     } else {
-        auth_cli.get_app_access_token(_profile, config).await
+        auth_cli.get_token(_profile, config, &reqwest::header::HeaderMap::new()).await
     };
-    
-    if format == "json" || format == "yaml" {
-        match detail {
-            Ok(t) => return cowen_common::utils::render(&t, format),
-            Err(e) => return cowen_common::utils::render(&serde_json::json!({"error": e.to_string()}), format),
-        }
-    }
 
-    // Attempt to get token (from pool/vault first)
-    match detail {
+    match res {
         Ok(t) => {
-            println!("Token status for profile '{}':", _profile);
-            println!("  Value:      {}", cowen_common::utils::mask_string(&t.value));
+            if format != "text" {
+                cowen_common::utils::render(&t, format).map_err(|e| anyhow::anyhow!(e))?;
+                return Ok(());
+            }
+            println!("\n🔑 Access Token Information");
+            println!("--------------------------------------------------");
+            println!("  Profile:    {}", _profile);
+            println!("  Identity:   {:?}", t.extract_identity());
             println!("  Expires At: {}", t.expires_at);
             if t.is_expired() {
                 println!("  Status:     \x1b[31mExpired\x1b[0m");
             } else {
                 println!("  Status:     \x1b[32mActive\x1b[0m");
             }
+            println!("\nFull Token Value:");
+            println!("\x1b[1;36m{}\x1b[0m", t.value);
+            println!();
         }
         Err(e) => {
-            println!("Token status for profile '{}': \x1b[31mNot Found or Error\x1b[0m", _profile);
-            println!("  Reason: {}", e);
+            if format != "text" {
+                cowen_common::utils::render(&serde_json::json!({"error": e.to_string()}), format).map_err(|e| anyhow::anyhow!(e))?;
+                return Ok(());
+            }
+            eprintln!("❌ Failed to retrieve token: {}", e);
         }
     }
+
     Ok(())
 }
-pub async fn logout(profile: &str, _cfg: &Config, auth_cli: &dyn AuthClientTrait) -> Result<()> {
-    auth_cli.clear_token(profile, _cfg).await?;
-    println!("✅ Successfully logged out from profile '{}'.", profile);
+
+pub async fn logout(_profile: &str, _cfg: &Config, auth_cli: &dyn AuthClientTrait) -> Result<()> {
+    auth_cli.clear_token(_profile, _cfg).await.map_err(|e| anyhow::anyhow!(e))?;
+    println!("✅ Successfully logged out from profile '{}'.", _profile);
     println!("💡 All session credentials (Tokens/Tickets) have been cleared.");
     Ok(())
 }

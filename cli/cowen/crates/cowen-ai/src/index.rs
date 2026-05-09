@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use cowen_common::CowenResult;
 use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::PathBuf;
@@ -39,7 +39,7 @@ impl SearchIndex {
             .map(|doc| {
                 // 1. Vector cosine similarity
                 let mut similarity = 0.0;
-                for i in 0..doc.vector.len() {
+                for i in 0..doc.vector.len().min(query_vec.len()) {
                     similarity += doc.vector[i] * query_vec[i];
                 }
 
@@ -56,13 +56,13 @@ impl SearchIndex {
             })
             .collect();
 
-        results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+        results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         results.into_iter().take(top).collect()
     }
 
     /// Ensure embedding model assets are available locally.
     /// This extracts embedded models into the local application directory.
-    pub fn ensure_assets(target_dir: &std::path::Path) -> Result<()> {
+    pub fn ensure_assets(target_dir: &std::path::Path) -> CowenResult<()> {
         let models_dir = target_dir.join("search").join("models");
         if !models_dir.exists() {
             fs::create_dir_all(&models_dir)?;
@@ -79,8 +79,8 @@ impl SearchIndex {
         Ok(())
     }
 
-    fn ensure_asset(path: &PathBuf, content: &[u8]) -> Result<()> {
-        if !path.exists() || path.metadata()?.len() != content.len() as u64 {
+    fn ensure_asset(path: &PathBuf, content: &[u8]) -> CowenResult<()> {
+        if !path.exists() || fs::metadata(path)?.len() != content.len() as u64 {
             fs::write(path, content)?;
         }
         Ok(())

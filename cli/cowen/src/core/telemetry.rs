@@ -27,7 +27,7 @@ pub fn init_telemetry(
     log_dir: PathBuf, 
     profile: &str, 
     config: &cowen_common::config::LogConfig,
-    vault_rx: tokio::sync::watch::Receiver<Option<Arc<dyn crate::core::vault::Vault>>>,
+    vault_rx: tokio::sync::watch::Receiver<Option<Arc<dyn cowen_common::vault::Vault>>>,
 ) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
     let log_level = &config.level;
     let bin_name = cowen_common::utils::get_bin_name();

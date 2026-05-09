@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::{CowenResult, CowenError};
 use chrono::Utc;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -8,12 +8,12 @@ use crate::models::AuditEntry;
 pub struct AuditStore;
 
 impl AuditStore {
-    pub async fn save(vault: &dyn Vault, entry: &AuditEntry) -> Result<()> {
+    pub async fn save(vault: &dyn Vault, entry: &AuditEntry) -> CowenResult<()> {
         vault.save_audit(entry).await
     }
 
     #[allow(dead_code)]
-    pub async fn list(vault: &dyn Vault, profile: &str, limit: usize) -> Result<Vec<AuditEntry>> {
+    pub async fn list(vault: &dyn Vault, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>> {
         vault.list_audit(profile, limit).await
     }
 }

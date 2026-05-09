@@ -1,5 +1,5 @@
-pub mod core;
-pub mod cmd;
+pub(crate) mod core;
+pub(crate) mod cmd;
 
 use clap::Parser;
 use cowen_common::ConfigManager;
@@ -222,18 +222,18 @@ pub enum LogCommands {
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
-    let bin_name = get_bin_name();
+    let _bin_name = get_bin_name();
 
     // 1. Core Paths
     let app_dir = cowen_common::config::get_app_dir();
     let log_dir = app_dir.join("logs");
 
     // 2. Load Config to get Log Settings
-    let cfg_mgr = ConfigManager::new()?;
-    let mut app_config = cfg_mgr.load_app_config().await?;
+    let cfg_mgr = ConfigManager::new().map_err(|e| anyhow::anyhow!(e))?;
+    let mut app_config = cfg_mgr.load_app_config().await.map_err(|e| anyhow::anyhow!(e))?;
 
-    let fingerprint = security::get_machine_fingerprint()?;
-    let vault = core::vault::create_vault(&app_config, &app_dir, &fingerprint).await?;
+    let fingerprint = security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?;
+    let vault = cowen_store::create_vault(&app_config, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!(e))?;
     let _ = cfg_mgr.set_vault(vault.clone());
 
     let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
@@ -243,14 +243,14 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     if matches!(&cli.command, Commands::Init { .. }) {
         if cli.profile.is_none() {
-            active_profile = cfg_mgr.get_next_profile_name().await?;
+            active_profile = cfg_mgr.get_next_profile_name().await.map_err(|e| anyhow::anyhow!(e))?;
             println!("🪄 No profile name provided. Automatically generating new profile: \x1b[1;32m{}\x1b[0m", active_profile);
         }
     }
     
     let mut config = match cfg_mgr.load(&active_profile).await {
         Ok(cfg) => cfg,
-        Err(e) if e.to_string().contains("SKIPPED:") => return Err(e),
+        Err(e) if e.to_string().contains("SKIPPED:") => return Err(anyhow::anyhow!(e)),
         Err(_) => cowen_common::Config::default_with_profile(&active_profile),
     };
 
@@ -269,20 +269,6 @@ pub async fn run(cli: Cli) -> Result<()> {
     };
 
     tracing::info!(target: "sys", "cowen starting (version {})", env!("CARGO_PKG_VERSION"));
-
-    let marker_path = app_dir.join(".telemetry_marker");
-    if !marker_path.exists() && cli.format == "text" {
-        println!("\n\x1b[1;36m🛡️  安全与隐私提示 (Security & Privacy Notice)\x1b[0m");
-        println!("--------------------------------------------------");
-        println!("欢迎使用 cowen CLI！");
-        println!("- 遥测数据 (Telemetry): 匿名指纹、OS/Arch 及命令运行情况。");
-        println!("- AI 语义搜索 (AI Search): 本地向量化实现 API 快速检索。");
-        println!("--------------------------------------------------\n");
-
-        if !app_dir.exists() { let _ = std::fs::create_dir_all(&app_dir); }
-        core::telemetry::report_event(&config, "cli_first_run".to_string(), serde_json::json!({}));
-        let _ = std::fs::File::create(&marker_path);
-    }
 
     let cmd_name = match &cli.command {
         Commands::Api { .. } => "api",
@@ -353,7 +339,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             } else if let (Some(m), Some(p)) = (method, path) {
                 cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, data_file, &cli.format).await?;
             } else {
-                println!("Usage: {} api [METHOD] [PATH] or use subcommands (list, spec)", bin_name);
+                println!("Usage: cowen api [METHOD] [PATH] or use subcommands (list, spec)");
             }
         }
         Commands::Auth { action } => match action {
@@ -369,7 +355,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
                 else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
-                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await?; }
+                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
                 cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone()).await?;
             }
             DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
@@ -379,7 +365,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
                 else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
-                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await?; }
+                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
                 cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone()).await?;
             }
             DaemonCommands::Service { action } => match action {
@@ -402,12 +388,12 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Profile { action } => match action {
-            ProfileCommands::Use { name } => { cfg_mgr.set_default_profile(name)?; println!("✅ Set default profile to '{}'", name); }
+            ProfileCommands::Use { name } => { cfg_mgr.set_default_profile(name).map_err(|e| anyhow::anyhow!(e))?; println!("✅ Set default profile to '{}'", name); }
             ProfileCommands::Current => println!("{}", cfg_mgr.get_default_profile()),
             ProfileCommands::List => {
-                let profiles = cfg_mgr.list_profiles().await?;
+                let profiles = cfg_mgr.list_profiles().await.map_err(|e| anyhow::anyhow!(e))?;
                 let current = cfg_mgr.get_default_profile();
-                if cli.format == "json" || cli.format == "yaml" { cowen_common::utils::render(&profiles, &cli.format)?; }
+                if cli.format == "json" || cli.format == "yaml" { cowen_common::utils::render(&profiles, &cli.format).map_err(|e| anyhow::anyhow!(e))?; }
                 else {
                     println!("\n📂 Available Profiles:");
                     for p in profiles { if p == current { println!("  * \x1b[32m{:<20}\x1b[0m (current)", p); } else { println!("    {:<20}", p); } }
@@ -417,7 +403,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Commands::Dlq { action } => match action {
             DlqCommands::List => cmd::dlq::list(&active_profile, &config, &cli.format, vault.clone()).await?,
-            DlqCommands::Retry { id } => cmd::dlq::retry(&active_profile, &config, id, vault.clone()).await?,
+            DlqCommands::Retry { id } => cmd::dlq::retry(&active_profile, &config, id.clone(), vault.clone()).await?,
             DlqCommands::Purge => cmd::dlq::purge(&active_profile, &config, vault.clone()).await?,
         }
         Commands::Log { action } => match action {

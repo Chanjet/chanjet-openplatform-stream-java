@@ -1,3 +1,5 @@
+use cowen_common::{CowenResult, CowenError};
+use async_trait::async_trait;
 use rand::Rng;
 use cowen_common::daemon::DaemonService;
 use cowen_common::obfs;
@@ -8,7 +10,7 @@ use crate::pool::TokenPool;
 use crate::provider::AuthProvider;
 use cowen_common::config::Config;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
+
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration, Utc};
 use fs2::FileExt;
@@ -47,7 +49,7 @@ impl OAuth2Provider {
         code: &str,
         verifier: &str,
         redirect_uri: &str,
-    ) -> Result<cowen_common::models::Token> {
+    ) -> CowenResult<cowen_common::models::Token> {
         let url = format!(
             "{}{}",
             cfg.openapi_url.trim_end_matches('/'),
@@ -69,7 +71,7 @@ impl OAuth2Provider {
         profile: &str,
         cfg: &Config,
         refresh_token: &str,
-    ) -> Result<cowen_common::models::Token> {
+    ) -> CowenResult<cowen_common::models::Token> {
         let url = format!(
             "{}{}",
             cfg.openapi_url.trim_end_matches('/'),
@@ -90,7 +92,7 @@ impl OAuth2Provider {
         url: &str,
         body: serde_json::Value,
         _cfg: &Config,
-    ) -> Result<cowen_common::models::Token> {
+    ) -> CowenResult<cowen_common::models::Token> {
         let headers = reqwest::header::HeaderMap::new();
         let resp = self.http_sender.post_form(url, headers, body).await?;
 
@@ -111,36 +113,20 @@ impl OAuth2Provider {
 
             // Handle specific platform error codes (Design §6)
             if err_text.contains("4029") {
-                return Err(anyhow!(
-                    "登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})",
-                    status
-                ));
+                return Err(CowenError::Auth(format!("登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})", status)));
             }
             if err_text.contains("4007") || err_text.contains("invalid_grant") {
                 let _ = self.pool.as_vault().set_config(profile, "oauth2_revoked", "true").await;
-                return Err(anyhow!(
-                    "令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})",
-                    status
-                ));
+                return Err(CowenError::Auth(format!("令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})", status)));
             }
             if err_text.contains("4006") {
-                return Err(anyhow!(
-                    "ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})",
-                    status
-                ));
+                return Err(CowenError::Auth(format!("ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})", status)));
             }
             if err_text.contains("4001") {
-                return Err(anyhow!(
-                    "授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})",
-                    status
-                ));
+                return Err(CowenError::Auth(format!("授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})", status)));
             }
 
-            return Err(anyhow!(
-                "OAuth2 token request failed (HTTP {}): {}",
-                status,
-                err_text
-            ));
+            return Err(CowenError::Auth(format!("OAuth2 token request failed (HTTP {}): {}", status, err_text)));
         }
 
         let token_resp: OAuth2TokenResponse = resp.json().await?;
@@ -185,7 +171,7 @@ impl OAuth2Provider {
         Ok(token)
     }
 
-    async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str) -> Result<()> {
+    async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str) -> CowenResult<()> {
         tracing::info!(target: "sys", profile = %profile, session_id = %session_id, "Finalizer started for OAuth2 auth");
         
         let session_manager = AuthSessionManager::new(self.pool.as_ref());
@@ -215,14 +201,14 @@ impl OAuth2Provider {
                                     }
                                 }
                             }
-                            Err(e) => Err(anyhow::anyhow!("Authorization failed: {}", e))
+                            Err(e) => Err(CowenError::Auth(format!("Authorization failed: {}", e)))
                         }
                     }
-                    Err(e) => Err(anyhow::anyhow!("Internal listener error: {}", e))
+                    Err(e) => Err(CowenError::Auth(format!("Internal listener error: {}", e)))
                 }
             },
             _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-                Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
+                Err(CowenError::Auth("Timeout waiting for authorization (5 mins)".to_string()))
             }
         };
 
@@ -234,8 +220,9 @@ impl OAuth2Provider {
 }
 
 #[async_trait]
+#[async_trait]
 impl AuthProvider for OAuth2Provider {
-    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> Result<()> {
+    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> CowenResult<()> {
         if let Ok(token) = self.pool.as_vault().get_access_token(profile).await {
             if token.is_expired_with_buffer(chrono::Duration::minutes(15)) {
                 let remaining = token.expires_at.signed_duration_since(chrono::Utc::now());
@@ -246,7 +233,7 @@ impl AuthProvider for OAuth2Provider {
         Ok(())
     }
 
-    async fn get_token(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<cowen_common::models::Token> {
+    async fn get_token(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token> {
         // 1. Fast path: check current memory/local cache
         if let Ok(token) = self.pool.get_access_token(profile).await {
             if !token.is_expired() {
@@ -282,19 +269,19 @@ impl AuthProvider for OAuth2Provider {
             if let Ok(pair_str) = self.pool.as_vault().get_config(profile, "oauth2_token_pair").await {
                 let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
                 if Utc::now() >= pair.refresh_expires_at {
-                    return Err(anyhow!("OAuth2 session expired. Please run 'owenc init' to re-authenticate."));
+                    return Err(CowenError::Auth(format!("OAuth2 session expired. Please run 'owenc init' to re-authenticate.")));
                 }
                 return self.refresh_token(profile, cfg, &pair.refresh_token).await;
             }
 
-            Err(anyhow!("No valid token or refresh token found for profile '{}'", profile))
+            Err(CowenError::Auth(format!("No valid token or refresh token found for profile '{}'", profile)))
         })().await;
 
         lock_file.unlock()?;
         result
     }
 
-    async fn refresh(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<cowen_common::models::Token> {
+    async fn refresh(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token> {
         let pair_str = self.pool.as_vault().get_config(profile, "oauth2_token_pair").await?;
         let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
         self.refresh_token(profile, cfg, &pair.refresh_token).await
@@ -313,7 +300,7 @@ impl AuthProvider for OAuth2Provider {
         mut headers: reqwest::header::HeaderMap,
         _body: &[u8],
         spec: &serde_json::Value,
-    ) -> Result<crate::provider::ProxyRequestAction> {
+    ) -> CowenResult<crate::provider::ProxyRequestAction> {
         let token = self.get_token(profile, config, &headers).await?;
         
         let auth_headers = crate::RequestDecorator::get_auth_headers(
@@ -339,7 +326,7 @@ impl AuthProvider for OAuth2Provider {
         cfg_mgr: &cowen_common::ConfigManager,
         params: crate::provider::InitParams,
         daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
-    ) -> Result<()> {
+    ) -> CowenResult<()> {
         use crate::lifecycle::orchestrator;
         
 
@@ -420,7 +407,7 @@ impl AuthProvider for OAuth2Provider {
             }
             _ = tokio::signal::ctrl_c() => {
                 println!("\n🛑 Authorization cancelled by user.");
-                return Err(anyhow::anyhow!("Authorization cancelled"));
+                return Err(CowenError::Auth(format!("Authorization cancelled")));
             }
         }
 
@@ -433,7 +420,7 @@ impl AuthProvider for OAuth2Provider {
         Ok(())
     }
 
-    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>) -> Result<()> {
+    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>) -> CowenResult<()> {
         // 1. Finalizer Implementation (Background flow)
         if let Some(session_id) = finalize {
             return self.finalize_login(profile, config, session_id).await;
@@ -454,7 +441,7 @@ impl AuthProvider for OAuth2Provider {
         }
     }
 
-    async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> Result<Vec<cowen_common::status::StatusEntry>> {
+    async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
         use cowen_common::status::{StatusEntry, StatusLevel, CommonTemplate, AsStatusUI, collect_daemon_status};
         
         enum OAuth2Template {
@@ -574,7 +561,7 @@ impl AuthProvider for OAuth2Provider {
         headers.insert("appKey", config.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
     }
 
-    async fn on_logout(&self, profile: &str, _config: &Config) -> Result<()> {
+    async fn on_logout(&self, profile: &str, _config: &Config) -> CowenResult<()> {
         let vault = self.pool.as_vault();
         let _ = vault.delete_access_token(profile).await;
         let _ = vault.delete_config(profile, "oauth2_token_pair").await;
@@ -660,82 +647,82 @@ mod tests {
 
         #[async_trait::async_trait]
         impl crate::domain::PermanentCodeDomain for MockVault {
-            async fn get_org_permanent_code(&self, _: &str, _: &str) -> Result<String> { Err(anyhow!("not found")) }
-            async fn save_org_permanent_code(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
-            async fn get_user_permanent_code(&self, _: &str, _: &str, _: &str) -> Result<String> { Err(anyhow!("not found")) }
-            async fn save_user_permanent_code(&self, _: &str, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn get_org_permanent_code(&self, _: &str, _: &str) -> CowenResult<String> { Err(CowenError::Auth(format!("not found"))) }
+            async fn save_org_permanent_code(&self, _: &str, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
+            async fn get_user_permanent_code(&self, _: &str, _: &str, _: &str) -> CowenResult<String> { Err(CowenError::Auth(format!("not found"))) }
+            async fn save_user_permanent_code(&self, _: &str, _: &str, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
         }
 
         #[async_trait::async_trait]
         impl crate::domain::TicketDomain for MockVault {
-            async fn get_app_ticket(&self, _: &str) -> Result<cowen_common::models::Ticket> { Err(anyhow!("not found")) }
-            async fn save_app_ticket(&self, _: &str, _: cowen_common::models::Ticket) -> Result<()> { Ok(()) }
+            async fn get_app_ticket(&self, _: &str) -> CowenResult<cowen_common::models::Ticket> { Err(CowenError::Auth(format!("not found"))) }
+            async fn save_app_ticket(&self, _: &str, _: cowen_common::models::Ticket) -> CowenResult<()> { Ok(()) }
         }
 
         #[async_trait::async_trait]
         impl crate::domain::TokenDomain for MockVault {
-            async fn get_access_token(&self, _: &str) -> Result<cowen_common::models::Token> { Err(anyhow!("not found")) }
-            async fn save_access_token(&self, _: &str, _: cowen_common::models::Token) -> Result<()> { Ok(()) }
-            async fn delete_access_token(&self, _: &str) -> Result<()> { Ok(()) }
-            async fn get_app_access_token(&self, _: &str) -> Result<cowen_common::models::Token> { Err(anyhow!("not found")) }
-            async fn save_app_access_token(&self, _: &str, _: cowen_common::models::Token) -> Result<()> { Ok(()) }
+            async fn get_access_token(&self, _: &str) -> CowenResult<cowen_common::models::Token> { Err(CowenError::Auth(format!("not found"))) }
+            async fn save_access_token(&self, _: &str, _: cowen_common::models::Token) -> CowenResult<()> { Ok(()) }
+            async fn delete_access_token(&self, _: &str) -> CowenResult<()> { Ok(()) }
+            async fn get_app_access_token(&self, _: &str) -> CowenResult<cowen_common::models::Token> { Err(CowenError::Auth(format!("not found"))) }
+            async fn save_app_access_token(&self, _: &str, _: cowen_common::models::Token) -> CowenResult<()> { Ok(()) }
         }
 
         #[async_trait::async_trait]
         impl crate::domain::SessionDomain for MockVault {
-            async fn get_session(&self, _: &str) -> Result<cowen_common::models::AuthSession> { Err(anyhow!("not found")) }
-            async fn save_session(&self, _: cowen_common::models::AuthSession) -> Result<()> { Ok(()) }
-            async fn delete_session(&self, _: &str) -> Result<()> { Ok(()) }
+            async fn get_session(&self, _: &str) -> CowenResult<cowen_common::models::AuthSession> { Err(CowenError::Auth(format!("not found"))) }
+            async fn save_session(&self, _: cowen_common::models::AuthSession) -> CowenResult<()> { Ok(()) }
+            async fn delete_session(&self, _: &str) -> CowenResult<()> { Ok(()) }
         }
 
         #[async_trait::async_trait]
         impl crate::domain::SecretDomain for MockVault {
-            async fn get_secret(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
-            async fn set_secret(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
-            async fn delete_secret(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn get_secret(&self, _: &str, _: &str) -> CowenResult<String> { Ok("".to_string()) }
+            async fn set_secret(&self, _: &str, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
+            async fn delete_secret(&self, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
         }
 
         #[async_trait::async_trait]
         impl crate::domain::ConfigDomain for MockVault {
-            async fn get_config(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
-            async fn get_config_full(&self, _: &str, _: &str) -> Result<cowen_store::Item> { Err(anyhow!("not found")) }
-            async fn set_config(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
-            async fn set_config_conditional(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
-            async fn list_configs(&self, _: &str) -> Result<Vec<String>> { Ok(vec![]) }
-            async fn delete_config(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+            async fn get_config(&self, _: &str, _: &str) -> CowenResult<String> { Ok("".to_string()) }
+            async fn get_config_full(&self, _: &str, _: &str) -> CowenResult<cowen_store::Item> { Err(CowenError::Auth(format!("not found"))) }
+            async fn set_config(&self, _: &str, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
+            async fn set_config_conditional(&self, _: &str, _: &str, _: &str, _: u64) -> CowenResult<()> { Ok(()) }
+            async fn list_configs(&self, _: &str) -> CowenResult<Vec<String>> { Ok(vec![]) }
+            async fn delete_config(&self, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
         }
 
         #[async_trait::async_trait]
         impl crate::domain::AuditDomain for MockVault {
-            async fn save_audit(&self, _: &cowen_store::AuditEntry) -> Result<()> { Ok(()) }
-            async fn list_audit(&self, _: &str, _: usize) -> Result<Vec<cowen_store::AuditEntry>> { Ok(vec![]) }
+            async fn save_audit(&self, _: &cowen_store::AuditEntry) -> CowenResult<()> { Ok(()) }
+            async fn list_audit(&self, _: &str, _: usize) -> CowenResult<Vec<cowen_store::AuditEntry>> { Ok(vec![]) }
         }
 
         #[async_trait::async_trait]
         impl crate::domain::DlqDomain for MockVault {
-            async fn push_dlq(&self, _: &cowen_store::DlqMessage) -> Result<()> { Ok(()) }
-            async fn pop_dlq(&self, _: &str, _: &str) -> Result<Option<cowen_store::DlqMessage>> { Ok(None) }
-            async fn list_dlq(&self, _: &str, _: usize) -> Result<Vec<cowen_store::DlqMessage>> { Ok(vec![]) }
-            async fn list_all_dlq(&self, _: &str) -> Result<Vec<cowen_store::DlqMessage>> { Ok(vec![]) }
+            async fn push_dlq(&self, _: &cowen_store::DlqMessage) -> CowenResult<()> { Ok(()) }
+            async fn pop_dlq(&self, _: &str, _: &str) -> CowenResult<Option<cowen_store::DlqMessage>> { Ok(None) }
+            async fn list_dlq(&self, _: &str, _: usize) -> CowenResult<Vec<cowen_store::DlqMessage>> { Ok(vec![]) }
+            async fn list_all_dlq(&self, _: &str) -> CowenResult<Vec<cowen_store::DlqMessage>> { Ok(vec![]) }
         }
 
         #[async_trait::async_trait]
         impl crate::domain::ManagementDomain for MockVault {
-            async fn clear_profile(&self, _: &str) -> Result<()> { Ok(()) }
-            async fn rename_profile(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
-            async fn list_all_profiles(&self) -> Result<Vec<String>> { Ok(vec![]) }
+            async fn clear_profile(&self, _: &str) -> CowenResult<()> { Ok(()) }
+            async fn rename_profile(&self, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
+            async fn list_all_profiles(&self) -> CowenResult<Vec<String>> { Ok(vec![]) }
         }
 
         struct MockHttpSender {}
         #[async_trait::async_trait]
         impl crate::client::HttpSender for MockHttpSender {
-            async fn post(&self, _: &str, _: reqwest::header::HeaderMap, _: serde_json::Value) -> Result<crate::client::SimpleResponse> {
+            async fn post(&self, _: &str, _: reqwest::header::HeaderMap, _: serde_json::Value) -> CowenResult<crate::client::SimpleResponse> {
                 Ok(crate::client::SimpleResponse { status: 200, body: "{}".to_string() })
             }
-            async fn post_form(&self, _: &str, _: reqwest::header::HeaderMap, _: serde_json::Value) -> Result<crate::client::SimpleResponse> {
+            async fn post_form(&self, _: &str, _: reqwest::header::HeaderMap, _: serde_json::Value) -> CowenResult<crate::client::SimpleResponse> {
                 Ok(crate::client::SimpleResponse { status: 200, body: "{}".to_string() })
             }
-            async fn get(&self, _: &str, _: reqwest::header::HeaderMap) -> Result<crate::client::SimpleResponse> {
+            async fn get(&self, _: &str, _: reqwest::header::HeaderMap) -> CowenResult<crate::client::SimpleResponse> {
                 Ok(crate::client::SimpleResponse { status: 200, body: "{}".to_string() })
             }
         }

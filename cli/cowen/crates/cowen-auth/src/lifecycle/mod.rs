@@ -1,7 +1,7 @@
+use cowen_common::{CowenResult, CowenError};
 use cowen_common::models::AuthSession;
 use crate::pool::TokenPool;
 use crate::provider::oauth2::Pkce;
-use anyhow::{Result, anyhow, Context};
 use chrono::{Utc, Duration};
 use uuid::Uuid;
 
@@ -17,7 +17,7 @@ impl<'a> AuthSessionManager<'a> {
         Self { pool }
     }
 
-    pub async fn create_session(&self, profile: &str, redirect_port: u16) -> Result<AuthSession> {
+    pub async fn create_session(&self, profile: &str, redirect_port: u16) -> CowenResult<AuthSession> {
         let pkce = Pkce::new();
         let state = Uuid::new_v4().to_string();
         
@@ -34,46 +34,39 @@ impl<'a> AuthSessionManager<'a> {
         Ok(session)
     }
 
-    pub async fn get_session(&self, state: &str) -> Result<AuthSession> {
+    pub async fn get_session(&self, state: &str) -> CowenResult<AuthSession> {
         let session = self.pool.as_vault().get_session(state).await
-            .context("No pending auth session found")?;
+            .map_err(|_| CowenError::Auth("No pending auth session found".to_string()))?;
         
         if Utc::now() > session.expires_at {
             let _ = self.pool.as_vault().delete_session(state).await;
-            return Err(anyhow!("Auth session expired"));
+            return Err(CowenError::Auth("Auth session expired".to_string()));
         }
         
         Ok(session)
     }
 
-    pub async fn save_code(&self, _profile: &str, code: &str, state: &str) -> Result<()> {
+    pub async fn save_code(&self, _profile: &str, code: &str, state: &str) -> CowenResult<()> {
         let session = self.get_session(state).await?;
         // Store the code in the original profile's config so it can be retrieved by the orchestrator/provider
         self.pool.as_vault().set_config(&session.profile, "captured_auth_code", code).await?;
         Ok(())
     }
 
-    pub async fn get_captured_code(&self, profile: &str) -> Result<String> {
-        // This is tricky because old orchestrator uses profile. 
-        // In the new world, orchestrator should use state.
-        // For now, we'll try to find it in the vault if it exists
+    pub async fn get_captured_code(&self, profile: &str) -> CowenResult<String> {
         self.pool.as_vault().get_config(profile, "captured_auth_code").await
-            .context("No captured auth code found")
+            .map_err(|_| CowenError::Auth("No captured auth code found".to_string()))
     }
 
-    pub async fn clear(&self, _profile: &str) -> Result<()> {
-        // Old clear used profile, new should use state.
-        // We'll keep it for now but it's a no-op or partial
+    pub async fn clear(&self, _profile: &str) -> CowenResult<()> {
         Ok(())
     }
     
     #[allow(dead_code)]
-    pub async fn clear_session(&self, state: &str) -> Result<()> {
+    pub async fn clear_session(&self, state: &str) -> CowenResult<()> {
         let _ = self.pool.as_vault().delete_session(state).await;
         let profile = format!("session:{}", state);
         let _ = self.pool.as_vault().delete_config(&profile, "captured_auth_code").await;
         Ok(())
     }
 }
-
-

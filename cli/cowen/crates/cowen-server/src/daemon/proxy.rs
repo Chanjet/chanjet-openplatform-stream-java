@@ -7,9 +7,7 @@ use axum::{
 use reqwest::Client;
 use std::net::SocketAddr;
 use cowen_common::config::Config;
-use anyhow::Result;
-// Remove tower_http imports if not used or just fix the warning
-// use tower_http::cors::{CorsLayer, Any};
+use cowen_common::{CowenResult, CowenError};
 
 #[derive(Clone)]
 pub struct ProxyState {
@@ -22,7 +20,7 @@ pub async fn start_proxy(
     profile: &str,
     config: &Config,
     port: u16,
-) -> Result<()> {
+) -> CowenResult<()> {
     let state = ProxyState {
         client: Client::new(),
         config: config.clone(),
@@ -47,13 +45,13 @@ pub async fn start_proxy(
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 retry_count += 1;
             }
-            Err(e) => return Err(anyhow::anyhow!("Failed to bind to proxy port {}: {}", port, e)),
+            Err(e) => return Err(CowenError::Store(format!("Failed to bind to proxy port {}: {}", port, e))),
         }
     };
     
     tracing::info!(target: "sys", "Local Proxy Server listening on http://127.0.0.1:{}", port);
     
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app).await.map_err(CowenError::from)?;
     Ok(())
 }
 
@@ -63,7 +61,6 @@ async fn handle_proxy(
 ) -> axum::response::Response {
     let method_str = req.method().as_str().to_uppercase();
 
-    // This is just a comment to trigger replace to allow me to write a proper command next
     if method_str == "OPTIONS" {
         tracing::info!(target: "sys", "Intercepted OPTIONS pre-flight request, returning CORS headers immediately.");
         return axum::response::Response::builder()
@@ -79,7 +76,6 @@ async fn handle_proxy(
     // 0. Extract Parts
     let (parts, body) = req.into_parts();
     
-    // Improved Path joining: ensure exactly one slash between base and path
     let base_url = state.config.openapi_url.trim_end_matches('/');
     let req_path_and_query = parts.uri.path_and_query().map(|x| x.as_str()).unwrap_or("/");
     let target_url = format!("{}{}", base_url, if req_path_and_query.starts_with('/') { req_path_and_query.to_string() } else { format!("/{}", req_path_and_query) });
@@ -97,7 +93,7 @@ async fn handle_proxy(
             .unwrap()
     };
 
-    // 1. Resolve Auth (No spec yet)
+    // 1. Resolve Auth
     let fingerprint = match cowen_common::security::get_machine_fingerprint() {
         Ok(f) => f,
         Err(_) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Fingerprint failed".to_string())
@@ -119,7 +115,7 @@ async fn handle_proxy(
 
     let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
 
-    // 1.1. Read body early to allow interception
+    // 1.1. Read body early
     let bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(b) => b,
         Err(e) => return cors_error(axum::http::StatusCode::BAD_REQUEST, format!("Failed to read body: {}", e)),
@@ -127,7 +123,7 @@ async fn handle_proxy(
 
     let provider = auth_cli.provider(&state.config.app_mode);
 
-    // Convert axum headers to reqwest headers for provider compatibility
+    // Convert axum headers to reqwest headers
     let mut headers = reqwest::header::HeaderMap::new();
     for (k, v) in parts.headers.iter() {
         if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_str().as_bytes()) {
@@ -137,7 +133,7 @@ async fn handle_proxy(
         }
     }
 
-    // 1.2. Pre-flight Interceptor (spec-free, allows webhook short-circuit)
+    // 1.2. Pre-flight Interceptor
     let fallback_spec = serde_json::Value::Null;
     let intercept_result = match provider.intercept_request(&state.profile, &state.config, &req_path, &method_str, headers, &bytes, &fallback_spec).await {
         Ok(res) => res,
@@ -148,7 +144,7 @@ async fn handle_proxy(
         }
     };
 
-    // 1.3. Dispatch: Short-circuit (Webhook ACK) or extract forwarding headers
+    // 1.3. Dispatch
     let reqwest_headers = match intercept_result {
         cowen_auth::provider::ProxyRequestAction::Respond(json_resp) => {
             let body_bytes = serde_json::to_vec(&json_resp).unwrap_or_default();

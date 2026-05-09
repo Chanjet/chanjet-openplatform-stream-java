@@ -12,7 +12,9 @@ pub mod daemon;
 pub mod config_manager;
 pub mod domain;
 pub mod openapi;
+pub mod error;
 
+pub use error::{CowenError, CowenResult};
 pub use config_manager::{ConfigManager, ConfigValidator};
 pub use config::{Config, AppConfig};
 pub mod store;

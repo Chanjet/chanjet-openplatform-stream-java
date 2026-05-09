@@ -31,8 +31,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
 
     // 2. Setup Dispatchers (Conditional)
     if supports_webhooks {
-        let dlq = Arc::new(DlqStore::new(profile, vault.clone())?);
-        let forwarder = Forwarder::new(dlq, &config.webhook_target);
+        let forwarder = Forwarder::new(profile, config.clone(), vault.clone());
         let d = client.dispatcher();
         let mut dispatcher = d.lock().unwrap();
 

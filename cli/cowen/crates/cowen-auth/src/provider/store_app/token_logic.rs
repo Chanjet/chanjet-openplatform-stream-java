@@ -1,3 +1,5 @@
+use cowen_common::{CowenResult, CowenError};
+use async_trait::async_trait;
 
 use cowen_common::config::Config;
 use anyhow::{Result, anyhow};
@@ -11,7 +13,7 @@ pub(crate) async fn get_token(
     profile: &str,
     cfg: &Config,
     headers: &reqwest::header::HeaderMap,
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     let org_id = headers.get("x-org-id").and_then(|v| v.to_str().ok());
     let user_id = headers.get("x-user-id").and_then(|v| v.to_str().ok());
 
@@ -25,7 +27,7 @@ pub(crate) async fn get_token(
         }
         _ => {
             // Reject requests missing mandatory arbitration headers
-            Err(anyhow!("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required)."))
+            Err(CowenError::Auth(format!("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).")))
         }
     }
 }
@@ -37,7 +39,7 @@ pub(crate) async fn get_user_token(
     cfg: &Config,
     org_id: &str,
     user_id: &str,
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     let uid = user_id.trim();
     let app_key = cfg.app_key.trim();
 
@@ -70,7 +72,7 @@ pub(crate) async fn get_user_token(
         }
         Err(err) => {
             tracing::error!(target: "sys", userId = %uid, "Recovery via Permanent Auth Code failed: {}", err);
-            Err(anyhow!("User session expired and recovery failed: {}", err))
+            Err(CowenError::Auth(format!("User session expired and recovery failed: {}", err)))
         }
     }
 }
@@ -81,7 +83,7 @@ pub(crate) async fn get_org_token(
     profile: &str,
     cfg: &Config,
     org_id: &str,
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     let app_key = cfg.app_key.trim();
     let org_id = org_id.trim();
 
@@ -109,7 +111,7 @@ pub(crate) async fn get_org_token(
             pool.set_access_token(&custom_profile, &t).await?;
             Ok(t)
         }
-        Err(e) => Err(anyhow!("Organization session expired and recovery failed for org {}: {}", org_id, e))
+        Err(e) => Err(CowenError::Auth(format!("Organization session expired and recovery failed for org {}: {}", org_id, e)))
     }
 }
 
@@ -120,7 +122,7 @@ pub(crate) async fn try_permanent_code_recovery(
     cfg: &Config,
     org_id: &str,
     user_id: Option<&str>
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     let vault = pool.as_vault();
     let app_key = cfg.app_key.trim();
     
@@ -139,7 +141,7 @@ pub(crate) async fn try_permanent_code_recovery(
     };
 
     if upc.is_none() && opc.is_none() {
-        return Err(anyhow!("No permanent codes found for recovery of {}", target_name));
+        return Err(CowenError::Auth(format!("No permanent codes found for recovery of {}", target_name)));
     }
 
     tracing::info!(target: "sys", profile = %profile, target = %target_name, "Triggering permanent code exchange for store app auth recovery");
@@ -148,13 +150,13 @@ pub(crate) async fn try_permanent_code_recovery(
         if let Some(code) = upc {
             client::get_user_access_token_by_permanent_code(pool, http_sender, profile, cfg, org_id, uid, &code).await
         } else {
-            Err(anyhow!("User permanent code missing for recovery of {}", target_name))
+            Err(CowenError::Auth(format!("User permanent code missing for recovery of {}", target_name)))
         }
     } else {
         if let Some(code) = opc {
             client::get_org_access_token_by_permanent_code(pool, http_sender, profile, cfg, org_id, &code).await
         } else {
-            Err(anyhow!("Org permanent code missing for recovery of {}", target_name))
+            Err(CowenError::Auth(format!("Org permanent code missing for recovery of {}", target_name)))
         }
     }
 }

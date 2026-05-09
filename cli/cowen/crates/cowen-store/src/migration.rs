@@ -1,4 +1,5 @@
-use anyhow::{Result, Context};
+use cowen_common::{CowenResult, CowenError};
+use anyhow::Context;
 use std::sync::Arc;
 use crate::{Store, create_store_from_url};
 use cowen_common::ConfigManager;
@@ -22,9 +23,9 @@ impl StoreMigrator {
         Self { source, target, mode }
     }
 
-    pub async fn run(&self, cfg_mgr: &ConfigManager, target_url: &str) -> Result<()> {
+    pub async fn run(&self, cfg_mgr: &ConfigManager, target_url: &str) -> CowenResult<()> {
         let profiles = self.source.list_all_profiles().await
-            .context("Failed to list profiles from source")?;
+            .map_err(|e| CowenError::store(format!("Failed to list profiles from source: {}", e)))?;
 
         println!("🚀 Starting full migration for {} profiles...", profiles.len());
 
@@ -49,7 +50,7 @@ impl StoreMigrator {
         Ok(())
     }
 
-    async fn migrate_profile(&self, profile: &str) -> Result<()> {
+    async fn migrate_profile(&self, profile: &str) -> CowenResult<()> {
         // 1. Configs
         let configs = self.source.list_configs(profile).await.unwrap_or_default();
         for k in configs {
@@ -95,7 +96,7 @@ impl StoreMigrator {
         Ok(())
     }
 
-    async fn verify_integrity(&self, profile: &str) -> Result<()> {
+    async fn verify_integrity(&self, profile: &str) -> CowenResult<()> {
         let s_configs = self.source.list_configs(profile).await.unwrap_or_default();
         let t_configs = self.target.list_configs(profile).await.unwrap_or_default();
         if s_configs.len() != t_configs.len() {
@@ -104,7 +105,7 @@ impl StoreMigrator {
         Ok(())
     }
 
-    async fn switch_app_config(&self, cfg_mgr: &ConfigManager, target_url: &str) -> Result<()> {
+    async fn switch_app_config(&self, cfg_mgr: &ConfigManager, target_url: &str) -> CowenResult<()> {
         let mut app_cfg = cfg_mgr.load_app_config().await?;
         
         let store_type = if target_url == "local" {
@@ -142,12 +143,12 @@ pub async fn perform_migration(
     mode: MigrationMode,
     app_dir: &std::path::Path,
     fingerprint: &str,
-) -> Result<()> {
-    let source_vault = cfg_mgr.get_vault().ok_or_else(|| anyhow::anyhow!("No active vault found"))?;
+) -> CowenResult<()> {
+    let source_vault = cfg_mgr.get_vault().ok_or_else(|| CowenError::Internal("No active vault found".to_string()))?;
     let source = source_vault.primary_store();
     
     let target = create_store_from_url(target_url, app_dir, fingerprint).await
-        .context(format!("Failed to connect to target store: {}", target_url))?;
+        .map_err(|e| CowenError::store(format!("Failed to connect to target store: {}", e)))?;
 
     let migrator = StoreMigrator::new(source, target, mode);
     migrator.run(cfg_mgr, target_url).await

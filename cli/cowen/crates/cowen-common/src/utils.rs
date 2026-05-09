@@ -1,6 +1,6 @@
+use crate::{CowenResult, CowenError};
 use crate::obfs;
 use serde::Serialize;
-use anyhow::Result;
 
 pub fn get_bin_name() -> String {
     if let Ok(exe) = std::env::current_exe() {
@@ -11,7 +11,7 @@ pub fn get_bin_name() -> String {
     "cowen".to_string()
 }
 
-pub fn render<T: Serialize>(data: &T, format: &str) -> Result<()> {
+pub fn render<T: Serialize>(data: &T, format: &str) -> CowenResult<()> {
     let output = match format {
         "json" => {
             serde_json::to_string_pretty(data)?

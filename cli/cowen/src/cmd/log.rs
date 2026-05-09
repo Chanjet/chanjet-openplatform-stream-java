@@ -1,11 +1,11 @@
-use anyhow::Result;
+
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::time::Duration;
 use std::fs::File;
 use std::sync::Arc;
-use crate::core::vault::Vault;
+use cowen_common::vault::Vault;
 
-pub async fn list(profile: &str, vault: Arc<dyn Vault>) -> Result<()> {
+pub async fn list(profile: &str, vault: Arc<dyn Vault>) -> anyhow::Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let log_dir = app_dir.join("logs");
 
@@ -33,7 +33,7 @@ pub async fn list(profile: &str, vault: Arc<dyn Vault>) -> Result<()> {
     println!();
     
     // Check Store for audit logs
-    let audit_entries = vault.list_audit(profile, 1).await?;
+    let audit_entries = vault.list_audit(profile, 1).await.map_err(|e| anyhow::anyhow!(e))?;
     if !audit_entries.is_empty() {
         println!("🗄️ Store-based Audit Logs:");
         println!("- {:<20} (Entries found in vault)", "audit (store)");
@@ -49,10 +49,10 @@ pub async fn view(
     follow: bool, 
     lines: usize,
     vault: Arc<dyn Vault>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     if domain == "audit" {
         // Try reading from Store first
-        let entries = vault.list_audit(profile, lines).await?;
+        let entries = vault.list_audit(profile, lines).await.map_err(|e| anyhow::anyhow!(e))?;
         if !entries.is_empty() {
             println!("🔍 Reading audit logs from Store (Vault)...");
             for entry in entries.into_iter().rev() {

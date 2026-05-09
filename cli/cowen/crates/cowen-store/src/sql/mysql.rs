@@ -1,9 +1,12 @@
 #![cfg(feature = "mysql")]
-use crate::sql::{SqlBuilder, SqlDriver};
-use anyhow::Result;
+use cowen_common::CowenResult;
 use async_trait::async_trait;
+
+use crate::sql::{SqlBuilder, SqlDriver, SqlBuilderRegistration};
 use sqlx::{MySql, Pool};
 use std::sync::Arc;
+use cowen_common::models::{Token, Ticket, Item, AuditEntry, DlqMessage};
+use chrono::{DateTime, Utc};
 
 pub struct MySqlDriver {
     pool: Pool<MySql>,
@@ -17,368 +20,361 @@ impl MySqlDriver {
 
 #[async_trait]
 impl SqlDriver for MySqlDriver {
-    // --- Config Domain ---
-    async fn get_config(&self, profile: &str, key: &str) -> Result<String> {
-        let row: (String,) = sqlx::query_as(
-            "SELECT item_value FROM cowen_config WHERE profile = ? AND item_key = ?",
-        )
-        .bind(profile)
-        .bind(key)
-        .fetch_one(&self.pool)
-        .await?;
+    async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String> {
+        let row: (String,) = sqlx::query_as("SELECT value FROM cowen_config WHERE profile = ? AND `key` = ?")
+            .bind(profile)
+            .bind(key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(row.0)
     }
-    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)> {
-        let row: (i64, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
-            "SELECT version, updated_at FROM cowen_config WHERE profile = ? AND item_key = ?"
-        ).bind(profile).bind(key).fetch_one(&self.pool).await?;
-        Ok((row.0 as u64, row.1.timestamp()))
+
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)> {
+        let row: (u64, i64) = sqlx::query_as("SELECT version, updated_at FROM cowen_config WHERE profile = ? AND `key` = ?")
+            .bind(profile)
+            .bind(key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok((row.0, row.1))
     }
-    async fn get_config_full(&self, profile: &str, key: &str) -> Result<super::super::Item> {
-        let row: (String, String, String, i64, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
-            "SELECT profile, item_key, item_value, version, updated_at FROM cowen_config WHERE profile = ? AND item_key = ?"
-        ).bind(profile).bind(key).fetch_one(&self.pool).await?;
-        Ok(super::super::Item {
+
+    async fn get_config_full(&self, profile: &str, key: &str) -> CowenResult<Item> {
+        let row: (String, String, String, u64, i64) = sqlx::query_as("SELECT profile, `key`, value, version, updated_at FROM cowen_config WHERE profile = ? AND `key` = ?")
+            .bind(profile)
+            .bind(key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(Item {
             profile: row.0,
             key: row.1,
             value: row.2,
-            version: row.3 as u64,
-            updated_at: row.4.timestamp(),
+            version: row.3,
+            updated_at: row.4,
         })
     }
-    async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_config (profile, item_key, item_value, version) VALUES (?, ?, ?, 1) ON DUPLICATE KEY UPDATE item_value = VALUES(item_value), version = version + 1")
-            .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
+
+    async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
+        let now = Utc::now().timestamp();
+        sqlx::query("INSERT INTO cowen_config (profile, `key`, value, version, updated_at) VALUES (?, ?, ?, 1, ?) 
+                     ON DUPLICATE KEY UPDATE value=VALUES(value), version=version+1, updated_at=VALUES(updated_at)")
+            .bind(profile).bind(key).bind(value).bind(now)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(())
     }
-    async fn set_config_conditional(
-        &self,
-        profile: &str,
-        key: &str,
-        value: &str,
-        expected_version: u64,
-    ) -> Result<()> {
-        let res = sqlx::query("UPDATE cowen_config SET item_value = ?, version = version + 1 WHERE profile = ? AND item_key = ? AND version = ?")
-            .bind(value).bind(profile).bind(key).bind(expected_version).execute(&self.pool).await?;
+
+    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> CowenResult<()> {
+        let now = Utc::now().timestamp();
+        let res = sqlx::query("UPDATE cowen_config SET value = ?, version = version + 1, updated_at = ? WHERE profile = ? AND `key` = ? AND version = ?")
+            .bind(value).bind(now).bind(profile).bind(key).bind(expected_version)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        
         if res.rows_affected() == 0 {
-            if expected_version == 0 {
-                // If expected version is 0 and update failed, record might not exist.
-                // Try to insert it, but ignore if someone else just inserted it (which IS a conflict).
-                let insert_res = sqlx::query("INSERT IGNORE INTO cowen_config (profile, item_key, item_value, version) VALUES (?, ?, ?, 1)")
-                    .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
-                if insert_res.rows_affected() == 0 {
-                    return Err(anyhow::anyhow!("Conflict: Config was created by another node concurrently"));
-                }
-                return Ok(());
-            }
-            return Err(anyhow::anyhow!("Conflict: Config has been modified by another node (expected version {}, but found different)", expected_version));
+            return Err(anyhow::anyhow!("CAS failed").into());
         }
         Ok(())
     }
-    async fn list_configs(&self, profile: &str) -> Result<Vec<String>> {
-        let rows =
-            sqlx::query_as::<_, (String,)>("SELECT item_key FROM cowen_config WHERE profile = ?")
-                .bind(profile)
-                .fetch_all(&self.pool)
-                .await?;
-        Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-    async fn delete_config(&self, profile: &str, key: &str) -> Result<()> {
-        sqlx::query("DELETE FROM cowen_config WHERE profile = ? AND item_key = ?")
+
+    async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT `key` FROM cowen_config WHERE profile = ?")
             .bind(profile)
-            .bind(key)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
-    }
-
-    // --- Secret Domain ---
-    async fn get_secret(&self, profile: &str, key: &str) -> Result<String> {
-        let row: (String,) = sqlx::query_as(
-            "SELECT item_value FROM cowen_secret WHERE profile = ? AND item_key = ?",
-        )
-        .bind(profile)
-        .bind(key)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(row.0)
-    }
-    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_secret (profile, item_key, item_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE item_value = VALUES(item_value)")
-            .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
-        Ok(())
-    }
-    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()> {
-        sqlx::query("DELETE FROM cowen_secret WHERE profile = ? AND item_key = ?")
-            .bind(profile).bind(key).execute(&self.pool).await?;
-        Ok(())
-    }
-    async fn list_secrets(&self, profile: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query_as::<_, (String,)>("SELECT item_key FROM cowen_secret WHERE profile = ?")
-            .bind(profile).fetch_all(&self.pool).await?;
+            .fetch_all(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    // --- Token Domain ---
-    async fn get_access_token(&self, profile: &str) -> Result<cowen_common::models::Token> {
-        let row: (String, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = ? AND token_type = 'access'")
-            .bind(profile).fetch_one(&self.pool).await?;
-        Ok(cowen_common::models::Token {
-            value: row.0,
-            expires_at: row.1.unwrap_or_else(chrono::Utc::now),
-            created_at: row.2.unwrap_or_else(chrono::Utc::now),
-        })
-    }
-    async fn save_access_token(&self, profile: &str, token: cowen_common::models::Token) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_tenant_token (profile, token_type, token_value, expires_at, created_at) VALUES (?, 'access', ?, ?, ?) ON DUPLICATE KEY UPDATE token_value = VALUES(token_value), expires_at = VALUES(expires_at), created_at = VALUES(created_at)")
-            .bind(profile).bind(&token.value).bind(token.expires_at).bind(token.created_at).execute(&self.pool).await?;
-        Ok(())
-    }
-    async fn delete_access_token(&self, profile: &str) -> Result<()> {
-        sqlx::query("DELETE FROM cowen_tenant_token WHERE profile = ? AND token_type = 'access'")
-            .bind(profile).execute(&self.pool).await?;
-        Ok(())
-    }
-    async fn get_app_access_token(&self, app_key: &str) -> Result<cowen_common::models::Token> {
-        let row: (String, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as("SELECT access_token, expires_at, created_at FROM cowen_app_token WHERE app_key = ?")
-            .bind(app_key).fetch_one(&self.pool).await?;
-        Ok(cowen_common::models::Token {
-            value: row.0,
-            expires_at: row.1,
-            created_at: row.2.unwrap_or_else(chrono::Utc::now),
-        })
-    }
-    async fn save_app_access_token(&self, app_key: &str, token: cowen_common::models::Token) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_app_token (app_key, access_token, expires_at, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE access_token = VALUES(access_token), expires_at = VALUES(expires_at), created_at = VALUES(created_at)")
-            .bind(app_key).bind(&token.value).bind(token.expires_at).bind(token.created_at).execute(&self.pool).await?;
+    async fn delete_config(&self, profile: &str, key: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_config WHERE profile = ? AND `key` = ?")
+            .bind(profile).bind(key)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(())
     }
 
-    // --- Ticket Domain ---
-    async fn get_app_ticket(&self, app_key: &str) -> Result<cowen_common::models::Ticket> {
-        let row: (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as("SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = ?")
-            .bind(app_key).fetch_one(&self.pool).await?;
-        Ok(cowen_common::models::Ticket {
-            value: row.0,
-            created_at: row.1.unwrap_or_else(chrono::Utc::now),
-        })
-    }
-    async fn save_app_ticket(&self, app_key: &str, ticket: cowen_common::models::Ticket) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_ticket (app_key, ticket_value, created_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE ticket_value = VALUES(ticket_value), created_at = VALUES(created_at)")
-            .bind(app_key).bind(&ticket.value).bind(ticket.created_at).execute(&self.pool).await?;
-        Ok(())
-    }
-
-    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
-        sqlx::query("DELETE FROM cowen_ticket WHERE app_key = ?")
-            .bind(app_key).execute(&self.pool).await?;
-        Ok(())
-    }
-
-    // --- Permanent Code Domain ---
-    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
-        let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND user_id = '' AND code_type = 'org_permanent'")
-            .bind(app_key).bind(org_id).fetch_one(&self.pool).await?;
+    async fn get_secret(&self, profile: &str, key: &str) -> CowenResult<String> {
+        let row: (String,) = sqlx::query_as("SELECT value FROM cowen_secret WHERE profile = ? AND `key` = ?")
+            .bind(profile).bind(key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(row.0)
     }
-    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_permanent_code (app_key, org_id, user_id, code_type, code_value) VALUES (?, ?, '', 'org_permanent', ?) ON DUPLICATE KEY UPDATE code_value = VALUES(code_value)")
-            .bind(app_key).bind(org_id).bind(code).execute(&self.pool).await?;
-        Ok(())
-    }
-    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
-        let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND user_id = ? AND code_type = 'user_permanent'")
-            .bind(app_key).bind(org_id).bind(user_id).fetch_one(&self.pool).await?;
-        Ok(row.0)
-    }
-    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_permanent_code (app_key, org_id, user_id, code_type, code_value) VALUES (?, ?, ?, 'user_permanent', ?) ON DUPLICATE KEY UPDATE code_value = VALUES(code_value)")
-            .bind(app_key).bind(org_id).bind(user_id).bind(code).execute(&self.pool).await?;
+
+    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
+        let now = Utc::now().timestamp();
+        sqlx::query("INSERT INTO cowen_secret (profile, `key`, value, updated_at) VALUES (?, ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE value=VALUES(value), updated_at=VALUES(updated_at)")
+            .bind(profile).bind(key).bind(value).bind(now)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(())
     }
 
-    // --- Legacy Support ---
-    async fn get_token(&self, profile: &str, key: &str) -> Result<String> {
-        let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_token WHERE profile = ? AND item_key = ? AND (expires_at IS NULL OR expires_at > NOW())")
-            .bind(profile).bind(key).fetch_one(&self.pool).await?;
-        Ok(row.0)
-    }
-    async fn set_token(
-        &self,
-        profile: &str,
-        key: &str,
-        value: &str,
-        expires_in_secs: u64,
-    ) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_token (profile, item_key, item_value, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND)) ON DUPLICATE KEY UPDATE item_value = VALUES(item_value), expires_at = VALUES(expires_at)")
-            .bind(profile).bind(key).bind(value).bind(expires_in_secs).execute(&self.pool).await?;
+    async fn delete_secret(&self, profile: &str, key: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_secret WHERE profile = ? AND `key` = ?")
+            .bind(profile).bind(key)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(())
     }
-    async fn delete_token(&self, profile: &str, key: &str) -> Result<()> {
-        sqlx::query("DELETE FROM cowen_token WHERE profile = ? AND item_key = ?")
-            .bind(profile).bind(key).execute(&self.pool).await?;
-        Ok(())
-    }
-    async fn list_tokens(&self, profile: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query_as::<_, (String,)>("SELECT item_key FROM cowen_token WHERE profile = ? AND (expires_at IS NULL OR expires_at > NOW())")
-            .bind(profile).fetch_all(&self.pool).await?;
+
+    async fn list_secrets(&self, profile: &str) -> CowenResult<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT `key` FROM cowen_secret WHERE profile = ?")
+            .bind(profile)
+            .fetch_all(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    // --- Audit Domain ---
-    async fn save_audit(&self, entry: &super::super::AuditEntry) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_audit (id, profile, timestamp, level, target, message, fields) VALUES (?, ?, ?, ?, ?, ?, ?)")
-            .bind(&entry.id).bind(&entry.profile).bind(entry.timestamp).bind(&entry.level).bind(&entry.target).bind(&entry.message).bind(serde_json::to_string(&entry.fields)?).execute(&self.pool).await?;
+    async fn get_access_token(&self, profile: &str) -> CowenResult<Token> {
+        let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT value, expires_at, created_at FROM cowen_token WHERE profile = ? AND `key` = 'access_token'")
+            .bind(profile)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
+    }
+
+    async fn save_access_token(&self, profile: &str, token: Token) -> CowenResult<()> {
+        sqlx::query("INSERT INTO cowen_token (profile, `key`, value, expires_at, created_at) VALUES (?, 'access_token', ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE value=VALUES(value), expires_at=VALUES(expires_at), created_at=VALUES(created_at)")
+            .bind(profile).bind(token.value).bind(token.expires_at).bind(token.created_at)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(())
     }
-    async fn list_audit(
-        &self,
-        profile: &str,
-        limit: usize,
-    ) -> Result<Vec<super::super::AuditEntry>> {
-        let rows = sqlx::query_as::<_, (String, chrono::DateTime<chrono::Utc>, String, String, String, String, String)>(
+
+    async fn delete_access_token(&self, profile: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_token WHERE profile = ? AND `key` = 'access_token'")
+            .bind(profile)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
+        let key = format!("app_token:{}", app_key);
+        let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT value, expires_at, created_at FROM cowen_token WHERE profile = 'global' AND `key` = ?")
+            .bind(&key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
+    }
+
+    async fn save_app_access_token(&self, app_key: &str, token: Token) -> CowenResult<()> {
+        let key = format!("app_token:{}", app_key);
+        sqlx::query("INSERT INTO cowen_token (profile, `key`, value, expires_at, created_at) VALUES ('global', ?, ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE value=VALUES(value), expires_at=VALUES(expires_at), created_at=VALUES(created_at)")
+            .bind(&key).bind(token.value).bind(token.expires_at).bind(token.created_at)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {
+        let key = format!("app_ticket:{}", app_key);
+        let row: (String, DateTime<Utc>) = sqlx::query_as("SELECT value, created_at FROM cowen_token WHERE profile = 'global' AND `key` = ?")
+            .bind(&key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(Ticket { value: row.0, created_at: row.1 })
+    }
+
+    async fn save_app_ticket(&self, app_key: &str, ticket: Ticket) -> CowenResult<()> {
+        let key = format!("app_ticket:{}", app_key);
+        sqlx::query("INSERT INTO cowen_token (profile, `key`, value, created_at) VALUES ('global', ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE value=VALUES(value), created_at=VALUES(created_at)")
+            .bind(&key).bind(ticket.value).bind(ticket.created_at)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn delete_app_ticket(&self, app_key: &str) -> CowenResult<()> {
+        let key = format!("app_ticket:{}", app_key);
+        sqlx::query("DELETE FROM cowen_token WHERE profile = 'global' AND `key` = ?")
+            .bind(&key)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String> {
+        let key = format!("opc:{}:{}", app_key, org_id);
+        let row: (String,) = sqlx::query_as("SELECT value FROM cowen_token WHERE profile = 'global' AND `key` = ?")
+            .bind(&key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(row.0)
+    }
+
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> CowenResult<()> {
+        let key = format!("opc:{}:{}", app_key, org_id);
+        sqlx::query("INSERT INTO cowen_token (profile, `key`, value) VALUES ('global', ?, ?) 
+                     ON DUPLICATE KEY UPDATE value=VALUES(value)")
+            .bind(&key).bind(code)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> CowenResult<String> {
+        let key = format!("upc:{}:{}:{}", app_key, org_id, user_id);
+        let row: (String,) = sqlx::query_as("SELECT value FROM cowen_token WHERE profile = 'global' AND `key` = ?")
+            .bind(&key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(row.0)
+    }
+
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> CowenResult<()> {
+        let key = format!("upc:{}:{}:{}", app_key, org_id, user_id);
+        sqlx::query("INSERT INTO cowen_token (profile, `key`, value) VALUES ('global', ?, ?) 
+                     ON DUPLICATE KEY UPDATE value=VALUES(value)")
+            .bind(&key).bind(code)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn get_token(&self, profile: &str, key: &str) -> CowenResult<String> {
+        let row: (String,) = sqlx::query_as("SELECT value FROM cowen_token WHERE profile = ? AND `key` = ?")
+            .bind(profile).bind(key)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(row.0)
+    }
+
+    async fn set_token(&self, profile: &str, key: &str, value: &str, expires_in_secs: u64) -> CowenResult<()> {
+        let exp = Utc::now() + chrono::Duration::seconds(expires_in_secs as i64);
+        sqlx::query("INSERT INTO cowen_token (profile, `key`, value, expires_at) VALUES (?, ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE value=VALUES(value), expires_at=VALUES(expires_at)")
+            .bind(profile).bind(key).bind(value).bind(exp)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_token WHERE profile = ? AND `key` = ?")
+            .bind(profile).bind(key)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn list_tokens(&self, profile: &str) -> CowenResult<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT `key` FROM cowen_token WHERE profile = ?")
+            .bind(profile)
+            .fetch_all(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(rows.into_iter().map(|r| r.0).collect())
+    }
+
+    async fn save_audit(&self, entry: &AuditEntry) -> CowenResult<()> {
+        sqlx::query("INSERT INTO cowen_audit (id, timestamp, profile, level, target, message, fields) VALUES (?, ?, ?, ?, ?, ?, ?)")
+            .bind(&entry.id).bind(entry.timestamp).bind(&entry.profile).bind(&entry.level).bind(&entry.target).bind(&entry.message).bind(&entry.fields)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        Ok(())
+    }
+
+    async fn list_audit(&self, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>> {
+        let rows: Vec<(String, DateTime<Utc>, String, String, String, String, serde_json::Value)> = sqlx::query_as(
             "SELECT id, timestamp, profile, level, target, message, fields FROM cowen_audit WHERE profile = ? ORDER BY timestamp DESC LIMIT ?"
-        ).bind(profile).bind(limit as u64).fetch_all(&self.pool).await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| super::super::AuditEntry {
-                id: r.0,
-                timestamp: r.1,
-                profile: r.2,
-                level: r.3,
-                target: r.4,
-                message: r.5,
-                fields: serde_json::from_str(&r.6).unwrap_or_default(),
-            })
-            .collect())
+        ).bind(profile).bind(limit as i64)
+        .fetch_all(&self.pool).await
+        .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        
+        Ok(rows.into_iter().map(|r| AuditEntry {
+            id: r.0, timestamp: r.1, profile: r.2, level: r.3, target: r.4, message: r.5, fields: r.6
+        }).collect())
     }
 
-    // --- DLQ Domain ---
-    async fn push_dlq(&self, msg: &super::super::DlqMessage) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_dlq (profile, topic, payload, retry_count, error) VALUES (?, ?, ?, ?, ?)")
-            .bind(&msg.profile).bind(&msg.topic).bind(&msg.payload).bind(msg.retry_count).bind(&msg.error).execute(&self.pool).await?;
+    async fn push_dlq(&self, msg: &DlqMessage) -> CowenResult<()> {
+        sqlx::query("INSERT INTO cowen_dlq (profile, topic, payload, retry_count, error, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(&msg.profile).bind(&msg.topic).bind(&msg.payload).bind(msg.retry_count).bind(&msg.error).bind(msg.created_at)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
         Ok(())
     }
-    async fn pop_dlq(
-        &self,
-        profile: &str,
-        topic: &str,
-    ) -> Result<Option<super::super::DlqMessage>> {
-        let row = sqlx::query_as::<_, (i64, String, String, String, i32, Option<String>, chrono::DateTime<chrono::Utc>)>(
+
+    async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>> {
+        let row: Option<(u64, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
             "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = ? AND topic = ? ORDER BY id ASC LIMIT 1"
-        ).bind(profile).bind(topic).fetch_optional(&self.pool).await?;
+        ).bind(profile).bind(topic)
+        .fetch_optional(&self.pool).await
+        .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+
         if let Some(r) = row {
-            sqlx::query("DELETE FROM cowen_dlq WHERE id = ?")
-                .bind(r.0)
-                .execute(&self.pool)
-                .await?;
-            Ok(Some(super::super::DlqMessage {
-                id: Some(r.0),
-                profile: r.1,
-                topic: r.2,
-                payload: r.3,
-                retry_count: r.4,
-                error: r.5,
-                created_at: r.6,
-            }))
+            sqlx::query("DELETE FROM cowen_dlq WHERE id = ?").bind(r.0).execute(&self.pool).await?;
+            Ok(Some(DlqMessage { id: Some(r.0 as i64), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6 }))
         } else {
             Ok(None)
         }
     }
-    async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<super::super::DlqMessage>> {
-        let rows = sqlx::query_as::<_, (i64, String, String, String, i32, Option<String>, chrono::DateTime<chrono::Utc>)>(
+
+    async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>> {
+        let rows: Vec<(u64, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
             "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = ? ORDER BY id DESC LIMIT ?"
-        ).bind(profile).bind(limit as u64).fetch_all(&self.pool).await?;
-        Ok(rows.into_iter().map(|r| super::super::DlqMessage {
-            id: Some(r.0), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
-        }).collect())
-    }
-    async fn list_all_dlq(&self, profile: &str) -> Result<Vec<super::super::DlqMessage>> {
-        let rows = sqlx::query_as::<_, (i64, String, String, String, i32, Option<String>, chrono::DateTime<chrono::Utc>)>(
-            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = ?"
-        ).bind(profile).fetch_all(&self.pool).await?;
-        Ok(rows.into_iter().map(|r| super::super::DlqMessage {
-            id: Some(r.0), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
+        ).bind(profile).bind(limit as i64)
+        .fetch_all(&self.pool).await
+        .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        
+        Ok(rows.into_iter().map(|r| DlqMessage {
+            id: Some(r.0 as i64), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
         }).collect())
     }
 
+    async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>> {
+        let rows: Vec<(u64, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = ? ORDER BY id DESC"
+        ).bind(profile)
+        .fetch_all(&self.pool).await
+        .map_err(|e| anyhow::anyhow!("MySQL error: {}", e))?;
+        
+        Ok(rows.into_iter().map(|r| DlqMessage {
+            id: Some(r.0 as i64), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
+        }).collect())
+    }
 
-    // --- Management ---
-    async fn clear_profile(&self, profile: &str) -> Result<()> {
-        for table in [
-            "cowen_config",
-            "cowen_secret",
-            "cowen_token",
-            "cowen_tenant_token",
-            "cowen_audit",
-            "cowen_dlq",
-        ] {
-            let sql = format!("DELETE FROM {} WHERE profile = ?", table);
-            sqlx::query(&sql).bind(profile).execute(&self.pool).await?;
-        }
+    async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_config WHERE profile = ?").bind(profile).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM cowen_secret WHERE profile = ?").bind(profile).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM cowen_token WHERE profile = ?").bind(profile).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM cowen_audit WHERE profile = ?").bind(profile).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM cowen_dlq WHERE profile = ?").bind(profile).execute(&self.pool).await?;
         Ok(())
     }
-    async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()> {
-        for table in [
-            "cowen_config",
-            "cowen_secret",
-            "cowen_token",
-            "cowen_tenant_token",
-            "cowen_audit",
-            "cowen_dlq",
-        ] {
-            let sql = format!("UPDATE {} SET profile = ? WHERE profile = ?", table);
-            sqlx::query(&sql)
-                .bind(new_name)
-                .bind(old_name)
-                .execute(&self.pool)
-                .await?;
-        }
+
+    async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()> {
+        sqlx::query("UPDATE cowen_config SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await?;
+        sqlx::query("UPDATE cowen_secret SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await?;
+        sqlx::query("UPDATE cowen_token SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await?;
+        sqlx::query("UPDATE cowen_audit SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await?;
+        sqlx::query("UPDATE cowen_dlq SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await?;
         Ok(())
     }
-    async fn raw_del(&self, _key: &str) -> Result<()> { Ok(()) }
 
-    async fn list_all_profiles(&self) -> Result<Vec<String>> {
-        let rows = sqlx::query_as::<_, (String,)>("SELECT DISTINCT profile FROM cowen_config")
-            .fetch_all(&self.pool)
-            .await?;
+    async fn list_all_profiles(&self) -> CowenResult<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT DISTINCT profile FROM cowen_config").fetch_all(&self.pool).await?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    async fn raw_del(&self, key: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_config WHERE `key` = ?").bind(key).execute(&self.pool).await?;
+        Ok(())
+    }
 }
 
 pub struct MySqlBuilder;
+
 #[async_trait]
 impl SqlBuilder for MySqlBuilder {
-    fn scheme(&self) -> &str {
-        "mysql"
-    }
-    async fn build(&self, url: &str) -> Result<Arc<dyn SqlDriver>> {
-        let pool = sqlx::MySqlPool::connect(url).await?;
-
-        let ddl = [
-            "CREATE TABLE IF NOT EXISTS cowen_config (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value LONGTEXT NOT NULL, version INT DEFAULT 0, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_secret (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value LONGTEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_token (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value LONGTEXT NOT NULL, expires_at TIMESTAMP NULL, PRIMARY KEY (profile, item_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_ticket (app_key VARCHAR(255) PRIMARY KEY, ticket_value LONGTEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_app_token (app_key VARCHAR(255) PRIMARY KEY, access_token LONGTEXT NOT NULL, expires_at TIMESTAMP NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_tenant_token (profile VARCHAR(255) NOT NULL, token_type VARCHAR(50) NOT NULL, token_value LONGTEXT NOT NULL, expires_at TIMESTAMP NULL, PRIMARY KEY (profile, token_type)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_permanent_code (app_key VARCHAR(128) NOT NULL, org_id VARCHAR(128) NOT NULL, user_id VARCHAR(128) DEFAULT '', code_type VARCHAR(50) NOT NULL, code_value LONGTEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (app_key, org_id, user_id, code_type)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_vault_secret (profile VARCHAR(255) NOT NULL, secret_key VARCHAR(255) NOT NULL, secret_value LONGTEXT NOT NULL, PRIMARY KEY (profile, secret_key)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_audit (id VARCHAR(36) PRIMARY KEY, profile VARCHAR(255) NOT NULL, timestamp DATETIME(3) NOT NULL, level VARCHAR(20) NOT NULL, target VARCHAR(255) NOT NULL, message TEXT NOT NULL, fields LONGTEXT, INDEX (profile, timestamp), INDEX (level)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-            "CREATE TABLE IF NOT EXISTS cowen_dlq (id BIGINT AUTO_INCREMENT PRIMARY KEY, profile VARCHAR(255) NOT NULL, topic VARCHAR(255) NOT NULL, payload LONGTEXT NOT NULL, retry_count INT DEFAULT 0, error TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX (profile, topic)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-        ];
-
-        for sql in ddl {
-            sqlx::query(sql).execute(&pool).await?;
-        }
-        
-        // Basic auto-migration for v0.3.0 changes
-        let _ = sqlx::query("ALTER TABLE cowen_tenant_token ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP").execute(&pool).await;
-        let _ = sqlx::query("ALTER TABLE cowen_app_token ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP").execute(&pool).await;
-
+    fn scheme(&self) -> &str { "mysql" }
+    async fn build(&self, url: &str) -> CowenResult<Arc<dyn SqlDriver>> {
+        let pool = Pool::connect(url).await.map_err(|e| anyhow::anyhow!("Failed to connect to mysql: {}", e))?;
         Ok(Arc::new(MySqlDriver::new(pool)))
     }
 }
 
-inventory::submit! { super::SqlBuilderRegistration { builder: &MySqlBuilder } }
+inventory::submit! { SqlBuilderRegistration { builder: &MySqlBuilder } }

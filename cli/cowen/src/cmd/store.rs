@@ -13,29 +13,39 @@ pub async fn set(
     let mut changed = false;
 
     if let Some(s) = store {
+        if !cowen_store::SqlStore::is_supported(s) && s != "local" && s != "redis" {
+            return Err(anyhow::anyhow!("Unsupported store type: {}. Supported: local, innerdb, sqlite, mysql, postgres, mssql, redis", s));
+        }
         app_config.storage.store = s.clone();
         changed = true;
     }
-    if let Some(du) = db_url {
-        app_config.storage.db_url = Some(du.clone());
+
+    if let Some(url) = db_url {
+        // Validation attempt
+        check_db_connectivity(&app_config.storage.store, Some(url)).await?;
+        app_config.storage.db_url = Some(url.clone());
         changed = true;
     }
+
     if let Some(c) = cache {
+        if c != "none" && c != "redis" && c != "memory" {
+            return Err(anyhow::anyhow!("Unsupported cache type: {}. Supported: none, redis, memory", c));
+        }
         app_config.storage.cache = c.clone();
         changed = true;
     }
-    if let Some(cu) = cache_url {
-        app_config.storage.cache_url = Some(cu.clone());
+
+    if let Some(url) = cache_url {
+        check_cache_connectivity(&app_config.storage.cache, Some(url)).await?;
+        app_config.storage.cache_url = Some(url.clone());
         changed = true;
     }
 
     if changed {
-        cfg_mgr.save_app_config(app_config).await?;
-        println!("{}", "✅ Global storage configuration updated successfully.".green());
-        // Trigger a status check immediately to verify the new settings
-        status(app_config).await?;
+        cfg_mgr.save_app_config(app_config).await.map_err(|e| anyhow::anyhow!(e))?;
+        println!("✨ Storage configuration updated successfully.");
     } else {
-        println!("No changes provided. Use flags like --store, --db-url, etc. to update configuration.");
+        println!("ℹ️ No changes provided. Run with --help to see available options.");
     }
 
     Ok(())
@@ -57,25 +67,26 @@ pub async fn status(app_config: &AppConfig) -> Result<()> {
 
     // 1. Check Primary Store
     if storage.store == "local" {
-        println!("  {} Store: Local storage is always available.", "✅".green());
+        println!("✅ Local filesystem storage is active.");
     } else {
-        match check_db_connectivity(storage.store.as_str(), storage.db_url.as_deref()).await {
-            Ok(_) => println!("  {} Store: Connected to {} successfully.", "✅".green(), storage.store),
-            Err(e) => println!("  {} Store: Failed to connect to {}. Reason: {}", "❌".red(), storage.store, e),
+        match check_db_connectivity(&storage.store, storage.db_url.as_deref()).await {
+            Ok(_) => println!("✅ Primary database connection is healthy."),
+            Err(e) => println!("❌ Primary database connection failed: {}", e),
         }
     }
 
     // 2. Check Cache
     if storage.cache == "none" {
-        println!("  {} Cache: No cache configured.", "ℹ️".blue());
+        println!("ℹ️ Cache is disabled.");
+    } else if storage.cache == "memory" {
+        println!("✅ In-memory cache is active.");
     } else {
-        match check_cache_connectivity(storage.cache.as_str(), storage.cache_url.as_deref()).await {
-            Ok(_) => println!("  {} Cache: Connected successfully.", "✅".green()),
-            Err(e) => println!("  {} Cache: Failed to connect. Reason: {}", "❌".red(), e),
+        match check_cache_connectivity(&storage.cache, storage.cache_url.as_deref()).await {
+            Ok(_) => println!("✅ Cache connection is healthy."),
+            Err(e) => println!("❌ Cache connection failed: {}", e),
         }
     }
 
-    println!();
     Ok(())
 }
 
@@ -84,7 +95,7 @@ async fn check_db_connectivity(store_type: &str, url: Option<&str>) -> Result<()
         return Ok(());
     }
     let url = url.ok_or_else(|| anyhow::anyhow!("Database URL is missing"))?;
-    let _ = cowen_store::create_store_from_url(url, &cowen_common::config::get_app_dir(), &cowen_common::security::get_machine_fingerprint()?).await
+    let _ = cowen_store::create_store_from_url(url, &cowen_common::config::get_app_dir(), &cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?).await
         .map_err(|e| anyhow::anyhow!("Failed to connect to database: {}", e))?;
     Ok(())
 }
@@ -94,7 +105,7 @@ async fn check_cache_connectivity(cache_type: &str, url: Option<&str>) -> Result
         return Ok(());
     }
     let url = url.ok_or_else(|| anyhow::anyhow!("Cache URL is missing"))?;
-    let _ = cowen_store::create_store_from_url(url, &cowen_common::config::get_app_dir(), &cowen_common::security::get_machine_fingerprint()?).await
+    let _ = cowen_store::create_store_from_url(url, &cowen_common::config::get_app_dir(), &cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?).await
         .map_err(|e| anyhow::anyhow!("Failed to connect to cache: {}", e))?;
     Ok(())
 }
@@ -105,6 +116,6 @@ pub async fn migrate(
     mode: cowen_store::migration::MigrationMode,
 ) -> Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
-    let fingerprint = cowen_common::security::get_machine_fingerprint()?;
-    cowen_store::migration::perform_migration(cfg_mgr, to, mode, &app_dir, &fingerprint).await
+    let fingerprint = cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?;
+    cowen_store::migration::perform_migration(cfg_mgr, to, mode, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!(e))
 }

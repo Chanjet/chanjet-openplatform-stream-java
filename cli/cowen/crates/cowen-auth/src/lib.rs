@@ -1,3 +1,4 @@
+use cowen_common::{CowenResult, CowenError};
 pub mod models;
 pub mod pool;
 pub mod client;
@@ -8,7 +9,6 @@ pub mod lifecycle;
 pub use pool::VaultTokenPool;
 pub use client::AuthClient;
 pub use decorator::RequestDecorator;
-use anyhow::Result;
 
 use std::sync::Arc;
 
@@ -22,12 +22,13 @@ pub fn create_auth_client(pool: Arc<dyn pool::TokenPool + Send + Sync>) -> AuthC
     builder
         .register(
             models::AuthMode::SelfBuilt,
-            Arc::new(provider::self_built::SelfBuiltProvider::with_sender(pool.clone(), http_sender.clone())),
+            Arc::new(provider::self_built::SelfBuiltProvider::new(pool.clone(), http_sender.clone())),
         )
         .register(
             models::AuthMode::Oauth2,
             Arc::new(provider::oauth2::OAuth2Provider::new(pool.clone(), http_sender.clone())),
         )
+
         .register(
             models::AuthMode::StoreApp,
             Arc::new(provider::store_app::StoreAppProvider::new(pool.clone(), http_sender)),
@@ -55,23 +56,23 @@ impl AuthProviderValidator {
 }
 
 impl cowen_store::ConfigValidator for AuthProviderValidator {
-    fn validate_load(&self, profile: &str, config: &cowen_common::config::Config, is_distributed: bool, exists: bool) -> Result<()> {
+    fn validate_load(&self, profile: &str, config: &cowen_common::config::Config, is_distributed: bool, exists: bool) -> CowenResult<()> {
         if is_distributed && exists {
             let provider = self.client.provider(&config.app_mode);
             if !provider.is_allowed_in_distributed_storage() {
                 let msg = format!("⚠️  Skipping profile '{}': Auth mode '{:?}' is not allowed in distributed storage scenarios (shared database/redis).", profile, config.app_mode);
                 eprintln!("{}", msg);
-                return Err(anyhow::anyhow!("SKIPPED: {}", msg));
+                return Err(CowenError::Internal(format!("SKIPPED: {}", msg)));
             }
         }
         Ok(())
     }
 
-    fn validate_save(&self, _profile: &str, config: &cowen_common::config::Config, is_distributed: bool) -> Result<()> {
+    fn validate_save(&self, _profile: &str, config: &cowen_common::config::Config, is_distributed: bool) -> CowenResult<()> {
         if is_distributed {
             let provider = self.client.provider(&config.app_mode);
             if !provider.is_allowed_in_distributed_storage() {
-                return Err(anyhow::anyhow!("Auth mode '{:?}' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.", config.app_mode));
+                return Err(CowenError::Config(format!("Auth mode '{:?}' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.", config.app_mode)));
             }
         }
         Ok(())

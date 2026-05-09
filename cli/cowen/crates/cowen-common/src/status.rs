@@ -1,5 +1,5 @@
+use crate::{CowenResult, CowenError};
 use serde::Serialize;
-use anyhow::Result;
 use std::sync::Arc;
 use crate::vault::Vault;
 use crate::config::Config;
@@ -98,7 +98,7 @@ pub struct StatusContext<'a> {
 pub trait StatusCollector: Send + Sync {
     #[allow(dead_code)]
     fn name(&self) -> &str;
-    async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry>;
+    async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry>;
 }
 
 // --- Helpers for Providers ---
@@ -168,7 +168,7 @@ pub async fn collect_daemon_status(
     display_name: &str,
     efficiency_tip: &str,
     supports_webhooks: bool,
-) -> Result<StatusEntry> {
+) -> CowenResult<StatusEntry> {
     let (found_daemon_pid, found_build_id) = get_active_daemon_info(&ctx.profile).await;
     
     let (mut level, msg, mut children) = if let Some(pid) = found_daemon_pid {

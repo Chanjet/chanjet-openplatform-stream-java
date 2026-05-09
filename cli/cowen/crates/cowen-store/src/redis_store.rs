@@ -1,272 +1,247 @@
-use anyhow::Result;
+#![cfg(feature = "redis")]
+use cowen_common::{CowenResult, CowenError};
 use async_trait::async_trait;
-use std::sync::Arc;
-use redis::aio::MultiplexedConnection;
-use cowen_common::models::{Token, Ticket, Item, AuditEntry, DlqMessage};
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
-struct RedisConfigValue {
-    v: u64,
-    d: String,
-}
+use crate::{Store, AuditEntry, DlqMessage, Item};
+use cowen_common::models::{Token, Ticket};
+use std::sync::Arc;
+use redis::AsyncCommands;
+use redis::aio::MultiplexedConnection;
 
 pub struct RedisStore {
     conn: MultiplexedConnection,
-    #[allow(dead_code)]
-    url: String,
 }
 
 impl RedisStore {
-    pub fn new(conn: MultiplexedConnection, url: &str) -> Self {
-        Self { conn, url: url.to_string() }
+    pub fn new(conn: MultiplexedConnection) -> Self {
+        Self { conn }
     }
 
-    async fn raw_get(&self, profile: &str, key: &str) -> Result<String> {
-        let mut conn = self.conn.clone();
-        let redis_key = format!("{}:{}", profile, key);
-        let val: Option<String> = redis::cmd("GET").arg(&redis_key).query_async(&mut conn).await?;
-        val.ok_or_else(|| anyhow::anyhow!("Key not found in Redis: {}", redis_key))
+    fn key(&self, profile: &str, key: &str) -> String {
+        format!("{}:{}", profile, key)
     }
 
-    async fn raw_set(&self, profile: &str, key: &str, value: &str, ttl: Option<u64>) -> Result<()> {
+    async fn raw_get(&self, profile: &str, key: &str) -> CowenResult<String> {
+        let redis_key = self.key(profile, key);
         let mut conn = self.conn.clone();
-        let redis_key = format!("{}:{}", profile, key);
+        let val: Option<String> = redis::cmd("GET").arg(&redis_key).query_async(&mut conn).await.map_err(CowenError::from)?;
+        val.ok_or_else(|| CowenError::Store(format!("Key not found in Redis: {}", redis_key)))
+    }
+
+    async fn raw_set(&self, profile: &str, key: &str, value: &str, ttl: Option<u64>) -> CowenResult<()> {
+        let redis_key = self.key(profile, key);
+        let mut conn = self.conn.clone();
         if let Some(secs) = ttl {
-            redis::cmd("SETEX").arg(&redis_key).arg(secs).arg(value).query_async::<()>(&mut conn).await?;
+            redis::cmd("SETEX").arg(&redis_key).arg(secs).arg(value).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         } else {
-            redis::cmd("SET").arg(&redis_key).arg(value).query_async::<()>(&mut conn).await?;
+            redis::cmd("SET").arg(&redis_key).arg(value).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         }
         Ok(())
     }
 }
 
 #[async_trait]
-impl cowen_common::store::Store for RedisStore {
-    async fn get_config(&self, profile: &str, key: &str) -> Result<String> {
-        let val = self.raw_get(profile, &format!("cfg:{}", key)).await?;
-        if let Ok(wrapper) = serde_json::from_str::<RedisConfigValue>(&val) {
-            return Ok(wrapper.d);
-        }
-        Ok(val)
-    }
-    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)> {
-        let val = self.raw_get(profile, &format!("cfg:{}", key)).await?;
-        if let Ok(wrapper) = serde_json::from_str::<RedisConfigValue>(&val) {
-            return Ok((wrapper.v, chrono::Utc::now().timestamp())); 
-        }
-        Ok((1, chrono::Utc::now().timestamp()))
+impl Store for RedisStore {
+    async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String> {
+        self.raw_get(profile, &format!("cfg:{}", key)).await
     }
 
-    async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item> {
-        let val = self.raw_get(profile, &format!("cfg:{}", key)).await?;
-        if let Ok(wrapper) = serde_json::from_str::<RedisConfigValue>(&val) {
-            return Ok(Item {
-                profile: profile.to_string(),
-                key: key.to_string(),
-                value: wrapper.d,
-                version: wrapper.v,
-                updated_at: chrono::Utc::now().timestamp(),
-            });
-        }
+    async fn get_config_metadata(&self, _profile: &str, _key: &str) -> CowenResult<(u64, i64)> {
+        // Redis basic store doesn't support versioning yet
+        Ok((1, 0))
+    }
+
+    async fn get_config_full(&self, profile: &str, key: &str) -> CowenResult<Item> {
+        let val = self.get_config(profile, key).await?;
         Ok(Item {
             profile: profile.to_string(),
             key: key.to_string(),
             value: val,
-            version: 0,
-            updated_at: chrono::Utc::now().timestamp(),
+            version: 1,
+            updated_at: 0,
         })
     }
 
-    async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()> {
-        let mut version = 1;
-        if let Ok(old) = self.raw_get(profile, &format!("cfg:{}", key)).await {
-            if let Ok(wrapper) = serde_json::from_str::<RedisConfigValue>(&old) {
-                version = wrapper.v + 1;
-            }
-        }
-        let wrapper = RedisConfigValue { v: version, d: value.to_string() };
-        self.raw_set(profile, &format!("cfg:{}", key), &serde_json::to_string(&wrapper)?, None).await
+    async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
+        self.raw_set(profile, &format!("cfg:{}", key), value, None).await?;
+        // Update manifest
+        let mut conn = self.conn.clone();
+        let manifest_key = self.key(profile, "cfg:system:manifest");
+        redis::cmd("SADD").arg(&manifest_key).arg(key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
+        Ok(())
     }
 
-    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> Result<()> {
-        let mut conn = self.conn.clone();
-        let redis_key = format!("{}:cfg:{}", profile, key);
-        let script = r#"
-            local old = redis.call('GET', KEYS[1])
-            if not old then
-                if tonumber(ARGV[1]) == 0 then
-                    local data = { v = 1, d = ARGV[2] }
-                    redis.call('SET', KEYS[1], cjson.encode(data))
-                    return 1
-                else
-                    return 0
-                end
-            end
-            local data = cjson.decode(old)
-            if data.v == tonumber(ARGV[1]) then
-                data.v = data.v + 1
-                data.d = ARGV[2]
-                redis.call('SET', KEYS[1], cjson.encode(data))
-                return 1
-            else
-                return 0
-            end
-        "#;
-        let result: i32 = redis::Script::new(script)
-            .key(redis_key)
-            .arg(expected_version)
-            .arg(value)
-            .invoke_async(&mut conn).await?;
-        if result == 0 {
-            return Err(anyhow::anyhow!("Conflict: Redis config has been modified by another node"));
-        }
-        Ok(())
-    }
-    async fn delete_config(&self, profile: &str, key: &str) -> Result<()> {
-        let mut conn = self.conn.clone();
-        let redis_key = format!("{}:cfg:{}", profile, key);
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await?;
-        Ok(())
-    }
-    async fn list_configs(&self, profile: &str) -> Result<Vec<String>> {
-        let mut conn = self.conn.clone();
-        let pattern = format!("{}:cfg:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
-        let prefix_len = profile.len() + 5;
-        Ok(keys.into_iter().map(|k| k[prefix_len..].to_string()).collect())
+    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, _expected_version: u64) -> CowenResult<()> {
+        // Redis basic store doesn't support CAS yet
+        self.set_config(profile, key, value).await
     }
 
-    async fn get_secret(&self, profile: &str, key: &str) -> Result<String> { self.raw_get(profile, &format!("sec:{}", key)).await }
-    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.raw_set(profile, &format!("sec:{}", key), value, None).await }
-    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()> {
+    async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>> {
         let mut conn = self.conn.clone();
-        let redis_key = format!("{}:sec:{}", profile, key);
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await?;
+        let manifest_key = self.key(profile, "cfg:system:manifest");
+        let keys: Vec<String> = redis::cmd("SMEMBERS").arg(&manifest_key).query_async(&mut conn).await.map_err(CowenError::from)?;
+        Ok(keys)
+    }
+
+    async fn delete_config(&self, profile: &str, key: &str) -> CowenResult<()> {
+        let redis_key = self.key(profile, &format!("cfg:{}", key));
+        let mut conn = self.conn.clone();
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
+        let manifest_key = self.key(profile, "cfg:system:manifest");
+        redis::cmd("SREM").arg(&manifest_key).arg(key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         Ok(())
     }
-    async fn list_secrets(&self, profile: &str) -> Result<Vec<String>> {
+
+    async fn get_secret(&self, profile: &str, key: &str) -> CowenResult<String> {
+        self.raw_get(profile, &format!("sec:{}", key)).await
+    }
+
+    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
+        self.raw_set(profile, &format!("sec:{}", key), value, None).await
+    }
+
+    async fn delete_secret(&self, profile: &str, key: &str) -> CowenResult<()> {
+        let redis_key = self.key(profile, &format!("sec:{}", key));
+        let mut conn = self.conn.clone();
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
+        Ok(())
+    }
+
+    async fn list_secrets(&self, profile: &str) -> CowenResult<Vec<String>> {
         let mut conn = self.conn.clone();
         let pattern = format!("{}:sec:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
-        let prefix_len = profile.len() + 5;
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await.map_err(CowenError::from)?;
+        let prefix_len = profile.len() + 5; // "{profile}:sec:"
         Ok(keys.into_iter().map(|k| k[prefix_len..].to_string()).collect())
     }
 
-    async fn get_access_token(&self, p: &str) -> Result<Token> {
-        let json = self.raw_get(p, "tok_v2:access").await?;
+    async fn get_access_token(&self, profile: &str) -> CowenResult<Token> {
+        let json = self.raw_get(profile, "tok:access").await?;
         Ok(serde_json::from_str(&json)?)
-    }
-    async fn save_access_token(&self, p: &str, t: Token) -> Result<()> {
-        let json = serde_json::to_string(&t)?;
-        let ttl = (t.expires_at - chrono::Utc::now()).num_seconds().max(0) as u64;
-        self.raw_set(p, "tok_v2:access", &json, Some(ttl)).await
-    }
-    async fn delete_access_token(&self, p: &str) -> Result<()> {
-        let mut conn = self.conn.clone();
-        let redis_key = format!("{}:tok_v2:access", p);
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await?;
-        Ok(())
-    }
-    async fn get_app_access_token(&self, app_key: &str) -> Result<Token> {
-        let json = self.raw_get(&format!("app:{}", app_key), "tok_v2:app_access").await?;
-        Ok(serde_json::from_str(&json)?)
-    }
-    async fn save_app_access_token(&self, app_key: &str, t: Token) -> Result<()> {
-        let json = serde_json::to_string(&t)?;
-        let ttl = (t.expires_at - chrono::Utc::now()).num_seconds().max(0) as u64;
-        self.raw_set(&format!("app:{}", app_key), "tok_v2:app_access", &json, Some(ttl)).await
     }
 
-    async fn get_app_ticket(&self, app_key: &str) -> Result<Ticket> {
+    async fn save_access_token(&self, profile: &str, token: Token) -> CowenResult<()> {
+        let json = serde_json::to_string(&token)?;
+        self.raw_set(profile, "tok:access", &json, None).await
+    }
+
+    async fn delete_access_token(&self, profile: &str) -> CowenResult<()> {
+        let redis_key = self.key(profile, "tok:access");
+        let mut conn = self.conn.clone();
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
+        Ok(())
+    }
+
+    async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
+        let json = self.raw_get(&format!("app:{}", app_key), "tok:app_access").await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+
+    async fn save_app_access_token(&self, app_key: &str, token: Token) -> CowenResult<()> {
+        let json = serde_json::to_string(&token)?;
+        self.raw_set(&format!("app:{}", app_key), "tok:app_access", &json, None).await
+    }
+
+    async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {
         let json = self.raw_get(&format!("app:{}", app_key), "tic:v1").await?;
         Ok(serde_json::from_str(&json)?)
     }
 
-    async fn save_app_ticket(&self, app_key: &str, t: Ticket) -> Result<()> {
-        let json = serde_json::to_string(&t)?;
+    async fn save_app_ticket(&self, app_key: &str, ticket: Ticket) -> CowenResult<()> {
+        let json = serde_json::to_string(&ticket)?;
         self.raw_set(&format!("app:{}", app_key), "tic:v1", &json, None).await
     }
 
-    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> {
+    async fn delete_app_ticket(&self, app_key: &str) -> CowenResult<()> {
+        let redis_key = self.key(&format!("app:{}", app_key), "tic:v1");
         let mut conn = self.conn.clone();
-        let key = format!("app:{}:tic:v1", app_key);
-        redis::cmd("DEL").arg(&key).query_async::<()>(&mut conn).await?;
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         Ok(())
     }
 
-    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> {
-        self.raw_get(&format!("app:{}", app_key), &format!("perm:{}:org", org_id)).await
-    }
-    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> {
-        self.raw_set(&format!("app:{}", app_key), &format!("perm:{}:org", org_id), code, None).await
-    }
-    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> {
-        self.raw_get(&format!("app:{}", app_key), &format!("perm:{}:{}:user", org_id, user_id)).await
-    }
-    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> {
-        self.raw_set(&format!("app:{}", app_key), &format!("perm:{}:{}:user", org_id, user_id), code, None).await
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String> {
+        self.raw_get(&format!("app:{}", app_key), &format!("opc:{}", org_id)).await
     }
 
-    async fn get_token(&self, profile: &str, key: &str) -> Result<String> { self.raw_get(profile, &format!("tok:{}", key)).await }
-    async fn set_token(&self, profile: &str, key: &str, value: &str, expires: u64) -> Result<()> { self.raw_set(profile, &format!("tok:{}", key), value, Some(expires)).await }
-    async fn delete_token(&self, profile: &str, key: &str) -> Result<()> {
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> CowenResult<()> {
+        self.raw_set(&format!("app:{}", app_key), &format!("opc:{}", org_id), code, None).await
+    }
+
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> CowenResult<String> {
+        self.raw_get(&format!("app:{}", app_key), &format!("upc:{}:{}", org_id, user_id)).await
+    }
+
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> CowenResult<()> {
+        self.raw_set(&format!("app:{}", app_key), &format!("upc:{}:{}", org_id, user_id), code, None).await
+    }
+
+    async fn get_token(&self, profile: &str, key: &str) -> CowenResult<String> {
+        self.raw_get(profile, &format!("tok_legacy:{}", key)).await
+    }
+
+    async fn set_token(&self, profile: &str, key: &str, value: &str, exp: u64) -> CowenResult<()> {
+        self.raw_set(profile, &format!("tok_legacy:{}", key), value, Some(exp)).await
+    }
+
+    async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()> {
+        let redis_key = self.key(profile, &format!("tok_legacy:{}", key));
         let mut conn = self.conn.clone();
-        let redis_key = format!("{}:tok:{}", profile, key);
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await?;
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         Ok(())
     }
-    async fn list_tokens(&self, profile: &str) -> Result<Vec<String>> {
+
+    async fn list_tokens(&self, profile: &str) -> CowenResult<Vec<String>> {
         let mut conn = self.conn.clone();
-        let pattern = format!("{}:tok:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
-        let prefix_len = profile.len() + 5;
+        let pattern = format!("{}:tok_legacy:*", profile);
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await.map_err(CowenError::from)?;
+        let prefix_len = profile.len() + 12; // "{profile}:tok_legacy:"
         Ok(keys.into_iter().map(|k| k[prefix_len..].to_string()).collect())
     }
 
-    async fn save_audit(&self, entry: &AuditEntry) -> Result<()> {
-        let key = format!("aud:{}:{}", entry.timestamp.timestamp_millis(), entry.id);
+    async fn save_audit(&self, entry: &AuditEntry) -> CowenResult<()> {
+        let key = self.key(&entry.profile, "audit:log");
         let json = serde_json::to_string(entry)?;
-        self.raw_set(&entry.profile, &key, &json, None).await
-    }
-    async fn list_audit(&self, profile: &str, limit: usize) -> Result<Vec<AuditEntry>> {
         let mut conn = self.conn.clone();
-        let pattern = format!("{}:aud:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
-        let mut sorted_keys = keys;
-        sorted_keys.sort_by(|a, b| b.cmp(a));
+        redis::cmd("LPUSH").arg(&key).arg(json).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
+        redis::cmd("LTRIM").arg(&key).arg(0).arg(9999).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
+        Ok(())
+    }
+
+    async fn list_audit(&self, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>> {
+        let key = self.key(profile, "audit:log");
+        let mut conn = self.conn.clone();
+        let list: Vec<String> = redis::cmd("LRANGE").arg(&key).arg(0).arg(limit as isize - 1).query_async(&mut conn).await.map_err(CowenError::from)?;
         let mut entries = Vec::new();
-        let prefix_len = profile.len() + 1;
-        for k in sorted_keys.into_iter().take(limit) {
-            if let Ok(json) = self.raw_get(profile, &k[prefix_len..]).await {
-                if let Ok(e) = serde_json::from_str(&json) { entries.push(e); }
-            }
+        for json in list {
+            if let Ok(e) = serde_json::from_str::<AuditEntry>(&json) { entries.push(e); }
         }
         Ok(entries)
     }
 
-    async fn push_dlq(&self, msg: &DlqMessage) -> Result<()> {
-        let mut conn = self.conn.clone();
-        let key = format!("{}:dlq:{}", msg.profile, msg.topic);
+    async fn push_dlq(&self, msg: &DlqMessage) -> CowenResult<()> {
+        let key = self.key(&msg.profile, &format!("dlq:{}", msg.topic));
         let json = serde_json::to_string(msg)?;
-        redis::cmd("RPUSH").arg(&key).arg(json).query_async::<()>(&mut conn).await?;
+        let mut conn = self.conn.clone();
+        redis::cmd("RPUSH").arg(&key).arg(json).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         Ok(())
     }
-    async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>> {
+
+    async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>> {
+        let key = self.key(profile, &format!("dlq:{}", topic));
         let mut conn = self.conn.clone();
-        let key = format!("{}:dlq:{}", profile, topic);
-        let val: Option<String> = redis::cmd("LPOP").arg(&key).query_async(&mut conn).await?;
+        let val: Option<String> = redis::cmd("LPOP").arg(&key).query_async(&mut conn).await.map_err(CowenError::from)?;
         if let Some(json) = val { Ok(Some(serde_json::from_str(&json)?)) } else { Ok(None) }
     }
-    async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>> {
+
+    async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>> {
         let mut conn = self.conn.clone();
         let pattern = format!("{}:dlq:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await.map_err(CowenError::from)?;
         let mut msgs = Vec::new();
         for k in keys {
-            let list: Vec<String> = redis::cmd("LRANGE").arg(&k).arg(0).arg(limit as isize - 1).query_async(&mut conn).await?;
+            let list: Vec<String> = redis::cmd("LRANGE").arg(&k).arg(0).arg(limit as isize - 1).query_async(&mut conn).await.map_err(CowenError::from)?;
             for json in list {
-                if let Ok(m) = serde_json::from_str(&json) { msgs.push(m); }
+                if let Ok(m) = serde_json::from_str::<DlqMessage>(&json) { msgs.push(m); }
                 if msgs.len() >= limit { break; }
             }
             if msgs.len() >= limit { break; }
@@ -274,75 +249,63 @@ impl cowen_common::store::Store for RedisStore {
         Ok(msgs)
     }
 
-    async fn list_all_dlq(&self, profile: &str) -> Result<Vec<DlqMessage>> {
+    async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>> {
         let mut conn = self.conn.clone();
         let pattern = format!("{}:dlq:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await.map_err(CowenError::from)?;
         let mut msgs = Vec::new();
         for k in keys {
-            let list: Vec<String> = redis::cmd("LRANGE").arg(&k).arg(0).arg(-1).query_async(&mut conn).await?;
+            let list: Vec<String> = redis::cmd("LRANGE").arg(&k).arg(0).arg(-1).query_async(&mut conn).await.map_err(CowenError::from)?;
             for json in list {
-                if let Ok(m) = serde_json::from_str(&json) { msgs.push(m); }
+                if let Ok(m) = serde_json::from_str::<DlqMessage>(&json) { msgs.push(m); }
             }
         }
         Ok(msgs)
     }
 
-    async fn clear_profile(&self, profile: &str) -> Result<()> {
+    async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
         let mut conn = self.conn.clone();
         let pattern = format!("{}:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await?;
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&pattern).query_async(&mut conn).await.map_err(CowenError::from)?;
         for k in keys {
-            redis::cmd("DEL").arg(&k).query_async::<()>(&mut conn).await?;
+            redis::cmd("DEL").arg(&k).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         }
         Ok(())
     }
-    async fn rename_profile(&self, old: &str, new: &str) -> Result<()> {
+
+    async fn rename_profile(&self, old: &str, new: &str) -> CowenResult<()> {
         let mut conn = self.conn.clone();
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&format!("{}:*", old)).query_async(&mut conn).await?;
+        let keys: Vec<String> = redis::cmd("KEYS").arg(&format!("{}:*", old)).query_async(&mut conn).await.map_err(CowenError::from)?;
         for ok in keys {
             let nk = ok.replace(old, new);
-            redis::cmd("RENAME").arg(&ok).arg(&nk).query_async::<()>(&mut conn).await?;
+            redis::cmd("RENAME").arg(&ok).arg(&nk).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         }
         Ok(())
     }
-    async fn list_all_profiles(&self) -> Result<Vec<String>> {
+
+    async fn list_all_profiles(&self) -> CowenResult<Vec<String>> {
         let mut conn = self.conn.clone();
-        let keys: Vec<String> = redis::cmd("KEYS").arg("*:cfg:system:manifest").query_async(&mut conn).await?;
+        let keys: Vec<String> = redis::cmd("KEYS").arg("*:cfg:system:manifest").query_async(&mut conn).await.map_err(CowenError::from)?;
         Ok(keys.into_iter().map(|k| k.split(':').next().unwrap().to_string()).collect())
     }
-    async fn raw_del(&self, key: &str) -> Result<()> {
+
+    async fn raw_del(&self, key: &str) -> CowenResult<()> {
         let mut conn = self.conn.clone();
-        redis::cmd("DEL").arg(key).query_async::<()>(&mut conn).await?;
+        redis::cmd("DEL").arg(key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         Ok(())
     }
 }
-
-pub struct RedisCacheBuilder;
-
-#[async_trait]
-impl crate::CacheBuilder for RedisCacheBuilder {
-    fn scheme(&self) -> &str { "redis" }
-    async fn build(&self, url: &str, primary: Arc<dyn cowen_common::store::Store>) -> Result<Arc<dyn cowen_common::store::Store>> {
-        let client = redis::Client::open(url)?;
-        let conn = client.get_multiplexed_tokio_connection().await?;
-        let redis_store: Arc<dyn cowen_common::store::Store> = Arc::new(RedisStore::new(conn, url));
-        Ok(Arc::new(crate::hybrid::HybridStore::new(redis_store, primary)))
-    }
-}
-
-inventory::submit! { crate::CacheBuilderRegistration { builder: &RedisCacheBuilder } }
 
 pub struct RedisStoreBuilder;
 
 #[async_trait]
-impl cowen_common::store::StoreBuilder for RedisStoreBuilder {
+impl crate::StoreBuilder for RedisStoreBuilder {
     fn scheme(&self) -> &str { "redis" }
-    async fn build(&self, url: &str, _app_dir: &std::path::Path, _fingerprint: &str) -> Result<Arc<dyn cowen_common::store::Store>> {
-        let client = redis::Client::open(url)?;
-        let conn = client.get_multiplexed_tokio_connection().await?;
-        Ok(Arc::new(RedisStore::new(conn, url)))
+    async fn build(&self, url: &str, _app_dir: &std::path::Path, _fingerprint: &str) -> CowenResult<Arc<dyn Store>> {
+        let client = redis::Client::open(url).map_err(CowenError::from)?;
+        let conn = client.get_multiplexed_tokio_connection().await.map_err(CowenError::from)?;
+        Ok(Arc::new(RedisStore::new(conn)))
     }
 }
 
-inventory::submit! { cowen_common::store::StoreBuilderRegistration { builder: &RedisStoreBuilder } }
+inventory::submit! { crate::StoreBuilderRegistration { builder: &RedisStoreBuilder } }

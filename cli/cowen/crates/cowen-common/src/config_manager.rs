@@ -1,3 +1,4 @@
+use crate::{CowenResult, CowenError};
 use anyhow::{Result, Context};
 use std::fs;
 use std::path::PathBuf;
@@ -9,8 +10,8 @@ use crate::events::event_bus;
 use serde_yaml;
 
 pub trait ConfigValidator: Send + Sync {
-    fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool, exists: bool) -> Result<()>;
-    fn validate_save(&self, profile: &str, config: &Config, is_distributed: bool) -> Result<()>;
+    fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool, exists: bool) -> CowenResult<()>;
+    fn validate_save(&self, profile: &str, config: &Config, is_distributed: bool) -> CowenResult<()>;
 }
 
 #[derive(Clone)]
@@ -21,7 +22,7 @@ pub struct ConfigManager {
 }
 
 impl ConfigManager {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> CowenResult<Self> {
         let app_dir = crate::config::get_app_dir();
         if !app_dir.exists() {
             fs::create_dir_all(&app_dir).context("Failed to create app directory")?;
@@ -33,16 +34,16 @@ impl ConfigManager {
         })
     }
 
-    pub fn set_vault(&self, vault: Arc<dyn Vault>) -> Result<()> {
-        self.vault.set(vault).map_err(|_| anyhow::anyhow!("Vault already set"))
+    pub fn set_vault(&self, vault: Arc<dyn Vault>) -> CowenResult<()> {
+        self.vault.set(vault).map_err(|_| CowenError::Internal("Vault already set".to_string()))
     }
 
     pub fn get_vault(&self) -> Option<Arc<dyn Vault>> {
         self.vault.get().cloned()
     }
 
-    pub fn set_validator(&self, validator: Arc<dyn ConfigValidator>) -> Result<()> {
-        self.validator.set(validator).map_err(|_| anyhow::anyhow!("Validator already set"))
+    pub fn set_validator(&self, validator: Arc<dyn ConfigValidator>) -> CowenResult<()> {
+        self.validator.set(validator).map_err(|_| CowenError::Internal("Validator already set".to_string()))
     }
 
     pub async fn find_free_port(&self) -> u16 {
@@ -67,14 +68,15 @@ impl ConfigManager {
     pub async fn exists(&self, profile: &str) -> bool {
         if let Some(vault) = self.vault.get() {
             if let Ok(profiles) = vault.list_all_profiles().await {
+                let profiles: Vec<String> = profiles;
                 if profiles.contains(&profile.to_string()) { return true; }
             }
         }
         self.get_profile_path(profile).exists()
     }
 
-    pub async fn get_next_profile_name(&self) -> Result<String> {
-        let profiles = self.list_profiles().await?;
+    pub async fn get_next_profile_name(&self) -> CowenResult<String> {
+        let profiles: Vec<String> = self.list_profiles().await?;
         let mut i = 1;
         loop {
             let name = format!("p{}", i);
@@ -83,7 +85,7 @@ impl ConfigManager {
         }
     }
 
-    pub async fn load(&self, profile: &str) -> Result<Config> {
+    pub async fn load(&self, profile: &str) -> CowenResult<Config> {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
@@ -96,7 +98,10 @@ impl ConfigManager {
                         let app_key = config.app_key.trim();
                         let global_profile = format!("app:{}", app_key);
 
-                        if let Ok(s) = vault.get_secret(profile, "app_secret").await { if !s.is_empty() { config.app_secret = s; } }
+                        if let Ok(s) = vault.get_secret(profile, "app_secret").await { 
+                            let s: String = s;
+                            if !s.is_empty() { config.app_secret = s; } 
+                        }
                         else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
 
                         if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
@@ -136,7 +141,7 @@ impl ConfigManager {
         Ok(config)
     }
 
-    async fn load_local_profile_with_status(&self, profile: &str) -> Result<(Config, bool)> {
+    async fn load_local_profile_with_status(&self, profile: &str) -> CowenResult<(Config, bool)> {
         let profile_path = self.get_profile_path(profile);
         if profile_path.exists() {
             let content = fs::read_to_string(&profile_path)?;
@@ -155,7 +160,10 @@ impl ConfigManager {
                 let global_profile = format!("app:{}", app_key);
                 
                 if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
-                else if let Ok(s) = vault.get_secret(profile, "app_secret").await { if !s.is_empty() { config.app_secret = s; } }
+                else if let Ok(s) = vault.get_secret(profile, "app_secret").await { 
+                    let s: String = s;
+                    if !s.is_empty() { config.app_secret = s; } 
+                }
 
                 if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
                 else if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
@@ -168,7 +176,7 @@ impl ConfigManager {
         Ok((Config::default_with_profile(profile), false))
     }
 
-    pub async fn save(&self, profile: &str, config: &mut Config) -> Result<()> {
+    pub async fn save(&self, profile: &str, config: &mut Config) -> CowenResult<()> {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
@@ -241,7 +249,7 @@ impl ConfigManager {
         }
     }
 
-    pub async fn check_for_updates(&self, profile: &str, current_version: u64) -> Result<bool> {
+    pub async fn check_for_updates(&self, profile: &str, current_version: u64) -> CowenResult<bool> {
         let app_cfg = self.load_app_config().await?;
         if !self.is_distributed_storage(&app_cfg) {
             return Ok(false);
@@ -255,7 +263,7 @@ impl ConfigManager {
         Ok(false)
     }
 
-    pub async fn load_app_config(&self) -> Result<AppConfig> {
+    pub async fn load_app_config(&self) -> CowenResult<AppConfig> {
         let path = self.app_dir.join("app.yaml");
         let mut config = if !path.exists() {
             let seal_dir = self.app_dir.join(".seal");
@@ -297,7 +305,7 @@ impl ConfigManager {
         Ok(config)
     }
 
-    pub async fn save_app_config(&self, config: &AppConfig) -> Result<()> {
+    pub async fn save_app_config(&self, config: &AppConfig) -> CowenResult<()> {
         let path = self.app_dir.join("app.yaml");
         let content = serde_yaml::to_string(config)?;
         fs::write(path, content)?;
@@ -317,16 +325,17 @@ impl ConfigManager {
         }
     }
 
-    pub fn set_default_profile(&self, profile: &str) -> Result<()> {
+    pub fn set_default_profile(&self, profile: &str) -> CowenResult<()> {
         let path = self.app_dir.join("current_profile");
         fs::write(path, profile)?;
         Ok(())
     }
 
-    pub async fn list_profiles(&self) -> Result<Vec<String>> {
+    pub async fn list_profiles(&self) -> CowenResult<Vec<String>> {
         let mut profiles = std::collections::HashSet::new();
         if let Some(vault) = self.vault.get() {
             if let Ok(remote_profiles) = vault.list_all_profiles().await {
+                let remote_profiles: Vec<String> = remote_profiles;
                 for p in remote_profiles {
                     if !p.starts_with("app:") {
                         profiles.insert(p);
@@ -351,7 +360,27 @@ impl ConfigManager {
         Ok(res)
     }
 
-    pub async fn delete(&self, profile: &str) -> Result<()> {
+    pub async fn rename(&self, old_name: &str, new_name: &str) -> CowenResult<()> {
+        let old_path = self.get_profile_path(old_name);
+        let new_path = self.get_profile_path(new_name);
+
+        if old_path.exists() {
+            fs::rename(old_path, new_path)?;
+        }
+
+        if let Some(vault) = self.vault.get() {
+            vault.rename_profile(old_name, new_name).await?;
+        }
+
+        event_bus().publish(crate::events::GlobalEvent::ProfileRenamed { 
+            old: old_name.to_string(), 
+            new: new_name.to_string() 
+        });
+
+        Ok(())
+    }
+
+    pub async fn delete(&self, profile: &str) -> CowenResult<()> {
         
         let path = self.get_profile_path(profile);
         if path.exists() {

@@ -6,7 +6,7 @@ pub struct Document {
     pub id: String,
     pub metadata: String,
     pub description: String,
-    pub vector: Vec<float32>, // Using float32 for consistency with Go
+    pub vector: Vec<Float32>, // Using float32 for consistency with Go
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,4 +109,4 @@ pub fn cosine_similarity(v1: &[f32], v2: &[f32]) -> f32 {
 
 // Support type alias since f32 is float32 in Go but f32 in Rust.
 // But some crates like ndarray or ort might prefer f32.
-type float32 = f32;
+type Float32 = f32;

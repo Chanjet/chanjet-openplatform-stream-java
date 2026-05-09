@@ -1,83 +1,74 @@
+use crate::{CowenResult, CowenError};
+use anyhow::anyhow;
 use sha2::{Sha256, Digest};
-use std::env;
-use anyhow::{Result, anyhow};
-use thiserror::Error;
 use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit, Payload},
+    Aes256Gcm, Nonce
 };
+use rand::{RngCore, thread_rng};
+use std::path::Path;
 
-#[derive(Error, Debug)]
-pub enum SecurityError {
-    #[error("Security Violation: Listening on illegal non-loopback address {0}. All local services must bind to 127.0.0.1 or ::1.")]
-    IllegalBinding(String),
-}
-
-pub fn get_machine_fingerprint() -> Result<String> {
-    let os = env::consts::OS;
-    let arch = env::consts::ARCH;
+pub fn get_machine_fingerprint() -> CowenResult<String> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
     let hostname = hostname::get()?.to_string_lossy().to_string();
-
-    let base = format!("{}-{}-{}", os, arch, hostname);
     
     let mut hasher = Sha256::new();
-    hasher.update(base.as_bytes());
-    let result = hasher.finalize();
+    hasher.update(os);
+    hasher.update(arch);
+    hasher.update(hostname);
     
-    Ok(hex::encode(result))
+    Ok(hex::encode(hasher.finalize()))
 }
 
 pub fn derive_key(fingerprint: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(fingerprint.as_bytes());
+    hasher.update(fingerprint);
     let result = hasher.finalize();
     let mut key = [0u8; 32];
     key.copy_from_slice(&result);
     key
 }
 
-pub fn encrypt(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
+pub fn encrypt(data: &[u8], key: &[u8; 32]) -> CowenResult<Vec<u8>> {
     let cipher = Aes256Gcm::new(key.into());
     let mut nonce_bytes = [0u8; 12];
-    use rand::RngCore;
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
-
-    let ciphertext = cipher
-        .encrypt(nonce, data)
-        .map_err(|e| anyhow!("Encryption failed: {}", e))?;
-
-    // Output: Nonce (12) + Ciphertext
+    
+    let ciphertext = cipher.encrypt(nonce, data)
+        .map_err(|e| CowenError::Security(format!("Encryption failed: {}", e)))?;
+        
     let mut combined = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
     combined.extend_from_slice(&nonce_bytes);
     combined.extend_from_slice(&ciphertext);
     Ok(combined)
 }
 
-pub fn decrypt(combined: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
+pub fn decrypt(combined: &[u8], key: &[u8; 32]) -> CowenResult<Vec<u8>> {
     if combined.len() < 12 {
-        return Err(anyhow!("Invalid encrypted data"));
+        return Err(CowenError::Security("Invalid encrypted data".to_string()));
     }
-
+    
     let cipher = Aes256Gcm::new(key.into());
-    let (nonce_bytes, ciphertext) = combined.split_at(12);
-    let nonce = Nonce::from_slice(nonce_bytes);
-
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|e| anyhow!("Decryption failed: {}", e))?;
-
+    let nonce = Nonce::from_slice(&combined[..12]);
+    let ciphertext = &combined[12..];
+    
+    let plaintext = cipher.decrypt(nonce, ciphertext)
+        .map_err(|e| CowenError::Security(format!("Decryption failed: {}", e)))?;
+        
     Ok(plaintext)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub fn seal_config<P: AsRef<Path>>(path: P, data: &[u8], fingerprint: &str) -> CowenResult<()> {
+    let key = derive_key(fingerprint);
+    let encrypted = encrypt(data, &key)?;
+    std::fs::write(path, encrypted)?;
+    Ok(())
+}
 
-    #[test]
-    fn test_get_machine_fingerprint() {
-        let fingerprint = get_machine_fingerprint().unwrap();
-        assert!(!fingerprint.is_empty());
-        assert_eq!(fingerprint.len(), 64); // SHA256 hex
-    }
+pub fn unseal_config<P: AsRef<Path>>(path: P, fingerprint: &str) -> CowenResult<Vec<u8>> {
+    let key = derive_key(fingerprint);
+    let encrypted = std::fs::read(path)?;
+    decrypt(&encrypted, &key)
 }

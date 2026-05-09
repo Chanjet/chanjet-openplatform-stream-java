@@ -8,76 +8,77 @@ mod sqlite;
 mod mssql;
 
 use crate::{Store, AuditEntry, DlqMessage, Item};
-use anyhow::Result;
+use cowen_common::{CowenResult, CowenError};
 use async_trait::async_trait;
+
 use std::sync::Arc;
 
 #[async_trait]
 pub trait SqlDriver: Send + Sync {
     // --- Config ---
-    async fn get_config(&self, profile: &str, key: &str) -> Result<String>;
-    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)>;
-    async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item>;
-    async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()>;
-    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> Result<()>;
-    async fn list_configs(&self, profile: &str) -> Result<Vec<String>>;
-    async fn delete_config(&self, profile: &str, key: &str) -> Result<()>;
+    async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String>;
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)>;
+    async fn get_config_full(&self, profile: &str, key: &str) -> CowenResult<Item>;
+    async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<()>;
+    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> CowenResult<()>;
+    async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>>;
+    async fn delete_config(&self, profile: &str, key: &str) -> CowenResult<()>;
 
     // --- Secret ---
-    async fn get_secret(&self, profile: &str, key: &str) -> Result<String>;
-    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()>;
-    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()>;
+    async fn get_secret(&self, profile: &str, key: &str) -> CowenResult<String>;
+    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> CowenResult<()>;
+    async fn delete_secret(&self, profile: &str, key: &str) -> CowenResult<()>;
     #[allow(dead_code)]
-    async fn list_secrets(&self, profile: &str) -> Result<Vec<String>>;
+    async fn list_secrets(&self, profile: &str) -> CowenResult<Vec<String>>;
 
     // --- Token Domain ---
-    async fn get_access_token(&self, profile: &str) -> Result<cowen_common::models::Token>;
-    async fn save_access_token(&self, profile: &str, token: cowen_common::models::Token) -> Result<()>;
-    async fn delete_access_token(&self, profile: &str) -> Result<()>;
-    async fn get_app_access_token(&self, app_key: &str) -> Result<cowen_common::models::Token>;
-    async fn save_app_access_token(&self, app_key: &str, token: cowen_common::models::Token) -> Result<()>;
+    async fn get_access_token(&self, profile: &str) -> CowenResult<cowen_common::models::Token>;
+    async fn save_access_token(&self, profile: &str, token: cowen_common::models::Token) -> CowenResult<()>;
+    async fn delete_access_token(&self, profile: &str) -> CowenResult<()>;
+    async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token>;
+    async fn save_app_access_token(&self, app_key: &str, token: cowen_common::models::Token) -> CowenResult<()>;
 
     // --- Ticket Domain ---
-    async fn get_app_ticket(&self, app_key: &str) -> Result<cowen_common::models::Ticket>;
-    async fn save_app_ticket(&self, app_key: &str, ticket: cowen_common::models::Ticket) -> Result<()>;
-    async fn delete_app_ticket(&self, app_key: &str) -> Result<()>;
+    async fn get_app_ticket(&self, app_key: &str) -> CowenResult<cowen_common::models::Ticket>;
+    async fn save_app_ticket(&self, app_key: &str, ticket: cowen_common::models::Ticket) -> CowenResult<()>;
+    async fn delete_app_ticket(&self, app_key: &str) -> CowenResult<()>;
 
     // --- Permanent Code Domain ---
-    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String>;
-    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()>;
-    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String>;
-    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()>;
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String>;
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> CowenResult<()>;
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> CowenResult<String>;
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> CowenResult<()>;
 
     // --- Legacy Support (Internal/Generic KV) ---
-    async fn get_token(&self, profile: &str, key: &str) -> Result<String>;
-    async fn set_token(&self, profile: &str, key: &str, value: &str, expires_in_secs: u64) -> Result<()>;
-    async fn delete_token(&self, profile: &str, key: &str) -> Result<()>;
-    async fn list_tokens(&self, profile: &str) -> Result<Vec<String>>;
+    async fn get_token(&self, profile: &str, key: &str) -> CowenResult<String>;
+    async fn set_token(&self, profile: &str, key: &str, value: &str, expires_in_secs: u64) -> CowenResult<()>;
+    async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()>;
+    async fn list_tokens(&self, profile: &str) -> CowenResult<Vec<String>>;
 
     // --- Audit ---
-    async fn save_audit(&self, entry: &AuditEntry) -> Result<()>;
-    async fn list_audit(&self, profile: &str, limit: usize) -> Result<Vec<AuditEntry>>;
+    async fn save_audit(&self, entry: &AuditEntry) -> CowenResult<()>;
+    async fn list_audit(&self, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>>;
 
     // --- DLQ ---
-    async fn push_dlq(&self, msg: &DlqMessage) -> Result<()>;
+    async fn push_dlq(&self, msg: &DlqMessage) -> CowenResult<()>;
     #[allow(dead_code)]
-    async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>>;
+    async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>>;
     #[allow(dead_code)]
-    async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>>;
-    async fn list_all_dlq(&self, profile: &str) -> Result<Vec<DlqMessage>>;
+    async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>>;
+    async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>>;
 
     // --- Management ---
-    async fn clear_profile(&self, profile: &str) -> Result<()>;
-    async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()>;
-    async fn list_all_profiles(&self) -> Result<Vec<String>>;
-    async fn raw_del(&self, key: &str) -> Result<()>;
+    async fn clear_profile(&self, profile: &str) -> CowenResult<()>;
+    async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()>;
+    async fn list_all_profiles(&self) -> CowenResult<Vec<String>>;
+    async fn raw_del(&self, key: &str) -> CowenResult<()>;
 
 }
 
 #[async_trait]
 pub trait SqlBuilder: Send + Sync {
     fn scheme(&self) -> &str;
-    async fn build(&self, url: &str) -> Result<Arc<dyn SqlDriver>>;
+    async fn build(&self, url: &str) -> CowenResult<Arc<dyn SqlDriver>>;
 }
 
 pub struct SqlBuilderRegistration {
@@ -109,8 +110,8 @@ impl SqlStore {
             .any(|reg| reg.builder.scheme() == scheme)
     }
 
-    pub async fn from_url(url: &str) -> Result<Self> {
-        let mut scheme = url.split(":").next().ok_or_else(|| anyhow::anyhow!("Invalid database URL"))?;
+    pub async fn from_url(url: &str) -> CowenResult<Self> {
+        let mut scheme = url.split(":").next().ok_or_else(|| CowenError::api("Invalid database URL"))?;
         let mut actual_url = if scheme == "innerdb" {
             scheme = "sqlite";
             url.replace("innerdb://", "sqlite:")
@@ -126,71 +127,71 @@ impl SqlStore {
         
         for reg in inventory::iter::<SqlBuilderRegistration> {
             if reg.builder.scheme() == scheme {
-                                let driver = reg.builder.build(&actual_url).await?;
+                let driver = reg.builder.build(&actual_url).await?;
                 return Ok(Self::new(driver));
             }
         }
 
-        Err(anyhow::anyhow!("Unsupported database scheme: {}. Supported: {:?}", scheme, Self::supported_schemes()))
+        Err(CowenError::api(format!("Unsupported database scheme: {}. Supported: {:?}", scheme, Self::supported_schemes())))
     }
 }
 
 #[async_trait]
 impl Store for SqlStore {
     // --- Config ---
-    async fn get_config(&self, profile: &str, key: &str) -> Result<String> { self.driver.get_config(profile, key).await }
-    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)> { self.driver.get_config_metadata(profile, key).await }
-    async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item> { self.driver.get_config_full(profile, key).await }
-    async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.driver.set_config(profile, key, value).await }
-    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, ev: u64) -> Result<()> { self.driver.set_config_conditional(profile, key, value, ev).await }
-    async fn list_configs(&self, profile: &str) -> Result<Vec<String>> { self.driver.list_configs(profile).await }
-    async fn delete_config(&self, profile: &str, key: &str) -> Result<()> { self.driver.delete_config(profile, key).await }
+    async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String> { self.driver.get_config(profile, key).await }
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)> { self.driver.get_config_metadata(profile, key).await }
+    async fn get_config_full(&self, profile: &str, key: &str) -> CowenResult<Item> { self.driver.get_config_full(profile, key).await }
+    async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> { self.driver.set_config(profile, key, value).await }
+    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, ev: u64) -> CowenResult<()> { self.driver.set_config_conditional(profile, key, value, ev).await }
+    async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>> { self.driver.list_configs(profile).await }
+    async fn delete_config(&self, profile: &str, key: &str) -> CowenResult<()> { self.driver.delete_config(profile, key).await }
 
     // --- Secret ---
-    async fn get_secret(&self, profile: &str, key: &str) -> Result<String> { self.driver.get_secret(profile, key).await }
-    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.driver.set_secret(profile, key, value).await }
-    async fn delete_secret(&self, profile: &str, key: &str) -> Result<()> { self.driver.delete_secret(profile, key).await }
-    async fn list_secrets(&self, profile: &str) -> Result<Vec<String>> { self.driver.list_secrets(profile).await }
+    async fn get_secret(&self, profile: &str, key: &str) -> CowenResult<String> { self.driver.get_secret(profile, key).await }
+    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> { self.driver.set_secret(profile, key, value).await }
+    async fn delete_secret(&self, profile: &str, key: &str) -> CowenResult<()> { self.driver.delete_secret(profile, key).await }
+    async fn list_secrets(&self, profile: &str) -> CowenResult<Vec<String>> { self.driver.list_secrets(profile).await }
 
     // --- Token ---
-    async fn get_access_token(&self, profile: &str) -> Result<cowen_common::models::Token> { self.driver.get_access_token(profile).await }
-    async fn save_access_token(&self, profile: &str, token: cowen_common::models::Token) -> Result<()> { self.driver.save_access_token(profile, token).await }
-    async fn delete_access_token(&self, profile: &str) -> Result<()> { self.driver.delete_access_token(profile).await }
-    async fn get_app_access_token(&self, app_key: &str) -> Result<cowen_common::models::Token> { self.driver.get_app_access_token(app_key).await }
-    async fn save_app_access_token(&self, app_key: &str, token: cowen_common::models::Token) -> Result<()> { self.driver.save_app_access_token(app_key, token).await }
+    async fn get_access_token(&self, profile: &str) -> CowenResult<cowen_common::models::Token> { self.driver.get_access_token(profile).await }
+    async fn save_access_token(&self, profile: &str, token: cowen_common::models::Token) -> CowenResult<()> { self.driver.save_access_token(profile, token).await }
+    async fn delete_access_token(&self, profile: &str) -> CowenResult<()> { self.driver.delete_access_token(profile).await }
+    async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token> { self.driver.get_app_access_token(app_key).await }
+    async fn save_app_access_token(&self, app_key: &str, token: cowen_common::models::Token) -> CowenResult<()> { self.driver.save_app_access_token(app_key, token).await }
 
     // --- Ticket ---
-    async fn get_app_ticket(&self, app_key: &str) -> Result<cowen_common::models::Ticket> { self.driver.get_app_ticket(app_key).await }
-    async fn save_app_ticket(&self, app_key: &str, ticket: cowen_common::models::Ticket) -> Result<()> { self.driver.save_app_ticket(app_key, ticket).await }
-    async fn delete_app_ticket(&self, app_key: &str) -> Result<()> { self.driver.delete_app_ticket(app_key).await }
+    async fn get_app_ticket(&self, app_key: &str) -> CowenResult<cowen_common::models::Ticket> { self.driver.get_app_ticket(app_key).await }
+    async fn save_app_ticket(&self, app_key: &str, ticket: cowen_common::models::Ticket) -> CowenResult<()> { self.driver.save_app_ticket(app_key, ticket).await }
+    async fn delete_app_ticket(&self, app_key: &str) -> CowenResult<()> { self.driver.delete_app_ticket(app_key).await }
 
     // --- Permanent Code Domain ---
-    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> Result<String> { self.driver.get_org_permanent_code(app_key, org_id).await }
-    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> Result<()> { self.driver.save_org_permanent_code(app_key, org_id, code).await }
-    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> Result<String> { self.driver.get_user_permanent_code(app_key, org_id, user_id).await }
-    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> Result<()> { self.driver.save_user_permanent_code(app_key, org_id, user_id, code).await }
+    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String> { self.driver.get_org_permanent_code(app_key, org_id).await }
+    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> CowenResult<()> { self.driver.save_org_permanent_code(app_key, org_id, code).await }
+    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> CowenResult<String> { self.driver.get_user_permanent_code(app_key, org_id, user_id).await }
+    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> CowenResult<()> { self.driver.save_user_permanent_code(app_key, org_id, user_id, code).await }
 
     // --- Legacy Support ---
-    async fn get_token(&self, profile: &str, key: &str) -> Result<String> { self.driver.get_token(profile, key).await }
-    async fn set_token(&self, profile: &str, key: &str, value: &str, exp: u64) -> Result<()> { self.driver.set_token(profile, key, value, exp).await }
-    async fn delete_token(&self, profile: &str, key: &str) -> Result<()> { self.driver.delete_token(profile, key).await }
-    async fn list_tokens(&self, profile: &str) -> Result<Vec<String>> { self.driver.list_tokens(profile).await }
+    async fn get_token(&self, profile: &str, key: &str) -> CowenResult<String> { self.driver.get_token(profile, key).await }
+    async fn set_token(&self, profile: &str, key: &str, value: &str, exp: u64) -> CowenResult<()> { self.driver.set_token(profile, key, value, exp).await }
+    async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()> { self.driver.delete_token(profile, key).await }
+    async fn list_tokens(&self, profile: &str) -> CowenResult<Vec<String>> { self.driver.list_tokens(profile).await }
 
     // --- Audit ---
-    async fn save_audit(&self, entry: &AuditEntry) -> Result<()> { self.driver.save_audit(entry).await }
-    async fn list_audit(&self, profile: &str, limit: usize) -> Result<Vec<AuditEntry>> { self.driver.list_audit(profile, limit).await }
+    async fn save_audit(&self, entry: &AuditEntry) -> CowenResult<()> { self.driver.save_audit(entry).await }
+    async fn list_audit(&self, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>> { self.driver.list_audit(profile, limit).await }
 
     // --- DLQ ---
-    async fn push_dlq(&self, msg: &DlqMessage) -> Result<()> { self.driver.push_dlq(msg).await }
-    async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<DlqMessage>> { self.driver.pop_dlq(profile, topic).await }
-    async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<DlqMessage>> { self.driver.list_dlq(profile, limit).await }
-    async fn list_all_dlq(&self, profile: &str) -> Result<Vec<DlqMessage>> { self.driver.list_all_dlq(profile).await }
+    async fn push_dlq(&self, msg: &DlqMessage) -> CowenResult<()> { self.driver.push_dlq(msg).await }
+    async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>> { self.driver.pop_dlq(profile, topic).await }
+    async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>> { self.driver.list_dlq(profile, limit).await }
+    async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>> { self.driver.list_all_dlq(profile).await }
 
     // --- Management ---
-    async fn clear_profile(&self, profile: &str) -> Result<()> { self.driver.clear_profile(profile).await }
-    async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<()> { self.driver.rename_profile(old_name, new_name).await }
-    async fn list_all_profiles(&self) -> Result<Vec<String>> { self.driver.list_all_profiles().await }
-    async fn raw_del(&self, key: &str) -> Result<()> { self.driver.raw_del(key).await }
+    async fn clear_profile(&self, profile: &str) -> CowenResult<()> { self.driver.clear_profile(profile).await }
+    async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()> { self.driver.rename_profile(old_name, new_name).await }
+    async fn list_all_profiles(&self) -> CowenResult<Vec<String>> { self.driver.list_all_profiles().await }
+    async fn raw_del(&self, key: &str) -> CowenResult<()> { self.driver.raw_del(key).await }
 
 }
 
@@ -199,7 +200,7 @@ pub struct SqlStoreBuilder;
 #[async_trait]
 impl cowen_common::store::StoreBuilder for SqlStoreBuilder {
     fn scheme(&self) -> &str { "sql-dispatch" } // Not really used for direct match
-    async fn build(&self, url: &str, _app_dir: &std::path::Path, _fingerprint: &str) -> Result<Arc<dyn cowen_common::store::Store>> {
+    async fn build(&self, url: &str, _app_dir: &std::path::Path, _fingerprint: &str) -> CowenResult<Arc<dyn cowen_common::store::Store>> {
         Ok(Arc::new(SqlStore::from_url(url).await?))
     }
 }

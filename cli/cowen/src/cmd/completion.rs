@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::Context;
 use clap::CommandFactory;
 use std::env;
 use std::fs::{self, OpenOptions};
@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::Cli;
 
-pub fn generate_completion(shell: clap_complete::Shell, buf: &mut Vec<u8>) -> Result<()> {
+pub fn generate_completion(shell: clap_complete::Shell, buf: &mut Vec<u8>) -> anyhow::Result<()> {
     let bin_name = cowen_common::utils::get_bin_name();
     let mut cmd = Cli::command();
     
@@ -25,7 +25,7 @@ pub fn generate_completion(shell: clap_complete::Shell, buf: &mut Vec<u8>) -> Re
     Ok(())
 }
 
-pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Result<()> {
+pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> anyhow::Result<()> {
     let bin_name = cowen_common::utils::get_bin_name();
     
     let shell = match requested_shell {
@@ -100,13 +100,13 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
     Ok(())
 }
 
-fn get_home() -> Result<PathBuf> {
+fn get_home() -> anyhow::Result<PathBuf> {
     directories::UserDirs::new()
         .context("Could not find home directory")
         .map(|u| u.home_dir().to_path_buf())
 }
 
-fn install_powershell_completion(script_path: &PathBuf) -> Result<()> {
+fn install_powershell_completion(script_path: &PathBuf) -> anyhow::Result<()> {
     let bin_name = cowen_common::utils::get_bin_name();
     let script_path_str = script_path.display().to_string();
     
@@ -163,7 +163,7 @@ fn install_powershell_completion(script_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-pub fn uninstall_completion() -> Result<()> {
+pub fn uninstall_completion() -> anyhow::Result<()> {
     let bin_name = cowen_common::utils::get_bin_name();
     let app_dir = cowen_common::config::get_app_dir();
     let comp_dir = app_dir.join("completions");

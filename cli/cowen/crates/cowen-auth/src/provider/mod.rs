@@ -1,8 +1,9 @@
+use cowen_common::{CowenResult, CowenError};
+use async_trait::async_trait;
 
 use cowen_common::models::Token;
 use cowen_common::config::Config;
-use anyhow::Result;
-use async_trait::async_trait;
+
 
 pub mod self_built;
 pub mod store_app;
@@ -41,26 +42,26 @@ pub enum PlatformEvent {
 #[async_trait]
 pub trait AuthProvider: Send + Sync {
     /// 获取当前可用令牌。若过期则触发刷新或网络整改。
-    async fn get_token(&self, profile: &str, config: &Config, headers: &reqwest::header::HeaderMap) -> Result<cowen_common::models::Token>;
+    async fn get_token(&self, profile: &str, config: &Config, headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token>;
     
     /// 强制执行网络刷新逻辑（忽略内存或本地缓存）。
-    async fn refresh(&self, profile: &str, config: &Config, headers: &reqwest::header::HeaderMap) -> Result<cowen_common::models::Token>;
+    async fn refresh(&self, profile: &str, config: &Config, headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token>;
     
     /// 🚀 获取应用级访问令牌 (AppAccessToken)
-    async fn get_app_access_token(&self, profile: &str, config: &Config) -> Result<cowen_common::models::Token> {
+    async fn get_app_access_token(&self, profile: &str, config: &Config) -> CowenResult<cowen_common::models::Token> {
         self.get_token(profile, config, &Default::default()).await
     }
 
     /// 🚀 临时授权码兑换永久授权码 (StoreApp 专有，其他模式默认不支持)
     #[allow(dead_code)]
-    async fn exchange_temp_code(&self, _profile: &str, _config: &Config, _org_id: &str, _temp_code: &str) -> Result<cowen_common::models::Token> {
-        Err(anyhow::anyhow!("Temporary code exchange is not supported in this auth mode"))
+    async fn exchange_temp_code(&self, _profile: &str, _config: &Config, _org_id: &str, _temp_code: &str) -> CowenResult<cowen_common::models::Token> {
+        Err(CowenError::Auth("Temporary code exchange is not supported in this auth mode".to_string()))
     }
 
     /// 🚀 获取用户级访问令牌 (UserAccessToken)
     #[allow(dead_code)]
-    async fn get_user_token(&self, _profile: &str, _config: &Config, _org_id: &str, _user_id: &str) -> Result<cowen_common::models::Token> {
-        Err(anyhow::anyhow!("User token retrieval is not supported in this auth mode"))
+    async fn get_user_token(&self, _profile: &str, _config: &Config, _org_id: &str, _user_id: &str) -> CowenResult<cowen_common::models::Token> {
+        Err(CowenError::Auth("User token retrieval is not supported in this auth mode".to_string()))
     }
 
     /// 🚀 是否允许在分布式存储模式下运行
@@ -70,8 +71,8 @@ pub trait AuthProvider: Send + Sync {
 
     /// 🚀 令牌兑换拦截器 (用于劫持 OAuth2 流程)
     #[allow(dead_code)]
-    async fn intercept_exchange(&self, _profile: &str, _config: &Config, _body: &[u8]) -> Result<serde_json::Value> {
-        Err(anyhow::anyhow!("Exchange interception is not supported in this auth mode"))
+    async fn intercept_exchange(&self, _profile: &str, _config: &Config, _body: &[u8]) -> CowenResult<serde_json::Value> {
+        Err(CowenError::Auth("Exchange interception is not supported in this auth mode".to_string()))
     }
 
     /// 🚀 守护进程自动恢复策略
@@ -85,12 +86,12 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 触发凭证推送 (SelfBuilt 专有)
-    async fn trigger_push(&self, _profile: &str, _config: &Config, _force: bool) -> Result<()> {
+    async fn trigger_push(&self, _profile: &str, _config: &Config, _force: bool) -> CowenResult<()> {
         Ok(()) // 默认静默忽略
     }
 
     /// 🚀 维护周期回调：由守护进程定时触发，负责令牌“保鲜”或状态修复
-    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> Result<()> {
+    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> CowenResult<()> {
         let _ = (profile, config);
         Ok(())
     }
@@ -102,7 +103,7 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 平台事件处理器：处理来自 WebSocket 流的异步事件 (如 APP_TICKET, TEMP_AUTH_CODE)
-    async fn handle_platform_event(&self, profile: &str, config: &Config, event: PlatformEvent) -> Result<()> {
+    async fn handle_platform_event(&self, profile: &str, config: &Config, event: PlatformEvent) -> CowenResult<()> {
         let _ = (profile, config, event);
         Ok(())
     }
@@ -139,7 +140,7 @@ pub trait AuthProvider: Send + Sync {
         cfg_mgr: &cowen_common::ConfigManager,
         params: InitParams,
         daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
-    ) -> Result<()>;
+    ) -> CowenResult<()>;
 
     /// 🚀 配置补全钩子：在守护进程启动前，从 Vault 中捞出敏感信息注入内存配置
     async fn hydrate_config(
@@ -147,7 +148,7 @@ pub trait AuthProvider: Send + Sync {
         profile: &str,
         config: &mut Config,
         vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
-    ) -> Result<()> {
+    ) -> CowenResult<()> {
         let _ = (profile, config, vault);
         Ok(())
     }
@@ -162,7 +163,7 @@ pub trait AuthProvider: Send + Sync {
         headers: reqwest::header::HeaderMap,
         body: &[u8],
         spec: &serde_json::Value,
-    ) -> Result<ProxyRequestAction> {
+    ) -> CowenResult<ProxyRequestAction> {
         let mut headers = headers;
         let token = self.get_token(profile, config, &headers).await?;
         headers.insert("openToken", token.value.parse().unwrap());
@@ -179,26 +180,26 @@ pub trait AuthProvider: Send + Sync {
         status: u16,
         headers: &reqwest::header::HeaderMap,
         body: &[u8],
-    ) -> Result<Option<serde_json::Value>> {
+    ) -> CowenResult<Option<serde_json::Value>> {
         let _ = (profile, config, path, method, status, headers, body);
         Ok(None)
     }
 
     #[allow(dead_code)]
-    async fn on_login(&self, _profile: &str, _config: &Config, _headers: &mut reqwest::header::HeaderMap) -> Result<()> {
+    async fn on_login(&self, _profile: &str, _config: &Config, _headers: &mut reqwest::header::HeaderMap) -> CowenResult<()> {
         Ok(())
     }
 
-    async fn on_logout(&self, _profile: &str, _config: &Config) -> Result<()> {
+    async fn on_logout(&self, _profile: &str, _config: &Config) -> CowenResult<()> {
         Ok(())
     }
 
-    async fn perform_login(&self, _profile: &str, _config: &Config, _force: bool, _finalize: Option<&str>) -> Result<()> {
+    async fn perform_login(&self, _profile: &str, _config: &Config, _force: bool, _finalize: Option<&str>) -> CowenResult<()> {
         Ok(())
     }
 
     /// 🚀 UI/诊断能力：获取该模式下的专属诊断条目（Auth、Daemon等）
-    async fn get_diagnostics(&self, _ctx: &cowen_common::status::StatusContext<'_>) -> Result<Vec<cowen_common::status::StatusEntry>> {
+    async fn get_diagnostics(&self, _ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
         Ok(vec![])
     }
 

@@ -1,3 +1,5 @@
+use cowen_common::{CowenResult, CowenError};
+use async_trait::async_trait;
 use super::models::StoreAppTokenResponse;
 use super::storage;
 use crate::client::HttpSender;
@@ -13,7 +15,7 @@ pub(crate) async fn refresh_token(
     profile: &str,
     cfg: &Config,
     refresh_token: &str,
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     let url = format!("{}/oauth2/token", cfg.openapi_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "grant_type": "refresh_token",
@@ -31,7 +33,7 @@ pub(crate) async fn intercept_exchange(
     profile: &str,
     cfg: &Config,
     body_bytes: &[u8],
-) -> Result<serde_json::Value> {
+) -> CowenResult<serde_json::Value> {
     let url = format!("{}/oauth2/token", cfg.openapi_url.trim_end_matches('/'));
 
     // Parse incoming URL-encoded body
@@ -64,11 +66,8 @@ pub(crate) async fn intercept_exchange(
     if !resp.is_success() {
         let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
         tracing::error!(target: "sys", status = %resp.status, body = %masked_body, "Platform rejected token exchange");
-        return Err(anyhow!(
-            "Proxy token exchange failed (HTTP {}): {}",
-            resp.status,
-            masked_body
-        ));
+        return Err(CowenError::Api(format!("Proxy token exchange failed (HTTP {}): {}", resp.status, masked_body)));
+
     }
 
     tracing::info!(target: "sys", "Platform token exchange successful: {}", cowen_common::utils::mask_sensitive_json(&resp.body));
@@ -124,7 +123,7 @@ pub(crate) async fn intercept_exchange(
             vault.save_access_token(&custom_profile, token.clone()).await?;
         }
     } else {
-        return Err(anyhow!("Failed to extract identity from token during proxy exchange. Multi-tenant arbitration requires a valid JWT."));
+        return Err(CowenError::Auth(format!("Failed to extract identity from token during proxy exchange. Multi-tenant arbitration requires a valid JWT.")));
     }
 
     Ok(raw_json)
@@ -135,7 +134,7 @@ pub(crate) async fn get_app_access_token(
     http_sender: &dyn HttpSender,
     _profile: &str,
     cfg: &Config,
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     // 1. 优先尝试从持久化池中获取
     if let Ok(token) = pool.as_vault().get_app_access_token(&cfg.app_key).await {
         // 如果没过期（留出 5 分钟缓冲），直接返回
@@ -152,7 +151,7 @@ pub(crate) async fn get_app_access_token(
                 Ok(t) => break t,
                 Err(_) => {
                     if retry_count >= 20 {
-                        return Err(anyhow!("[StoreApp] 尚未接收到平台推送的 appTicket。请确保 daemon 已启动并保持在线。 (Retried 20s)"));
+                        return Err(CowenError::Auth(format!("[StoreApp] 尚未接收到平台推送的 appTicket。请确保 daemon 已启动并保持在线。 (Retried 20s)")));
                     }
 
                     if retry_count == 0 {
@@ -202,7 +201,7 @@ pub(crate) async fn get_app_access_token(
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 continue;
             }
-            return Err(anyhow!("Failed to get appAccessToken: {}", cowen_common::utils::mask_sensitive_json(&body_str)));
+            return Err(CowenError::Auth(format!("Failed to get appAccessToken: {}", cowen_common::utils::mask_sensitive_json(&body_str))));
         }
 
         let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -242,7 +241,7 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
     cfg: &Config,
     org_id: Option<&str>,
     temp_auth_code: &str,
-) -> Result<String> {
+) -> CowenResult<String> {
     let app_at = get_app_access_token(pool, http_sender, profile, cfg)
         .await?
         .value;
@@ -262,7 +261,7 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
 
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
-        return Err(anyhow!("getPermanentAuthCode failed: {}", cowen_common::utils::mask_sensitive_json(&resp.body)));
+        return Err(CowenError::Auth(format!("getPermanentAuthCode failed: {}", cowen_common::utils::mask_sensitive_json(&resp.body))));
     }
 
     let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -302,7 +301,7 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
     cfg: &Config,
     org_id: &str,
     permanent_code: &str,
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     let app_at = get_app_access_token(pool, http_sender, profile, cfg)
         .await?
         .value;
@@ -323,11 +322,8 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
         let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
-        return Err(anyhow!(
-            "getOrgAccessToken failed (HTTP {}): {}",
-            resp.status,
-            masked_body
-        ));
+        return Err(CowenError::Api(format!("getOrgAccessToken failed (HTTP {}): {}", resp.status, masked_body)));
+
     }
 
     let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -366,7 +362,7 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
     org_id: &str,
     user_id: &str,
     permanent_code: &str,
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     let app_at = get_app_access_token(pool, http_sender, profile, cfg)
         .await?
         .value;
@@ -387,11 +383,8 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
         let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
-        return Err(anyhow!(
-            "getUserAccessToken failed (HTTP {}): {}",
-            resp.status,
-            masked_body
-        ));
+        return Err(CowenError::Api(format!("getUserAccessToken failed (HTTP {}): {}", resp.status, masked_body)));
+
     }
 
     let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -429,7 +422,7 @@ pub(crate) async fn request_token(
     url: &str,
     body: serde_json::Value,
     cfg: &Config,
-) -> Result<cowen_common::models::Token> {
+) -> CowenResult<cowen_common::models::Token> {
     let headers = reqwest::header::HeaderMap::new();
     let resp = http_sender.post_form(url, headers, body).await?;
 
@@ -448,36 +441,20 @@ pub(crate) async fn request_token(
 
         // Handle specific platform error codes
         if err_text.contains("4029") {
-            return Err(anyhow!(
-                "登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})",
-                status
-            ));
+            return Err(CowenError::Auth(format!("登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})", status)));
         }
         if err_text.contains("4007") || err_text.contains("invalid_grant") {
             let _ = pool.as_vault().set_config(profile, "oauth2_revoked", "true").await;
-            return Err(anyhow!(
-                "令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})",
-                status
-            ));
+            return Err(CowenError::Auth(format!("令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})", status)));
         }
         if err_text.contains("4006") {
-            return Err(anyhow!(
-                "ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})",
-                status
-            ));
+            return Err(CowenError::Auth(format!("ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})", status)));
         }
         if err_text.contains("4001") {
-            return Err(anyhow!(
-                "授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})",
-                status
-            ));
+            return Err(CowenError::Auth(format!("授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})", status)));
         }
 
-        return Err(anyhow!(
-            "StoreApp token request failed (HTTP {}): {}",
-            status,
-            err_text
-        ));
+        return Err(CowenError::Auth(format!("StoreApp token request failed (HTTP {}): {}", status, err_text)));
     }
 
     let token_resp: StoreAppTokenResponse = resp.json().await?;

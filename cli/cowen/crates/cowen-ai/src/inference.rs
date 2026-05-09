@@ -2,7 +2,7 @@ use ort::session::Session;
 use ort::value::Tensor;
 use ort::inputs;
 use tokenizers::Tokenizer;
-use anyhow::{Result, anyhow};
+use cowen_common::{CowenResult, CowenError};
 
 pub struct ONNXEmbedder {
     session: Session,
@@ -10,14 +10,14 @@ pub struct ONNXEmbedder {
 }
 
 impl ONNXEmbedder {
-    pub fn new(model_path: &str, tokenizer_path: &str) -> Result<Self> {
+    pub fn new(model_path: &str, tokenizer_path: &str) -> CowenResult<Self> {
         let tokenizer = Tokenizer::from_file(tokenizer_path)
-            .map_err(|e| anyhow!("Failed to load tokenizer: {}", e))?;
+            .map_err(|e| CowenError::Internal(format!("Failed to load tokenizer: {}", e)))?;
         
         let session = Session::builder()
-            .map_err(|e| anyhow!("Failed to create session builder: {}", e))?
+            .map_err(|e| CowenError::Internal(format!("Failed to create session builder: {}", e)))?
             .commit_from_file(model_path)
-            .map_err(|e| anyhow!("Failed to load model: {}", e))?;
+            .map_err(|e| CowenError::Internal(format!("Failed to load model: {}", e)))?;
 
         Ok(Self {
             session,
@@ -25,9 +25,9 @@ impl ONNXEmbedder {
         })
     }
 
-    pub fn embed(&mut self, text: &str) -> Result<Vec<f32>> {
+    pub fn embed(&mut self, text: &str) -> CowenResult<Vec<f32>> {
         let encoding = self.tokenizer.encode(text, true)
-            .map_err(|e| anyhow!("Tokenization failed: {}", e))?;
+            .map_err(|e| CowenError::Internal(format!("Tokenization failed: {}", e)))?;
         
         let ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
         let mask: Vec<i64> = encoding.get_attention_mask().iter().map(|&id| id as i64).collect();
@@ -37,11 +37,11 @@ impl ONNXEmbedder {
         let shape = vec![1i64, seq_len as i64];
 
         let input_ids = Tensor::from_array((shape.clone(), ids))
-            .map_err(|e| anyhow!("Failed to create input_ids tensor: {}", e))?;
+            .map_err(|e| CowenError::Internal(format!("Failed to create input_ids tensor: {}", e)))?;
         let attention_mask = Tensor::from_array((shape.clone(), mask))
-            .map_err(|e| anyhow!("Failed to create attention_mask tensor: {}", e))?;
+            .map_err(|e| CowenError::Internal(format!("Failed to create attention_mask tensor: {}", e)))?;
         let token_type_ids = Tensor::from_array((shape, types))
-            .map_err(|e| anyhow!("Failed to create token_type_ids tensor: {}", e))?;
+            .map_err(|e| CowenError::Internal(format!("Failed to create token_type_ids tensor: {}", e)))?;
 
         let inputs = inputs! {
             "input_ids" => input_ids,
@@ -50,10 +50,10 @@ impl ONNXEmbedder {
         };
 
         let outputs = self.session.run(inputs)
-            .map_err(|e| anyhow!("Inference failed: {}", e))?;
+            .map_err(|e| CowenError::Internal(format!("Inference failed: {}", e)))?;
         
         let (shape, data) = outputs[0].try_extract_tensor::<f32>()
-            .map_err(|e| anyhow!("Extraction failed: {}", e))?;
+            .map_err(|e| CowenError::Internal(format!("Extraction failed: {}", e)))?;
         
         let dim = shape[2] as usize;
         let mut mean_vec = vec![0.0f32; dim];
@@ -80,8 +80,8 @@ impl ONNXEmbedder {
         Ok(mean_vec)
     }
 
-    pub fn rebuild_index(&mut self, spec: &serde_json::Value) -> Result<crate::index::SearchIndex> {
-        let paths = spec["paths"].as_object().ok_or_else(|| anyhow!("Invalid spec: paths not found"))?;
+    pub fn rebuild_index(&mut self, spec: &serde_json::Value) -> CowenResult<crate::index::SearchIndex> {
+        let paths = spec["paths"].as_object().ok_or_else(|| CowenError::Internal("Invalid spec: paths not found".to_string()))?;
         let mut index = crate::index::SearchIndex::default();
 
         for (path, methods) in paths {

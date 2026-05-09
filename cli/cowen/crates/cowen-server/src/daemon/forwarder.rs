@@ -3,26 +3,41 @@ use serde_json::Value;
 use std::time::Duration;
 use crate::daemon::dlq::DlqStore;
 use std::sync::Arc;
+use cowen_common::{CowenResult, CowenError};
 
 #[derive(Clone)]
 pub struct Forwarder {
     client: Client,
     dlq: Arc<DlqStore>,
     target_url: String,
+    profile: String,
+    config: cowen_common::config::Config,
 }
 
 impl Forwarder {
-    pub fn new(dlq: Arc<DlqStore>, target_url: &str) -> Self {
+    pub fn new(profile: &str, config: cowen_common::config::Config, vault: Arc<dyn cowen_common::vault::Vault>) -> Self {
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
             .unwrap_or_else(|_| Client::new());
 
+        let dlq = Arc::new(DlqStore::new(profile, vault).unwrap()); // Safe unwrap as it only creates struct
+
         Self {
             client,
             dlq,
-            target_url: target_url.to_string(),
+            target_url: config.webhook_target.clone(),
+            profile: profile.to_string(),
+            config,
         }
+    }
+
+    pub async fn retry_message(&self, id: i64) -> CowenResult<()> {
+        let all = self.dlq.list_all().await?;
+        let entry = all.iter().find(|e| e.id == id).ok_or_else(|| CowenError::Store("Message not found in DLQ".to_string()))?;
+        let event: Value = serde_json::from_str(&entry.payload)?;
+        self.forward(event).await;
+        Ok(())
     }
 
     pub async fn forward(&self, event: Value) {

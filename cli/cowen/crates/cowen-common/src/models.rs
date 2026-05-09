@@ -1,6 +1,6 @@
+use crate::{CowenResult, CowenError};
 use chrono::{DateTime, Utc, Duration};
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
@@ -47,10 +47,10 @@ impl Token {
         })
     }
 
-    pub fn extract_jwt_claims(&self) -> Result<serde_json::Value> {
+    pub fn extract_jwt_claims(&self) -> CowenResult<serde_json::Value> {
         let parts: Vec<&str> = self.value.split('.').collect();
         if parts.len() != 3 {
-            anyhow::bail!("Invalid JWT format");
+            return Err(CowenError::Security("Invalid JWT format".to_string()));
         }
         
         use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};

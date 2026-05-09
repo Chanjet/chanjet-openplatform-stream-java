@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use crate::{CowenResult, CowenError};
 
 pub fn find_matching_spec_path(req_path: &str, spec: &serde_json::Value) -> Option<String> {
     if let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) {
@@ -49,15 +49,15 @@ pub fn validate_request(
     method: &str,
     path_with_query: &str,
     data: &Option<String>,
-) -> Result<()> {
+) -> CowenResult<()> {
     let path_no_query = path_with_query.split('?').next().unwrap_or(path_with_query);
     
     // 1. Find the operation in the spec
     let matched_path = find_matching_spec_path(path_no_query, spec)
-        .ok_or_else(|| anyhow!("Path '{}' not found in OpenAPI spec", path_no_query))?;
+        .ok_or_else(|| CowenError::Validation(format!("Path '{}' not found in OpenAPI spec", path_no_query)))?;
     
     let op = spec["paths"][&matched_path].get(method.to_lowercase())
-        .ok_or_else(|| anyhow!("Method '{}' not supported for path '{}'", method, matched_path))?;
+        .ok_or_else(|| CowenError::Validation(format!("Method '{}' not supported for path '{}'", method, matched_path)))?;
 
     // 2. Validate Parameters (Query, Path, Header)
     if let Some(params) = op.get("parameters").and_then(|p| p.as_array()) {
@@ -81,7 +81,7 @@ pub fn validate_request(
                 match location {
                     "query" => {
                         if !query_pairs.contains_key(name) {
-                            return Err(anyhow!("Missing required query parameter: '{}'", name));
+                            return Err(CowenError::Validation(format!("Missing required query parameter: '{}'", name)));
                         }
                     }
                     "path" => {
@@ -96,7 +96,7 @@ pub fn validate_request(
     if let Some(body_def) = op.get("requestBody") {
         let body_required = body_def["required"].as_bool().unwrap_or(false);
         if body_required && data.is_none() {
-            return Err(anyhow!("Request body is required for {} {}", method.to_uppercase(), matched_path));
+            return Err(CowenError::Validation(format!("Request body is required for {} {}", method.to_uppercase(), matched_path)));
         }
     }
 

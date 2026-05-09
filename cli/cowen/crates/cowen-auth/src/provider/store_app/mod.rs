@@ -1,3 +1,5 @@
+use cowen_common::{CowenResult, CowenError};
+use async_trait::async_trait;
 use cowen_common::daemon::DaemonService;
 use crate::client::HttpSender;
 use crate::lifecycle::AuthSessionManager;
@@ -6,7 +8,7 @@ use crate::pool::TokenPool;
 use crate::provider::AuthProvider;
 use cowen_common::config::Config;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
+
 use std::sync::Arc;
 
 pub mod models;
@@ -33,7 +35,7 @@ impl StoreAppProvider {
         profile: &str,
         cfg: &Config,
         refresh_token: &str,
-    ) -> Result<cowen_common::models::Token> {
+    ) -> CowenResult<cowen_common::models::Token> {
         client::refresh_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, refresh_token).await
     }
 
@@ -42,7 +44,7 @@ impl StoreAppProvider {
         profile: &str,
         cfg: &Config,
         body_bytes: &[u8],
-    ) -> Result<serde_json::Value> {
+    ) -> CowenResult<serde_json::Value> {
         client::intercept_exchange(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, body_bytes).await
     }
 
@@ -54,7 +56,7 @@ impl StoreAppProvider {
         cfg: &Config,
         org_id: Option<&str>,
         temp_auth_code: &str,
-    ) -> Result<String> {
+    ) -> CowenResult<String> {
         client::exchange_permanent_code_by_temp_code(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id, temp_auth_code).await
     }
 
@@ -65,7 +67,7 @@ impl StoreAppProvider {
         cfg: &Config,
         org_id: &str,
         user_id: &str,
-    ) -> Result<cowen_common::models::Token> {
+    ) -> CowenResult<cowen_common::models::Token> {
         token_logic::get_user_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id, user_id).await
     }
 
@@ -75,11 +77,11 @@ impl StoreAppProvider {
         profile: &str,
         cfg: &Config,
         org_id: &str,
-    ) -> Result<cowen_common::models::Token> {
+    ) -> CowenResult<cowen_common::models::Token> {
         token_logic::get_org_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id).await
     }
 
-    async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str) -> Result<()> {
+    async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str) -> CowenResult<()> {
         tracing::info!(target: "sys", profile = %profile, session_id = %session_id, "Finalizer started for StoreApp auth");
         
         let session_manager = AuthSessionManager::new(self.pool.as_ref());
@@ -109,14 +111,14 @@ impl StoreAppProvider {
                                     }
                                 }
                             }
-                            Err(e) => Err(anyhow::anyhow!("Authorization failed: {}", e))
+                            Err(e) => Err(CowenError::Auth(format!("Authorization failed: {}", e)))
                         }
                     }
-                    Err(e) => Err(anyhow::anyhow!("Internal listener error: {}", e))
+                    Err(e) => Err(CowenError::Auth(format!("Internal listener error: {}", e)))
                 }
             },
             _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-                Err(anyhow::anyhow!("Timeout waiting for authorization (5 mins)"))
+                Err(CowenError::Auth("Timeout waiting for authorization (5 mins)".to_string()))
             }
         };
 
@@ -128,21 +130,22 @@ impl StoreAppProvider {
 }
 
 #[async_trait]
+#[async_trait]
 impl AuthProvider for StoreAppProvider {
-    async fn exchange_temp_code(&self, profile: &str, config: &Config, org_id: &str, temp_code: &str) -> Result<cowen_common::models::Token> {
+    async fn exchange_temp_code(&self, profile: &str, config: &Config, org_id: &str, temp_code: &str) -> CowenResult<cowen_common::models::Token> {
         let _ = self.exchange_permanent_code_by_temp_code(profile, config, Some(org_id), temp_code).await?;
         self.get_org_token(profile, config, org_id).await
     }
 
-    async fn get_user_token(&self, profile: &str, config: &Config, org_id: &str, user_id: &str) -> Result<cowen_common::models::Token> {
+    async fn get_user_token(&self, profile: &str, config: &Config, org_id: &str, user_id: &str) -> CowenResult<cowen_common::models::Token> {
         self.get_user_token(profile, config, org_id, user_id).await
     }
 
-    async fn intercept_exchange(&self, profile: &str, config: &Config, body: &[u8]) -> Result<serde_json::Value> {
+    async fn intercept_exchange(&self, profile: &str, config: &Config, body: &[u8]) -> CowenResult<serde_json::Value> {
         self.intercept_exchange(profile, config, body).await
     }
 
-    async fn get_app_access_token(&self, profile: &str, config: &Config) -> Result<cowen_common::models::Token> {
+    async fn get_app_access_token(&self, profile: &str, config: &Config) -> CowenResult<cowen_common::models::Token> {
         client::get_app_access_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, config).await
     }
 
@@ -151,7 +154,7 @@ impl AuthProvider for StoreAppProvider {
         profile: &str,
         cfg: &Config,
         headers: &reqwest::header::HeaderMap,
-    ) -> Result<cowen_common::models::Token> {
+    ) -> CowenResult<cowen_common::models::Token> {
         token_logic::get_token(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, headers).await
     }
 
@@ -160,7 +163,7 @@ impl AuthProvider for StoreAppProvider {
         profile: &str,
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
-    ) -> Result<cowen_common::models::Token> {
+    ) -> CowenResult<cowen_common::models::Token> {
         let pair_str = self
             .pool
             .as_vault()
@@ -179,7 +182,7 @@ impl AuthProvider for StoreAppProvider {
         mut headers: reqwest::header::HeaderMap,
         body: &[u8],
         spec: &serde_json::Value,
-    ) -> Result<crate::provider::ProxyRequestAction> {
+    ) -> CowenResult<crate::provider::ProxyRequestAction> {
         // 1. Check for short-circuit interception (OAuth2 Token Exchange)
         if path.ends_with("/oauth2/token") && method == "POST" {
             let json_resp = self.intercept_exchange(profile, config, body).await?;
@@ -255,11 +258,11 @@ impl AuthProvider for StoreAppProvider {
         _status: u16,
         _response_headers: &reqwest::header::HeaderMap,
         _response_body: &[u8],
-    ) -> Result<Option<serde_json::Value>> {
+    ) -> CowenResult<Option<serde_json::Value>> {
         Ok(None)
     }
 
-    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> Result<()> {
+    async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> CowenResult<()> {
         // 1. Check AppAccessToken health
         match self.pool.get_app_access_token(&config.app_key).await {
             Ok(token) => {
@@ -298,7 +301,7 @@ impl AuthProvider for StoreAppProvider {
         cfg_mgr: &cowen_common::ConfigManager,
         params: crate::provider::InitParams,
         daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
-    ) -> Result<()> {
+    ) -> CowenResult<()> {
         // 1. Setup credentials
         if let Some(ak) = params.app_key {
             config.app_key = ak;
@@ -349,7 +352,7 @@ impl AuthProvider for StoreAppProvider {
                 "Example: {} init --app-mode store-app --app-key X --app-secret Y --encrypt-key Z",
                 bin_name
             );
-            return Err(anyhow!("Missing required credentials for StoreApp mode"));
+            return Err(CowenError::Auth(format!("Missing required credentials for StoreApp mode")));
         }
 
         println!(
@@ -364,7 +367,7 @@ impl AuthProvider for StoreAppProvider {
         Ok(())
     }
 
-    async fn trigger_push(&self, _profile: &str, config: &Config, _force: bool) -> Result<()> {
+    async fn trigger_push(&self, _profile: &str, config: &Config, _force: bool) -> CowenResult<()> {
         let url = format!(
             "{}/auth/appTicket/resend",
             config.openapi_url.trim_end_matches('/')
@@ -378,7 +381,7 @@ impl AuthProvider for StoreAppProvider {
         Ok(())
     }
 
-    async fn hydrate_config(&self, profile: &str, config: &mut Config, vault: std::sync::Arc<dyn cowen_common::vault::Vault>) -> Result<()> {
+    async fn hydrate_config(&self, profile: &str, config: &mut Config, vault: std::sync::Arc<dyn cowen_common::vault::Vault>) -> CowenResult<()> {
         if let Ok(as_val) = vault.get_secret(profile, "app_secret").await { config.app_secret = as_val; }
         if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
         Ok(())
@@ -390,7 +393,7 @@ impl AuthProvider for StoreAppProvider {
         false // Store App usually waits for platform events passively
     }
 
-    async fn handle_platform_event(&self, profile: &str, config: &Config, event: crate::provider::PlatformEvent) -> Result<()> {
+    async fn handle_platform_event(&self, profile: &str, config: &Config, event: crate::provider::PlatformEvent) -> CowenResult<()> {
         match event {
             crate::provider::PlatformEvent::AppTicket(ticket_val) => {
                 let ticket = cowen_common::models::Ticket {
@@ -412,7 +415,7 @@ impl AuthProvider for StoreAppProvider {
         }
     }
 
-    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>) -> Result<()> {
+    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>) -> CowenResult<()> {
         // 1. Finalizer Implementation (Background flow)
         if let Some(session_id) = finalize {
             return self.finalize_login(profile, config, session_id).await;
@@ -433,7 +436,7 @@ impl AuthProvider for StoreAppProvider {
         }
     }
 
-    async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> Result<Vec<cowen_common::status::StatusEntry>> {
+    async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
         use cowen_common::status::{StatusEntry, StatusLevel, CommonTemplate, collect_daemon_status};
         
         let mut results = Vec::new();
@@ -486,7 +489,7 @@ impl AuthProvider for StoreAppProvider {
         headers.insert("appKey", config.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
     }
 
-    async fn on_logout(&self, profile: &str, _config: &Config) -> Result<()> {
+    async fn on_logout(&self, profile: &str, _config: &Config) -> CowenResult<()> {
         let vault = self.pool.as_vault();
         let _ = vault.delete_secret(profile, "oauth2_token_pair").await;
         let _ = vault.delete_config(profile, "oauth2_revoked").await;

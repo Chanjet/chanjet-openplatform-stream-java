@@ -1,9 +1,11 @@
+use cowen_common::{CowenResult, CowenError};
+use async_trait::async_trait;
 use super::*;
 use crate::models::{Token, Ticket, AuthSession};
 use crate::client::{HttpSender, SimpleResponse};
 use crate::VaultTokenPool;
 use std::sync::Arc;
-use async_trait::async_trait;
+
 
 // --- Manual Mocks ---
 
@@ -17,82 +19,82 @@ impl cowen_common::vault::Vault for MockVault {
 
 #[async_trait]
 impl crate::domain::PermanentCodeDomain for MockVault {
-    async fn get_org_permanent_code(&self, _: &str, _: &str) -> Result<String> { Err(anyhow!("not found")) }
-    async fn save_org_permanent_code(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn get_user_permanent_code(&self, _: &str, _: &str, _: &str) -> Result<String> { Err(anyhow!("not found")) }
-    async fn save_user_permanent_code(&self, _: &str, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
+    async fn get_org_permanent_code(&self, _: &str, _: &str) -> CowenResult<String> { Err(CowenError::Auth(format!("not found"))) }
+    async fn save_org_permanent_code(&self, _: &str, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
+    async fn get_user_permanent_code(&self, _: &str, _: &str, _: &str) -> CowenResult<String> { Err(CowenError::Auth(format!("not found"))) }
+    async fn save_user_permanent_code(&self, _: &str, _: &str, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
 }
 
 #[async_trait]
 impl crate::domain::TicketDomain for MockVault {
-    async fn get_app_ticket(&self, _: &str) -> Result<Ticket> { Err(anyhow!("not found")) }
-    async fn save_app_ticket(&self, _: &str, _: Ticket) -> Result<()> { Ok(()) }
+    async fn get_app_ticket(&self, _: &str) -> CowenResult<Ticket> { Err(CowenError::Auth(format!("not found"))) }
+    async fn save_app_ticket(&self, _: &str, _: Ticket) -> CowenResult<()> { Ok(()) }
 }
 
 #[async_trait]
 impl crate::domain::TokenDomain for MockVault {
-    async fn get_access_token(&self, _: &str) -> Result<cowen_common::models::Token> { Err(anyhow!("not found")) }
-    async fn save_access_token(&self, _: &str, _: Token) -> Result<()> { Ok(()) }
-    async fn delete_access_token(&self, _: &str) -> Result<()> { Ok(()) }
-    async fn get_app_access_token(&self, _: &str) -> Result<cowen_common::models::Token> { Err(anyhow!("not found")) }
-    async fn save_app_access_token(&self, _: &str, _: Token) -> Result<()> { Ok(()) }
+    async fn get_access_token(&self, _: &str) -> CowenResult<cowen_common::models::Token> { Err(CowenError::Auth(format!("not found"))) }
+    async fn save_access_token(&self, _: &str, _: Token) -> CowenResult<()> { Ok(()) }
+    async fn delete_access_token(&self, _: &str) -> CowenResult<()> { Ok(()) }
+    async fn get_app_access_token(&self, _: &str) -> CowenResult<cowen_common::models::Token> { Err(CowenError::Auth(format!("not found"))) }
+    async fn save_app_access_token(&self, _: &str, _: Token) -> CowenResult<()> { Ok(()) }
 }
 
 #[async_trait]
 impl crate::domain::SessionDomain for MockVault {
-    async fn get_session(&self, _: &str) -> Result<AuthSession> { Err(anyhow!("not found")) }
-    async fn save_session(&self, _: AuthSession) -> Result<()> { Ok(()) }
-    async fn delete_session(&self, _: &str) -> Result<()> { Ok(()) }
+    async fn get_session(&self, _: &str) -> CowenResult<AuthSession> { Err(CowenError::Auth(format!("not found"))) }
+    async fn save_session(&self, _: AuthSession) -> CowenResult<()> { Ok(()) }
+    async fn delete_session(&self, _: &str) -> CowenResult<()> { Ok(()) }
 }
 
 #[async_trait]
 impl crate::domain::SecretDomain for MockVault {
-    async fn get_secret(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
-    async fn set_secret(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn delete_secret(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+    async fn get_secret(&self, _: &str, _: &str) -> CowenResult<String> { Ok("".to_string()) }
+    async fn set_secret(&self, _: &str, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
+    async fn delete_secret(&self, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
 }
 
 #[async_trait]
 impl crate::domain::ConfigDomain for MockVault {
-    async fn get_config(&self, _: &str, _: &str) -> Result<String> { Ok("".to_string()) }
-    async fn get_config_full(&self, _: &str, _: &str) -> Result<cowen_store::Item> { Err(anyhow!("not found")) }
-    async fn set_config(&self, _: &str, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn set_config_conditional(&self, _: &str, _: &str, _: &str, _: u64) -> Result<()> { Ok(()) }
-    async fn list_configs(&self, _: &str) -> Result<Vec<String>> { Ok(vec![]) }
-    async fn delete_config(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
+    async fn get_config(&self, _: &str, _: &str) -> CowenResult<String> { Ok("".to_string()) }
+    async fn get_config_full(&self, _: &str, _: &str) -> CowenResult<cowen_store::Item> { Err(CowenError::Auth(format!("not found"))) }
+    async fn set_config(&self, _: &str, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
+    async fn set_config_conditional(&self, _: &str, _: &str, _: &str, _: u64) -> CowenResult<()> { Ok(()) }
+    async fn list_configs(&self, _: &str) -> CowenResult<Vec<String>> { Ok(vec![]) }
+    async fn delete_config(&self, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
 }
 
 #[async_trait]
 impl crate::domain::AuditDomain for MockVault {
-    async fn save_audit(&self, _: &cowen_store::AuditEntry) -> Result<()> { Ok(()) }
-    async fn list_audit(&self, _: &str, _: usize) -> Result<Vec<cowen_store::AuditEntry>> { Ok(vec![]) }
+    async fn save_audit(&self, _: &cowen_store::AuditEntry) -> CowenResult<()> { Ok(()) }
+    async fn list_audit(&self, _: &str, _: usize) -> CowenResult<Vec<cowen_store::AuditEntry>> { Ok(vec![]) }
 }
 
 #[async_trait]
 impl crate::domain::DlqDomain for MockVault {
-    async fn push_dlq(&self, _: &cowen_store::DlqMessage) -> Result<()> { Ok(()) }
-    async fn pop_dlq(&self, _: &str, _: &str) -> Result<Option<cowen_store::DlqMessage>> { Ok(None) }
-    async fn list_dlq(&self, _: &str, _: usize) -> Result<Vec<cowen_store::DlqMessage>> { Ok(vec![]) }
-    async fn list_all_dlq(&self, _: &str) -> Result<Vec<cowen_store::DlqMessage>> { Ok(vec![]) }
+    async fn push_dlq(&self, _: &cowen_store::DlqMessage) -> CowenResult<()> { Ok(()) }
+    async fn pop_dlq(&self, _: &str, _: &str) -> CowenResult<Option<cowen_store::DlqMessage>> { Ok(None) }
+    async fn list_dlq(&self, _: &str, _: usize) -> CowenResult<Vec<cowen_store::DlqMessage>> { Ok(vec![]) }
+    async fn list_all_dlq(&self, _: &str) -> CowenResult<Vec<cowen_store::DlqMessage>> { Ok(vec![]) }
 }
 
 #[async_trait]
 impl crate::domain::ManagementDomain for MockVault {
-    async fn clear_profile(&self, _: &str) -> Result<()> { Ok(()) }
-    async fn rename_profile(&self, _: &str, _: &str) -> Result<()> { Ok(()) }
-    async fn list_all_profiles(&self) -> Result<Vec<String>> { Ok(vec![]) }
+    async fn clear_profile(&self, _: &str) -> CowenResult<()> { Ok(()) }
+    async fn rename_profile(&self, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
+    async fn list_all_profiles(&self) -> CowenResult<Vec<String>> { Ok(vec![]) }
 }
 
 struct MockHttpSender {}
 #[async_trait]
 impl HttpSender for MockHttpSender {
-    async fn post(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
+    async fn post(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> CowenResult<SimpleResponse> {
         Ok(SimpleResponse { status: 200, body: "{}".to_string() })
     }
-    async fn post_form(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> Result<SimpleResponse> {
+    async fn post_form(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> CowenResult<SimpleResponse> {
         Ok(SimpleResponse { status: 200, body: "{}".to_string() })
     }
-    async fn get(&self, _url: &str, _headers: reqwest::header::HeaderMap) -> Result<SimpleResponse> {
+    async fn get(&self, _url: &str, _headers: reqwest::header::HeaderMap) -> CowenResult<SimpleResponse> {
         Ok(SimpleResponse { status: 200, body: "{}".to_string() })
     }
 }
