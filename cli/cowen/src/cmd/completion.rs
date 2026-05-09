@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use crate::Cli;
 
 pub fn generate_completion(shell: clap_complete::Shell, buf: &mut Vec<u8>) -> Result<()> {
-    let bin_name = crate::core::utils::get_bin_name();
+    let bin_name = cowen_common::utils::get_bin_name();
     let mut cmd = Cli::command();
     
     let mut tmp_buf = Vec::new();
@@ -26,7 +26,7 @@ pub fn generate_completion(shell: clap_complete::Shell, buf: &mut Vec<u8>) -> Re
 }
 
 pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Result<()> {
-    let bin_name = crate::core::utils::get_bin_name();
+    let bin_name = cowen_common::utils::get_bin_name();
     
     let shell = match requested_shell {
         Some(s) => s,
@@ -48,7 +48,7 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> Resu
         }
     };
 
-    let app_dir = crate::core::config::get_app_dir();
+    let app_dir = cowen_common::config::get_app_dir();
     let comp_dir = app_dir.join("completions");
     fs::create_dir_all(&comp_dir)?;
 
@@ -107,7 +107,7 @@ fn get_home() -> Result<PathBuf> {
 }
 
 fn install_powershell_completion(script_path: &PathBuf) -> Result<()> {
-    let bin_name = crate::core::utils::get_bin_name();
+    let bin_name = cowen_common::utils::get_bin_name();
     let script_path_str = script_path.display().to_string();
     
     // We try to find the PowerShell profile
@@ -164,8 +164,8 @@ fn install_powershell_completion(script_path: &PathBuf) -> Result<()> {
 }
 
 pub fn uninstall_completion() -> Result<()> {
-    let bin_name = crate::core::utils::get_bin_name();
-    let app_dir = crate::core::config::get_app_dir();
+    let bin_name = cowen_common::utils::get_bin_name();
+    let app_dir = cowen_common::config::get_app_dir();
     let comp_dir = app_dir.join("completions");
     
     // 1. Remove completion scripts
@@ -238,12 +238,12 @@ pub fn uninstall_completion() -> Result<()> {
 }
 
 pub fn is_auto_install_needed() -> bool {
-    let app_dir = crate::core::config::get_app_dir();
+    let app_dir = cowen_common::config::get_app_dir();
     !app_dir.join(".completion_installed").exists()
 }
 
 fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::Shell) {
-    let bin_name = crate::core::utils::get_bin_name();
+    let bin_name = cowen_common::utils::get_bin_name();
     let script_path_str = script_path.display().to_string();
     let marker = format!("# {} autocomplete", bin_name);
 

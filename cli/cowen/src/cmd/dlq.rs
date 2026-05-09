@@ -2,10 +2,10 @@ use anyhow::Result;
 use cowen_server::daemon::dlq::DlqStore;
 use cowen_server::daemon::forwarder::Forwarder;
 use std::sync::Arc;
-use crate::core::config::Config;
+use cowen_common::Config;
 use cowen_auth::client::Client;
 
-pub async fn list(profile: &str, config: &Config, format: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+pub async fn list(profile: &str, config: &Config, format: &str, vault: Arc<dyn cowen_common::vault::Vault>) -> Result<()> {
     let auth = cowen_auth::create_auth_client_with_vault(vault.clone());
     if !auth.supports_webhooks(config) {
         println!("⚠️  Mode '{:?}' does not support Webhooks/Streaming, DLQ is disabled.", config.app_mode);
@@ -16,7 +16,7 @@ pub async fn list(profile: &str, config: &Config, format: &str, vault: Arc<dyn c
     let entries = dlq_store.list().await?;
 
     if format == "json" || format == "yaml" {
-        return crate::core::utils::render(&entries, format);
+        return cowen_common::utils::render(&entries, format);
     }
 
     if entries.is_empty() {
@@ -42,7 +42,7 @@ pub async fn list(profile: &str, config: &Config, format: &str, vault: Arc<dyn c
     Ok(())
 }
 
-pub async fn retry(profile: &str, config: &Config, id: &str, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+pub async fn retry(profile: &str, config: &Config, id: &str, vault: Arc<dyn cowen_common::vault::Vault>) -> Result<()> {
     let auth = cowen_auth::create_auth_client_with_vault(vault.clone());
     if !auth.supports_webhooks(config) {
         println!("⚠️  Mode '{:?}' does not support Webhooks/Streaming, DLQ is disabled.", config.app_mode);
@@ -72,7 +72,7 @@ pub async fn retry(profile: &str, config: &Config, id: &str, vault: Arc<dyn crat
     Ok(())
 }
 
-pub async fn purge(profile: &str, config: &Config, vault: Arc<dyn crate::core::vault::Vault>) -> Result<()> {
+pub async fn purge(profile: &str, config: &Config, vault: Arc<dyn cowen_common::vault::Vault>) -> Result<()> {
     let auth = cowen_auth::create_auth_client_with_vault(vault.clone());
     if !auth.supports_webhooks(config) {
         println!("⚠️  Mode '{:?}' does not support Webhooks/Streaming, DLQ is disabled.", config.app_mode);

@@ -1,5 +1,5 @@
-use crate::core::vault::Vault;
-use crate::core::config::ConfigManager;
+use cowen_common::vault::Vault;
+use cowen_common::ConfigManager;
 use anyhow::Result;
 use serde::Serialize;
 use sysinfo::System;
@@ -16,7 +16,7 @@ pub struct SystemStatus {
 
 pub async fn status(
     active_profile: &str,
-    cfg_mgr: &crate::core::config::ConfigManager,
+    cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
     format: &str,
     all: bool,
@@ -58,10 +58,10 @@ pub async fn status(
             global: global_entries,
             profiles: statuses,
         };
-        return crate::core::utils::render(&report, format);
+        return cowen_common::utils::render(&report, format);
     }
 
-    let bin_name = crate::core::utils::get_bin_name().to_uppercase();
+    let bin_name = cowen_common::utils::get_bin_name().to_uppercase();
     println!("🔍 {} System Status Diagnostics", if all { "(All Profiles)" } else { "" });
     println!("==================================================");
     
@@ -92,7 +92,7 @@ pub async fn status(
     Ok(())
 }
 
-fn get_global_entries(app_cfg: &crate::core::config::AppConfig) -> Vec<StatusEntry> {
+fn get_global_entries(app_cfg: &cowen_common::AppConfig) -> Vec<StatusEntry> {
     use cowen_common::status::CommonTemplate;
     vec![
         StatusEntry::new(CommonTemplate::Storage, StatusLevel::OK, 
@@ -104,7 +104,7 @@ fn get_global_entries(app_cfg: &crate::core::config::AppConfig) -> Vec<StatusEnt
 
 async fn get_system_status(
     profile: &str,
-    cfg_mgr: &crate::core::config::ConfigManager,
+    cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
 ) -> Result<SystemStatus> {
     let cfg = cfg_mgr.load(profile).await?;
@@ -203,8 +203,8 @@ fn render_entry(entry: &StatusEntry, indent: usize) {
 
 pub async fn ensure_daemon_running(
     profile: &str, 
-    config: &crate::core::config::Config, 
-    cfg_mgr: &crate::core::config::ConfigManager, 
+    config: &cowen_common::Config, 
+    cfg_mgr: &ConfigManager, 
     vault: Arc<dyn Vault>,
     auth_cli: &cowen_auth::AuthClient,
 ) -> Result<()> {
@@ -276,8 +276,8 @@ pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Re
     
     #[derive(Serialize)]
     struct CombinedConfig {
-        global: crate::core::config::AppConfig,
-        profile: crate::core::config::Config,
+        global: cowen_common::AppConfig,
+        profile: cowen_common::Config,
     }
     
     let combined = CombinedConfig {
@@ -286,7 +286,7 @@ pub async fn config(_profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Re
     };
 
     if format == "json" || format == "yaml" {
-        crate::core::utils::render(&combined, format)?;
+        cowen_common::utils::render(&combined, format)?;
     } else {
         println!("\n🌐 Global Configuration (app.yaml)");
         println!("----------------------------------");
@@ -359,7 +359,7 @@ pub async fn reset(
 
     // Smart reset: switch to another available profile if the active one was deleted
     if cfg_mgr.get_default_profile() == _profile {
-        let available_profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
+        let available_profiles: Vec<String> = cfg_mgr.list_profiles().await.unwrap_or_default();
         let next_profile = available_profiles.iter()
             .find(|&p| p != _profile)
             .cloned()

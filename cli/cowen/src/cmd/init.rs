@@ -1,18 +1,18 @@
 use cowen_auth::models::AuthMode;
-use crate::core::config::ConfigManager;
+use cowen_common::ConfigManager;
 use crate::core::vault::Vault;
 use anyhow::Result;
 use std::sync::Arc;
 
 struct InitCleanupGuard {
     profile: String,
-    cfg_mgr: crate::core::config::ConfigManager,
+    cfg_mgr: ConfigManager,
     is_new: bool,
     active: bool,
 }
 
 impl InitCleanupGuard {
-    fn new(profile: &str, cfg_mgr: &crate::core::config::ConfigManager, is_new: bool) -> Self {
+    fn new(profile: &str, cfg_mgr: &ConfigManager, is_new: bool) -> Self {
         Self {
             profile: profile.to_string(),
             cfg_mgr: cfg_mgr.clone(),
@@ -43,7 +43,7 @@ impl Drop for InitCleanupGuard {
 pub async fn execute(
     profile: &str,
     cfg_mgr: &ConfigManager,
-    app_config: &mut crate::core::config::AppConfig,
+    app_config: &mut cowen_common::AppConfig,
     vault: Arc<dyn Vault>,
     app_key: &Option<String>,
     app_secret: &Option<String>,

@@ -14,6 +14,7 @@ pub mod redis_store;
 pub mod sql;
 
 pub mod vault_impl;
+pub mod migration;
 
 pub use file::FileStore;
 pub use hybrid::HybridStore;

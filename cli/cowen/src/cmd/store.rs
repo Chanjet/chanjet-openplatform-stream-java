@@ -1,5 +1,5 @@
 use anyhow::Result;
-use crate::core::config::{ConfigManager, AppConfig};
+use cowen_common::{ConfigManager, AppConfig};
 use colored::Colorize;
 
 pub async fn set(
@@ -47,11 +47,11 @@ pub async fn status(app_config: &AppConfig) -> Result<()> {
     println!("\n{}", "Storage Configuration Status".bold().underline());
     println!("  Type:  {}", storage.store.cyan());
     if let Some(url) = &storage.db_url {
-        println!("  URL:   {}", crate::core::utils::mask_url_query(url));
+        println!("  URL:   {}", cowen_common::utils::mask_url_query(url));
     }
     println!("  Cache: {}", storage.cache.cyan());
     if let Some(url) = &storage.cache_url {
-        println!("  URL:   {}", crate::core::utils::mask_url_query(url));
+        println!("  URL:   {}", cowen_common::utils::mask_url_query(url));
     }
     println!();
 
@@ -84,7 +84,7 @@ async fn check_db_connectivity(store_type: &str, url: Option<&str>) -> Result<()
         return Ok(());
     }
     let url = url.ok_or_else(|| anyhow::anyhow!("Database URL is missing"))?;
-    let _ = crate::core::store::create_store_from_url(url, &crate::core::config::get_app_dir(), &crate::core::security::get_machine_fingerprint()?).await
+    let _ = cowen_store::create_store_from_url(url, &cowen_common::config::get_app_dir(), &cowen_common::security::get_machine_fingerprint()?).await
         .map_err(|e| anyhow::anyhow!("Failed to connect to database: {}", e))?;
     Ok(())
 }
@@ -94,15 +94,17 @@ async fn check_cache_connectivity(cache_type: &str, url: Option<&str>) -> Result
         return Ok(());
     }
     let url = url.ok_or_else(|| anyhow::anyhow!("Cache URL is missing"))?;
-    let _ = crate::core::store::create_store_from_url(url, &crate::core::config::get_app_dir(), &crate::core::security::get_machine_fingerprint()?).await
+    let _ = cowen_store::create_store_from_url(url, &cowen_common::config::get_app_dir(), &cowen_common::security::get_machine_fingerprint()?).await
         .map_err(|e| anyhow::anyhow!("Failed to connect to cache: {}", e))?;
     Ok(())
 }
 
 pub async fn migrate(
-    cfg_mgr: &crate::core::config::ConfigManager,
+    cfg_mgr: &ConfigManager,
     to: &str,
-    mode: crate::core::migration::MigrationMode,
+    mode: cowen_store::migration::MigrationMode,
 ) -> Result<()> {
-    crate::core::migration::perform_migration(cfg_mgr, to, mode).await
+    let app_dir = cowen_common::config::get_app_dir();
+    let fingerprint = cowen_common::security::get_machine_fingerprint()?;
+    cowen_store::migration::perform_migration(cfg_mgr, to, mode, &app_dir, &fingerprint).await
 }

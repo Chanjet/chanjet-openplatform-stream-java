@@ -1,4 +1,4 @@
-use crate::core::config::Config;
+use cowen_common::Config;
 use cowen_auth::client::Client as AuthClientTrait;
 use anyhow::Result;
 
@@ -27,8 +27,8 @@ pub async fn token(
     
     if format == "json" || format == "yaml" {
         match detail {
-            Ok(t) => return crate::core::utils::render(&t, format),
-            Err(e) => return crate::core::utils::render(&serde_json::json!({"error": e.to_string()}), format),
+            Ok(t) => return cowen_common::utils::render(&t, format),
+            Err(e) => return cowen_common::utils::render(&serde_json::json!({"error": e.to_string()}), format),
         }
     }
 
@@ -36,7 +36,7 @@ pub async fn token(
     match detail {
         Ok(t) => {
             println!("Token status for profile '{}':", _profile);
-            println!("  Value:      {}", crate::core::utils::mask_string(&t.value));
+            println!("  Value:      {}", cowen_common::utils::mask_string(&t.value));
             println!("  Expires At: {}", t.expires_at);
             if t.is_expired() {
                 println!("  Status:     \x1b[31mExpired\x1b[0m");

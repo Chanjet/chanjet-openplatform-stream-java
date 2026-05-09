@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use cowen_common::obfs;
 use logroller::{LogRollerBuilder, Rotation, RotationAge, RotationSize};
 use tracing_subscriber::{
     fmt,
@@ -25,11 +26,11 @@ pub struct TelemetryEvent {
 pub fn init_telemetry(
     log_dir: PathBuf, 
     profile: &str, 
-    config: &crate::core::config::LogConfig,
+    config: &cowen_common::config::LogConfig,
     vault_rx: tokio::sync::watch::Receiver<Option<Arc<dyn crate::core::vault::Vault>>>,
 ) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
     let log_level = &config.level;
-    let bin_name = crate::core::utils::get_bin_name();
+    let bin_name = cowen_common::utils::get_bin_name();
     
     if !log_dir.exists() {
         std::fs::create_dir_all(&log_dir)?;
@@ -111,7 +112,7 @@ pub fn init_telemetry(
 }
 
 /// 异步上报遥测事件 (静默失败，非阻塞)
-pub fn report_event(config: &crate::core::config::Config, event_name: String, payload: serde_json::Value) {
+pub fn report_event(config: &cowen_common::Config, event_name: String, payload: serde_json::Value) {
     if !config.telemetry_enabled {
         return;
     }
@@ -120,7 +121,7 @@ pub fn report_event(config: &crate::core::config::Config, event_name: String, pa
     tokio::spawn(async move {
         let result: Result<()> = async {
             let client = cowen_common::network::create_client(&config)?;
-            let fingerprint = crate::core::security::get_machine_fingerprint()?;
+            let fingerprint = cowen_common::security::get_machine_fingerprint()?;
             
             let url = format!("{}{}", config.stream_url.trim_end_matches('/'), obfs!("/v1/telemetry/events"));
             
@@ -157,7 +158,7 @@ mod tests {
     #[test]
     fn test_profile_specific_log_creation() {
         let temp_dir = std::env::temp_dir().join(format!("telemetry_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros()));
-        let config = crate::core::config::Config::default_with_profile("testprof");
+        let config = cowen_common::Config::default_with_profile("testprof");
         
         let (_, rx) = tokio::sync::watch::channel(None);
         let _guards = init_telemetry(temp_dir.clone(), "testprof", &config.log, rx).unwrap();

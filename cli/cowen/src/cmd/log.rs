@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::core::vault::Vault;
 
 pub async fn list(profile: &str, vault: Arc<dyn Vault>) -> Result<()> {
-    let app_dir = crate::core::config::get_app_dir();
+    let app_dir = cowen_common::config::get_app_dir();
     let log_dir = app_dir.join("logs");
 
     if !log_dir.exists() {
@@ -74,7 +74,7 @@ pub async fn view(
             return Ok(());
         }
     }
-    let app_dir = crate::core::config::get_app_dir();
+    let app_dir = cowen_common::config::get_app_dir();
     let log_dir = app_dir.join("logs");
     
     let log_path = log_dir.join(format!("{}_{}.log", profile, domain));

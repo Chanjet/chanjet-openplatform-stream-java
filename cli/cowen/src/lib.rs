@@ -1,0 +1,430 @@
+pub mod core;
+pub mod cmd;
+
+use clap::Parser;
+use cowen_common::ConfigManager;
+use cowen_common::security;
+use cowen_common::utils::get_bin_name;
+use anyhow::Result;
+use std::io::Write;
+use std::sync::Arc;
+
+#[derive(Parser)]
+#[command(name = option_env!("CARGO_BIN_NAME_OVERRIDE").unwrap_or("cowen"))]
+#[command(version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " / ", env!("BUILD_TIME"), ")"))]
+#[command(
+    about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
+    long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。"
+)]
+pub struct Cli {
+    #[arg(short, long, global = true, env = "COWEN_PROFILE", help = "配置环境名称 (缺省则使用当前激活的 Profile)")]
+    pub profile: Option<String>,
+
+    #[arg(short = 'o', long, default_value = "text", global = true, env = "COWEN_FORMAT", help = "输出格式 (text, json, yaml)")]
+    pub format: String,
+
+    #[arg(long, default_value = "error", global = true, env = "COWEN_LOG_LEVEL", help = "日志输出级别 (debug, info, warn, error)")]
+    pub log_level: String,
+
+    #[arg(long, global = true, help = "禁用遥测数据上报")]
+    pub no_telemetry: bool,
+
+    #[arg(long, global = true, help = "禁用 AI/语义搜索功能")]
+    pub no_ai: bool,
+
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(clap::Subcommand)]
+pub enum Commands {
+    /// 初始化应用配置与安全凭据
+    #[command(long_about = "初始化 CLI 的应用环境与安全凭据。这是治理工具的第一步。\nCLI 会引导您输入 AppKey, AppSecret 等核心参数，并将其加密存储在本地安全存储 (Vault) 中。\n\n支持基于 Profile 的多环境隔离 (default/inte/prod)。")]
+    Init {
+        #[arg(long, env = "COWEN_APP_KEY", help = "开放平台 AppKey")]
+        app_key: Option<String>,
+        #[arg(long, env = "COWEN_APP_SECRET", help = "开放平台 AppSecret (将被安全加密存储)")]
+        app_secret: Option<String>,
+        #[arg(short = 'c', long, env = "COWEN_CERTIFICATE", help = "自建应用证书 (Certificate)")]
+        certificate: Option<String>,
+        #[arg(long, env = "COWEN_ENCRYPT_KEY", help = "消息加解密密钥 (AES Encrypt Key)")]
+        encrypt_key: Option<String>,
+        #[arg(long, env = "COWEN_WEBHOOK_TARGET", help = "本地 Webhook 接收地址")]
+        webhook_target: Option<String>,
+        #[arg(long, env = "COWEN_OPENAPI_URL", help = "OpenAPI 基础 URL 覆盖")]
+        openapi_url: Option<String>,
+        #[arg(long, env = "COWEN_STREAM_URL", help = "Stream Gateway 基础 URL 覆盖")]
+        stream_url: Option<String>,
+        #[arg(long, env = "COWEN_APP_MODE", help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用)")]
+        app_mode: Option<String>,
+        #[arg(long, env = "COWEN_PROXY_PORT", help = "本地代理监听端口")]
+        proxy_port: Option<u16>,
+    },
+    /// 调用开放平台 API 或管理接口规范
+    Api {
+        #[arg(help = "HTTP Method (e.g. GET, POST)")]
+        method: Option<String>,
+        #[arg(help = "API Path (e.g. /v1/user)")]
+        path: Option<String>,
+        #[arg(short = 'd', long = "data", help = "HTTP 请求体数据 (JSON格式)")]
+        data: Option<String>,
+        #[arg(short = 'f', long = "file", help = "从文件读取请求体数据 (JSON格式)")]
+        data_file: Option<String>,
+
+        #[command(subcommand)]
+        action: Option<ApiCommands>,
+    },
+    /// 管理身份认证与凭据 (Token/Ticket)
+    Auth {
+        #[command(subcommand)]
+        action: AuthCommands,
+    },
+    /// 管理 CLI 后台守护进程 (桥接、代理与转发)
+    Daemon {
+        #[command(subcommand)]
+        action: DaemonCommands,
+    },
+    /// 检查 CLI 的整体运行状态
+    Status {
+        /// 扫描并输出所有存在的 Profile 的状态
+        #[arg(short, long)]
+        all: bool,
+    },
+    /// 查看当前环境的配置详情
+    Config,
+    /// 重置当前环境的配置状态
+    Reset,
+    /// 生成或自动安装命令行自动补全脚本 (Bash, Zsh, Fish)
+    Completion {
+        /// 指定 Shell 类型: bash, zsh, fish
+        #[arg(value_enum)]
+        shell: Option<clap_complete::Shell>,
+
+        /// 自动安装补全脚本到当前用户的配置中
+        #[arg(long)]
+        install: bool,
+
+        /// 从当前用户的配置中卸载补全脚本
+        #[arg(long)]
+        uninstall: bool,
+    },
+    /// 管理当前生效的配置 Profile
+    Profile {
+        #[command(subcommand)]
+        action: ProfileCommands,
+    },
+    /// 管理死信队列 (DLQ) 中的异常事件
+    Dlq {
+        #[command(subcommand)]
+        action: DlqCommands,
+    },
+    /// 查看并追踪 CLI 运行日志
+    Log {
+        #[command(subcommand)]
+        action: LogCommands,
+    },
+    /// 管理并配置全局存储后端与缓存 (此命令为全局操作，不受 -p 参数影响)
+    Store {
+        #[command(subcommand)]
+        action: StoreCommands,
+    },
+    /// 管理并检查系统整体状态
+    System {
+        #[command(subcommand)]
+        action: SystemCommands,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum ProfileCommands {
+    Use { name: String },
+    Current,
+    List,
+    Rename { old_name: String, new_name: String },
+}
+
+#[derive(clap::Subcommand)]
+pub enum SystemCommands {
+    Status { #[arg(short, long)] all: bool },
+}
+
+#[derive(clap::Subcommand)]
+pub enum StoreCommands {
+    Set {
+        #[arg(long, env = "COWEN_STORE_TYPE")] store: Option<String>,
+        #[arg(long, env = "COWEN_DB_URL")] db_url: Option<String>,
+        #[arg(long, env = "COWEN_CACHE_TYPE")] cache: Option<String>,
+        #[arg(long, env = "COWEN_CACHE_URL")] cache_url: Option<String>,
+    },
+    Status,
+    Migrate {
+        #[arg(long)] to: String,
+        #[arg(long, value_enum, default_value = "clone")] mode: cowen_store::migration::MigrationMode,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum ApiCommands {
+    List {
+        #[arg(short, long)] search: Option<String>,
+        #[arg(long, default_value_t = 1)] page: usize,
+        #[arg(short = 'n', long, default_value_t = 20)] page_size: usize,
+        #[arg(short, long)] refresh: bool,
+    },
+    Spec { method: String, path: String, #[arg(long)] raw: bool },
+}
+
+#[derive(clap::Subcommand)]
+pub enum AuthCommands {
+    Status,
+    Reset,
+    Logout,
+    Login {
+        #[arg(short, long)] force: bool,
+        #[arg(long, hide = true)] finalize: Option<String>,
+    },
+    Token { #[arg(short, long)] refresh: bool },
+}
+
+#[derive(clap::Subcommand)]
+pub enum DaemonCommands {
+    Start {
+        #[arg(long)] proxy_port: Option<u16>,
+        #[arg(long)] enable_proxy: bool,
+        #[arg(long)] no_proxy: bool,
+        #[arg(long)] foreground: bool,
+        #[arg(short, long)] all: bool,
+    },
+    Stop { #[arg(short, long)] all: bool },
+    Restart {
+        #[arg(long)] proxy_port: Option<u16>,
+        #[arg(long)] enable_proxy: bool,
+        #[arg(long)] no_proxy: bool,
+        #[arg(short, long)] all: bool,
+    },
+    Service { #[command(subcommand)] action: ServiceCommands },
+}
+
+#[derive(clap::Subcommand)]
+pub enum ServiceCommands { Install, Uninstall, Status }
+
+#[derive(clap::Subcommand)]
+pub enum DlqCommands { List, Retry { id: String }, Purge }
+
+#[derive(clap::Subcommand)]
+pub enum LogCommands {
+    List,
+    View {
+        #[arg(default_value = "sys")] domain: String,
+        #[arg(short, long)] follow: bool,
+        #[arg(short = 'n', long, default_value_t = 10)] lines: usize,
+    },
+}
+
+pub async fn run(cli: Cli) -> Result<()> {
+    let bin_name = get_bin_name();
+
+    // 1. Core Paths
+    let app_dir = cowen_common::config::get_app_dir();
+    let log_dir = app_dir.join("logs");
+
+    // 2. Load Config to get Log Settings
+    let cfg_mgr = ConfigManager::new()?;
+    let mut app_config = cfg_mgr.load_app_config().await?;
+
+    let fingerprint = security::get_machine_fingerprint()?;
+    let vault = core::vault::create_vault(&app_config, &app_dir, &fingerprint).await?;
+    let _ = cfg_mgr.set_vault(vault.clone());
+
+    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+    let _ = cfg_mgr.set_validator(std::sync::Arc::new(cowen_auth::AuthProviderValidator::new(auth_cli.clone())));
+
+    let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
+
+    if matches!(&cli.command, Commands::Init { .. }) {
+        if cli.profile.is_none() {
+            active_profile = cfg_mgr.get_next_profile_name().await?;
+            println!("🪄 No profile name provided. Automatically generating new profile: \x1b[1;32m{}\x1b[0m", active_profile);
+        }
+    }
+    
+    let mut config = match cfg_mgr.load(&active_profile).await {
+        Ok(cfg) => cfg,
+        Err(e) if e.to_string().contains("SKIPPED:") => return Err(e),
+        Err(_) => cowen_common::Config::default_with_profile(&active_profile),
+    };
+
+    config.apply_env_overrides();
+
+    if cli.no_telemetry { config.telemetry_enabled = false; }
+    if cli.no_ai { config.ai_enabled = false; }
+
+    let (vault_tx, vault_rx) = tokio::sync::watch::channel(None);
+    let _guards = match core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {
+        Ok(g) => Some(g),
+        Err(e) => {
+            eprintln!("⚠️ Warning: Telemetry system failed to initialize: {}. Continuing without structured logging.", e);
+            None
+        }
+    };
+
+    tracing::info!(target: "sys", "cowen starting (version {})", env!("CARGO_PKG_VERSION"));
+
+    let marker_path = app_dir.join(".telemetry_marker");
+    if !marker_path.exists() && cli.format == "text" {
+        println!("\n\x1b[1;36m🛡️  安全与隐私提示 (Security & Privacy Notice)\x1b[0m");
+        println!("--------------------------------------------------");
+        println!("欢迎使用 cowen CLI！");
+        println!("- 遥测数据 (Telemetry): 匿名指纹、OS/Arch 及命令运行情况。");
+        println!("- AI 语义搜索 (AI Search): 本地向量化实现 API 快速检索。");
+        println!("--------------------------------------------------\n");
+
+        if !app_dir.exists() { let _ = std::fs::create_dir_all(&app_dir); }
+        core::telemetry::report_event(&config, "cli_first_run".to_string(), serde_json::json!({}));
+        let _ = std::fs::File::create(&marker_path);
+    }
+
+    let cmd_name = match &cli.command {
+        Commands::Api { .. } => "api",
+        Commands::Auth { .. } => "auth",
+        Commands::Daemon { .. } => "daemon",
+        Commands::Init { .. } => "init",
+        Commands::Status { .. } => "status",
+        Commands::Config => "config",
+        Commands::Reset => "reset",
+        Commands::Completion { .. } => "completion",
+        Commands::Profile { .. } => "profile",
+        Commands::Dlq { .. } => "dlq",
+        Commands::Log { .. } => "log",
+        Commands::Store { .. } => "store",
+        Commands::System { .. } => "system",
+    };
+    core::telemetry::report_event(&config, "command_run".to_string(), serde_json::json!({ "cmd": cmd_name }));
+
+    if let Commands::Store { action } = &cli.command {
+        match action {
+            StoreCommands::Set { store, db_url, cache, cache_url } => {
+                cmd::store::set(&mut app_config, &cfg_mgr, store, db_url, cache, cache_url).await?;
+                return Ok(());
+            }
+            StoreCommands::Status => {
+                cmd::store::status(&app_config).await?;
+                return Ok(());
+            }
+            _ => {} 
+        }
+    }
+
+    let _ = vault_tx.send(Some(vault.clone()));
+
+    if let Commands::Store { action: StoreCommands::Migrate { to, mode } } = &cli.command {
+        cmd::store::migrate(&cfg_mgr, to, *mode).await?;
+        return Ok(());
+    }
+
+    if cmd::completion::is_auto_install_needed() {
+        let _ = cmd::completion::install_completion(None);
+    }
+
+    let skip_recovery = matches!(&cli.command, 
+        Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. } |
+        Commands::Config | Commands::Status { .. } | Commands::Profile { .. } | Commands::Dlq { .. }
+    ) || matches!(&cli.command, Commands::Auth { action: AuthCommands::Login { finalize: Some(_), .. } });
+
+    let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
+    if !skip_recovery {
+        let _ = cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
+    }
+
+    match &cli.command {
+        Commands::Init { app_key, app_secret, certificate, encrypt_key, webhook_target, openapi_url, stream_url, app_mode, proxy_port } => {
+            cmd::init::execute(&active_profile, &cfg_mgr, &mut app_config, vault.clone(), app_key, app_secret, certificate, encrypt_key, webhook_target, openapi_url, stream_url, app_mode, proxy_port, true, Some(daemon_svc.clone())).await?;
+        }
+        Commands::Api { method, path, data, data_file, action } => {
+            if let Some(act) = action {
+                match act {
+                    ApiCommands::List { search, page, page_size, refresh } => {
+                        cmd::api::list(&active_profile, &config, &auth_cli, search, *page, *page_size, &cli.format, *refresh, vault.clone()).await?;
+                    }
+                    ApiCommands::Spec { method, path, raw } => {
+                        cmd::api::spec(&active_profile, &config, &auth_cli, method, path, *raw).await?;
+                    }
+                }
+            } else if let (Some(m), Some(p)) = (method, path) {
+                cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, data_file, &cli.format).await?;
+            } else {
+                println!("Usage: {} api [METHOD] [PATH] or use subcommands (list, spec)", bin_name);
+            }
+        }
+        Commands::Auth { action } => match action {
+            AuthCommands::Status => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, false).await?,
+            AuthCommands::Reset | AuthCommands::Logout => cmd::auth::logout(&active_profile, &config, &auth_cli).await?,
+            AuthCommands::Login { force, finalize } => cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref()).await?,
+            AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format, *refresh).await?,
+        }
+        Commands::Daemon { action } => match action {
+            DaemonCommands::Start { proxy_port, enable_proxy, no_proxy, foreground, all } => {
+                let mut updated_config = config.clone();
+                let mut changed = false;
+                if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
+                if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
+                else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
+                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await?; }
+                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone()).await?;
+            }
+            DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
+            DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {
+                let mut updated_config = config.clone();
+                let mut changed = false;
+                if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
+                if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
+                else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
+                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await?; }
+                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone()).await?;
+            }
+            DaemonCommands::Service { action } => match action {
+                ServiceCommands::Install => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Install).await?,
+                ServiceCommands::Uninstall => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Uninstall).await?,
+                ServiceCommands::Status => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Status).await?,
+            }
+        }
+        Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?,
+        Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? }
+        Commands::Config => cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?,
+        Commands::Reset => cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus())).await?,
+        Commands::Completion { shell, install, uninstall } => {
+            if *uninstall { cmd::completion::uninstall_completion()?; }
+            else if *install { cmd::completion::install_completion(*shell)?; }
+            else if let Some(s) = shell {
+                let mut buf = Vec::new();
+                cmd::completion::generate_completion(*s, &mut buf)?;
+                let _ = std::io::stdout().write_all(&buf);
+            }
+        }
+        Commands::Profile { action } => match action {
+            ProfileCommands::Use { name } => { cfg_mgr.set_default_profile(name)?; println!("✅ Set default profile to '{}'", name); }
+            ProfileCommands::Current => println!("{}", cfg_mgr.get_default_profile()),
+            ProfileCommands::List => {
+                let profiles = cfg_mgr.list_profiles().await?;
+                let current = cfg_mgr.get_default_profile();
+                if cli.format == "json" || cli.format == "yaml" { cowen_common::utils::render(&profiles, &cli.format)?; }
+                else {
+                    println!("\n📂 Available Profiles:");
+                    for p in profiles { if p == current { println!("  * \x1b[32m{:<20}\x1b[0m (current)", p); } else { println!("    {:<20}", p); } }
+                }
+            }
+            ProfileCommands::Rename { old_name, new_name } => cmd::system::rename_profile(old_name, new_name, &cfg_mgr, vault.clone(), cowen_common::events::event_bus()).await?,
+        }
+        Commands::Dlq { action } => match action {
+            DlqCommands::List => cmd::dlq::list(&active_profile, &config, &cli.format, vault.clone()).await?,
+            DlqCommands::Retry { id } => cmd::dlq::retry(&active_profile, &config, id, vault.clone()).await?,
+            DlqCommands::Purge => cmd::dlq::purge(&active_profile, &config, vault.clone()).await?,
+        }
+        Commands::Log { action } => match action {
+            LogCommands::List => cmd::log::list(&active_profile, vault.clone()).await?,
+            LogCommands::View { domain, follow, lines } => cmd::log::view(&active_profile, domain, *follow, *lines, vault.clone()).await?,
+        }
+        Commands::Store { .. } => unreachable!(),
+    }
+    Ok(())
+}

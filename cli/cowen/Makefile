@@ -47,7 +47,7 @@ else
     SHA1 = (shasum -a 1 $(1) 2>/dev/null || sha1sum $(1)) | cut -d ' ' -f 1 > $(1).sha1
 endif
 
-VERIFY_BIN = ./tests/verify-binary.sh $(1)
+VERIFY_BIN = ./tests/e2e/scripts/verify-binary.sh $(1)
 
 # 生产/测试环境配置
 PROD_OPENAPI = https://openapi.chanjet.com
@@ -255,7 +255,7 @@ package-windows-x86_64: clean windows-x86_64
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@echo "🔍 Automating Windows package verification..."
-	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
 
 # 内部复用的 Linux 打包逻辑
 impl-package-linux-x86_64:
@@ -295,17 +295,17 @@ test-linux: prepare-podman-machine prepare-podman-image
 		-e BASE_PORT_START=16000 \
 		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
-		./tests/run_parallel.sh
+		./tests/runners/run_parallel.sh
 
 # 在 Windows PowerShell 环境下执行测试
 test-win:
 	@echo "🧪 Running Full E2E Suite in Windows PowerShell..."
-	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/run_suites.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/runners/run_suites.ps1"
 
 # 在 macOS 原生环境执行并行测试
 test-macos:
 	@echo "🧪 Running Parallel E2E Suite natively on macOS (Isolated)..."
-	TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/run_parallel.sh
+	TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/runners/run_parallel.sh
 
 # --- 其他 ---
 
@@ -344,7 +344,7 @@ db-up: prepare-podman-machine
 		podman start cowen-postgres 2>/dev/null || podman run -d --name cowen-postgres -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=cowen_test --health-cmd="pg_isready -U postgres" --health-interval=5s postgres:15; \
 	else \
 		echo "🚀 Using $(COMPOSE_BIN)..."; \
-		cd tests && $(COMPOSE_BIN) up -d || (echo "❌ Failed to start containers." && exit 1); \
+		cd tests/infra && $(COMPOSE_BIN) up -d || (echo "❌ Failed to start containers." && exit 1); \
 	fi; \
 	echo "⌛ Waiting for databases to be ready..."; \
 	MAX_WAIT=30; count=0; \
@@ -360,7 +360,7 @@ db-down:
 		podman stop cowen-mysql cowen-postgres 2>/dev/null || true; \
 		podman rm cowen-mysql cowen-postgres 2>/dev/null || true; \
 	else \
-		cd tests && $(COMPOSE_BIN) down -v; \
+		cd tests/infra && $(COMPOSE_BIN) down -v; \
 	fi; \
 	$(MAKE) stop-podman-machine
 

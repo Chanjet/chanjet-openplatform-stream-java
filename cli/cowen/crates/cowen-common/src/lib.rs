@@ -10,6 +10,9 @@ pub mod status;
 pub mod obfs;
 pub mod daemon;
 pub mod config_manager;
+pub mod domain;
+pub mod openapi;
 
 pub use config_manager::{ConfigManager, ConfigValidator};
+pub use config::{Config, AppConfig};
 pub mod store;

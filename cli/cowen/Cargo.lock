@@ -919,6 +919,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "clap",
  "cowen-common",
  "deadpool-tiberius",
  "fs2",

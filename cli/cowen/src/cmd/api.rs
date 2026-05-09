@@ -1,4 +1,4 @@
-use crate::core::config::Config;
+use cowen_common::Config;
 use cowen_auth::client::Client as AuthClientTrait;
 use anyhow::{Result, anyhow};
 use reqwest::Method;
@@ -7,23 +7,24 @@ use serde_yaml;
 use std::sync::Arc;
 #[cfg(feature = "ai")]
 use anyhow::Context;
+
 #[cfg(feature = "ai")]
 async fn get_ai_embedder() -> anyhow::Result<cowen_ai::ONNXEmbedder> {
-    let app_dir = crate::core::config::get_app_dir();
+    let app_dir = cowen_common::config::get_app_dir();
     cowen_ai::SearchIndex::ensure_assets(&app_dir)?;
     let (m, t) = cowen_ai::SearchIndex::get_asset_paths(&app_dir);
     cowen_ai::ONNXEmbedder::new(&m, &t)
 }
 
 #[cfg(feature = "ai")]
-async fn load_search_index(profile: &str, vault: &dyn crate::core::vault::Vault) -> anyhow::Result<cowen_ai::SearchIndex> {
+async fn load_search_index(profile: &str, vault: &dyn cowen_common::vault::Vault) -> anyhow::Result<cowen_ai::SearchIndex> {
     let json = vault.get_config(profile, "search_index").await.context("No index")?;
     let index: cowen_ai::SearchIndex = serde_json::from_str(&json)?;
     Ok(index)
 }
 
 #[cfg(feature = "ai")]
-async fn save_search_index(profile: &str, vault: &dyn crate::core::vault::Vault, index: &cowen_ai::SearchIndex) -> anyhow::Result<()> {
+async fn save_search_index(profile: &str, vault: &dyn cowen_common::vault::Vault, index: &cowen_ai::SearchIndex) -> anyhow::Result<()> {
     let json = serde_json::to_string(index)?;
     vault.set_config(profile, "search_index", &json).await?;
     Ok(())
@@ -60,7 +61,7 @@ pub async fn call(
     let spec = auth_cli.get_openapi_spec(profile, cfg, false).await?;
 
     // PRE-CHECK: Validate Parameters & Body against OpenAPI spec
-    crate::core::openapi::validate_request(&spec, method, path, &body_option)?;
+    cowen_common::openapi::validate_request(&spec, method, path, &body_option)?;
 
     let path_no_query = path.split('?').next().unwrap_or(path);
     if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
@@ -126,9 +127,9 @@ pub async fn call(
         tracing::info!(
             target: "sys",
             method = %method,
-            url = %crate::core::utils::mask_url_query(&url),
+            url = %cowen_common::utils::mask_url_query(&url),
             content_type = %content_type,
-            body = %crate::core::utils::mask_sensitive_json(body_option.as_deref().unwrap_or("")),
+            body = %cowen_common::utils::mask_sensitive_json(body_option.as_deref().unwrap_or("")),
             "Sending platform API request"
         );
 
@@ -153,7 +154,7 @@ pub async fn call(
             if let Ok(json_body) = serde_json::from_slice::<Value>(&body_bytes) {
                 let code = json_body.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
                 if code == 50107 {
-                    let masked_body = crate::core::utils::mask_sensitive_json(&json_body.to_string());
+                    let masked_body = cowen_common::utils::mask_sensitive_json(&json_body.to_string());
                     println!("🚨 [DEBUG] 50107 Error: {}", masked_body);
                     tracing::warn!(target: "sys", "Detected expired token (50107). Clearing cache and retrying...");
                     auth_cli.clear_token(profile, cfg).await?;
@@ -170,7 +171,7 @@ pub async fn call(
             target: "audit", 
             profile = %profile, 
             method = %method, 
-            path = %crate::core::utils::mask_url_query(path), 
+            path = %cowen_common::utils::mask_url_query(path), 
             status = %status.as_u16(), 
             trace_id = %trace_id, 
             "API request completed"
@@ -192,20 +193,20 @@ async fn handle_response(
     if content_type.contains("application/json") {
         let body: Value = serde_json::from_slice(&body_vec)?;
         if status.is_success() {
-            crate::core::utils::render(&body, format)?;
+            cowen_common::utils::render(&body, format)?;
             if format == "text" {
                 println!("\n🔍 TraceID: {}", trace_id);
             }
         } else {
             eprintln!("Error ({}):", status);
             if format == "json" || format == "yaml" {
-                crate::core::utils::render(&serde_json::json!({
+                cowen_common::utils::render(&serde_json::json!({
                     "status": status.as_u16(),
                     "trace_id": trace_id,
                     "error": body
                 }), format)?;
             } else {
-                crate::core::utils::render(&body, "json")?;
+                cowen_common::utils::render(&body, "json")?;
                 println!("\n🔍 TraceID: {}", trace_id);
             }
         }
@@ -213,27 +214,27 @@ async fn handle_response(
         let body_text = String::from_utf8_lossy(&body_vec);
         if status.is_success() {
             if format == "json" || format == "yaml" {
-                crate::core::utils::render(&serde_json::json!({
+                cowen_common::utils::render(&serde_json::json!({
                     "status": status.as_u16(),
                     "trace_id": trace_id,
                     "content_type": content_type,
                     "body": body_text
                 }), format)?;
             } else {
-                println!("Response ({} - {}):\n{}", status, content_type, crate::core::utils::mask_sensitive_json(&body_text));
+                println!("Response ({} - {}):\n{}", status, content_type, cowen_common::utils::mask_sensitive_json(&body_text));
                 println!("\n🔍 TraceID: {}", trace_id);
             }
         } else {
             eprintln!("Error ({} - {}):", status, content_type);
             if format == "json" || format == "yaml" {
-                crate::core::utils::render(&serde_json::json!({
+                cowen_common::utils::render(&serde_json::json!({
                     "status": status.as_u16(),
                     "trace_id": trace_id,
                     "content_type": content_type,
                     "body": body_text
                 }), format)?;
             } else {
-                eprintln!("{}", crate::core::utils::mask_sensitive_json(&body_text));
+                eprintln!("{}", cowen_common::utils::mask_sensitive_json(&body_text));
                 println!("\n🔍 TraceID: {}", trace_id);
             }
         }
@@ -350,7 +351,7 @@ pub async fn list(
         }
         #[cfg(not(feature = "ai"))]
         {
-            let bin_name = crate::core::utils::get_bin_name();
+            let bin_name = cowen_common::utils::get_bin_name();
             println!("⚠️  Semantic Search is not available in this build of {}.", bin_name);
             println!("💡 To use AI features, please use the macOS or Linux standard versions.");
         }
@@ -564,7 +565,7 @@ fn generate_usage_example(method: &str, path: &str, op: &serde_json::Value) -> S
         }
     }
 
-    let mut parts = vec![format!("{} api {} \"{}\"", crate::core::utils::get_bin_name(), method.to_lowercase(), final_path)];
+    let mut parts = vec![format!("{} api {} \"{}\"", cowen_common::utils::get_bin_name(), method.to_lowercase(), final_path)];
     
     if let Some(body) = op.get("requestBody") {
         if let Some(content_map) = body.get("content").and_then(|c| c.as_object()) {
@@ -687,7 +688,7 @@ fn print_schema_recursive(schema: &serde_json::Value, indent: usize) {
 mod tests {
     use super::*;
     use cowen_auth::models::Token;
-    use crate::core::config::Config;
+    use cowen_common::config::Config;
     use axum::{routing::get, Router, Json, extract::Query};
     use std::collections::HashMap;
     use tokio::net::TcpListener;
