@@ -13,6 +13,7 @@ pub mod sql;
 pub struct Item {
     pub profile: String,
     pub key: String,
+    #[allow(dead_code)]
     pub value: String,
     pub version: u64,
     pub updated_at: i64,
@@ -55,6 +56,7 @@ pub trait Store: Send + Sync {
     async fn get_secret(&self, profile: &str, key: &str) -> Result<String>;
     async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()>;
     async fn delete_secret(&self, profile: &str, key: &str) -> Result<()>;
+    #[allow(dead_code)]
     async fn list_secrets(&self, profile: &str) -> Result<Vec<String>>;
 
     // --- Token Domain (Ephemeral/Auto-expiring) ---

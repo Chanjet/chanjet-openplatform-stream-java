@@ -6,10 +6,12 @@ pub(crate) fn get_org_token_key(app_key: &str, org_id: &str) -> String {
     format!("oauth2_token_pair_org_{}_{}", app_key, org_id)
 }
 
+#[allow(dead_code)]
 pub(crate) fn get_user_upc_key(app_key: &str, org_id: &str, user_id: &str) -> String {
     format!("user_permanent_code_{}_{}_{}", app_key, org_id, user_id)
 }
 
+#[allow(dead_code)]
 pub(crate) fn get_org_opc_key(app_key: &str, org_id: &str) -> String {
     format!("org_permanent_code_{}_{}", app_key, org_id)
 }

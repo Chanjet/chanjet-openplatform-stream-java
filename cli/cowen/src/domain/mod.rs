@@ -89,12 +89,13 @@ pub trait AuditDomain: Send + Sync {
 #[async_trait]
 pub trait DlqDomain: Send + Sync {
     /// 压入死信队列
+    #[allow(dead_code)]
     async fn push_dlq(&self, msg: &crate::core::store::DlqMessage) -> Result<()>;
-    /// 弹出死信消息
+    #[allow(dead_code)]
     async fn pop_dlq(&self, profile: &str, topic: &str) -> Result<Option<crate::core::store::DlqMessage>>;
-    /// 列出死信消息
+    #[allow(dead_code)]
     async fn list_dlq(&self, profile: &str, limit: usize) -> Result<Vec<crate::core::store::DlqMessage>>;
-    /// 获取 Profile 下所有死信消息
+    #[allow(dead_code)]
     async fn list_all_dlq(&self, profile: &str) -> Result<Vec<crate::core::store::DlqMessage>>;
 }
 

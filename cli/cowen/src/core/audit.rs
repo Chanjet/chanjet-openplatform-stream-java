@@ -12,6 +12,7 @@ impl AuditStore {
         vault.save_audit(entry).await
     }
 
+    #[allow(dead_code)]
     pub async fn list(vault: &dyn Vault, profile: &str, limit: usize) -> Result<Vec<AuditEntry>> {
         vault.list_audit(profile, limit).await
     }

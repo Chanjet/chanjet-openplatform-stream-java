@@ -6,6 +6,7 @@ use super::{SqlDriver, SqlBuilder};
 
 pub struct PostgresDriver {
     pool: Pool<Postgres>,
+    #[allow(dead_code)]
     url: String,
 }
 

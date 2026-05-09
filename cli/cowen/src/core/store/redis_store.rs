@@ -13,6 +13,7 @@ struct RedisConfigValue {
 
 pub struct RedisStore {
     conn: MultiplexedConnection,
+    #[allow(dead_code)]
     url: String,
 }
 

@@ -463,6 +463,7 @@ impl AuthProvider for SelfBuiltProvider {
         
         enum SelfBuiltTemplate {
             SecurityVault,
+            #[allow(dead_code)]
             AccessToken,
             AppTicket,
             AuthSummary,

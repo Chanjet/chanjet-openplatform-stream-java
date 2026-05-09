@@ -23,6 +23,7 @@ pub trait SqlDriver: Send + Sync {
     async fn get_secret(&self, profile: &str, key: &str) -> Result<String>;
     async fn set_secret(&self, profile: &str, key: &str, value: &str) -> Result<()>;
     async fn delete_secret(&self, profile: &str, key: &str) -> Result<()>;
+    #[allow(dead_code)]
     async fn list_secrets(&self, profile: &str) -> Result<Vec<String>>;
 
     // --- Token Domain ---

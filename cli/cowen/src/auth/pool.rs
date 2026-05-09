@@ -7,6 +7,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait TokenPool: Send + Sync {
+    #[allow(dead_code)]
     async fn get_app_ticket(&self, app_key: &str) -> Result<Ticket>;
     async fn set_app_ticket(&self, app_key: &str, ticket: &Ticket) -> Result<()>;
 

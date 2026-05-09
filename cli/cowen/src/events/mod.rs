@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum GlobalEvent {
     /// 当 Profile 被重命名时触发
     ProfileRenamed { old: String, new: String },
