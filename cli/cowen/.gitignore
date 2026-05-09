@@ -23,6 +23,7 @@ scratch/
 # Local DB (Temporary)
 innerdb*
 cowen.db*
+sqlite*
 *.rdb
 *.profraw
 target/llvm-cov-data/
