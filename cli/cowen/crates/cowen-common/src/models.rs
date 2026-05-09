@@ -85,3 +85,71 @@ pub enum AuthMode {
     #[serde(rename = "store-app")]
     StoreApp,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuth2TokenPair {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at: DateTime<Utc>,
+    pub refresh_expires_at: DateTime<Utc>,
+    #[serde(default = "Utc::now")]
+    pub created_at: DateTime<Utc>,
+}
+
+impl OAuth2TokenPair {
+    pub fn is_expired_with_buffer(&self, min_buffer: Duration) -> bool {
+        let now = Utc::now();
+        let total_lifetime = self.expires_at.signed_duration_since(self.created_at);
+        
+        if total_lifetime < Duration::minutes(10) {
+            return now >= self.expires_at;
+        }
+
+        let total_secs = total_lifetime.num_seconds() as f64;
+        let buffer_secs = (total_secs * 0.1).max(min_buffer.num_seconds() as f64) as i64;
+        let buffer = Duration::seconds(buffer_secs);
+
+        now + buffer > self.expires_at
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthSession {
+    pub profile: String,
+    pub code_verifier: String,
+    pub state: String,
+    pub redirect_uri: String,
+    pub redirect_port: u16,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Item {
+    pub profile: String,
+    pub key: String,
+    pub value: String,
+    pub version: u64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct AuditEntry {
+    pub id: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub profile: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+    pub fields: serde_json::Value,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct DlqMessage {
+    pub id: Option<i64>,
+    pub profile: String,
+    pub topic: String,
+    pub payload: String,
+    pub retry_count: i32,
+    pub error: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}

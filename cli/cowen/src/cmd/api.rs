@@ -1,5 +1,5 @@
 use crate::core::config::Config;
-use crate::auth::client::Client as AuthClientTrait;
+use cowen_auth::client::Client as AuthClientTrait;
 use anyhow::{Result, anyhow};
 use reqwest::Method;
 use serde_json::Value;
@@ -63,7 +63,7 @@ pub async fn call(
     crate::core::openapi::validate_request(&spec, method, path, &body_option)?;
 
     let path_no_query = path.split('?').next().unwrap_or(path);
-    if !crate::auth::client::is_path_in_whitelist(path_no_query, &spec) {
+    if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
         return Err(anyhow!("CLI Rejected: Target path {} is not in the OpenAPI whitelist.", path_no_query));
     }
 
@@ -76,7 +76,7 @@ pub async fn call(
 
         // 2. Identify Content-Type from Spec
         let mut content_type = "application/json".to_string(); // Default fallback
-        if let Some(operation) = crate::auth::client::get_operation(&spec, path_no_query, method) {
+        if let Some(operation) = cowen_auth::client::get_operation(&spec, path_no_query, method) {
             if let Some(request_body) = operation.get("requestBody") {
                 if let Some(content_map) = request_body.get("content").and_then(|c| c.as_object()) {
                     if content_map.contains_key("application/json") {
@@ -91,7 +91,7 @@ pub async fn call(
         }
 
         // 3. Perform Request
-        let client = crate::core::network::create_client(cfg)?;
+        let client = cowen_common::network::create_client(cfg)?;
         let url = if path.starts_with("http") {
             path.to_string()
         } else {
@@ -105,7 +105,7 @@ pub async fn call(
         let mut req = client.request(req_method, &url)
             .header("Content-Type", content_type.clone());
 
-        let auth_headers = crate::auth::RequestDecorator::get_auth_headers(
+        let auth_headers = cowen_auth::RequestDecorator::get_auth_headers(
             &spec, 
             path_no_query, 
             method, 
@@ -439,7 +439,7 @@ pub async fn spec(
     let spec = auth_cli.get_openapi_spec(profile, cfg, false).await?;
     
     // 1. Resolve Path
-    let matched_path = crate::auth::client::find_matching_spec_path(input_path, &spec)
+    let matched_path = cowen_auth::client::find_matching_spec_path(input_path, &spec)
         .ok_or_else(|| anyhow!("Path '{}' not found in OpenAPI spec", input_path))?;
     
     let path_item = spec["paths"][&matched_path].as_object()
@@ -686,7 +686,7 @@ fn print_schema_recursive(schema: &serde_json::Value, indent: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::models::Token;
+    use cowen_auth::models::Token;
     use crate::core::config::Config;
     use axum::{routing::get, Router, Json, extract::Query};
     use std::collections::HashMap;
@@ -699,20 +699,20 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl crate::auth::client::Client for MockAuthClient {
+    impl cowen_auth::client::Client for MockAuthClient {
         async fn get_token(&self, _profile: &str, _cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
             Ok(self.token.clone())
         }
         async fn refresh_token(&self, _profile: &str, _cfg: &Config, _headers: &reqwest::header::HeaderMap) -> Result<Token> {
             Ok(self.token.clone())
         }
-        async fn handle_platform_event(&self, _profile: &str, _cfg: &Config, _event: crate::auth::provider::PlatformEvent) -> Result<()> {
+        async fn handle_platform_event(&self, _profile: &str, _cfg: &Config, _event: cowen_auth::provider::PlatformEvent) -> Result<()> {
             Ok(())
         }
         async fn perform_login(&self, _profile: &str, _cfg: &Config, _force: bool, _finalize: Option<&str>) -> Result<()> {
             Ok(())
         }
-        async fn get_diagnostics(&self, _ctx: &crate::core::status::StatusContext<'_>) -> Result<Vec<crate::core::status::StatusEntry>> {
+        async fn get_diagnostics(&self, _ctx: &cowen_common::status::StatusContext<'_>) -> Result<Vec<cowen_common::status::StatusEntry>> {
             Ok(vec![])
         }
         fn requires_initial_push(&self, _cfg: &Config) -> bool { false }

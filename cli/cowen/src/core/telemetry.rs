@@ -61,7 +61,7 @@ pub fn init_telemetry(
         }
     };
 
-    let vault_audit_layer = crate::core::audit::VaultAuditLayer::new(vault_rx);
+    let vault_audit_layer = cowen_common::audit::VaultAuditLayer::new(vault_rx);
 
     let registry = tracing_subscriber::registry()
         .with(global_filter)
@@ -119,7 +119,7 @@ pub fn report_event(config: &crate::core::config::Config, event_name: String, pa
     
     tokio::spawn(async move {
         let result: Result<()> = async {
-            let client = crate::core::network::create_client(&config)?;
+            let client = cowen_common::network::create_client(&config)?;
             let fingerprint = crate::core::security::get_machine_fingerprint()?;
             
             let url = format!("{}{}", config.stream_url.trim_end_matches('/'), obfs!("/v1/telemetry/events"));

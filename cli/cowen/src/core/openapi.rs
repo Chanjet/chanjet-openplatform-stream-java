@@ -10,7 +10,7 @@ pub fn validate_request(
     let path_no_query = path_with_query.split('?').next().unwrap_or(path_with_query);
     
     // 1. Find the operation in the spec
-    let matched_path = crate::auth::client::find_matching_spec_path(path_no_query, spec)
+    let matched_path = cowen_auth::client::find_matching_spec_path(path_no_query, spec)
         .ok_or_else(|| anyhow!("Path '{}' not found in OpenAPI spec", path_no_query))?;
     
     let op = spec["paths"][&matched_path].get(method.to_lowercase())

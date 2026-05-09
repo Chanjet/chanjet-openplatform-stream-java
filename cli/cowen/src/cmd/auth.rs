@@ -1,5 +1,5 @@
 use crate::core::config::Config;
-use crate::auth::client::Client as AuthClientTrait;
+use cowen_auth::client::Client as AuthClientTrait;
 use anyhow::Result;
 
 pub async fn login(

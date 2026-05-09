@@ -21,11 +21,8 @@ macro_rules! obfs {
 }
 
 mod core;
-mod auth;
 mod cmd;
-mod daemon;
 mod domain;
-mod events;
 
 use clap::Parser;
 use crate::core::config::ConfigManager;
@@ -439,11 +436,11 @@ async fn run() -> Result<()> {
     let vault = crate::core::vault::create_vault(&app_config, &app_dir, &fingerprint).await?;
     cfg_mgr.set_vault(vault.clone());
 
-    let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
-    cfg_mgr.set_validator(std::sync::Arc::new(crate::auth::AuthProviderValidator::new(auth_cli.clone())));
+    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+    cfg_mgr.set_validator(std::sync::Arc::new(cowen_auth::AuthProviderValidator::new(auth_cli.clone())));
 
     // Use the global static EventBus
-    let _event_bus = crate::events::event_bus();
+    let _event_bus = cowen_common::events::event_bus();
     // TODO: Subscribe domain handlers (e.g. cleanup logs, cleanup locks)
     // _event_bus.subscribe()...
 
@@ -485,7 +482,7 @@ let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_prof
     }
 };
 
-    tracing::info!(target: "sys", "cowen starting (version {})", env!("CARGO_PKG_VERSION"));
+    tracing::info!(target: "sys", "cowen [V2] starting (version {})", env!("CARGO_PKG_VERSION"));
     tracing::info!(target: "sys", profile = %active_profile, "active profile loaded");
 
     // 4. Check for Activation (First Run)
@@ -731,7 +728,7 @@ let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_prof
             cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?;
         }
         Commands::Reset => {
-            cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(crate::events::event_bus())).await?;
+            cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus())).await?;
         }
         Commands::Completion { shell, install, uninstall } => {
             if *uninstall {
@@ -783,7 +780,7 @@ let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_prof
                 }
             }
             ProfileCommands::Rename { old_name, new_name } => {
-                cmd::system::rename_profile(old_name, new_name, &cfg_mgr, vault.clone(), crate::events::event_bus()).await?;
+                cmd::system::rename_profile(old_name, new_name, &cfg_mgr, vault.clone(), cowen_common::events::event_bus()).await?;
             }
         },
         Commands::Dlq { action } => match action {

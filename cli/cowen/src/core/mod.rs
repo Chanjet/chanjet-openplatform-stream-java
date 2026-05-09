@@ -3,11 +3,7 @@ pub mod security;
 pub mod openapi;
 pub mod vault;
 pub mod obfs;
-#[cfg(feature = "ai")]
 pub mod telemetry;
 pub mod utils;
-pub mod network;
 pub mod store;
-pub mod audit;
 pub mod migration;
-pub mod status;

@@ -5,8 +5,8 @@ use serde::Serialize;
 use sysinfo::System;
 use std::sync::Arc;
 
-use crate::core::status::{StatusEntry, StatusLevel, StatusContext, StatusCollector};
-use crate::auth::client::Client;
+use cowen_common::status::{StatusEntry, StatusLevel, StatusContext, StatusCollector};
+use cowen_auth::client::Client;
 
 #[derive(Serialize)]
 pub struct SystemStatus {
@@ -29,7 +29,7 @@ pub async fn status(
 
     // Trigger self-healing BEFORE collection to ensure consistent report
     let active_cfg = cfg_mgr.load(active_profile).await?;
-    let auth_cli = crate::auth::create_auth_client_with_vault(vault.clone());
+    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
     let _ = ensure_daemon_running(active_profile, &active_cfg, cfg_mgr, vault.clone(), &auth_cli).await;
 
     let app_cfg = cfg_mgr.load_app_config().await?;
@@ -93,7 +93,7 @@ pub async fn status(
 }
 
 fn get_global_entries(app_cfg: &crate::core::config::AppConfig) -> Vec<StatusEntry> {
-    use crate::core::status::CommonTemplate;
+    use cowen_common::status::CommonTemplate;
     vec![
         StatusEntry::new(CommonTemplate::Storage, StatusLevel::OK, 
             format!("{} ({})", app_cfg.storage.store, app_cfg.storage.db_url.as_deref().unwrap_or("none"))),
@@ -206,21 +206,21 @@ pub async fn ensure_daemon_running(
     config: &crate::core::config::Config, 
     cfg_mgr: &crate::core::config::ConfigManager, 
     vault: Arc<dyn Vault>,
-    auth_cli: &crate::auth::AuthClient,
+    auth_cli: &cowen_auth::AuthClient,
 ) -> Result<()> {
-    let app_dir = crate::core::status::get_app_dir();
+    let app_dir = cowen_common::status::get_app_dir();
     
     // OCP: Only ensure daemon for the ACTIVE profile.
     // Iterating through all profiles is expensive and can trigger unexpected recovery for half-initialized profiles.
     let p = profile.to_string();
     let p_cfg = config.clone();
     
-    let (pid, _build_id) = crate::core::status::get_active_daemon_info(&p).await;
+    let (pid, _build_id) = cowen_common::status::get_active_daemon_info(&p).await;
     let pid_file = app_dir.join(format!("{}_daemon.pid", p));
     
     // 1. Hanging detection (Process exists but port unresponsive)
     if let Some(pid_val) = pid {
-        if !crate::core::status::is_port_responsive(p_cfg.proxy_port).await {
+        if !cowen_common::status::is_port_responsive(p_cfg.proxy_port).await {
             // BUG FIX: Only consider it "hanging" if it has been running for a while.
             // A newly started daemon might still be initializing.
             let mut is_new = false;
@@ -310,13 +310,13 @@ pub async fn reset(
     _profile: &str, 
     vault: Option<&dyn Vault>, 
     cfg_mgr: &ConfigManager,
-    event_bus: Option<&crate::events::EventBus>,
+    event_bus: Option<&cowen_common::events::EventBus>,
 ) -> Result<()> {
     eprintln!("Resetting profile '{}'...", _profile);
     
     // 0. Publish Event
     if let Some(bus) = event_bus {
-        bus.publish(crate::events::GlobalEvent::ProfileDeleted { name: _profile.to_string() });
+        bus.publish(cowen_common::events::GlobalEvent::ProfileDeleted { name: _profile.to_string() });
     }
     if let Err(e) = crate::cmd::daemon::stop(_profile, false, cfg_mgr).await {
         tracing::warn!(target: "sys", profile = %_profile, error = %e, "Failed to stop daemon during reset");
@@ -324,7 +324,7 @@ pub async fn reset(
     if let Some(v) = vault {
         let _ = v.clear_profile(_profile).await;
     }
-    let base_dir = crate::core::status::get_app_dir();
+    let base_dir = cowen_common::status::get_app_dir();
     let targets = vec![
         base_dir.join(format!("{}.yaml", _profile)),
         base_dir.join(format!("{}_openapi.json", _profile)),
@@ -378,7 +378,7 @@ pub async fn rename_profile(
     new_name: &str,
     cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
-    event_bus: &crate::events::EventBus,
+    event_bus: &cowen_common::events::EventBus,
 ) -> Result<()> {
     if old_name == new_name {
         return Err(anyhow::anyhow!("Old and new profile names are the same."));
@@ -391,7 +391,7 @@ pub async fn rename_profile(
     }
 
     // 1. Stop Daemon if running
-    let (pid, _) = crate::core::status::get_active_daemon_info(old_name).await;
+    let (pid, _) = cowen_common::status::get_active_daemon_info(old_name).await;
     let was_running = pid.is_some();
     if was_running {
         eprintln!("🛑 Stopping daemon for '{}' before rename...", old_name);
@@ -399,7 +399,7 @@ pub async fn rename_profile(
     }
 
     // 2. Rename config and cache files
-    let base_dir = crate::core::status::get_app_dir();
+    let base_dir = cowen_common::status::get_app_dir();
     let file_map = vec![
         ("", ".yaml"),
         ("_openapi", ".json"),
@@ -436,7 +436,7 @@ pub async fn rename_profile(
     vault.rename_profile(old_name, new_name).await?;
 
     // 5.1 Publish Event
-    event_bus.publish(crate::events::GlobalEvent::ProfileRenamed { 
+    event_bus.publish(cowen_common::events::GlobalEvent::ProfileRenamed { 
         old: old_name.to_string(), 
         new: new_name.to_string() 
     });
@@ -465,7 +465,7 @@ struct ConfigCollector;
 impl StatusCollector for ConfigCollector {
     fn name(&self) -> &str { "Config" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        use crate::core::status::CommonTemplate;
+        use cowen_common::status::CommonTemplate;
         let mode_str = serde_json::to_string(&ctx.config.app_mode).unwrap_or_default().trim_matches('"').to_string();
         let details = vec![
             format!("OpenAPI: {}", ctx.config.openapi_url),
@@ -499,8 +499,8 @@ struct ProviderCollector;
 impl StatusCollector for ProviderCollector {
     fn name(&self) -> &str { "Provider" }
     async fn collect(&self, ctx: &StatusContext<'_>) -> Result<StatusEntry> {
-        use crate::core::status::CommonTemplate;
-        let auth = crate::auth::create_auth_client_with_vault(ctx.vault.clone());
+        use cowen_common::status::CommonTemplate;
+        let auth = cowen_auth::create_auth_client_with_vault(ctx.vault.clone());
         let mode_str = serde_json::to_string(&ctx.config.app_mode).unwrap_or_default().trim_matches('"').to_uppercase();
         
         let children: Vec<StatusEntry> = auth.get_diagnostics(ctx).await?;

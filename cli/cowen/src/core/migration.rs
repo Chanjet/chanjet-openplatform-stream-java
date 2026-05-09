@@ -142,7 +142,7 @@ pub async fn perform_migration(
     let source_vault = cfg_mgr.get_vault().ok_or_else(|| anyhow::anyhow!("No active vault found"))?;
     let source = source_vault.primary_store();
     
-    let target = create_store_from_url(target_url).await
+    let target = create_store_from_url(target_url, &crate::core::config::get_app_dir(), &crate::core::security::get_machine_fingerprint()?).await
         .context(format!("Failed to connect to target store: {}", target_url))?;
 
     let migrator = StoreMigrator::new(source, target, mode);

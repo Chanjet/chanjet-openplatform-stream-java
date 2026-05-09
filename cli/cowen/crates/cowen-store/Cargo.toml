@@ -1,0 +1,33 @@
+[package]
+name = "cowen-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "chrono", "json"], optional = true }
+redis = { version = "0.27", features = ["tokio-comp", "aio"], optional = true }
+tiberius = { version = "0.12", features = ["chrono", "tds73"], optional = true }
+deadpool-tiberius = { version = "0.1.9", optional = true }
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat"], optional = true }
+fs2 = "0.4"
+serde_yaml = "0.9"
+inventory = "0.3"
+uuid = { version = "1.12", features = ["v4"] }
+cowen-common = { path = "../cowen-common" }
+
+[features]
+default = ["sqlite"]
+sqlite = ["sqlx/sqlite"]
+postgres = ["sqlx/postgres"]
+mysql = ["sqlx/mysql"]
+mssql = ["dep:tiberius", "dep:deadpool-tiberius", "dep:tokio-util"]
+redis = ["dep:redis"]
+all-stores = ["sqlite", "postgres", "mysql", "mssql", "redis"]
+

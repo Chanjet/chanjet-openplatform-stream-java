@@ -1,4 +1,4 @@
-use crate::auth::models::{Ticket, Token, AuthSession};
+use cowen_auth::models::{Ticket, Token, AuthSession};
 use anyhow::Result;
 use async_trait::async_trait;
 

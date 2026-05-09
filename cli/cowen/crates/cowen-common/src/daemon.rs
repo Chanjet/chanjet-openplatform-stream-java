@@ -1,0 +1,10 @@
+use anyhow::Result;
+use async_trait::async_trait;
+use std::sync::Arc;
+use crate::config::Config;
+use crate::vault::Vault;
+
+#[async_trait]
+pub trait DaemonService: Send + Sync {
+    async fn start_daemon(&self, profile: &str, config: &Config, vault: Arc<dyn Vault>) -> Result<()>;
+}

@@ -1,5 +1,5 @@
-use crate::core::config::{AppConfig, ConfigManager};
 use anyhow::Result;
+use crate::core::config::{ConfigManager, AppConfig};
 use colored::Colorize;
 
 pub async fn set(
@@ -42,24 +42,22 @@ pub async fn set(
 }
 
 pub async fn status(app_config: &AppConfig) -> Result<()> {
-    println!("\n{}", "🌐 Global Storage Status".bold().cyan());
-    println!("{}", "-----------------------".cyan());
-    
     let storage = &app_config.storage;
-    println!("{:<15} {}", "Store Type:".bold(), storage.store);
-    if let Some(url) = &storage.db_url {
-        println!("{:<15} {}", "DB URL:".bold(), url);
-    }
-    println!("{:<15} {}", "Cache Type:".bold(), storage.cache);
-    if let Some(url) = &storage.cache_url {
-        println!("{:<15} {}", "Cache URL:".bold(), url);
-    }
 
-    println!("\n{}", "🔍 Connectivity Check".bold().cyan());
-    
-    // 1. Check Store
+    println!("\n{}", "Storage Configuration Status".bold().underline());
+    println!("  Type:  {}", storage.store.cyan());
+    if let Some(url) = &storage.db_url {
+        println!("  URL:   {}", crate::core::utils::mask_url_query(url));
+    }
+    println!("  Cache: {}", storage.cache.cyan());
+    if let Some(url) = &storage.cache_url {
+        println!("  URL:   {}", crate::core::utils::mask_url_query(url));
+    }
+    println!();
+
+    // 1. Check Primary Store
     if storage.store == "local" {
-        println!("  {} Store: Local filesystem is always available.", "✅".green());
+        println!("  {} Store: Local storage is always available.", "✅".green());
     } else {
         match check_db_connectivity(storage.store.as_str(), storage.db_url.as_deref()).await {
             Ok(_) => println!("  {} Store: Connected to {} successfully.", "✅".green(), storage.store),
@@ -70,10 +68,10 @@ pub async fn status(app_config: &AppConfig) -> Result<()> {
     // 2. Check Cache
     if storage.cache == "none" {
         println!("  {} Cache: No cache configured.", "ℹ️".blue());
-    } else if storage.cache != "none" {
+    } else {
         match check_cache_connectivity(storage.cache.as_str(), storage.cache_url.as_deref()).await {
-            Ok(_) => println!("  {} Cache: Connected to Redis successfully.", "✅".green()),
-            Err(e) => println!("  {} Cache: Failed to connect to Redis. Reason: {}", "❌".red(), e),
+            Ok(_) => println!("  {} Cache: Connected successfully.", "✅".green()),
+            Err(e) => println!("  {} Cache: Failed to connect. Reason: {}", "❌".red(), e),
         }
     }
 
@@ -82,45 +80,23 @@ pub async fn status(app_config: &AppConfig) -> Result<()> {
 }
 
 async fn check_db_connectivity(store_type: &str, url: Option<&str>) -> Result<()> {
-    let url = url.ok_or_else(|| anyhow::anyhow!("Database URL is missing"))?;
-    
-    // Use the same logic as main.rs create_vault to verify connectivity
-    match store_type {
-        _ if crate::core::store::sql::SqlStore::is_supported(store_type) => {
-            // We use the SqlStore's from_url which performs a connection check
-            crate::core::store::sql::SqlStore::from_url(url).await?;
-            Ok(())
-        }
-        _ => Err(anyhow::anyhow!("Unsupported distributed store type: {}", store_type)),
+    if store_type == "local" || store_type == "innerdb" {
+        return Ok(());
     }
+    let url = url.ok_or_else(|| anyhow::anyhow!("Database URL is missing"))?;
+    let _ = crate::core::store::create_store_from_url(url, &crate::core::config::get_app_dir(), &crate::core::security::get_machine_fingerprint()?).await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to database: {}", e))?;
+    Ok(())
 }
+
 async fn check_cache_connectivity(cache_type: &str, url: Option<&str>) -> Result<()> {
     if cache_type == "none" {
         return Ok(());
     }
-
     let url = url.ok_or_else(|| anyhow::anyhow!("Cache URL is missing"))?;
-    
-    let mut found = false;
-    for reg in inventory::iter::<crate::core::store::CacheBuilderRegistration> {
-        if reg.builder.scheme() == cache_type {
-            // For now, only Redis needs connectivity check here. 
-            // In a more generic way, builders could provide a 'check' method.
-            if cache_type == "redis" {
-                let client = redis::Client::open(url)?;
-                let mut conn = client.get_multiplexed_tokio_connection().await?;
-                let _: () = redis::cmd("PING").query_async(&mut conn).await?;
-            }
-            found = true;
-            break;
-        }
-    }
-
-    if found {
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!("Unsupported cache type: {}", cache_type))
-    }
+    let _ = crate::core::store::create_store_from_url(url, &crate::core::config::get_app_dir(), &crate::core::security::get_machine_fingerprint()?).await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to cache: {}", e))?;
+    Ok(())
 }
 
 pub async fn migrate(

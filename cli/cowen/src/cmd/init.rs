@@ -1,4 +1,4 @@
-use crate::auth::models::AuthMode;
+use cowen_auth::models::AuthMode;
 use crate::core::config::ConfigManager;
 use crate::core::vault::Vault;
 use anyhow::Result;
@@ -33,8 +33,8 @@ pub async fn execute(
         };
 
         // Determine requested key using SPI (Personality check)
-        let token_pool = Arc::new(crate::auth::VaultTokenPool::new(vault.clone()));
-        let auth_cli = crate::auth::create_auth_client(token_pool.clone());
+        let token_pool = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
+        let auth_cli = cowen_auth::create_auth_client(token_pool.clone());
         let requested_key = auth_cli
             .provider(&requested_mode)
             .get_default_app_key()
@@ -72,11 +72,11 @@ pub async fn execute(
     }
 
     // 1. Delegate All Mode-Specific Initialization (Personality) to Provider
-    let token_pool = Arc::new(crate::auth::VaultTokenPool::new(vault.clone()));
-    let auth_cli = crate::auth::create_auth_client(token_pool.clone());
+    let token_pool = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
+    let auth_cli = cowen_auth::create_auth_client(token_pool.clone());
     
     // Collect all parameters into InitParams
-    let params = crate::auth::provider::InitParams {
+    let params = cowen_auth::provider::InitParams {
         app_key: app_key.clone(),
         app_secret: app_secret.clone(),
         certificate: certificate.clone(),
@@ -99,7 +99,7 @@ pub async fn execute(
 
     // The Provider now handles credential setup, config saving (via cfg_mgr), and daemon startup.
     let init_res = auth_cli.provider(&config.app_mode)
-        .initialize(profile, &mut config, vault.clone(), cfg_mgr, params)
+        .initialize(profile, &mut config, vault.clone(), cfg_mgr, params, None)
         .await;
 
     if let Err(e) = init_res {
