@@ -44,6 +44,7 @@ pub struct DlqMessage {
 pub trait Store: Send + Sync {
     // --- Config Domain ---
     async fn get_config(&self, profile: &str, key: &str) -> Result<String>;
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)>;
     async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item>;
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()>;
     async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> Result<()>;

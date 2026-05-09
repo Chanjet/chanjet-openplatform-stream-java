@@ -32,6 +32,16 @@ impl SqlDriver for MssqlDriver {
         let val: &str = row.get(0).ok_or_else(|| anyhow!("Null value in config"))?;
         Ok(val.to_string())
     }
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)> {
+        let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;
+        let row = conn.query("SELECT version, updated_at FROM cowen_config WHERE profile = @p1 AND item_key = @p2", &[&profile, &key])
+            .await?.into_row().await?
+            .ok_or_else(|| anyhow!("Config metadata not found: {}/{}", profile, key))?;
+        
+        let version: i32 = row.get(0).unwrap_or(0);
+        let updated_at: chrono::DateTime<chrono::Utc> = row.get(1).unwrap_or_else(chrono::Utc::now);
+        Ok((version as u64, updated_at.timestamp()))
+    }
 
     async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item> {
         let mut conn = self.pool.get().await.map_err(|e| anyhow!("Failed to get MSSQL connection: {}", e))?;

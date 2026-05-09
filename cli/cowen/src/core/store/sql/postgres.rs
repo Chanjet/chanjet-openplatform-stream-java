@@ -23,6 +23,12 @@ impl SqlDriver for PostgresDriver {
             .bind(profile).bind(key).fetch_one(&self.pool).await?;
         Ok(row.0)
     }
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)> {
+        let row: (i64, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+            "SELECT version, updated_at FROM cowen_config WHERE profile = $1 AND item_key = $2"
+        ).bind(profile).bind(key).fetch_one(&self.pool).await?;
+        Ok((row.0 as u64, row.1.timestamp()))
+    }
     async fn get_config_full(&self, profile: &str, key: &str) -> Result<super::super::Item> {
         let row: (String, String, String, i64, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
             "SELECT profile, item_key, item_value, version, updated_at FROM cowen_config WHERE profile = $1 AND item_key = $2"

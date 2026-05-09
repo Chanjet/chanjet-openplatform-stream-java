@@ -26,6 +26,9 @@ impl Store for HybridStore {
             }
         }
     }
+    async fn get_config_metadata(&self, p: &str, k: &str) -> Result<(u64, i64)> {
+        self.persistence.get_config_metadata(p, k).await
+    }
     async fn get_config_full(&self, p: &str, k: &str) -> Result<Item> {
         self.persistence.get_config_full(p, k).await
     }

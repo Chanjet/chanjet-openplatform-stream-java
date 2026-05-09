@@ -66,6 +66,8 @@ pub trait ConfigDomain: Send + Sync {
     async fn get_config(&self, profile: &str, key: &str) -> Result<String>;
     /// 获取配置详情（含版本、时间戳）
     async fn get_config_full(&self, profile: &str, key: &str) -> Result<crate::core::store::Item>;
+    /// 获取配置元数据（版本、修改时间）
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)>;
     /// 设置配置
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()>;
     /// 条件更新配置（CAS）

@@ -30,6 +30,13 @@ impl FileStore {
 #[async_trait]
 impl Store for FileStore {
     async fn get_config(&self, p: &str, k: &str) -> Result<String> { Ok(fs::read_to_string(self.get_path(p, "cfg", k))?) }
+    async fn get_config_metadata(&self, p: &str, k: &str) -> Result<(u64, i64)> {
+        let path = self.get_path(p, "cfg", k);
+        let metadata = fs::metadata(path)?;
+        let modified = metadata.modified()?;
+        let duration = modified.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        Ok((0, duration.as_secs() as i64))
+    }
     async fn get_config_full(&self, p: &str, k: &str) -> Result<Item> {
         let val = self.get_config(p, k).await?;
         Ok(Item {
@@ -300,6 +307,9 @@ impl MonolithicSealStore {
 impl Store for MonolithicSealStore {
     async fn get_config(&self, p: &str, k: &str) -> Result<String> {
         self.with_lock(|| self.load_all()?.get(p).and_then(|m| m.get(k)).cloned().context("not found"))
+    }
+    async fn get_config_metadata(&self, _p: &str, _k: &str) -> Result<(u64, i64)> {
+        Ok((0, 0)) // MonolithicSealStore is for local sensitive data, polling not usually needed here
     }
     async fn get_config_full(&self, p: &str, k: &str) -> Result<Item> {
         let val = self.get_config(p, k).await?;

@@ -56,6 +56,13 @@ impl Store for RedisStore {
         }
         Ok(val)
     }
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)> {
+        let val = self.raw_get(profile, &format!("cfg:{}", key)).await?;
+        if let Ok(wrapper) = serde_json::from_str::<RedisConfigValue>(&val) {
+            return Ok((wrapper.v, chrono::Utc::now().timestamp())); // RedisStore doesn't store updated_at separately in wrapper
+        }
+        Ok((0, chrono::Utc::now().timestamp()))
+    }
 
     async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item> {
         let val = self.raw_get(profile, &format!("cfg:{}", key)).await?;

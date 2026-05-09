@@ -169,6 +169,27 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         let mut event_rx = crate::events::event_bus().subscribe();
         let mut reload = false;
 
+        let t_profile = profile.to_string();
+        let t_cfg_mgr = cfg_mgr.clone();
+        let t_current_version = current_config.version;
+        let watcher = async move {
+            let app_cfg = t_cfg_mgr.load_app_config().await.unwrap_or_default();
+            if !t_cfg_mgr.is_distributed_storage(&app_cfg) {
+                std::future::pending::<()>().await;
+            }
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                if let Ok(true) = t_cfg_mgr.check_for_updates(&t_profile, t_current_version).await {
+                    tracing::info!(target: "sys", "External config change detected via polling for profile '{}'. Triggering local reload...", t_profile);
+                    crate::events::event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
+                        profile: t_profile.clone(), 
+                        key: "manifest".to_string() 
+                    });
+                    break;
+                }
+            }
+        };
+
         let engine = async {
             // 🚀 OCP: Unified Engine for all modes. 
             // The bridge::run now uses generic AuthClient hooks and handles both 
@@ -184,6 +205,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
                 result = res;
                 break;
             },
+            _ = watcher => {},
             _ = wait_for_termination() => { 
                 tracing::info!(target: "sys", "Termination signal received"); 
                 result = Ok(());
@@ -206,9 +228,18 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
             tracing::info!(target: "sys", "Fetching latest configuration...");
             match cfg_mgr.load(profile).await {
                 Ok(mut new_config) => {
+                    let app_key = new_config.app_key.trim();
+                    let global_profile = format!("app:{}", app_key);
+
                     if let Ok(as_val) = vault.get_secret(profile, "app_secret").await { new_config.app_secret = as_val; }
+                    else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { new_config.app_secret = s; }
+
                     if let Ok(cert) = vault.get_secret(profile, "certificate").await { new_config.certificate = cert; }
+                    else if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { new_config.certificate = cert; }
+
                     if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { new_config.encrypt_key = ek; }
+                    else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { new_config.encrypt_key = ek; }
+
                     current_config = new_config;
                 }
                 Err(e) => {

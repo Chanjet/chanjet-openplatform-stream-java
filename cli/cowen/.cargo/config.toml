@@ -1,0 +1,7 @@
+[build]
+rustflags = [
+    "--remap-path-prefix", "/Users/zhangliang/chanjet/dev/workspace/open-streaming-connector=/workspace",
+    "--remap-path-prefix", "/Users/zhangliang/.cargo/registry=/cargo/registry",
+    "--remap-path-prefix", "/Users/zhangliang/.cargo/git=/cargo/git",
+    "--remap-path-prefix", "/Users/zhangliang/.rustup=/rustup",
+]

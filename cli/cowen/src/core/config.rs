@@ -143,6 +143,7 @@ pub trait ConfigValidator: Send + Sync {
     fn validate_save(&self, profile: &str, config: &Config, is_distributed: bool) -> Result<()>;
 }
 
+#[derive(Clone)]
 pub struct ConfigManager {
     app_dir: PathBuf,
     vault: tokio::sync::OnceCell<std::sync::Arc<dyn crate::core::vault::Vault>>,
@@ -214,6 +215,20 @@ impl ConfigManager {
         }
     }
 
+    pub async fn check_for_updates(&self, profile: &str, current_version: u64) -> Result<bool> {
+        let app_cfg = self.load_app_config().await?;
+        if !self.is_distributed_storage(&app_cfg) {
+            return Ok(false);
+        }
+
+        if let Some(vault) = self.vault.get() {
+            if let Ok((version, _)) = vault.get_config_metadata(profile, "system:manifest").await {
+                return Ok(version != current_version);
+            }
+        }
+        Ok(false)
+    }
+
     pub async fn load(&self, profile: &str) -> Result<Config> {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
@@ -224,9 +239,18 @@ impl ConfigManager {
                     match serde_yaml::from_str::<Config>(&item.value) {
                         Ok(mut config) => {
                             config.version = item.version;
+                            let app_key = config.app_key.trim();
+                            let global_profile = format!("app:{}", app_key);
+
                             if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
+                            else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
+
                             if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
+                            else if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
+
                             if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
+                            else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { config.encrypt_key = ek; }
+
                             (config, true)
                         },
                         Err(e) => {

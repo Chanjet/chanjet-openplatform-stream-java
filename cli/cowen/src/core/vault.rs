@@ -47,6 +47,7 @@ impl Vault for StoreVault {
 impl crate::domain::ConfigDomain for StoreVault {
     async fn get_config(&self, profile: &str, key: &str) -> Result<String> { self.primary.get_config(profile, key).await }
     async fn get_config_full(&self, profile: &str, key: &str) -> Result<crate::core::store::Item> { self.primary.get_config_full(profile, key).await }
+    async fn get_config_metadata(&self, profile: &str, key: &str) -> Result<(u64, i64)> { self.primary.get_config_metadata(profile, key).await }
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()> { self.primary.set_config(profile, key, value).await }
     async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, ev: u64) -> Result<()> { self.primary.set_config_conditional(profile, key, value, ev).await }
     async fn list_configs(&self, profile: &str) -> Result<Vec<String>> { self.primary.list_configs(profile).await }
