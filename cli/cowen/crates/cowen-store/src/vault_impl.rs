@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use cowen_common::vault::Vault;
 use cowen_common::models::{Token, Ticket, Item, AuditEntry, DlqMessage, AuthSession};
-use cowen_common::store::Store;
+
 
 pub struct StoreVault {
     primary: Arc<dyn cowen_common::store::Store>,
@@ -68,15 +68,15 @@ impl Vault for StoreVault {
 
     async fn save_session(&self, session: AuthSession) -> Result<()> {
         let json = serde_json::to_string(&session)?;
-        self.sensitive.set_token("system", &format!("auth_session:{}", session.state), &json, 3600).await
+        self.sensitive.set_token("global", &format!("session:{}", session.state), &json, 3600).await
     }
 
     async fn get_session(&self, state: &str) -> Result<AuthSession> {
-        let json = self.sensitive.get_token("system", &format!("auth_session:{}", state)).await?;
+        let json = self.sensitive.get_token("global", &format!("session:{}", state)).await?;
         Ok(serde_json::from_str(&json)?)
     }
 
     async fn delete_session(&self, state: &str) -> Result<()> {
-        self.sensitive.delete_token("system", &format!("auth_session:{}", state)).await
+        self.sensitive.delete_token("global", &format!("session:{}", state)).await
     }
 }

@@ -108,17 +108,19 @@ pub fn get_app_dir() -> PathBuf {
 }
 
 pub async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) {
-    let pid_file = get_app_dir().join(format!("{}_daemon.pid", profile));
+        let app_dir = get_app_dir();
+        let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
+
     if !pid_file.exists() {
-        return (None, None);
+                return (None, None);
     }
 
     // BUG FIX: Use file locking for reliable liveness detection.
     // If we CAN acquire an exclusive lock, it means the daemon is NOT running.
-    let is_alive = if let Ok(f) = std::fs::File::open(&pid_file) {
+    let is_alive =     if let Ok(f) = std::fs::File::open(&pid_file) {
         use fs2::FileExt;
-        // If try_lock_exclusive fails, it means someone (the daemon) has it.
-        f.try_lock_exclusive().is_err()
+        let lock_res = f.try_lock_exclusive();
+                lock_res.is_err()
     } else {
         false
     };

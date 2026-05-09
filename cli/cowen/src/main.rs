@@ -371,49 +371,28 @@ async fn main() {
         let payload = info.payload().downcast_ref::<&str>().cloned()
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("no message");
+            
+        if payload.contains("Broken pipe") {
+            return;
+        }
+        
         tracing::error!(target: "sys", "FATAL PANIC: {}", payload);
     }));
 
-    // CAPTURE SIGNALS: Ensure graceful shutdown
-    let shutdown_handle = tokio::spawn(async move {
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                println!("\n\x1b[33mReceived CTRL-C, shutting down gracefully...\x1b[0m");
-                tracing::warn!(target: "sys", "Received SIGINT, shutting down");
-            }
-            _ = async {
-                #[cfg(unix)]
-                {
-                    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
-                    sigterm.recv().await;
-                    println!("\n\x1b[33mReceived SIGTERM, shutting down gracefully...\x1b[0m");
-                    tracing::warn!(target: "sys", "Received SIGTERM, shutting down");
-                }
-                #[cfg(not(unix))]
-                {
-                    std::future::pending::<()>().await;
-                }
-            } => {}
-        }
-    });
 
-    tokio::select! {
-        res = run() => {
-            if let Err(e) = res {
-                let err_msg = e.to_string();
-                if err_msg.contains("SKIPPED:") {
-                    // Message already printed via eprintln! in load(), just exit gracefully
-                    std::process::exit(1);
-                }
-                tracing::error!(target: "sys", error = %err_msg, "CLI execution failed");
-                eprintln!("❌ Error: {}", err_msg);
-                std::process::exit(1);
-            }
+    // Execute the main task
+    let res = run().await;
+    
+    // Check results
+    if let Err(e) = res {
+        let err_msg = e.to_string();
+        if err_msg.contains("SKIPPED:") {
+            // Message already printed via eprintln! in load(), just exit gracefully
+            std::process::exit(1);
         }
-        _ = shutdown_handle => {
-            // Give a grace period for background tasks to cleanup (e.g. Auth failure cleanup)
-            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-        }
+        tracing::error!(target: "sys", error = %err_msg, "CLI execution failed");
+        eprintln!("❌ Error: {}", err_msg);
+        std::process::exit(1);
     }
 }
 
@@ -434,10 +413,10 @@ async fn run() -> Result<()> {
     // This allows the initial profile load to be validated against distributed storage restrictions.
     let fingerprint = security::get_machine_fingerprint()?;
     let vault = crate::core::vault::create_vault(&app_config, &app_dir, &fingerprint).await?;
-    cfg_mgr.set_vault(vault.clone());
+    let _ = cfg_mgr.set_vault(vault.clone());
 
     let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
-    cfg_mgr.set_validator(std::sync::Arc::new(cowen_auth::AuthProviderValidator::new(auth_cli.clone())));
+    let _ = cfg_mgr.set_validator(std::sync::Arc::new(cowen_auth::AuthProviderValidator::new(auth_cli.clone())));
 
     // Use the global static EventBus
     let _event_bus = cowen_common::events::event_bus();
@@ -577,6 +556,7 @@ let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_prof
         Commands::Dlq { .. }
     ) || matches!(&cli.command, Commands::Auth { action: AuthCommands::Login { finalize: Some(_), .. } });
 
+    let daemon_svc = std::sync::Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
     if !skip_recovery {
         let _ = crate::cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
     }
@@ -610,6 +590,7 @@ let _guards = match crate::core::telemetry::init_telemetry(log_dir, &active_prof
                 app_mode,
                 proxy_port,
                 true,
+                Some(daemon_svc.clone()),
             ).await?;
         }
         Commands::Api { method, path, data, data_file, action } => {

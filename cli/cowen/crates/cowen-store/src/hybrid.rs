@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
-use crate::{Store, AuditEntry, DlqMessage, Item};
+use crate::{AuditEntry, DlqMessage, Item};
 
 pub struct HybridStore {
     cache: Arc<dyn cowen_common::store::Store>,

@@ -1,4 +1,4 @@
-use cowen_common::models::Token;
+
 use cowen_common::config::Config;
 use anyhow::{Result, anyhow};
 use crate::pool::TokenPool;

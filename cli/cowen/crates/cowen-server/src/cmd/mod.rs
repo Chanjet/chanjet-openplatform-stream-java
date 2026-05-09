@@ -119,7 +119,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     
     // BUG FIX: Hold an exclusive lock on the PID file to allow reliable liveness detection.
     // The lock will be released automatically by the OS if the process crashes or exits.
-    let _pid_lock = if let Ok(f) = std::fs::File::open(&pid_file) {
+    let _pid_lock = if let Ok(f) = std::fs::OpenOptions::new().write(true).open(&pid_file) {
         use fs2::FileExt;
         if f.try_lock_exclusive().is_ok() {
             Some(f)

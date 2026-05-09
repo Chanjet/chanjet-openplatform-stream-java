@@ -1,12 +1,12 @@
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 use anyhow::{Result, Context};
 use std::fs;
-use std::sync::Arc;
+use std::path::PathBuf;
+use crate::config::{AppConfig, StorageConfig, Config};
 use tokio::sync::OnceCell;
-use crate::config::{Config, AppConfig, StorageConfig};
+use std::sync::Arc;
 use crate::vault::Vault;
 use crate::events::event_bus;
+use serde_yaml;
 
 pub trait ConfigValidator: Send + Sync {
     fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool, exists: bool) -> Result<()>;
@@ -15,7 +15,7 @@ pub trait ConfigValidator: Send + Sync {
 
 #[derive(Clone)]
 pub struct ConfigManager {
-    app_dir: PathBuf,
+    pub app_dir: PathBuf,
     vault: OnceCell<Arc<dyn Vault>>,
     validator: OnceCell<Arc<dyn ConfigValidator>>,
 }
@@ -33,113 +33,100 @@ impl ConfigManager {
         })
     }
 
-    pub fn set_vault(&self, vault: Arc<dyn Vault>) {
-        let _ = self.vault.set(vault);
-    }
-
-    pub fn set_validator(&self, validator: Arc<dyn ConfigValidator>) {
-        let _ = self.validator.set(validator);
+    pub fn set_vault(&self, vault: Arc<dyn Vault>) -> Result<()> {
+        self.vault.set(vault).map_err(|_| anyhow::anyhow!("Vault already set"))
     }
 
     pub fn get_vault(&self) -> Option<Arc<dyn Vault>> {
         self.vault.get().cloned()
     }
 
+    pub fn set_validator(&self, validator: Arc<dyn ConfigValidator>) -> Result<()> {
+        self.validator.set(validator).map_err(|_| anyhow::anyhow!("Validator already set"))
+    }
+
+    pub async fn find_free_port(&self) -> u16 {
+        use rand::Rng;
+        let start_range = std::env::var("COWEN_PORT_RANGE_START")
+            .ok()
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(16000);
+            
+        // Add random jitter to reduce collision risk in parallel tests
+        let jitter = rand::thread_rng().gen_range(0..200);
+        let start = start_range + jitter;
+
+        for port in start..(start_range + 1500) {
+            if tokio::net::TcpListener::bind(("127.0.0.1", port)).await.is_ok() {
+                return port;
+            }
+        }
+        0
+    }
+
     pub async fn exists(&self, profile: &str) -> bool {
-        let path = self.app_dir.join(format!("{}.yaml", profile));
-        if path.exists() {
-            return true;
-        }
         if let Some(vault) = self.vault.get() {
-            if let Ok(configs) = vault.list_configs(profile).await {
-                if !configs.is_empty() { return true; }
+            if let Ok(profiles) = vault.list_all_profiles().await {
+                if profiles.contains(&profile.to_string()) { return true; }
             }
         }
-        false
+        self.get_profile_path(profile).exists()
     }
 
-    pub fn get_profile_path(&self, profile: &str) -> PathBuf {
-        self.app_dir.join(format!("{}.yaml", profile))
-    }
-
-    pub fn is_distributed_storage(&self, app_cfg: &AppConfig) -> bool {
-        match app_cfg.storage.store.as_str() {
-            "local" => false,
-            "innerdb" => {
-                if let Some(url) = &app_cfg.storage.db_url {
-                    if url == "innerdb" { return false; }
-                    let db_path = self.app_dir.join("cowen.db");
-                    let expected_sqlite = format!("sqlite://{}", db_path.to_string_lossy());
-                    let expected_innerdb = format!("innerdb://{}", db_path.to_string_lossy());
-                    url != &expected_sqlite && url != &expected_innerdb 
-                        && !url.starts_with(&format!("{}?", expected_sqlite))
-                        && !url.starts_with(&format!("{}?", expected_innerdb))
-                } else {
-                    false
-                }
-            },
-            _ => true,
+    pub async fn get_next_profile_name(&self) -> Result<String> {
+        let profiles = self.list_profiles().await?;
+        let mut i = 1;
+        loop {
+            let name = format!("p{}", i);
+            if !profiles.contains(&name) { return Ok(name); }
+            i += 1;
         }
-    }
-
-    pub async fn check_for_updates(&self, profile: &str, current_version: u64) -> Result<bool> {
-        let app_cfg = self.load_app_config().await?;
-        if !self.is_distributed_storage(&app_cfg) {
-            return Ok(false);
-        }
-
-        if let Some(vault) = self.vault.get() {
-            if let Ok((version, _)) = vault.get_config_metadata(profile, "system:manifest").await {
-                return Ok(version != current_version);
-            }
-        }
-        Ok(false)
     }
 
     pub async fn load(&self, profile: &str) -> Result<Config> {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
-        let (config, _exists) = if let Some(vault) = self.vault.get() {
-            if is_db_mode {
-                if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
-                    match serde_yaml::from_str::<Config>(&item.value) {
-                        Ok(mut config) => {
-                            config.version = item.version;
-                            let app_key = config.app_key.trim();
-                            let global_profile = format!("app:{}", app_key);
+        // 1. Try Vault first (The Single Source of Truth)
+        if let Some(vault) = self.vault.get() {
+            if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
+                match serde_yaml::from_str::<Config>(&item.value) {
+                    Ok(mut config) => {
+                        config.version = item.version;
+                        let app_key = config.app_key.trim();
+                        let global_profile = format!("app:{}", app_key);
 
-                            if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
-                            else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
+                        if let Ok(s) = vault.get_secret(profile, "app_secret").await { if !s.is_empty() { config.app_secret = s; } }
+                        else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
 
-                            if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
-                            else if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
+                        if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
+                        else if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
 
-                            if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
-                            else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { config.encrypt_key = ek; }
+                        if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
+                        else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { config.encrypt_key = ek; }
 
-                            (config, true)
-                        },
-                        Err(e) => {
-                            tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
-                            return Err(anyhow::anyhow!("Failed to parse manifest from Vault: {}", e));
+                        // Return here if found in Vault
+                        if let Some(validator) = self.validator.get() {
+                            validator.validate_load(profile, &config, is_db_mode, true)?;
                         }
+                        let mut config = config;
+                        config.apply_env_overrides();
+                        return Ok(config);
+                    },
+                    Err(e) => {
+                        tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
                     }
-                } else {
-                    self.load_local_profile_with_status(profile).await?
                 }
-            } else {
-                self.load_local_profile_with_status(profile).await?
             }
-        } else {
-            self.load_local_profile_with_status(profile).await?
-        };
-
-        if let Some(validator) = self.validator.get() {
-            validator.validate_load(profile, &config, is_db_mode, _exists)?;
         }
 
-        let mut config = config;
+        // 2. Fallback to Local + Sync Version
+        let (mut config, exists) = self.load_local_profile_with_status(profile).await?;
+        
+        if let Some(validator) = self.validator.get() {
+            validator.validate_load(profile, &config, is_db_mode, exists)?;
+        }
+
         config.apply_env_overrides();
         
         if let Ok(val) = std::env::var("COWEN_EXCLUSIVE") {
@@ -154,12 +141,21 @@ impl ConfigManager {
         if profile_path.exists() {
             let content = fs::read_to_string(&profile_path)?;
             let mut config: Config = serde_yaml::from_str(&content)?;
+            
+            // Critical Fix: Version 1 by default for local files that are being synced for the first time
+            if config.version == 0 { config.version = 1; }
+
             if let Some(vault) = self.vault.get() {
+                // Critical: Sync version even when loading from local to avoid race conditions
+                if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
+                    config.version = item.version;
+                }
+
                 let app_key = config.app_key.trim();
                 let global_profile = format!("app:{}", app_key);
                 
                 if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
-                else if let Ok(s) = vault.get_secret(profile, "app_secret").await { config.app_secret = s; }
+                else if let Ok(s) = vault.get_secret(profile, "app_secret").await { if !s.is_empty() { config.app_secret = s; } }
 
                 if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
                 else if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
@@ -172,7 +168,7 @@ impl ConfigManager {
         Ok((Config::default_with_profile(profile), false))
     }
 
-    pub async fn save(&self, profile: &str, config: &Config) -> Result<()> {
+    pub async fn save(&self, profile: &str, config: &mut Config) -> Result<()> {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
@@ -195,15 +191,18 @@ impl ConfigManager {
             }
             
             let manifest = serde_yaml::to_string(config)?;
-            if is_db_mode {
+            if is_db_mode && config.version > 0 {
+                // If version is non-zero, we MUST use conditional update
                 vault.set_config_conditional(profile, "system:manifest", &manifest, config.version).await?;
             } else {
+                // For version 0, it might be a truly new profile or a legacy fallback
                 let _ = vault.set_config(profile, "system:manifest", &manifest).await;
             }
             event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
                 profile: profile.to_string(), 
                 key: "system:manifest".to_string() 
             });
+            config.version += 1;
         }
 
         if !is_db_mode {
@@ -211,12 +210,54 @@ impl ConfigManager {
             let content = serde_yaml::to_string(config)?;
             fs::write(path, content)?;
         }
+
         Ok(())
+    }
+
+    pub fn get_profile_path(&self, profile: &str) -> PathBuf {
+        self.app_dir.join(format!("{}.yaml", profile))
+    }
+
+    pub fn is_distributed_storage(&self, app_cfg: &AppConfig) -> bool {
+        match app_cfg.storage.store.as_str() {
+            "local" => false,
+            "innerdb" => {
+                if let Some(url) = &app_cfg.storage.db_url {
+                    // Check for default literal or expanded local paths
+                    if url == "innerdb" { return false; }
+                    
+                    let db_path = self.app_dir.join("cowen.db");
+                    let expected_sqlite = format!("sqlite://{}", db_path.to_string_lossy());
+                    let expected_innerdb = format!("innerdb://{}", db_path.to_string_lossy());
+                    
+                    url != &expected_sqlite && url != &expected_innerdb 
+                        && !url.starts_with(&format!("{}?", expected_sqlite))
+                        && !url.starts_with(&format!("{}?", expected_innerdb))
+                } else {
+                    false
+                }
+            },
+            _ => true,
+        }
+    }
+
+    pub async fn check_for_updates(&self, profile: &str, current_version: u64) -> Result<bool> {
+        let app_cfg = self.load_app_config().await?;
+        if !self.is_distributed_storage(&app_cfg) {
+            return Ok(false);
+        }
+
+        if let Some(vault) = self.vault.get() {
+            if let Ok((remote_version, _)) = vault.get_config_metadata(profile, "system:manifest").await {
+                return Ok(remote_version > current_version);
+            }
+        }
+        Ok(false)
     }
 
     pub async fn load_app_config(&self) -> Result<AppConfig> {
         let path = self.app_dir.join("app.yaml");
-        if !path.exists() {
+        let mut config = if !path.exists() {
             let seal_dir = self.app_dir.join(".seal");
             let mut use_local = seal_dir.exists();
             if !use_local {
@@ -232,7 +273,7 @@ impl ConfigManager {
                 }
             }
 
-            let mut app_config = if use_local {
+            let app_config = if use_local {
                 AppConfig { storage: StorageConfig { store: "local".to_string(), ..Default::default() } }
             } else {
                 let db_path = self.app_dir.join("cowen.db");
@@ -240,17 +281,14 @@ impl ConfigManager {
                 AppConfig { storage: StorageConfig { store: "innerdb".to_string(), db_url: Some(db_url), ..Default::default() } }
             };
 
-            if let Ok(store) = std::env::var("COWEN_STORE_TYPE") { app_config.storage.store = store; }
-            if let Ok(db_url) = std::env::var("COWEN_DB_URL") { app_config.storage.db_url = Some(db_url); }
-            if let Ok(cache) = std::env::var("COWEN_CACHE_TYPE") { app_config.storage.cache = cache; }
-            if let Ok(cache_url) = std::env::var("COWEN_CACHE_URL") { app_config.storage.cache_url = Some(cache_url); }
-
             let _ = self.save_app_config(&app_config).await;
-            return Ok(app_config);
-        }
-        let content = fs::read_to_string(path)?;
-        let mut config: AppConfig = serde_yaml::from_str(&content)?;
+            app_config
+        } else {
+            let content = fs::read_to_string(path)?;
+            serde_yaml::from_str(&content)?
+        };
 
+        // Environment variables ALWAYS override, even after loading from file
         if let Ok(store) = std::env::var("COWEN_STORE_TYPE") { config.storage.store = store; }
         if let Ok(db_url) = std::env::var("COWEN_DB_URL") { config.storage.db_url = Some(db_url); }
         if let Ok(cache) = std::env::var("COWEN_CACHE_TYPE") { config.storage.cache = cache; }
@@ -314,37 +352,21 @@ impl ConfigManager {
     }
 
     pub async fn delete(&self, profile: &str) -> Result<()> {
+        
         let path = self.get_profile_path(profile);
         if path.exists() {
             fs::remove_file(path)?;
         }
+
         if let Some(vault) = self.vault.get() {
-            let _ = vault.clear_profile(profile).await;
+            vault.clear_profile(profile).await?;
         }
+
+        event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
+            profile: profile.to_string(), 
+            key: "system:manifest".to_string() 
+        });
+
         Ok(())
     }
-
-    pub async fn find_free_port(&self) -> u16 {
-        for port in 16000..19000 {
-            if self.is_port_free(port).await { return port; }
-        }
-        0
-    }
-
-    async fn is_port_free(&self, port: u16) -> bool {
-        std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
-    }
-
-    pub async fn get_next_profile_name(&self) -> Result<String> {
-        let profiles = self.list_profiles().await?;
-        let mut i = 1;
-        loop {
-            let name = format!("profile_{}", i);
-            if !profiles.contains(&name) {
-                return Ok(name);
-            }
-            i += 1;
-        }
-    }
-
 }

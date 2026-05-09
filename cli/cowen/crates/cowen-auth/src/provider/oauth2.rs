@@ -412,7 +412,18 @@ impl AuthProvider for OAuth2Provider {
         let pid = orchestrator::spawn_finalizer(profile, &session.state)?;
         
         // 6. Wait for Result (Closed Loop)
-        orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr, &session.state).await?;
+        
+        // 6. Wait for Result (Closed Loop) with Signal Handling
+        tokio::select! {
+            res = orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr, &session.state) => {
+                res?;
+            }
+            _ = tokio::signal::ctrl_c() => {
+                println!("\n🛑 Authorization cancelled by user.");
+                return Err(anyhow::anyhow!("Authorization cancelled"));
+            }
+        }
+
 
         // 7. Automatically start the daemon (OCP: Consistent experience across all modes)
         if params.auto_start {

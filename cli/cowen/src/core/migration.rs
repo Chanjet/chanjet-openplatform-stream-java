@@ -115,8 +115,10 @@ impl StoreMigrator {
             "mysql"
         } else if target_url.starts_with("postgres://") || target_url.starts_with("postgresql://") {
             "postgres"
-        } else if target_url.starts_with("sqlite://") || target_url.starts_with("innerdb://") || target_url == "innerdb" {
+        } else if target_url.starts_with("innerdb://") || target_url == "innerdb" {
             "innerdb"
+        } else if target_url.starts_with("sqlite://") {
+            "sqlite"
         } else {
             "mysql"
         };

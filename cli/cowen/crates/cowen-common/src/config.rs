@@ -137,7 +137,8 @@ impl Config {
 
 pub fn get_app_dir() -> PathBuf {
     if let Ok(path) = std::env::var("COWEN_HOME") {
-        return PathBuf::from(path);
+        let p = PathBuf::from(path);
+                return p;
     }
     let home = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
     home.join(".cowen")

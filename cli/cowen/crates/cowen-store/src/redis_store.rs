@@ -55,7 +55,7 @@ impl cowen_common::store::Store for RedisStore {
         if let Ok(wrapper) = serde_json::from_str::<RedisConfigValue>(&val) {
             return Ok((wrapper.v, chrono::Utc::now().timestamp())); 
         }
-        Ok((0, chrono::Utc::now().timestamp()))
+        Ok((1, chrono::Utc::now().timestamp()))
     }
 
     async fn get_config_full(&self, profile: &str, key: &str) -> Result<Item> {
@@ -79,7 +79,7 @@ impl cowen_common::store::Store for RedisStore {
     }
 
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()> {
-        let mut version = 0;
+        let mut version = 1;
         if let Ok(old) = self.raw_get(profile, &format!("cfg:{}", key)).await {
             if let Ok(wrapper) = serde_json::from_str::<RedisConfigValue>(&old) {
                 version = wrapper.v + 1;

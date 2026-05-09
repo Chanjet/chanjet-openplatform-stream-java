@@ -4,6 +4,42 @@ use crate::core::vault::Vault;
 use anyhow::Result;
 use std::sync::Arc;
 
+struct InitCleanupGuard {
+    profile: String,
+    cfg_mgr: crate::core::config::ConfigManager,
+    is_new: bool,
+    active: bool,
+}
+
+impl InitCleanupGuard {
+    fn new(profile: &str, cfg_mgr: &crate::core::config::ConfigManager, is_new: bool) -> Self {
+        Self {
+            profile: profile.to_string(),
+            cfg_mgr: cfg_mgr.clone(),
+            is_new,
+            active: true,
+        }
+    }
+
+    fn cancel(mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for InitCleanupGuard {
+    fn drop(&mut self) {
+        if self.active && self.is_new {
+            eprintln!("\n⚠️  Initialization interrupted. Cleaning up profile '{}'...", self.profile);
+            let mgr = self.cfg_mgr.clone();
+            let p = self.profile.clone();
+            let path = mgr.get_profile_path(&p);
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
 pub async fn execute(
     profile: &str,
     cfg_mgr: &ConfigManager,
@@ -19,6 +55,7 @@ pub async fn execute(
     app_mode: &Option<String>,
     proxy_port: &Option<u16>,
     auto_start: bool,
+    daemon_service: Option<Arc<dyn cowen_common::daemon::DaemonService>>,
 ) -> Result<()> {
     let is_new = !cfg_mgr.exists(profile).await;
     let mut config = cfg_mgr.load(profile).await?;
@@ -50,12 +87,12 @@ pub async fn execute(
             return Ok(());
         } else {
             anyhow::bail!(
-                "Profile '{}' already exists with different settings (Mode: {:?}, AppKey: {}).\n\
-                Use a different profile name or 'reset' this one if you want to switch applications.",
+                "Profile '{}' already exists with different settings (Mode: {:?}, AppKey: {}).\n                Use a different profile name or 'reset' this one if you want to switch applications.",
                 profile, config.app_mode, config.app_key
             );
         }
     }
+
     // Determine Auth Mode
     let mode_str = app_mode.as_deref().unwrap_or("oauth2");
     let mode = match mode_str {
@@ -65,10 +102,11 @@ pub async fn execute(
     };
     config.app_mode = mode;
 
+    let _guard = InitCleanupGuard::new(profile, cfg_mgr, is_new);
+
     if is_new {
         // Logic Fix: Save early for new profiles to anchor the identity
         cfg_mgr.save(profile, &mut config).await?;
-        config.version += 1;
     }
 
     // 1. Delegate All Mode-Specific Initialization (Personality) to Provider
@@ -99,7 +137,7 @@ pub async fn execute(
 
     // The Provider now handles credential setup, config saving (via cfg_mgr), and daemon startup.
     let init_res = auth_cli.provider(&config.app_mode)
-        .initialize(profile, &mut config, vault.clone(), cfg_mgr, params, None)
+        .initialize(profile, &mut config, vault.clone(), cfg_mgr, params, daemon_service)
         .await;
 
     if let Err(e) = init_res {
@@ -116,6 +154,7 @@ pub async fn execute(
 
     // Automatically set the new profile as the active one
     let _ = cfg_mgr.set_default_profile(profile);
+    _guard.cancel();
     println!("✅ Active profile switched to '{}'", profile);
 
     Ok(())

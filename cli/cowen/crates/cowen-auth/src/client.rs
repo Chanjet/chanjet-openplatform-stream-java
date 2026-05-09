@@ -1,7 +1,7 @@
 use cowen_common::obfs;
 use cowen_common::config::Config;
 use crate::pool::TokenPool;
-use cowen_common::models::Token;
+
 use anyhow::{Result, anyhow};
 use reqwest::Client as HttpClient;
 use std::sync::Arc;

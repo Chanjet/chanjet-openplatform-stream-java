@@ -181,7 +181,7 @@ pub async fn perform_failure_cleanup(
     vault: Arc<dyn Vault>,
     finalizer_pid: u32,
     is_new: bool,
-    cfg_mgr: &ConfigManager,
+    _cfg_mgr: &ConfigManager,
 ) {
     // 1. Kill the finalizer background process
     let mut sys = sysinfo::System::new();

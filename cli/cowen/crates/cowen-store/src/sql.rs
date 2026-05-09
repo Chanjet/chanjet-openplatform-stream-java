@@ -110,18 +110,23 @@ impl SqlStore {
     }
 
     pub async fn from_url(url: &str) -> Result<Self> {
-        let mut scheme = url.split(':').next().ok_or_else(|| anyhow::anyhow!("Invalid database URL"))?;
-        
-        let actual_url = if scheme == "innerdb" {
+        let mut scheme = url.split(":").next().ok_or_else(|| anyhow::anyhow!("Invalid database URL"))?;
+        let mut actual_url = if scheme == "innerdb" {
             scheme = "sqlite";
-            url.replace("innerdb://", "sqlite://")
+            url.replace("innerdb://", "sqlite:")
         } else {
             url.to_string()
         };
+
+        if actual_url.starts_with("sqlite://") {
+             actual_url = actual_url.replace("sqlite://", "sqlite:");
+        } else if (scheme == "mysql" || scheme == "postgres") && !actual_url.contains("://") {
+             actual_url = actual_url.replace("mysql:", "mysql://").replace("postgres:", "postgres://");
+        }
         
         for reg in inventory::iter::<SqlBuilderRegistration> {
             if reg.builder.scheme() == scheme {
-                let driver = reg.builder.build(&actual_url).await?;
+                                let driver = reg.builder.build(&actual_url).await?;
                 return Ok(Self::new(driver));
             }
         }

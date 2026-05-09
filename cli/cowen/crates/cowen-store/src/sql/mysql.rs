@@ -47,7 +47,7 @@ impl SqlDriver for MySqlDriver {
         })
     }
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_config (profile, item_key, item_value, version) VALUES (?, ?, ?, 0) ON DUPLICATE KEY UPDATE item_value = VALUES(item_value), version = version + 1")
+        sqlx::query("INSERT INTO cowen_config (profile, item_key, item_value, version) VALUES (?, ?, ?, 1) ON DUPLICATE KEY UPDATE item_value = VALUES(item_value), version = version + 1")
             .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
         Ok(())
     }

@@ -44,7 +44,7 @@ impl SqlDriver for PostgresDriver {
         })
     }
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> Result<()> {
-        sqlx::query("INSERT INTO cowen_config (profile, item_key, item_value, version) VALUES ($1, $2, $3, 0) ON CONFLICT (profile, item_key) DO UPDATE SET item_value = EXCLUDED.item_value, version = cowen_config.version + 1")
+        sqlx::query("INSERT INTO cowen_config (profile, item_key, item_value, version) VALUES ($1, $2, $3, 1) ON CONFLICT (profile, item_key) DO UPDATE SET item_value = EXCLUDED.item_value, version = cowen_config.version + 1")
             .bind(profile).bind(key).bind(value).execute(&self.pool).await?;
         Ok(())
     }
