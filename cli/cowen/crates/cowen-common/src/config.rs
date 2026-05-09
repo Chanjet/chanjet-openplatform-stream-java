@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub const BUILTIN_CLIENT_ID: &str = "3x45dOtt";
-pub const DEF_MARKET_URL: &str = "https://market.chanjet.com/open/isv/authorization";
+pub const DEF_MARKET_URL: &str = "https://market.chanjet.com";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
