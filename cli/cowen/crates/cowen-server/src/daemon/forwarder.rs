@@ -36,15 +36,19 @@ impl Forwarder {
         let all = self.dlq.list_all().await?;
         let entry = all.iter().find(|e| e.id == id).ok_or_else(|| CowenError::Store("Message not found in DLQ".to_string()))?;
         let event: Value = serde_json::from_str(&entry.payload)?;
-        self.forward(event).await;
+        
+        self.forward(event).await?;
+        
+        // On success, delete from DLQ
+        self.dlq.delete(id, &entry.topic).await?;
         Ok(())
     }
 
-    pub async fn forward(&self, event: Value) {
+    pub async fn forward(&self, event: Value) -> CowenResult<()> {
         if self.target_url.is_empty() {
             tracing::warn!(target: "stream", "No webhook_target configured. Event dropped locally.");
             println!("⚠️ No webhook_target configured. Event dropped locally.");
-            return;
+            return Ok(());
         }
 
         // SSRF Protection: Loopback Only
@@ -54,11 +58,11 @@ impl Forwarder {
                 let err_msg = format!("Security Violation: Webhook target '{}' is NOT a loopback address. For security reasons (SSRF prevention), only localhost/127.0.0.1 is allowed.", host);
                 tracing::error!(target: "stream", error = %err_msg);
                 println!("❌ {}", err_msg);
-                return;
+                return Err(CowenError::Security(err_msg));
             }
         } else {
             println!("❌ Invalid webhook_target URL: {}", self.target_url);
-            return;
+            return Err(CowenError::Auth("Invalid webhook target".to_string()));
         }
 
         let msg_id = event.get("msgId").or(event.get("id")).and_then(|v| v.as_str()).unwrap_or("unknown_id").to_string();
@@ -79,18 +83,21 @@ impl Forwarder {
             Ok(r) if r.status().is_success() => {
                 tracing::info!(target: "stream", msg_id = %msg_id, status = %r.status(), "Event successfully forwarded");
                 println!("✅ Successfully forwarded event [{}]", msg_id);
+                Ok(())
             }
             Ok(r) => {
                 let err_msg = format!("HTTP error: {}", r.status());
                 tracing::error!(target: "stream", msg_id = %msg_id, status = %r.status(), "Forward failed, saving to DLQ");
                 println!("❌ Forward failed: {}", err_msg);
                 let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg).await;
+                Err(CowenError::Api(err_msg))
             }
             Err(e) => {
                 let err_msg = format!("Network error: {}", e);
                 tracing::error!(target: "stream", msg_id = %msg_id, error = %e, "Forward network failed, saving to DLQ");
                 println!("❌ Forward network failed: {}", err_msg);
                 let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg).await;
+                Err(CowenError::Network(e))
             }
         }
     }

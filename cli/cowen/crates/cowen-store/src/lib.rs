@@ -42,7 +42,18 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
     if actual_url.starts_with("innerdb:") {
         let path_part = actual_url.strip_prefix("innerdb://").unwrap_or("");
         if !path_part.is_empty() {
-            actual_url = format!("sqlite:{}", path_part);
+            let path = std::path::Path::new(path_part);
+            if path.is_relative() {
+                // If it already starts with app_dir (as a relative path or subpath), don't join again
+                if path.starts_with(&app_dir) || (app_dir.is_absolute() && path.to_string_lossy().contains(app_dir.to_string_lossy().as_ref())) {
+                     actual_url = format!("sqlite://{}", path.to_string_lossy());
+                } else {
+                     let db_path = app_dir.join(path);
+                     actual_url = format!("sqlite://{}", db_path.to_string_lossy());
+                }
+            } else {
+                actual_url = format!("sqlite://{}", path_part);
+            }
         } else {
             let db_path = app_dir.join("cowen.db");
             actual_url = format!("sqlite:{}", db_path.to_string_lossy());

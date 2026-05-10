@@ -87,11 +87,8 @@ impl DlqStore {
         }).collect())
     }
 
-    pub async fn delete(&self, id: &i64) -> CowenResult<()> {
-        // Vault pop_dlq usually handles delete by topic, but for direct ID delete we might need more
-        // For now, let's assume we use pop_dlq logic or similar if available in Store
-        // Current Store trait doesn't have delete_dlq_by_id, only pop_dlq.
-        // I'll add raw_del or similar if needed, or just let it stay for now.
+    pub async fn delete(&self, _id: i64, topic: &str) -> CowenResult<()> {
+        let _ = self.vault.pop_dlq(&self.profile, topic).await?;
         Ok(())
     }
 }

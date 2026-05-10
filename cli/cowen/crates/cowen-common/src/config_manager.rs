@@ -91,12 +91,16 @@ impl ConfigManager {
 
         // 1. Try Vault first (The Single Source of Truth)
         if let Some(vault) = self.vault.get() {
-            if let Ok(item) = vault.get_config_full(profile, "system:manifest").await {
-                match serde_yaml::from_str::<Config>(&item.value) {
-                    Ok(mut config) => {
-                        config.version = item.version;
-                        let app_key = config.app_key.trim();
-                        let global_profile = format!("app:{}", app_key);
+            tracing::debug!(target: "sys", profile = %profile, "Attempting to load manifest from Vault");
+            match vault.get_config_full(profile, "system:manifest").await {
+                Ok(item) => {
+                    tracing::info!(target: "sys", profile = %profile, version = %item.version, "Manifest loaded from Vault");
+                    match serde_yaml::from_str::<Config>(&item.value) {
+                        Ok(mut config) => {
+                            eprintln!("DEBUG: ConfigManager::load profile='{}' raw_yaml='{}' loaded_mode='{:?}'", profile, item.value, config.app_mode);
+                            config.version = item.version;
+                            let app_key = config.app_key.trim();
+                            let global_profile = format!("app:{}", app_key);
 
                         if let Ok(s) = vault.get_secret(profile, "app_secret").await { 
                             let s: String = s;
@@ -121,6 +125,10 @@ impl ConfigManager {
                     Err(e) => {
                         tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
                     }
+                }
+                },
+                Err(e) => {
+                    tracing::debug!(target: "sys", profile = %profile, error = %e, "Manifest not found in Vault or Vault error");
                 }
             }
         }
@@ -204,7 +212,7 @@ impl ConfigManager {
                 vault.set_config_conditional(profile, "system:manifest", &manifest, config.version).await?;
             } else {
                 // For version 0, it might be a truly new profile or a legacy fallback
-                let _ = vault.set_config(profile, "system:manifest", &manifest).await;
+                vault.set_config(profile, "system:manifest", &manifest).await?;
             }
             event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
                 profile: profile.to_string(), 
@@ -238,9 +246,30 @@ impl ConfigManager {
                     let expected_sqlite = format!("sqlite://{}", db_path.to_string_lossy());
                     let expected_innerdb = format!("innerdb://{}", db_path.to_string_lossy());
                     
-                    url != &expected_sqlite && url != &expected_innerdb 
-                        && !url.starts_with(&format!("{}?", expected_sqlite))
-                        && !url.starts_with(&format!("{}?", expected_innerdb))
+                    // Normalize url for comparison (e.g. handle relative paths)
+                    let normalized_url = if url.starts_with("sqlite://") || url.starts_with("innerdb://") {
+                        let scheme = if url.starts_with("sqlite://") { "sqlite://" } else { "innerdb://" };
+                        let path_part = &url[scheme.len()..];
+                        let path = std::path::Path::new(path_part.split('?').next().unwrap_or(path_part));
+                        if path.is_relative() {
+                             if let Ok(cwd) = std::env::current_dir() {
+                                 format!("{}{}", scheme, cwd.join(path).to_string_lossy())
+                             } else {
+                                 url.to_string()
+                             }
+                        } else {
+                             url.to_string()
+                        }
+                    } else {
+                        url.to_string()
+                    };
+
+                    let res = normalized_url != expected_sqlite && normalized_url != expected_innerdb 
+                        && !normalized_url.starts_with(&format!("{}?", expected_sqlite))
+                        && !normalized_url.starts_with(&format!("{}?", expected_innerdb));
+                    
+                    tracing::debug!(target: "sys", "is_distributed_storage: url={}, normalized_url={}, expected_innerdb={}, res={}", url, normalized_url, expected_innerdb, res);
+                    res
                 } else {
                     false
                 }

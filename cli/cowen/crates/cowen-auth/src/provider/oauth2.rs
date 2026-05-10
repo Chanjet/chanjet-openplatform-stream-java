@@ -171,7 +171,7 @@ impl OAuth2Provider {
         Ok(token)
     }
 
-    async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str) -> CowenResult<()> {
+    async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
         tracing::info!(target: "sys", profile = %profile, session_id = %session_id, "Finalizer started for OAuth2 auth");
         
         let session_manager = AuthSessionManager::new(self.pool.as_ref());
@@ -193,6 +193,13 @@ impl OAuth2Provider {
                                 match self.exchange_code(profile, cfg, &res.code, &session.code_verifier, &session.redirect_uri).await {
                                     Ok(_) => {
                                         tracing::info!(target: "sys", "Token exchange successful");
+                                        
+                                        // 🚀 OCP: Auto-start daemon after successful authorization
+                                        if let Some(ds) = daemon_service {
+                                            tracing::info!(target: "sys", "Triggering background daemon startup after successful OAuth2 exchange");
+                                            let _ = ds.start_daemon(profile, cfg, self.pool.as_vault()).await;
+                                        }
+
                                         Ok(())
                                     }
                                     Err(e) => {
@@ -420,10 +427,10 @@ impl AuthProvider for OAuth2Provider {
         Ok(())
     }
 
-    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>) -> CowenResult<()> {
+    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
         // 1. Finalizer Implementation (Background flow)
         if let Some(session_id) = finalize {
-            return self.finalize_login(profile, config, session_id).await;
+            return self.finalize_login(profile, config, session_id, daemon_service).await;
         }
 
         // 2. Regular Login flow
@@ -570,8 +577,12 @@ impl AuthProvider for OAuth2Provider {
         Ok(())
     }
 
-    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool) -> bool {
+    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool, is_distributed: bool) -> bool {
         if has_pid || config.app_key.trim().is_empty() {
+            return false;
+        }
+
+        if is_distributed {
             return false;
         }
 

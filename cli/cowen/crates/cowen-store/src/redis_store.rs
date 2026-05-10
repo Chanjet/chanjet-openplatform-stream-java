@@ -66,7 +66,7 @@ impl Store for RedisStore {
         self.raw_set(profile, &format!("cfg:{}", key), value, None).await?;
         // Update manifest
         let mut conn = self.conn.clone();
-        let manifest_key = self.key(profile, "cfg:system:manifest");
+        let manifest_key = self.key(profile, "__keys__");
         redis::cmd("SADD").arg(&manifest_key).arg(key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         Ok(())
     }
@@ -78,7 +78,7 @@ impl Store for RedisStore {
 
     async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>> {
         let mut conn = self.conn.clone();
-        let manifest_key = self.key(profile, "cfg:system:manifest");
+        let manifest_key = self.key(profile, "__keys__");
         let keys: Vec<String> = redis::cmd("SMEMBERS").arg(&manifest_key).query_async(&mut conn).await.map_err(CowenError::from)?;
         Ok(keys)
     }
@@ -87,7 +87,7 @@ impl Store for RedisStore {
         let redis_key = self.key(profile, &format!("cfg:{}", key));
         let mut conn = self.conn.clone();
         redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
-        let manifest_key = self.key(profile, "cfg:system:manifest");
+        let manifest_key = self.key(profile, "__keys__");
         redis::cmd("SREM").arg(&manifest_key).arg(key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         Ok(())
     }
@@ -133,13 +133,13 @@ impl Store for RedisStore {
     }
 
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
-        let json = self.raw_get(&format!("app:{}", app_key), "tok:app_access").await?;
+        let json = self.raw_get(&format!("app:{}", app_key), "tok_v2:app_access").await?;
         Ok(serde_json::from_str(&json)?)
     }
 
     async fn save_app_access_token(&self, app_key: &str, token: Token) -> CowenResult<()> {
         let json = serde_json::to_string(&token)?;
-        self.raw_set(&format!("app:{}", app_key), "tok:app_access", &json, None).await
+        self.raw_set(&format!("app:{}", app_key), "tok_v2:app_access", &json, None).await
     }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {

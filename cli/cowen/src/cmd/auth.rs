@@ -8,8 +8,9 @@ pub async fn login(
     auth_cli: &dyn AuthClientTrait,
     force: bool,
     finalize: Option<&str>,
+    daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
 ) -> Result<()> {
-    auth_cli.perform_login(profile, cfg, force, finalize).await.map_err(|e| anyhow::anyhow!(e))?;
+    auth_cli.perform_login(profile, cfg, force, finalize, daemon_service).await.map_err(|e| anyhow::anyhow!(e))?;
     Ok(())
 }
 

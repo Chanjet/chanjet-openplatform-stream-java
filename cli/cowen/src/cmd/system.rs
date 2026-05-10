@@ -1,4 +1,5 @@
 use cowen_common::vault::Vault;
+use cowen_common::daemon::DaemonService;
 use cowen_common::{ConfigManager, CowenResult};
 use anyhow::Result;
 use serde::Serialize;
@@ -26,14 +27,36 @@ pub async fn status(
     };
 
     let mut results = Vec::new();
+    let mut broken_profiles = Vec::new();
+
     for p in profiles {
-        if let Ok(s) = get_system_status(&p, cfg_mgr, vault.clone()).await {
-            results.push(s);
+        match get_system_status(&p, cfg_mgr, vault.clone()).await {
+            Ok(s) => results.push(s),
+            Err(e) => {
+                broken_profiles.push((p.clone(), e.to_string()));
+                // Also push a basic status entry so it shows up in JSON/list
+                results.push(SystemStatus {
+                    profile: p.to_string(),
+                    entries: vec![StatusEntry {
+                        name: "System".to_string(),
+                        icon: "🚨".to_string(),
+                        level: StatusLevel::ERROR,
+                        message: format!("Profile load failed: {}", p),
+                        reason: Some(e.to_string()),
+                        details: vec![],
+                        children: vec![],
+                    }],
+                });
+            }
         }
     }
 
     if format == "json" || format == "yaml" {
-        cowen_common::utils::render(&results, format).map_err(|e| anyhow::anyhow!(e))?;
+        if !all && results.len() == 1 {
+            cowen_common::utils::render(&results[0], format).map_err(|e| anyhow::anyhow!(e))?;
+        } else {
+            cowen_common::utils::render(&results, format).map_err(|e| anyhow::anyhow!(e))?;
+        }
         return Ok(());
     }
 
@@ -42,6 +65,13 @@ pub async fn status(
         println!("----------------------------------");
         for entry in s.entries {
             render_entry(&entry, 0);
+        }
+    }
+
+    if !broken_profiles.is_empty() {
+        println!("\n❌ Profiles with Errors:");
+        for (p, e) in broken_profiles {
+            println!("  - {}: {}", p, e);
         }
     }
 
@@ -158,7 +188,7 @@ impl StatusCollector for ConfigCollector {
         // 1. AppKey
         let ak_level = if ctx.config.app_key.trim().is_empty() { StatusLevel::ERROR } else { StatusLevel::OK };
         children.push(StatusEntry::new(CommonTemplate::Custom("AppKey".to_string(), "🔑".to_string()), ak_level, 
-            if ak_level == StatusLevel::OK { "Configured".to_string() } else { "Missing".to_string() }));
+            if ak_level == StatusLevel::OK { format!("Configured ({})", ctx.config.app_key) } else { "Missing".to_string() }));
 
         // 2. Secret in Vault
         let has_secret = ctx.vault.get_secret(&ctx.profile, "app_secret").await.is_ok();
@@ -245,12 +275,34 @@ pub async fn rename_profile(
 }
 
 pub async fn ensure_daemon_running(
-    _profile: &str,
-    _config: &cowen_common::Config,
+    profile: &str,
+    config: &cowen_common::Config,
     _cfg_mgr: &ConfigManager,
-    _vault: Arc<dyn Vault>,
-    _auth_cli: &dyn cowen_auth::client::Client,
+    vault: Arc<dyn Vault>,
+    auth_cli: &dyn cowen_auth::client::Client,
 ) -> Result<()> {
-    // Legacy/Stub for now
+    // 1. Check if already running
+    let (pid, _) = cowen_common::status::get_active_daemon_info(profile).await;
+    if pid.is_some() {
+        return Ok(());
+    }
+
+    // 2. Check if recovery is recommended by provider
+    let provider = auth_cli.get_provider(&config.app_mode).ok_or_else(|| anyhow::anyhow!("No provider found for profile '{}'", profile))?;
+    
+    // We check pid file existence for extra safety (should_auto_recover might care)
+    let pid_file = cowen_common::config::get_app_dir().join(format!("{}_daemon.pid", profile));
+    let pid_file_exists = pid_file.exists();
+
+    let app_cfg = _cfg_mgr.load_app_config().await.unwrap_or_default();
+    let is_distributed = _cfg_mgr.is_distributed_storage(&app_cfg);
+
+    if provider.should_auto_recover(profile, config, false, pid_file_exists, is_distributed).await {
+        tracing::info!(target: "sys", profile = %profile, "Daemon not running, triggering auto-recovery...");
+        
+        let daemon_svc = cowen_server::ServerDaemonService::new(_cfg_mgr.clone());
+        let _ = daemon_svc.start_daemon(profile, config, vault).await;
+    }
+
     Ok(())
 }

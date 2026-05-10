@@ -50,6 +50,30 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     if config.app_key.trim().is_empty() {
         anyhow::bail!("AppKey is empty for profile '{}'. Please run 'cowen init' first or provide COWEN_APP_KEY/COWEN_APP_MODE.", profile);
     }
+
+    // --- CHECK FOR ALREADY RUNNING DAEMON ---
+    if pid_file.exists() {
+        if let Ok(content) = fs::read_to_string(&pid_file) {
+            if let Some(saved_pid_str) = content.lines().next() {
+                if let Ok(saved_pid) = saved_pid_str.trim().parse::<u32>() {
+                    let mut s = System::new_all();
+                    s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                    if let Some(process) = s.process(sysinfo::Pid::from_u32(saved_pid)) {
+                         let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+                         let bin_name = cowen_common::utils::get_bin_name().to_lowercase();
+                         if cmdline.to_lowercase().contains(&bin_name) {
+                             if foreground {
+                                 eprintln!("ℹ️ Daemon for profile '{}' is already running (PID: {}). Continuing anyway (foreground mode).", profile, saved_pid);
+                             } else {
+                                 eprintln!("ℹ️ Daemon for profile '{}' is already running (PID: {}). Skipping.", profile, saved_pid);
+                                 return Ok(());
+                             }
+                         }
+                    }
+                }
+            }
+        }
+    }
     
     if !foreground {
 
@@ -236,7 +260,15 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     }
 
     tracing::info!(target: "sys", "Daemon process shutting down...");
-    let _ = fs::remove_file(&pid_file);
+    if let Ok(content) = fs::read_to_string(&pid_file) {
+        if let Some(saved_pid_str) = content.lines().next() {
+            if let Ok(saved_pid) = saved_pid_str.trim().parse::<u32>() {
+                if saved_pid == pid {
+                    let _ = fs::remove_file(&pid_file);
+                }
+            }
+        }
+    }
     result
 }
 

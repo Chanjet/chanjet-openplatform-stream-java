@@ -57,23 +57,17 @@ impl AuthProviderValidator {
 
 impl cowen_store::ConfigValidator for AuthProviderValidator {
     fn validate_load(&self, profile: &str, config: &cowen_common::config::Config, is_distributed: bool, exists: bool) -> CowenResult<()> {
-        if is_distributed && exists {
-            let provider = self.client.provider(&config.app_mode);
-            if !provider.is_allowed_in_distributed_storage() {
-                let msg = format!("⚠️  Skipping profile '{}': Auth mode '{:?}' is not allowed in distributed storage scenarios (shared database/redis).", profile, config.app_mode);
-                eprintln!("{}", msg);
-                return Err(CowenError::Internal(format!("SKIPPED: {}", msg)));
-            }
+        if is_distributed && exists && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
+            let msg = format!("⚠️  Skipping profile '{}': Auth mode 'Oauth2' is not allowed in distributed storage scenarios (shared database/redis).", profile);
+            eprintln!("{}", msg);
+            return Err(CowenError::Internal(format!("SKIPPED: {}", msg)));
         }
         Ok(())
     }
 
-    fn validate_save(&self, _profile: &str, config: &cowen_common::config::Config, is_distributed: bool) -> CowenResult<()> {
-        if is_distributed {
-            let provider = self.client.provider(&config.app_mode);
-            if !provider.is_allowed_in_distributed_storage() {
-                return Err(CowenError::Config(format!("Auth mode '{:?}' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.", config.app_mode)));
-            }
+    fn validate_save(&self, profile: &str, config: &cowen_common::config::Config, is_distributed: bool) -> CowenResult<()> {
+        if is_distributed && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
+            return Err(CowenError::Config("Auth mode 'Oauth2' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.".to_string()));
         }
         Ok(())
     }

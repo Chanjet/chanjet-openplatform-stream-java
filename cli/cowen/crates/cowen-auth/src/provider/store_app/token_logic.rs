@@ -26,8 +26,24 @@ pub(crate) async fn get_token(
             get_org_token(pool, http_sender, profile, cfg, oid).await
         }
         _ => {
-            // Reject requests missing mandatory arbitration headers
-            Err(CowenError::Auth(format!("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).")))
+            // 🚀 OCP: Fallback to AppAccessToken if no arbitration headers are provided.
+            // This allows CLI commands to "see" the app-level token for status checks.
+            match pool.get_app_access_token(&cfg.app_key).await {
+                Ok(t) if !t.is_expired() => Ok(t),
+                _ => {
+                    // Slow path via Vault
+                    match pool.as_vault().get_app_access_token(&cfg.app_key).await {
+                        Ok(t) if !t.is_expired() => {
+                            pool.set_app_access_token(&cfg.app_key, &t).await?;
+                            Ok(t)
+                        }
+                        _ => {
+                            // If we can't get even the AppAccessToken, then return the 401 error
+                            Err(CowenError::Auth(format!("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).")))
+                        }
+                    }
+                }
+            }
         }
     }
 }

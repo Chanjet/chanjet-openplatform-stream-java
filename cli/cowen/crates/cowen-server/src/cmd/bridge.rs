@@ -39,7 +39,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         dispatcher.set_fallback_handler(Arc::new(move |msg| {
             let fwd_clone = fwd.clone();
             tokio::spawn(async move {
-                fwd_clone.forward(msg).await;
+                let _ = fwd_clone.forward(msg).await;
             });
             true
         }));

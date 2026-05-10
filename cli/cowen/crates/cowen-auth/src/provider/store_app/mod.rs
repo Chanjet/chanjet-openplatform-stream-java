@@ -303,27 +303,21 @@ impl AuthProvider for StoreAppProvider {
         daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
     ) -> CowenResult<()> {
         // 1. Setup credentials
-        if let Some(ak) = params.app_key {
-            config.app_key = ak;
-        }
+        if let Some(ak) = params.app_key { config.app_key = ak; }
+        if let Some(as_val) = params.app_secret { config.app_secret = as_val; }
+        if let Some(ek) = params.encrypt_key { config.encrypt_key = ek; }
+        if let Some(url) = params.openapi_url { config.openapi_url = url; }
+        if let Some(url) = params.stream_url { config.stream_url = url; }
+
+        if config.app_key.trim().is_empty() { return Err(CowenError::Config("Missing mandatory parameter: --app-key".to_string())); }
+        if config.app_secret.trim().is_empty() { return Err(CowenError::Config("Missing mandatory parameter: --app-secret".to_string())); }
+        if config.encrypt_key.trim().is_empty() { return Err(CowenError::Config("Missing mandatory parameter: --encrypt-key".to_string())); }
 
         let app_key = config.app_key.trim();
         let global_profile = format!("app:{}", app_key);
-
-        if let Some(as_val) = params.app_secret {
-            vault.set_secret(&global_profile, "app_secret", &as_val).await?;
-            config.app_secret = as_val;
-        }
-        if let Some(ek) = params.encrypt_key {
-            vault.set_secret(&global_profile, "encrypt_key", &ek).await?;
-            config.encrypt_key = ek;
-        }
-        if let Some(url) = params.openapi_url {
-            config.openapi_url = url;
-        }
-        if let Some(url) = params.stream_url {
-            config.stream_url = url;
-        }
+        
+        vault.set_secret(&global_profile, "app_secret", &config.app_secret).await?;
+        vault.set_secret(&global_profile, "encrypt_key", &config.encrypt_key).await?;
         if let Some(target) = params.webhook_target {
             config.webhook_target = target;
         }
@@ -415,7 +409,7 @@ impl AuthProvider for StoreAppProvider {
         }
     }
 
-    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>) -> CowenResult<()> {
+    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>, _daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
         // 1. Finalizer Implementation (Background flow)
         if let Some(session_id) = finalize {
             return self.finalize_login(profile, config, session_id).await;
@@ -499,8 +493,12 @@ impl AuthProvider for StoreAppProvider {
         Ok(())
     }
 
-    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool) -> bool {
+    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool, is_distributed: bool) -> bool {
         if has_pid || config.app_key.trim().is_empty() {
+            return false;
+        }
+
+        if is_distributed {
             return false;
         }
 

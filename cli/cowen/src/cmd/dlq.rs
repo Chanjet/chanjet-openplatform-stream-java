@@ -61,7 +61,7 @@ pub async fn purge(profile: &str, _config: &Config, vault: Arc<dyn cowen_common:
 
     println!("⚠️ Purging {} entries from DLQ...", entries.len());
     for entry in entries {
-        dlq_store.delete(&entry.id).await.map_err(|e| anyhow::anyhow!(e))?;
+        dlq_store.delete(entry.id, &entry.topic).await.map_err(|e| anyhow::anyhow!(e))?;
     }
     println!("✅ DLQ purged.");
 

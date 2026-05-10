@@ -30,9 +30,20 @@ impl Drop for InitCleanupGuard {
         if self.active && self.is_new {
             let p = self.profile.clone();
             let m = self.cfg_mgr.clone();
-            tokio::spawn(async move {
-                let _ = m.delete(&p).await;
-            });
+            
+            // 🚀 Synchronous deletion of local config file to ensure CLI immediate consistency
+            let app_dir = cowen_common::config::get_app_dir();
+            let yaml_path = app_dir.join(format!("{}.yaml", p));
+            if yaml_path.exists() {
+                let _ = std::fs::remove_file(yaml_path);
+            }
+
+            // Still try to delete from Vault if possible (best effort in drop)
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                let _ = handle.spawn(async move {
+                    let _ = m.delete(&p).await;
+                });
+            }
         }
     }
 }
@@ -72,6 +83,7 @@ pub async fn execute(
         "store_app" | "store-app" => AuthMode::StoreApp,
         _ => return Err(anyhow::anyhow!("Invalid app-mode: {}. Supported: self_built, oauth2, store_app", mode_str)),
     };
+    config.app_mode = mode.clone();
 
     // 2. Initialize Provider
     let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());

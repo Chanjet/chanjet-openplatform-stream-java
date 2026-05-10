@@ -76,11 +76,20 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 守护进程自动恢复策略
-    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool) -> bool {
+    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool, is_distributed: bool) -> bool {
         let _ = profile;
-        if has_pid || config.app_key.trim().is_empty() {
+        if is_distributed {
             return false;
         }
+
+        // 🚀 OCP: In distributed storage mode, multiple nodes might share the same profile.
+        // To avoid port collisions and session competition, we disable auto-recovery by default.
+        // Users must explicitly start the daemon on their preferred node/port.
+        if is_distributed {
+            tracing::debug!(target: "sys", profile = %profile, "Auto-recovery skipped in distributed storage mode.");
+            return false;
+        }
+
         // 默认策略：始终保持热启动，确保“秒级 API 响应”
         true
     }
@@ -185,8 +194,7 @@ pub trait AuthProvider: Send + Sync {
         Ok(None)
     }
 
-    #[allow(dead_code)]
-    async fn on_login(&self, _profile: &str, _config: &Config, _headers: &mut reqwest::header::HeaderMap) -> CowenResult<()> {
+    async fn on_login(&self, _profile: &str, _config: &Config, _headers: &mut reqwest::header::HeaderMap, _daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
         Ok(())
     }
 
@@ -194,7 +202,7 @@ pub trait AuthProvider: Send + Sync {
         Ok(())
     }
 
-    async fn perform_login(&self, _profile: &str, _config: &Config, _force: bool, _finalize: Option<&str>) -> CowenResult<()> {
+    async fn perform_login(&self, _profile: &str, _config: &Config, _force: bool, _finalize: Option<&str>, _daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
         Ok(())
     }
 

@@ -119,10 +119,11 @@ pub trait Client: Send + Sync {
     fn requires_ticket(&self, cfg: &Config) -> bool;
     fn supports_webhooks(&self, cfg: &Config) -> bool;
     fn supports_api_call(&self, cfg: &Config) -> bool;
-    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>) -> CowenResult<()>;
+    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()>;
 
     /// 🚀 UI/诊断能力：获取该模式下的专属诊断条目（Auth、Daemon等）
     async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>>;
+    fn get_provider(&self, mode: &cowen_common::models::AuthMode) -> Option<Arc<dyn crate::provider::AuthProvider>>;
 }
 
 use crate::provider::AuthProvider;
@@ -201,8 +202,8 @@ impl Client for AuthClient {
         self.provider(&cfg.app_mode).handle_platform_event(profile, cfg, event).await
     }
 
-    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>) -> CowenResult<()> {
-        self.provider(&cfg.app_mode).perform_login(profile, cfg, force, finalize).await
+    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
+        self.provider(&cfg.app_mode).perform_login(profile, cfg, force, finalize, daemon_service).await
     }
 
     async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> CowenResult<()> {
@@ -264,6 +265,10 @@ impl Client for AuthClient {
 
     async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
         self.provider(&ctx.config.app_mode).get_diagnostics(ctx).await
+    }
+
+    fn get_provider(&self, mode: &cowen_common::models::AuthMode) -> Option<Arc<dyn crate::provider::AuthProvider>> {
+        self.providers.get(mode).cloned()
     }
 
     async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> CowenResult<serde_json::Value> {

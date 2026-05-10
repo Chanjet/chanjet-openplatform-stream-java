@@ -251,7 +251,12 @@ pub async fn run(cli: Cli) -> Result<()> {
     let mut config = match cfg_mgr.load(&active_profile).await {
         Ok(cfg) => cfg,
         Err(e) if e.to_string().contains("SKIPPED:") => return Err(anyhow::anyhow!(e)),
-        Err(_) => cowen_common::Config::default_with_profile(&active_profile),
+        Err(e) => {
+            if cfg_mgr.exists(&active_profile).await {
+                return Err(anyhow::anyhow!("Failed to load existing profile '{}': {}", active_profile, e));
+            }
+            cowen_common::Config::default_with_profile(&active_profile)
+        }
     };
 
     config.apply_env_overrides();
@@ -314,7 +319,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     let skip_recovery = matches!(&cli.command, 
         Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. } |
-        Commands::Config | Commands::Status { .. } | Commands::Profile { .. } | Commands::Dlq { .. }
+        Commands::Config | Commands::Profile { .. } | Commands::Dlq { .. }
     ) || matches!(&cli.command, Commands::Auth { action: AuthCommands::Login { finalize: Some(_), .. } });
 
     let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
@@ -345,7 +350,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Auth { action } => match action {
             AuthCommands::Status => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, false).await?,
             AuthCommands::Reset | AuthCommands::Logout => cmd::auth::logout(&active_profile, &config, &auth_cli).await?,
-            AuthCommands::Login { force, finalize } => cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref()).await?,
+            AuthCommands::Login { force, finalize } => cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref(), Some(daemon_svc.clone())).await?,
             AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format, *refresh).await?,
         }
         Commands::Daemon { action } => match action {
