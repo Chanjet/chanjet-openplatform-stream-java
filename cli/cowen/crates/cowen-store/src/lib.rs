@@ -1,6 +1,6 @@
 use cowen_common::{CowenResult, CowenError};
 use std::sync::Arc;
-use cowen_common::models::{Item, AuditEntry, DlqMessage};
+pub use cowen_common::models::{Item, AuditEntry, DlqMessage};
 pub use cowen_common::store::{Store, StoreBuilder, StoreBuilderRegistration, CacheBuilder, CacheBuilderRegistration};
 pub use cowen_common::{ConfigManager, ConfigValidator};
 

@@ -32,3 +32,7 @@ mssql = ["dep:tiberius", "dep:deadpool-tiberius", "dep:tokio-util"]
 redis = ["dep:redis"]
 all-stores = ["sqlite", "postgres", "mysql", "mssql", "redis"]
 
+[dev-dependencies]
+tempfile = "3.8"
+tokio = { version = "1.0", features = ["full"] }
+

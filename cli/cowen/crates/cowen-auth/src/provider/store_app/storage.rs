@@ -25,3 +25,18 @@ pub(crate) fn get_custom_profile(_base_profile: &str, app_key: &str, org_id: &st
         format!("{}:{}", app_key, org_id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_org_token_key() {
+        assert_eq!(get_org_token_key("app1", "org1"), "oauth2_token_pair_org_app1_org1");
+    }
+
+    #[test]
+    fn test_get_user_token_key() {
+        assert_eq!(get_user_token_key("app1", "org1", "user1"), "oauth2_token_pair_user_app1_org1_user1");
+    }
+}

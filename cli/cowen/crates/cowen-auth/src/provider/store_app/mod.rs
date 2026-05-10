@@ -16,8 +16,6 @@ pub mod diagnostics;
 pub mod client;
 pub mod token_logic;
 pub mod storage;
-#[cfg(test)]
-pub mod tests;
 
 
 pub struct StoreAppProvider {
