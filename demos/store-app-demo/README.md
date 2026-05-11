@@ -53,15 +53,35 @@ docker-compose logs -f app
 
 ### 1. 准备并启动 Cowen (终端 1)
 
-进入 CLI 工程目录并构建最新版二进制，然后初始化并启动 Cowen：
+进入 CLI 工程目录并构建最新版二进制，然后初始化并启动 Cowen。
+
+> [!IMPORTANT]
+> **本地开发规范**：
+> - 存储方案：使用 **PostgreSQL** (`cowen_demo` 数据库)。
+> - 配置目录：使用项目本地的 **`.cowen_home`** 目录以实现环境隔离。
 
 ```bash
+# 1. 创建本地配置目录
+mkdir -p .cowen_home
+
+# 2. 配置全局存储参数 (使用 PostgreSQL)
+cat <<EOF > .cowen_home/app.yaml
+storage:
+  store: postgres
+  db_url: postgres://localhost/cowen_demo
+  cache: none
+EOF
+
+# 3. 初始化并启动 Cowen
+# 注意：必须指定 COWEN_HOME 环境变量
+export COWEN_HOME=$(pwd)/.cowen_home
+
 # 进入工程 CLI 目录
 cd ../../cli/cowen
 cargo build
 
-# 初始化 Cowen (指定为 store-app 模式，并配置本地 Webhook 地址)
-./target/debug/cowen init --profile demo-store-app \
+# 初始化 Cowen (指定为 store-app 模式)
+COWEN_HOME=$COWEN_HOME ./target/debug/cowen init --profile demo-store-app \
     --app-mode store-app \
     --app-key "<YOUR_APP_KEY>" \
     --app-secret "<YOUR_APP_SECRET>" \
@@ -69,8 +89,8 @@ cargo build
     --webhook-target "http://127.0.0.1:5000/webhook" \
     --proxy-port 8000
 
-# 启动 Cowen 守护进程 (前台运行方便观察日志)
-./target/debug/cowen daemon start --profile demo-store-app --foreground
+# 启动 Cowen 守护进程
+COWEN_HOME=$COWEN_HOME ./target/debug/cowen daemon start --profile demo-store-app --foreground
 ```
 
 ### 2. 启动 Node.js Demo 业务 (终端 2)

@@ -389,6 +389,47 @@ impl ConfigManager {
         Ok(res)
     }
 
+    pub fn list_local_profiles(&self) -> CowenResult<Vec<String>> {
+        let mut profiles = Vec::new();
+        if let Ok(entries) = fs::read_dir(&self.app_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
+                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                        if !name.contains("_openapi") && name != "app" {
+                            profiles.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(profiles)
+    }
+
+    pub async fn find_profile_by_key(&self, app_key: &str) -> CowenResult<Option<String>> {
+        let profiles = self.list_local_profiles()?;
+        for profile in profiles {
+            if let Ok(config) = self.load(&profile).await {
+                if config.app_key == app_key {
+                    return Ok(Some(profile));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn find_profile_by_key_and_mode(&self, app_key: &str, mode: &crate::models::AuthMode) -> CowenResult<Option<String>> {
+        let profiles = self.list_profiles().await?;
+        for profile in profiles {
+            if let Ok(config) = self.load(&profile).await {
+                if config.app_key == app_key && config.app_mode == *mode {
+                    return Ok(Some(profile));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     pub async fn rename(&self, old_name: &str, new_name: &str) -> CowenResult<()> {
         let old_path = self.get_profile_path(old_name);
         let new_path = self.get_profile_path(new_name);

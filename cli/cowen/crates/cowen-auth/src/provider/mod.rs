@@ -35,7 +35,7 @@ pub enum PlatformEvent {
     AppTicket(String),
     TempAuthCode {
         code: String,
-        org_id: Option<String>,
+        state: Option<String>,
     },
 }
 

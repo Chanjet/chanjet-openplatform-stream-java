@@ -23,6 +23,13 @@ impl InitCleanupGuard {
     fn cancel(&mut self) {
         self.active = false;
     }
+
+    async fn cleanup(&mut self) {
+        if self.active && self.is_new {
+            self.active = false; // Prevent double cleanup
+            let _ = self.cfg_mgr.delete(&self.profile).await;
+        }
+    }
 }
 
 impl Drop for InitCleanupGuard {
@@ -65,24 +72,50 @@ pub async fn execute(
     auto_start: bool,
     daemon_svc: Option<Arc<dyn cowen_common::daemon::DaemonService>>,
 ) -> anyhow::Result<()> {
+    let is_new = !cfg_mgr.exists(profile).await;
+    
+    // 1. Resolve Mode
+    let mode = if let Some(m_str) = app_mode {
+        match m_str.as_str() {
+            "self_built" | "self-built" => AuthMode::SelfBuilt,
+            "oauth2" => AuthMode::Oauth2,
+            "store_app" | "store-app" => AuthMode::StoreApp,
+            _ => return Err(anyhow::anyhow!("Invalid app-mode: {}. Supported: self_built, oauth2, store_app", m_str)),
+        }
+    } else if !is_new {
+        let config = cfg_mgr.load(profile).await.map_err(|e| anyhow::anyhow!(e))?;
+        config.app_mode.clone()
+    } else {
+        AuthMode::Oauth2
+    };
+
+    // 2. Check for duplicate parameters (app_key + mode) in OTHER profiles
+    if let Some(ak) = app_key {
+        let conflict_profile = match mode {
+            AuthMode::SelfBuilt | AuthMode::StoreApp => {
+                // Strict Mode: Check globally for this appKey
+                cfg_mgr.find_profile_by_key(ak).await.ok().flatten()
+            }
+            AuthMode::Oauth2 => {
+                // Relaxed Mode: Only check for other Oauth2 profiles with same key (idempotency)
+                cfg_mgr.find_profile_by_key_and_mode(ak, &AuthMode::Oauth2).await.ok().flatten()
+            }
+        };
+
+        if let Some(existing_profile) = conflict_profile {
+            if existing_profile != profile {
+                println!("💡 Profile with same parameters already exists: \x1b[1;33m{}\x1b[0m", &existing_profile);
+                println!("   Switching to existing profile instead of creating '{}'.", profile);
+                let _ = cfg_mgr.set_default_profile(&existing_profile);
+                return Ok(());
+            }
+        }
+    }
+
     println!("\n🚀 Initializing profile: \x1b[1;32m{}\x1b[0m", profile);
     
-    let is_new = !cfg_mgr.exists(profile).await;
     let mut _guard = InitCleanupGuard::new(profile, cfg_mgr, is_new);
-
     let mut config = cfg_mgr.load(profile).await.map_err(|e| anyhow::anyhow!(e))?;
-
-    // 1. Resolve Mode
-    let mode_str = app_mode.clone().unwrap_or_else(|| {
-        if is_new { "oauth2".to_string() } else { format!("{:?}", config.app_mode).to_lowercase() }
-    });
-    
-    let mode = match mode_str.as_str() {
-        "self_built" | "self-built" => AuthMode::SelfBuilt,
-        "oauth2" => AuthMode::Oauth2,
-        "store_app" | "store-app" => AuthMode::StoreApp,
-        _ => return Err(anyhow::anyhow!("Invalid app-mode: {}. Supported: self_built, oauth2, store_app", mode_str)),
-    };
     config.app_mode = mode.clone();
 
     // 2. Initialize Provider
@@ -104,6 +137,7 @@ pub async fn execute(
 
     if let Err(e) = provider.initialize(profile, &mut config, vault.clone(), cfg_mgr, params, daemon_svc).await {
         eprintln!("❌ Initialization failed: {}", e);
+        _guard.cleanup().await;
         return Err(e.into());
     }
 

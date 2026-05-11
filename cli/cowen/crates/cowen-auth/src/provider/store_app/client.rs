@@ -239,7 +239,6 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
     http_sender: &dyn HttpSender,
     profile: &str,
     cfg: &Config,
-    org_id: Option<&str>,
     temp_auth_code: &str,
 ) -> CowenResult<String> {
     let app_at = get_app_access_token(pool, http_sender, profile, cfg)
@@ -273,16 +272,15 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("permanentAuthCode not found in response: {}", resp.body))?;
 
-    // 🚀 Robust OrgId Extraction: Prefer the one from the API response
+    // 🚀 Robust OrgId Extraction: MUST be from the API response for StoreApp
     let final_org_id = val
         .get("orgId")
         .or_else(|| val.get("result").and_then(|r| r.get("orgId")))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .or_else(|| org_id.map(|s| s.to_string()))
         .ok_or_else(|| {
             anyhow!(
-                "orgId not found in response and not provided in message. Payload: {}",
+                "orgId not found in platform response. Payload: {}",
                 resp.body
             )
         })?;

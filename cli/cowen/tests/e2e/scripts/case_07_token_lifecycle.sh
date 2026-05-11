@@ -2,7 +2,7 @@
 source tests/e2e/scripts/common.sh
 
 setup_workspace "lifecycle"
-# trap cleanup_suite EXIT
+trap cleanup_suite EXIT
 start_mock
 
 echo -e "${BOLD}1. Initialization${NC}"

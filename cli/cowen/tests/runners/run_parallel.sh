@@ -84,7 +84,9 @@ PARALLEL_SUITES=(
     "tests/e2e/scripts/case_33_postgres_shared_storage.sh"
     "tests/e2e/scripts/case_34_exclusive_connection.sh"
     "tests/e2e/scripts/case_35_daemon_recovery_enhanced.sh"
+    "tests/e2e/scripts/case_37_store_app_activation.sh"
     "tests/e2e/scripts/case_40_init_cleanup.sh"
+    "tests/e2e/scripts/case_41_init_deduplication.sh"
 )
 
 # Group 2: Sensitive Serial Suites (Empty for now, all moved to parallel)

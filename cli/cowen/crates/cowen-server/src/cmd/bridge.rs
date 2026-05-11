@@ -51,11 +51,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         
         dispatcher.on_ent_auth_code(move |msg| {
             let temp_code = msg.biz_content.temp_auth_code.trim().to_string();
-            // Try to extract org_id from the message headers (camelCase or snake_case)
-            let org_id = msg.base.headers.get("orgId")
-                .or_else(|| msg.base.headers.get("org_id"))
-                .cloned()
-                .unwrap_or_default(); 
+            let state = Some(msg.biz_content.state.clone());
             
             let t_pool_inner = t_pool.clone();
             let t_profile_inner = t_profile.clone();
@@ -65,7 +61,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
                 let auth = cowen_auth::create_auth_client(t_pool_inner.clone());
                 let event = cowen_auth::provider::PlatformEvent::TempAuthCode {
                     code: temp_code,
-                    org_id: Some(org_id),
+                    state,
                 };
                 let _ = auth.handle_platform_event(&t_profile_inner, &t_config_inner, event).await;
             });

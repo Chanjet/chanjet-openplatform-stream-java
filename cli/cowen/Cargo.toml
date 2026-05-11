@@ -30,6 +30,7 @@ async-trait = "0.1"
 anyhow = "1.0"
 
 # Auth & Crypto
+openssl = { version = "0.10", features = ["vendored"] }
 aes-gcm = "0.10"
 sha2 = "0.11"
 base64 = "0.22"

@@ -52,10 +52,9 @@ impl StoreAppProvider {
         &self,
         profile: &str,
         cfg: &Config,
-        org_id: Option<&str>,
         temp_auth_code: &str,
     ) -> CowenResult<String> {
-        client::exchange_permanent_code_by_temp_code(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, org_id, temp_auth_code).await
+        client::exchange_permanent_code_by_temp_code(self.pool.as_ref(), self.http_sender.as_ref(), profile, cfg, temp_auth_code).await
     }
 
     #[allow(dead_code)]
@@ -131,7 +130,7 @@ impl StoreAppProvider {
 #[async_trait]
 impl AuthProvider for StoreAppProvider {
     async fn exchange_temp_code(&self, profile: &str, config: &Config, org_id: &str, temp_code: &str) -> CowenResult<cowen_common::models::Token> {
-        let _ = self.exchange_permanent_code_by_temp_code(profile, config, Some(org_id), temp_code).await?;
+        let _ = self.exchange_permanent_code_by_temp_code(profile, config, temp_code).await?;
         self.get_org_token(profile, config, org_id).await
     }
 
@@ -210,8 +209,8 @@ impl AuthProvider for StoreAppProvider {
                     if code.is_empty() {
                         tracing::warn!(target: "sys", "Received TEMP_AUTH_CODE event with empty code value, ignoring");
                     } else {
-                        let org_id = data.get("org_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-                        self.handle_platform_event(profile, config, crate::provider::PlatformEvent::TempAuthCode { code, org_id }).await?;
+                        let state = data.get("state").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        self.handle_platform_event(profile, config, crate::provider::PlatformEvent::TempAuthCode { code, state }).await?;
                     }
                 }
                 _ => {
@@ -396,9 +395,9 @@ impl AuthProvider for StoreAppProvider {
                 tracing::info!(target: "sys", "Store App AppTicket updated from platform push");
                 Ok(())
             }
-            crate::provider::PlatformEvent::TempAuthCode { code, org_id } => {
+            crate::provider::PlatformEvent::TempAuthCode { code, state: _ } => {
                 tracing::info!(target: "sys", "Store App TEMP_AUTH_CODE received. Exchanging...");
-                if let Err(e) = self.exchange_permanent_code_by_temp_code(profile, config, org_id.as_deref(), &code).await {
+                if let Err(e) = self.exchange_permanent_code_by_temp_code(profile, config, &code).await {
                     tracing::error!(target: "sys", error = %e, "Failed to exchange TEMP_AUTH_CODE for Store App");
                     return Err(e);
                 }

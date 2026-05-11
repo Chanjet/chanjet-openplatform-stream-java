@@ -34,10 +34,12 @@ impl MessageDispatcher {
     pub fn on_app_ticket<F>(&mut self, handler: F) 
     where F: Fn(AppTicketMessage) -> bool + Send + Sync + 'static {
         self.register("APP_TICKET", Arc::new(move |val| {
-            if let Ok(msg) = serde_json::from_value::<AppTicketMessage>(val) {
-                handler(msg)
-            } else {
-                false
+            match serde_json::from_value::<AppTicketMessage>(val.clone()) {
+                Ok(msg) => handler(msg),
+                Err(e) => {
+                    tracing::error!(target: "sys", error = %e, "Failed to parse AppTicketMessage: {:?}", val);
+                    false
+                }
             }
         }));
     }
@@ -45,10 +47,12 @@ impl MessageDispatcher {
     pub fn on_ent_auth_code<F>(&mut self, handler: F) 
     where F: Fn(EntAuthCodeMessage) -> bool + Send + Sync + 'static {
         self.register("TEMP_AUTH_CODE", Arc::new(move |val| {
-            if let Ok(msg) = serde_json::from_value::<EntAuthCodeMessage>(val) {
-                handler(msg)
-            } else {
-                false
+            match serde_json::from_value::<EntAuthCodeMessage>(val.clone()) {
+                Ok(msg) => handler(msg),
+                Err(e) => {
+                    tracing::error!(target: "sys", error = %e, "Failed to parse EntAuthCodeMessage: {:?}", val);
+                    false
+                }
             }
         }));
     }
@@ -99,6 +103,9 @@ impl MessageDispatcher {
             .or_else(|| root.get("msg_type").and_then(|v| v.as_str()))
             .unwrap_or("UNKNOWN")
             .to_string();
+
+        eprintln!("DEBUG_DISPATCHER: Routing message with msg_type: {}", msg_type);
+        tracing::info!(target: "sys", "Routing message with msg_type: {}", msg_type);
 
         // Handle APP_NOTICE composite keys
         if msg_type == "APP_NOTICE" {

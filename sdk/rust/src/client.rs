@@ -204,6 +204,7 @@ impl GatewayClient {
                 Ok(Some(msg)) => {
                     match msg {
                         Ok(Message::Text(text)) => {
+                            tracing::info!(target: "stream", "Received raw message: {}", text);
                             let root: serde_json::Value = match serde_json::from_str(&text) {
                                 Ok(v) => v,
                                 Err(e) => {
@@ -221,6 +222,8 @@ impl GatewayClient {
                                         continue;
                                     }
                                 };
+                                
+                                tracing::info!(target: "sys", msg_id = %frame.msg_id, "Processing event frame");
                                 
                                 let success = {
                                     let dispatcher_lock = dispatcher.lock().unwrap();
