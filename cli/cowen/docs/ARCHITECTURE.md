@@ -95,9 +95,9 @@ graph TD
 ### 1. 鉴权与令牌维护流程
 `cowen` 并不简单地在每次请求时换票，而是通过 `TokenPool` 进行精细化管理。针对不同的认证模式，其交互链路有所差异：
 
-- **[自建应用 (Self-Built)](auth/SELF_BUILT.md)**: 基于 AppTicket 推送机制，适用于私有集成。
-- **[商店应用 (Store-App)](auth/STORE_APP.md)**: 支持 Sidecar 模式、多租户令牌池及 Webhook 自动劫持。
-- **[标准 OAuth2](auth/OAUTH2.md)**: 集成 PKCE 安全验证与本地回调监听，适用于三方授权场景。
+- **[SelfBuilt (自建模式)](auth/SELF_BUILT.md)**: 传统的自建应用模式，通过 AppTicket 推送机制实现令牌自动维护。
+- **[StoreApp (商店应用模式)](auth/STORE_APP.md)**: 开放平台入驻模式（ISV 模式），支持租户级令牌隔离与自动交换。
+- **[OAuth2 (三方授权模式)](auth/OAUTH2.md)**: 纯 OAuth2 客户端模式，集成 PKCE 安全验证与本地回调监听，适用于三方授权场景。
 
 核心共性流程：
 1. **Cache Hit**: 首先检查 `Store` (如 Redis/SQLite) 中是否存在未过期的有效令牌。

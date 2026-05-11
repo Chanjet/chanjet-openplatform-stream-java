@@ -86,6 +86,31 @@ pub enum AuthMode {
     StoreApp,
 }
 
+impl std::str::FromStr for AuthMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "oauth2" => Ok(AuthMode::Oauth2),
+            "self_built" | "self-built" => Ok(AuthMode::SelfBuilt),
+            "store_app" | "store-app" => Ok(AuthMode::StoreApp),
+            _ => Err(format!(
+                "Invalid app-mode: '{}'. Supported: self_built, oauth2, store_app",
+                s
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for AuthMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthMode::Oauth2 => write!(f, "oauth2"),
+            AuthMode::SelfBuilt => write!(f, "self-built"),
+            AuthMode::StoreApp => write!(f, "store-app"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuth2TokenPair {
     pub access_token: String,
@@ -152,4 +177,44 @@ pub struct DlqMessage {
     pub retry_count: i32,
     pub error: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_mode_from_str_valid_canonical() {
+        assert_eq!("oauth2".parse::<AuthMode>().unwrap(), AuthMode::Oauth2);
+        assert_eq!("self_built".parse::<AuthMode>().unwrap(), AuthMode::SelfBuilt);
+        assert_eq!("store_app".parse::<AuthMode>().unwrap(), AuthMode::StoreApp);
+    }
+
+    #[test]
+    fn auth_mode_from_str_valid_kebab_aliases() {
+        assert_eq!("self-built".parse::<AuthMode>().unwrap(), AuthMode::SelfBuilt);
+        assert_eq!("store-app".parse::<AuthMode>().unwrap(), AuthMode::StoreApp);
+    }
+
+    #[test]
+    fn auth_mode_from_str_invalid() {
+        let err = "unknown".parse::<AuthMode>().unwrap_err();
+        assert!(err.contains("Invalid app-mode"));
+        assert!(err.contains("unknown"));
+    }
+
+    #[test]
+    fn auth_mode_display_roundtrip() {
+        let modes = [AuthMode::Oauth2, AuthMode::SelfBuilt, AuthMode::StoreApp];
+        for mode in modes {
+            let s = mode.to_string();
+            let parsed: AuthMode = s.parse().unwrap();
+            assert_eq!(parsed, mode);
+        }
+    }
+
+    #[test]
+    fn auth_mode_default_is_oauth2() {
+        assert_eq!(AuthMode::default(), AuthMode::Oauth2);
+    }
 }

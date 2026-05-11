@@ -1,6 +1,6 @@
-# 鉴权流程详情：自建应用 (Self-Built)
+# 鉴权流程详情：自建应用 (SelfBuilt)
 
-自建应用模式（Self-Built）适用于开发者拥有自己的 AppKey 和 AppSecret，且能够直接与畅捷通开放平台 API 通信的场景。
+自建应用模式（SelfBuilt）适用于开发者拥有自己的 AppKey 和 AppSecret，且能够直接与畅捷通开放平台 API 通信的场景。
 
 ## 核心概念
 

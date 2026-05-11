@@ -1,6 +1,6 @@
-# 鉴权流程详情：商店应用 (Store-App / Sidecar)
+# 鉴权流程详情：商店应用 (StoreApp / Sidecar)
 
-商店应用模式（Store-App）通常以 Sidecar 模式运行，支持多租户场景，并能自动处理来自平台的多种异步事件。
+商店应用模式（StoreApp）通常以 Sidecar 模式运行，支持多租户场景，并能自动处理来自平台的多种异步事件。
 
 ## 核心能力
 

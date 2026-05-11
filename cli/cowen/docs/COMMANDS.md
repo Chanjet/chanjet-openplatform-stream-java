@@ -6,9 +6,16 @@
 
 ### `init` - 初始化
 配置 Profile 环境、托管安全凭据。
-- `--app-mode`: 指定应用类型 (`self_built` 或 `oauth2`)。
+- `--app-mode`: 指定应用类型 (`self_built`, `store_app` 或 `oauth2`)。
 - `--app-key` / `--app-secret`: 凭据。
-- `--proxy-port`: 设置本地代理端口。
+- `--proxy-port`: 设置本地代理端口 (默认 8080)。
+
+### `COWEN_HOME` - 环境变量隔离
+通过设置 `COWEN_HOME` 环境变量，可以在同一台机器上运行多个物理隔离的 Cowen 实例。
+```bash
+export COWEN_HOME=./.cowen_home
+cowen init ...
+```
 
 ### `config` - 查看配置
 查看当前活跃 Profile 的非敏感配置信息。支持 `-o json` 输出。
