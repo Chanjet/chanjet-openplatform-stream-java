@@ -193,11 +193,10 @@ async fn get_system_status(
         vault: vault.clone(),
     };
 
-    let collectors: Vec<Box<dyn StatusCollector>> = vec![
-        Box::new(ConfigCollector),
-        Box::new(SecurityCollector),
-        Box::new(ProviderCollector),
-    ];
+        let collectors: Vec<Box<dyn StatusCollector>> = vec![
+            Box::new(ConfigCollector),
+            Box::new(ProviderCollector),
+        ];
 
     let mut entries = Vec::new();
     for c in collectors {
@@ -253,51 +252,6 @@ impl StatusCollector for ConfigCollector {
     }
 }
 
-struct SecurityCollector;
-#[async_trait::async_trait]
-impl StatusCollector for SecurityCollector {
-    fn name(&self) -> &str {
-        "Security"
-    }
-    async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
-        use cowen_common::status::{CommonTemplate, StatusEntry, StatusLevel};
-        let vault = ctx.vault.clone();
-
-        let mut missing = Vec::new();
-        let is_self_built = ctx.config.app_mode == cowen_common::models::AuthMode::SelfBuilt;
-
-        if is_self_built {
-            let has_secret = vault.get_secret(&ctx.profile, "app_secret").await.is_ok()
-                || !ctx.config.app_secret.is_empty();
-            let has_encrypt_key = vault.get_secret(&ctx.profile, "encrypt_key").await.is_ok()
-                || !ctx.config.encrypt_key.is_empty();
-
-            if !has_secret {
-                missing.push("app_secret".to_string());
-            }
-            if !has_encrypt_key {
-                missing.push("encrypt_key".to_string());
-            }
-        }
-
-        let (sec_level, sec_msg) = if missing.is_empty() {
-            (
-                StatusLevel::OK,
-                "All core secrets are securely stored.".to_string(),
-            )
-        } else {
-            (
-                StatusLevel::WARN,
-                format!("Missing: {}", missing.join(", ")),
-            )
-        };
-        Ok(StatusEntry::new(
-            CommonTemplate::Custom("Security (Vault)".to_string(), "🛡️".to_string()),
-            sec_level,
-            sec_msg,
-        ))
-    }
-}
 
 struct ProviderCollector;
 #[async_trait::async_trait]

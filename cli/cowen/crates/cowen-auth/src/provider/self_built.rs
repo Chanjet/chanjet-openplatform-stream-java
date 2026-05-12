@@ -293,8 +293,10 @@ impl AuthProvider for SelfBuiltProvider {
 
         // 1. Security Check
         let mut missing = Vec::new();
-        let has_secret = vault.get_secret(&ctx.profile, "app_secret").await.is_ok();
-        let has_encrypt_key = vault.get_secret(&ctx.profile, "encrypt_key").await.is_ok();
+        let has_secret = vault.get_secret(&ctx.profile, "app_secret").await.is_ok()
+            || !ctx.config.app_secret.is_empty();
+        let has_encrypt_key = vault.get_secret(&ctx.profile, "encrypt_key").await.is_ok()
+            || !ctx.config.encrypt_key.is_empty();
         
         if !has_secret { missing.push("app_secret".to_string()); }
         if !has_encrypt_key { missing.push("encrypt_key".to_string()); }
