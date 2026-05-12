@@ -1,4 +1,4 @@
-use crate::{CowenResult, CowenError};
+use crate::CowenResult;
 use crate::models::{Ticket, Token, AuthSession, Item, AuditEntry, DlqMessage};
 
 use async_trait::async_trait;

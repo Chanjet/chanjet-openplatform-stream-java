@@ -1,8 +1,7 @@
 use crate::{CowenResult, CowenError};
-use anyhow::anyhow;
 use sha2::{Sha256, Digest};
 use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce
 };
 use rand::{RngCore, thread_rng};

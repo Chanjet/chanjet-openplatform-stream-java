@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use crate::{Store, AuditEntry, DlqMessage, Item};
 use cowen_common::models::{Token, Ticket};
 use std::sync::Arc;
-use redis::AsyncCommands;
 use redis::aio::MultiplexedConnection;
 
 pub struct RedisStore {
@@ -310,7 +309,7 @@ pub struct RedisStoreBuilder;
 #[async_trait]
 impl crate::StoreBuilder for RedisStoreBuilder {
     fn scheme(&self) -> &str { "redis" }
-    async fn build(&self, url: &str, _app_dir: &std::path::Path, fingerprint: &str) -> CowenResult<Arc<dyn Store>> {
+    async fn build(&self, url: &str, _app_dir: &std::path::Path, _fingerprint: &str) -> CowenResult<Arc<dyn Store>> {
         let client = redis::Client::open(url).map_err(CowenError::from)?;
         let conn = client.get_multiplexed_tokio_connection().await.map_err(CowenError::from)?;
         Ok(Arc::new(RedisStore::new(conn, url.to_string())))

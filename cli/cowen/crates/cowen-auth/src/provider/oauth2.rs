@@ -9,7 +9,6 @@ use crate::models::{OAuth2TokenPair, Token};
 use crate::pool::TokenPool;
 use crate::provider::AuthProvider;
 use cowen_common::config::Config;
-use anyhow::{anyhow, Result};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration, Utc};

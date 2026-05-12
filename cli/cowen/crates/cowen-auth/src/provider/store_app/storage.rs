@@ -1,5 +1,3 @@
-use cowen_common::{CowenResult, CowenError};
-use async_trait::async_trait;
 pub(crate) fn get_user_token_key(app_key: &str, org_id: &str, user_id: &str) -> String {
     format!("oauth2_token_pair_user_{}_{}_{}", app_key, org_id, user_id)
 }

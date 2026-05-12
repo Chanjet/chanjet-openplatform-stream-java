@@ -1,5 +1,5 @@
 use crate::{CowenResult, CowenError};
-use anyhow::{Result, Context};
+use anyhow::Context;
 use std::fs;
 use std::path::PathBuf;
 use crate::config::{AppConfig, StorageConfig, Config};

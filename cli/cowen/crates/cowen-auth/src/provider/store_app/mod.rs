@@ -7,7 +7,6 @@ use crate::models::{OAuth2TokenPair, Token};
 use crate::pool::TokenPool;
 use crate::provider::AuthProvider;
 use cowen_common::config::Config;
-use anyhow::{anyhow, Result};
 
 use std::sync::Arc;
 

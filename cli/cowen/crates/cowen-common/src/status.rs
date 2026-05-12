@@ -1,4 +1,4 @@
-use crate::{CowenResult, CowenError};
+use crate::CowenResult;
 use serde::Serialize;
 use std::sync::Arc;
 use crate::vault::Vault;

@@ -2,7 +2,6 @@ use cowen_common::config::Config;
 use anyhow::{Result, Context};
 use connector_sdk::{GatewayClient, ClientOptions};
 use std::sync::Arc;
-use crate::daemon::dlq::DlqStore;
 use crate::daemon::forwarder::Forwarder;
 use crate::daemon::proxy::start_proxy;
 use cowen_auth::client::Client;

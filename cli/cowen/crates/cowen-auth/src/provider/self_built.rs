@@ -60,7 +60,7 @@ impl SelfBuiltProvider {
 
         // 1. Build Request
         let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/auth/selfBuiltApp/generateToken"));
-        let mut headers = HeaderMap::new();
+        let headers = HeaderMap::new();
         
         let mut body_map = serde_json::Map::new();
         body_map.insert("appKey".to_string(), serde_json::Value::String(cfg.app_key.clone()));
@@ -116,7 +116,7 @@ impl SelfBuiltProvider {
         }
 
         let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/auth/appTicket/resend"));
-        let mut headers = HeaderMap::new();
+        let headers = HeaderMap::new();
         
         let mut body_map = serde_json::Map::new();
         body_map.insert("appKey".to_string(), serde_json::Value::String(cfg.app_key.clone()));

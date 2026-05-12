@@ -76,7 +76,7 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 守护进程自动恢复策略
-    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool, is_distributed: bool) -> bool {
+    async fn should_auto_recover(&self, profile: &str, _config: &Config, _has_pid: bool, _pid_file_exists: bool, is_distributed: bool) -> bool {
         let _ = profile;
         if is_distributed {
             return false;

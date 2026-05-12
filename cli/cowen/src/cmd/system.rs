@@ -60,7 +60,7 @@ pub async fn status(
 
     for handle_res in results_raw {
         match handle_res {
-            Ok((p, Ok(s))) => results.push(s),
+            Ok((_p, Ok(s))) => results.push(s),
             Ok((p, Err(e))) => {
                 broken_profiles.push((p.clone(), e.to_string()));
                 // Also push a basic status entry so it shows up in JSON/list

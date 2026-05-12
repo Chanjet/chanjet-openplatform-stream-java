@@ -1,4 +1,4 @@
-use crate::{CowenResult, CowenError};
+use crate::CowenResult;
 use async_trait::async_trait;
 use crate::models::{Token, Ticket, Item, AuditEntry, DlqMessage};
 use std::sync::Arc;

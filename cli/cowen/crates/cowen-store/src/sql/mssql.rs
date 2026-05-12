@@ -3,7 +3,7 @@ use cowen_common::{CowenResult, CowenError};
 use async_trait::async_trait;
 
 use crate::sql::{SqlBuilder, SqlDriver};
-use tiberius::{Client, Config, AuthMethod};
+use tiberius::{Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::{TokioAsyncWriteCompatExt, Compat};
 use std::sync::Arc;

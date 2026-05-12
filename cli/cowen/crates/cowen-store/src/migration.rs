@@ -1,5 +1,4 @@
 use cowen_common::{CowenResult, CowenError};
-use anyhow::Context;
 use std::sync::Arc;
 use crate::{Store, create_store_from_url};
 use cowen_common::ConfigManager;

@@ -1,5 +1,4 @@
-use cowen_common::{CowenResult, CowenError};
-use async_trait::async_trait;
+use cowen_common::CowenResult;
 use cowen_common::config::Config;
 use chrono::Local;
 use crate::pool::TokenPool;

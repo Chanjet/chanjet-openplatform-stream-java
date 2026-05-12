@@ -1,4 +1,4 @@
-use cowen_common::{CowenResult, CowenError};
+use cowen_common::CowenResult;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use cowen_common::vault::Vault;
@@ -12,25 +12,6 @@ pub struct DLQEntry {
     pub retry_count: i32,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
-}
-
-fn mask_json_field<S>(val: &str, s: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    s.serialize_str(&cowen_common::utils::mask_sensitive_json(val))
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyDLQEntry {
-    pub id: String,
-    pub msg_id: String,
-    pub msg_type: String,
-    #[serde(serialize_with = "mask_json_field")]
-    pub payload: String,
-    pub error: String,
-    pub created_at: DateTime<Utc>,
-    pub attempts: u32,
 }
 
 pub struct DlqStore {

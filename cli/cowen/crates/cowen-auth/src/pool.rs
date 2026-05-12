@@ -1,4 +1,4 @@
-use cowen_common::{CowenResult, CowenError};
+use cowen_common::CowenResult;
 use async_trait::async_trait;
 use crate::models::{Ticket, Token};
 use cowen_common::vault::Vault;

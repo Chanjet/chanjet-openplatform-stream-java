@@ -1,8 +1,6 @@
 use cowen_common::{CowenResult, CowenError};
-use async_trait::async_trait;
 
 use cowen_common::config::Config;
-use anyhow::{Result, anyhow};
 use crate::pool::TokenPool;
 use crate::client::HttpSender;
 use super::{client, storage};

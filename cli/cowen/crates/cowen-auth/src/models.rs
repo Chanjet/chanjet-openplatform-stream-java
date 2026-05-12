@@ -1,4 +1,3 @@
-use cowen_common::{CowenResult, CowenError};
 
 pub use cowen_common::models::{Token, Ticket, AuthMode, TokenIdentity, AuthSession};
 use chrono::{DateTime, Utc, Duration};

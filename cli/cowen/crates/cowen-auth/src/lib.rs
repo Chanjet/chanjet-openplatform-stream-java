@@ -45,13 +45,11 @@ pub fn create_auth_client_with_vault(vault: Arc<dyn cowen_common::vault::Vault>)
 /// 🚀 Auth-driven Config Validator
 /// Implements `ConfigValidator` from `core` to decouple architectural constraints
 /// from concrete mode logic.
-pub struct AuthProviderValidator {
-    client: AuthClient,
-}
+pub struct AuthProviderValidator;
 
 impl AuthProviderValidator {
-    pub fn new(client: AuthClient) -> Self {
-        Self { client }
+    pub fn new(_client: AuthClient) -> Self {
+        Self
     }
 }
 
@@ -65,7 +63,7 @@ impl cowen_store::ConfigValidator for AuthProviderValidator {
         Ok(())
     }
 
-    fn validate_save(&self, profile: &str, config: &cowen_common::config::Config, is_distributed: bool) -> CowenResult<()> {
+    fn validate_save(&self, _profile: &str, config: &cowen_common::config::Config, is_distributed: bool) -> CowenResult<()> {
         if is_distributed && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
             return Err(CowenError::Config("Auth mode 'Oauth2' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.".to_string()));
         }

@@ -10,8 +10,6 @@ pub struct Forwarder {
     client: Client,
     dlq: Arc<DlqStore>,
     target_url: String,
-    profile: String,
-    config: cowen_common::config::Config,
 }
 
 impl Forwarder {
@@ -27,8 +25,6 @@ impl Forwarder {
             client,
             dlq,
             target_url: config.webhook_target.clone(),
-            profile: profile.to_string(),
-            config,
         }
     }
 

@@ -1,12 +1,11 @@
 use cowen_common::{CowenResult, CowenError};
-use async_trait::async_trait;
 use super::models::StoreAppTokenResponse;
 use super::storage;
 use crate::client::HttpSender;
 use crate::models::{OAuth2TokenPair, Token};
 use crate::pool::TokenPool;
 use cowen_common::config::Config;
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
 use chrono::{Duration, Utc};
 
 pub(crate) async fn refresh_token(
