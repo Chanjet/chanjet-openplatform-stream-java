@@ -1,4 +1,4 @@
-use crate::{CowenResult, CowenError};
+use crate::CowenResult;
 use crate::obfs;
 use serde::Serialize;
 

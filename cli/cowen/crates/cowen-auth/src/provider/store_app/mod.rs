@@ -455,9 +455,8 @@ impl AuthProvider for StoreAppProvider {
 
         // 2. Daemon Status
         let daemon_info = cowen_common::status::get_active_daemon_info(&ctx.profile);
-        let is_running = daemon_info.is_some();
-        let (display_name, efficiency_tip) = self.get_daemon_display_info(is_running);
-        results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks()).await?);
+        let (display_name, efficiency_tip) = self.get_daemon_display_info(daemon_info.is_some());
+        results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks(), daemon_info).await?);
 
         Ok(results)
     }

@@ -55,9 +55,9 @@ PROD_STREAM  = https://stream-open.chanapp.chanjet.com
 TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
-.PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 windows-x86_64-legacy test-macos-aarch64 \
+.PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-x86_64-legacy-with-podman linux-aarch64 windows-x86_64 windows-x86_64-legacy test-macos-aarch64 \
         test test-linux test-win test-macos \
-        package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
+        package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman package-linux-x86_64-legacy-with-podman \
         package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-legacy clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # --- 默认构建目标 (Default Build Target) ---
@@ -262,6 +262,10 @@ package-linux-x86_64-with-podman: clean linux-x86_64-with-podman
 	@echo "📦 Packaging Linux x86_64 (Podman Build)..."
 	@$(MAKE) impl-package-linux-x86_64
 
+package-linux-x86_64-legacy-with-podman: clean linux-x86_64-legacy-with-podman
+	@echo "📦 Packaging Linux x86_64 (Legacy/Podman Build)..."
+	@$(MAKE) impl-package-linux-x86_64-legacy
+
 package-linux-aarch64: clean linux-aarch64
 	@echo "📦 Packaging Linux aarch64..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release
@@ -312,6 +316,18 @@ impl-package-linux-x86_64:
 	rm -f $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
+
+# 内部复用的 Linux 打包逻辑 (Legacy)
+impl-package-linux-x86_64-legacy:
+	mkdir -p $(OUTPUT_DIR)/linux-x86_64-legacy/release
+	cp $(OUTPUT_DIR)/linux-x86_64-legacy/$(BINARY) $(OUTPUT_DIR)/linux-x86_64-legacy/$(BINARY)-v$(VERSION)-linux-x86_64-legacy
+	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64-legacy/
+	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64-legacy/README.txt
+	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64-legacy/
+	cd $(OUTPUT_DIR)/linux-x86_64-legacy && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64-legacy.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64-legacy install.sh README.txt CHANGELOG.md
+	rm -f $(OUTPUT_DIR)/linux-x86_64-legacy/$(BINARY)-v$(VERSION)-linux-x86_64-legacy
+	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64-legacy/release/$(BINARY)-v$(VERSION)-linux-x86_64-legacy.tar.gz)
+	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64-legacy/release/$(BINARY)-v$(VERSION)-linux-x86_64-legacy.tar.gz)
 
 # --- 测试目标 (Test Targets) ---
 
@@ -410,7 +426,7 @@ db-down:
 
 clean:
 	cargo clean
-	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/macos-x86_64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
+	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/macos-x86_64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-x86_64-legacy $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/windows-x86_64-legacy $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
 
 install:
 	@$(MAKE) macos-aarch64

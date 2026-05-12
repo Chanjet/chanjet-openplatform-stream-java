@@ -27,22 +27,29 @@ async fn save_search_index(profile: &str, vault: &dyn cowen_common::vault::Vault
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct ApiOperation {
+    method: String,
+    path: String,
+    summary: String,
+}
+
 pub async fn list(
     profile: &str,
     cfg: &Config,
     auth_cli: &dyn AuthClientTrait,
     search: &Option<String>,
-    _page: usize,
-    _page_size: usize,
+    page: usize,
+    page_size: usize,
     format: &str,
     refresh: bool,
     vault: Arc<dyn cowen_common::vault::Vault>,
 ) -> anyhow::Result<()> {
-    let mut spec = auth_cli.get_openapi_spec(profile, cfg, refresh).await.map_err(|e| anyhow::anyhow!(e))?;
+    let spec = auth_cli.get_openapi_spec(profile, cfg, refresh).await.map_err(|e| anyhow::anyhow!(e))?;
 
-    if let Some(query) = search {
-        #[cfg(feature = "ai")]
-        {
+    #[cfg(feature = "ai")]
+    {
+        if let Some(query) = search {
             if cfg.ai_enabled {
                 let index = match load_search_index(profile, vault.as_ref()).await {
                     Ok(idx) if !refresh => idx,
@@ -57,30 +64,92 @@ pub async fn list(
 
                 let mut embedder = get_ai_embedder().await?;
                 let query_vec = embedder.embed(query).map_err(|e| anyhow::anyhow!(e))?;
-                let results = index.search(&query_vec, query, 10);
+                // Ask for enough results to cover the current page
+                let results = index.search(&query_vec, query, page * page_size);
                 
+                let start = (page.max(1) - 1) * page_size;
+                let paged_results = if start < results.len() {
+                    &results[start..]
+                } else {
+                    &[]
+                };
+
                 if format == "json" || format == "yaml" {
-                    return cowen_common::utils::render(&results, format).map_err(|e| anyhow::anyhow!(e));
+                    return cowen_common::utils::render(&paged_results, format).map_err(|e| anyhow::anyhow!(e));
                 }
 
-                println!("\n🔍 Semantic Search Results for: '{}'", query);
+                println!("\n🔍 Semantic Search Results for: '{}' (Page {})", query, page);
                 println!("--------------------------------------------------");
-                for (score, doc) in results {
-                    println!("\x1b[1;32m{:<30}\x1b[0m [Match: {:.1}%]", doc.id, score * 100.0);
-                    println!("  Summary: {}", doc.summary);
-                    println!();
+                if paged_results.is_empty() {
+                    println!("  (No more results)");
+                } else {
+                    for (score, doc) in paged_results {
+                        println!("\x1b[1;32m{:<30}\x1b[0m [Match: {:.1}%]", doc.id, score * 100.0);
+                        println!("  Summary: {}", doc.summary);
+                        println!();
+                    }
                 }
                 return Ok(());
             }
         }
-        
-        // Basic filtering if AI is disabled or not compiled in
-        if let Some(paths) = spec.get_mut("paths").and_then(|p| p.as_object_mut()) {
-            paths.retain(|path, _| path.contains(query));
+    }
+
+    // 1. Flatten operations
+    let mut all_ops = Vec::new();
+    if let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) {
+        for (path, methods) in paths {
+            if let Some(methods_obj) = methods.as_object() {
+                for (method, op) in methods_obj {
+                    let summary = op.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string();
+                    all_ops.push(ApiOperation {
+                        method: method.to_uppercase(),
+                        path: path.clone(),
+                        summary,
+                    });
+                }
+            }
         }
     }
 
-    cowen_common::utils::render(&spec, format).map_err(|e| anyhow::anyhow!(e))?;
+    // 2. Sort by path then method
+    all_ops.sort_by(|a, b| a.path.cmp(&b.path).then(a.method.cmp(&b.method)));
+
+    // 3. Filter if non-AI search is used
+    if let Some(query) = search {
+        all_ops.retain(|op| op.path.contains(query) || op.summary.to_lowercase().contains(&query.to_lowercase()));
+    }
+
+    // 4. Paginate
+    let total = all_ops.len();
+    let start = (page.max(1) - 1) * page_size;
+    let end = (start + page_size).min(total);
+    
+    let paged_ops = if start < total {
+        &all_ops[start..end]
+    } else {
+        &[]
+    };
+
+    if format == "json" || format == "yaml" {
+        return cowen_common::utils::render(&paged_ops, format).map_err(|e| anyhow::anyhow!(e));
+    }
+
+    println!("\n🌐 Available APIs for profile: \x1b[1;32m{}\x1b[0m (Page {}, Total {})", profile, page, total);
+    println!("--------------------------------------------------");
+    if paged_ops.is_empty() {
+        println!("  (No APIs found or page out of range)");
+    } else {
+        for op in paged_ops {
+            println!("\x1b[1;32m{:<8}\x1b[0m {:<45} {}", op.method, op.path, op.summary);
+        }
+    }
+    
+    if end < total {
+        println!("\n📑 Next page available. Use '--page {}' to view more.", page + 1);
+    }
+    println!("\n💡 Use 'cowen api list --search <QUERY>' for semantic search.");
+    println!("💡 Use 'cowen api spec <METHOD> <PATH>' to view detailed documentation.");
+
     Ok(())
 }
 
@@ -104,21 +173,218 @@ pub async fn spec(
     println!("\n📖 API Specification: \x1b[1;32m{} {}\x1b[0m", method.to_uppercase(), path);
     println!("--------------------------------------------------");
     println!("Summary:     {}", op["summary"].as_str().unwrap_or("N/A"));
+    if let Some(tags) = op.get("tags").and_then(|t| t.as_array()) {
+        let tags_str: Vec<String> = tags.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+        println!("Tags:        {}", tags_str.join(", "));
+    }
     println!("Description: {}", op["description"].as_str().unwrap_or("N/A"));
 
     if let Some(params) = op.get("parameters").and_then(|p| p.as_array()) {
         println!("\nParameters:");
         for p in params {
-            println!("  - {:<15} ({}) {}", 
-                p["name"].as_str().unwrap_or("?"), 
-                p["in"].as_str().unwrap_or("?"),
-                if p["required"].as_bool().unwrap_or(false) { "\x1b[31m[required]\x1b[0m" } else { "" }
+            let name = p["name"].as_str().unwrap_or("?");
+            let location = p["in"].as_str().unwrap_or("?");
+            let required = p["required"].as_bool().unwrap_or(false);
+            let ty = p.get("schema")
+                .and_then(|s| s.get("type").and_then(|t| t.as_str()))
+                .unwrap_or("string");
+            let desc = p["description"].as_str().unwrap_or("");
+
+            println!("  - {:<15} ({:<8}) {:<10} {} {}", 
+                name, 
+                location,
+                format!("<{}>", ty),
+                if required { "\x1b[31m[required]\x1b[0m" } else { "" },
+                desc
             );
         }
     }
-    println!();
 
+    // 1. Request Body
+    if let Some(body) = op.get("requestBody") {
+        println!("\n📥 Request Body:");
+        if let Some(content) = body.get("content").and_then(|c| c.as_object()) {
+            for (mime, media_type) in content {
+                println!("  Type: \x1b[36m{}\x1b[0m", mime);
+                if let Some(schema) = media_type.get("schema") {
+                    render_schema(&spec, schema, 2);
+                }
+            }
+        }
+    }
+
+    // 2. Responses
+    if let Some(responses) = op.get("responses").and_then(|r| r.as_object()) {
+        println!("\n📤 Responses:");
+        for (code, resp) in responses {
+            println!("  \x1b[1;33m{}\x1b[0m - {}", code, resp["description"].as_str().unwrap_or("N/A"));
+            if let Some(content) = resp.get("content").and_then(|c| c.as_object()) {
+                for (mime, media_type) in content {
+                    println!("    Type: \x1b[36m{}\x1b[0m", mime);
+                    if let Some(schema) = media_type.get("schema") {
+                        render_schema(&spec, schema, 3);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Usage Example
+    println!("\n💡 Usage Example:");
+    let mut example_path = path.to_string();
+    let mut query_params = Vec::new();
+
+    if let Some(params) = op.get("parameters").and_then(|p| p.as_array()) {
+        for p in params {
+            let name = p["name"].as_str().unwrap_or("?");
+            let location = p["in"].as_str().unwrap_or("?");
+            let required = p["required"].as_bool().unwrap_or(false);
+            
+            if location == "path" {
+                example_path = example_path.replace(&format!("{{{}}}", name), &format!("<{}>", name));
+            } else if location == "query" && required {
+                query_params.push(format!("{}={}", name, format!("<{}>", name)));
+            }
+        }
+    }
+    
+    if !query_params.is_empty() {
+        if !example_path.contains('?') {
+            example_path.push('?');
+        } else {
+            example_path.push('&');
+        }
+        example_path.push_str(&query_params.join("&"));
+    }
+
+    let mut cmd = format!("cowen api {} {}", method.to_uppercase(), example_path);
+
+    if let Some(body) = op.get("requestBody") {
+        if let Some(content) = body.get("content").and_then(|c| c.as_object()) {
+            if let Some(media_type) = content.get("application/json").or_else(|| content.values().next()) {
+                if let Some(schema) = media_type.get("schema") {
+                    let sample = generate_sample_json(&spec, schema, 0);
+                    if !sample.is_null() {
+                        cmd.push_str(&format!(" -d '{}'", serde_json::to_string(&sample).unwrap_or_default()));
+                    }
+                }
+            }
+        }
+    }
+
+    println!("  {}", cmd);
+
+    println!();
     Ok(())
+}
+
+fn generate_sample_json(spec: &serde_json::Value, schema: &serde_json::Value, depth: usize) -> serde_json::Value {
+    if depth > 3 { return serde_json::Value::Null; }
+
+    if let Some(ref_str) = schema.get("$ref").and_then(|r| r.as_str()) {
+        if let Some(resolved) = resolve_ref(spec, ref_str) {
+            return generate_sample_json(spec, resolved, depth + 1);
+        }
+    }
+
+    if let Some(example) = schema.get("example") {
+        return example.clone();
+    }
+
+    let ty = schema.get("type").and_then(|t| t.as_str()).unwrap_or("object");
+    match ty {
+        "object" => {
+            let mut obj = serde_json::Map::new();
+            if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+                for (name, prop_schema) in props {
+                    obj.insert(name.clone(), generate_sample_json(spec, prop_schema, depth + 1));
+                }
+            }
+            serde_json::Value::Object(obj)
+        }
+        "array" => {
+            if let Some(items) = schema.get("items") {
+                serde_json::Value::Array(vec![generate_sample_json(spec, items, depth + 1)])
+            } else {
+                serde_json::Value::Array(vec![])
+            }
+        }
+        "string" => serde_json::Value::String("string".to_string()),
+        "number" | "integer" => serde_json::Value::Number(0.into()),
+        "boolean" => serde_json::Value::Bool(false),
+        _ => serde_json::Value::Null,
+    }
+}
+
+fn resolve_ref<'a>(spec: &'a serde_json::Value, reference: &str) -> Option<&'a serde_json::Value> {
+    if !reference.starts_with("#/") { return None; }
+    let parts: Vec<&str> = reference.split('/').skip(1).collect();
+    let mut current = spec;
+    for part in parts {
+        current = current.get(part)?;
+    }
+    Some(current)
+}
+
+fn render_schema(spec: &serde_json::Value, schema: &serde_json::Value, indent: usize) {
+    let prefix = "  ".repeat(indent);
+    
+    if let Some(ref_str) = schema.get("$ref").and_then(|r| r.as_str()) {
+        if let Some(resolved) = resolve_ref(spec, ref_str) {
+            render_schema(spec, resolved, indent);
+            return;
+        }
+    }
+
+    let ty = schema.get("type").and_then(|t| t.as_str()).unwrap_or("object");
+    
+    match ty {
+        "object" => {
+            let required_fields: Vec<String> = schema.get("required")
+                .and_then(|r| r.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                .unwrap_or_default();
+
+            if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+                for (name, prop_schema) in props {
+                    let is_required = required_fields.contains(name);
+                    let prop_ty = prop_schema.get("type").and_then(|t| t.as_str())
+                        .or_else(|| prop_schema.get("$ref").and_then(|_| Some("object")))
+                        .unwrap_or("any");
+                    let desc = prop_schema.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                    
+                    println!("{}{:<15} {:<12} {:<12} {}", 
+                        prefix, 
+                        name, 
+                        format!("<{}>", prop_ty), 
+                        if is_required { "\x1b[31m[required]\x1b[0m" } else { "" },
+                        desc
+                    );
+                    
+                    if let Some(enums) = prop_schema.get("enum").and_then(|e| e.as_array()) {
+                        let enum_vals: Vec<String> = enums.iter().map(|v| v.to_string()).collect();
+                        println!("{}  └─ Enums: [{}]", prefix, enum_vals.join(", "));
+                    }
+
+                    if prop_ty == "object" || prop_schema.get("properties").is_some() || prop_schema.get("$ref").is_some() {
+                        render_schema(spec, prop_schema, indent + 1);
+                    } else if prop_ty == "array" {
+                        if let Some(items) = prop_schema.get("items") {
+                            println!("{}  └─ Array Items:", prefix);
+                            render_schema(spec, items, indent + 2);
+                        }
+                    }
+                }
+            }
+        },
+        "array" => {
+             if let Some(items) = schema.get("items") {
+                 println!("{}  [Array of Objects]", prefix);
+                 render_schema(spec, items, indent + 1);
+             }
+        }
+        _ => {}
+    }
 }
 
 pub async fn call(

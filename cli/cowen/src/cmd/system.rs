@@ -32,10 +32,25 @@ pub async fn status(
     let mut results = Vec::new();
     let mut broken_profiles = Vec::new();
 
+    let mut handles = Vec::new();
+
     for p in profiles {
-        match get_system_status(&p, cfg_mgr, vault.clone()).await {
-            Ok(s) => results.push(s),
-            Err(e) => {
+        let p_name = p.clone();
+        let cfg_mgr_clone = cfg_mgr.clone();
+        let vault_clone = vault.clone();
+        
+        handles.push(tokio::spawn(async move {
+            let res = get_system_status(&p_name, &cfg_mgr_clone, vault_clone).await;
+            (p_name, res)
+        }));
+    }
+
+    let results_raw = futures_util::future::join_all(handles).await;
+
+    for handle_res in results_raw {
+        match handle_res {
+            Ok((p, Ok(s))) => results.push(s),
+            Ok((p, Err(e))) => {
                 broken_profiles.push((p.clone(), e.to_string()));
                 // Also push a basic status entry so it shows up in JSON/list
                 results.push(SystemStatus {
@@ -51,8 +66,14 @@ pub async fn status(
                     }],
                 });
             }
+            Err(e) => {
+                tracing::error!(target: "sys", "Task join error during status collection: {}", e);
+            }
         }
     }
+    
+    // Sort results by profile name to maintain consistent output
+    results.sort_by(|a, b| a.profile.cmp(&b.profile));
 
     if format == "json" || format == "yaml" {
         if !all && results.len() == 1 {
@@ -185,7 +206,9 @@ async fn get_system_status(
     vault: Arc<dyn Vault>,
 ) -> CowenResult<SystemStatus> {
     let cfg = cfg_mgr.load(profile).await?;
+    
     let app_cfg = cfg_mgr.load_app_config().await?;
+
     let ctx = StatusContext {
         profile: profile.to_string(),
         config: &cfg,
@@ -193,11 +216,11 @@ async fn get_system_status(
         vault: vault.clone(),
     };
 
-        let collectors: Vec<Box<dyn StatusCollector>> = vec![
-            Box::new(ConfigCollector),
-            Box::new(StorageCollector),
-            Box::new(ProviderCollector),
-        ];
+    let collectors: Vec<Box<dyn StatusCollector>> = vec![
+        Box::new(ConfigCollector),
+        Box::new(StorageCollector),
+        Box::new(ProviderCollector),
+    ];
 
     let mut entries = Vec::new();
     for c in collectors {
@@ -416,11 +439,16 @@ pub async fn ensure_daemon_running(
 }
 
 pub async fn enforce_daemon_version_sync(
+    active_profile: &str,
     cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
 ) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
     for p in profiles {
+        // Skip active profile as it will be checked/started by ensure_daemon_running anyway
+        if p == active_profile {
+            continue;
+        }
         if let Some(info) = cowen_common::status::get_active_daemon_info(&p) {
             let mut outdated = false;
             let daemon_bid = info.build_id.as_deref().unwrap_or("N/A");

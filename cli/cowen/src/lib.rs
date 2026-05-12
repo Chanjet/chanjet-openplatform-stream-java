@@ -320,10 +320,6 @@ pub async fn run(cli: Cli) -> Result<()> {
     let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
 
     // --- Daemon Lifecycle Enforcement ---
-    // 🚀 UNCONDITIONAL VERSION SYNC: Always ensure background processes match the current binary.
-    // Freshness is prioritized over command context.
-    let _ = cmd::system::enforce_daemon_version_sync(&cfg_mgr, vault.clone()).await;
-
     // 2. Auto-recovery: "确保必要的后台进程正在运行"
     // We still skip auto-recovery for lifecycle commands to avoid starting a daemon 
     // that the user is explicitly trying to stop or reset.
@@ -334,6 +330,10 @@ pub async fn run(cli: Cli) -> Result<()> {
     ) || matches!(&cli.command, Commands::Auth { action: AuthCommands::Login { finalize: Some(_), .. } });
 
     if !skip_recovery {
+        // 🚀 UNCONDITIONAL VERSION SYNC: Always ensure background processes match the current binary.
+        // Freshness is prioritized over command context.
+        let _ = cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr, vault.clone()).await;
+
         let _ = cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
     }
 

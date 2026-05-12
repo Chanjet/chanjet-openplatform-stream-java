@@ -133,9 +133,18 @@ pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
         if let Some(pid_str) = lines.next() {
             if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
                 // Secondary check: verify the process actually exists and looks like us.
-                let mut s = System::new_all();
-                s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-                if let Some(process) = s.process(sysinfo::Pid::from_u32(pid_val)) {
+                // 🚀 PERFORMANCE FIX: Avoid full system scan with System::new_all()
+                let mut s = System::new_with_specifics(
+                    sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing())
+                );
+                let sys_pid = sysinfo::Pid::from_u32(pid_val);
+                s.refresh_processes_specifics(
+                    sysinfo::ProcessesToUpdate::Some(&[sys_pid]),
+                    true,
+                    sysinfo::ProcessRefreshKind::nothing().with_cmd(sysinfo::UpdateKind::Always)
+                );
+
+                if let Some(process) = s.process(sys_pid) {
                     let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
                     let name = process.name().to_string_lossy().to_lowercase();
                     let bin_name = crate::utils::get_bin_name().to_lowercase();
@@ -172,8 +181,9 @@ pub async fn collect_daemon_status(
     display_name: &str,
     efficiency_tip: &str,
     supports_webhooks: bool,
+    daemon_info: Option<DaemonInfo>,
 ) -> CowenResult<StatusEntry> {
-    let daemon_info = get_active_daemon_info(&ctx.profile);
+    let daemon_info = daemon_info.or_else(|| get_active_daemon_info(&ctx.profile));
     
     let (mut level, msg, mut children) = if let Some(info) = &daemon_info {
         (
@@ -276,7 +286,7 @@ pub async fn collect_daemon_status(
         }
     }
 
-    Ok(StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
+    let res = StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
         .with_reason(if daemon_info.is_none() { 
             Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
         } else if outdated {
@@ -287,5 +297,7 @@ pub async fn collect_daemon_status(
             None 
         })
         .with_details(details)
-        .with_children(children))
+        .with_children(children);
+
+    Ok(res)
 }

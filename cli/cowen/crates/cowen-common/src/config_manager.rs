@@ -97,7 +97,6 @@ impl ConfigManager {
                     tracing::info!(target: "sys", profile = %profile, version = %item.version, "Manifest loaded from Vault");
                     match serde_yaml::from_str::<Config>(&item.value) {
                         Ok(mut config) => {
-                            eprintln!("DEBUG: ConfigManager::load profile='{}' raw_yaml='{}' loaded_mode='{:?}'", profile, item.value, config.app_mode);
                             config.version = item.version;
                             let app_key = config.app_key.trim();
                             let global_profile = format!("app:{}", app_key);

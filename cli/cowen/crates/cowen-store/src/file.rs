@@ -258,21 +258,42 @@ impl cowen_common::store::Store for FileStore {
     }
 }
 
+use std::sync::Mutex;
+use std::time::SystemTime;
+
 pub struct MonolithicSealStore {
     path: PathBuf,
     key: [u8; 32],
     lock_path: PathBuf,
+    cache: Mutex<Option<CacheEntry>>,
+}
+
+struct CacheEntry {
+    data: HashMap<String, HashMap<String, String>>,
+    mtime: SystemTime,
 }
 
 impl MonolithicSealStore {
     pub fn new(path: PathBuf, fingerprint: &str) -> Self {
         let key = security::derive_key(fingerprint);
         let lock_path = path.with_extension("lock");
-        Self { path, key, lock_path }
+        Self { path, key, lock_path, cache: Mutex::new(None) }
     }
 
     fn load_all(&self) -> CowenResult<HashMap<String, HashMap<String, String>>> {
         if !self.path.exists() { return Ok(HashMap::new()); }
+        
+        let mtime = fs::metadata(&self.path)?.modified()?;
+        
+        {
+            let cache = self.cache.lock().unwrap();
+            if let Some(entry) = &*cache {
+                if entry.mtime == mtime {
+                    return Ok(entry.data.clone());
+                }
+            }
+        }
+
         let mut file = File::open(&self.path)?;
         let mut encrypted = Vec::new();
         file.read_to_end(&mut encrypted)?;
@@ -284,13 +305,23 @@ impl MonolithicSealStore {
                 return Ok(HashMap::new());
             }
         };
-        match serde_json::from_slice(&decrypted) {
-            Ok(data) => Ok(data),
+        let data: HashMap<String, HashMap<String, String>> = match serde_json::from_slice(&decrypted) {
+            Ok(data) => data,
             Err(e) => {
                 tracing::warn!(target: "sys", error = %e, "Vault parsing failed. Starting fresh.");
-                Ok(HashMap::new())
+                HashMap::new()
             }
+        };
+
+        {
+            let mut cache = self.cache.lock().unwrap();
+            *cache = Some(CacheEntry {
+                data: data.clone(),
+                mtime,
+            });
         }
+
+        Ok(data)
     }
 
     fn save_all(&self, data: &HashMap<String, HashMap<String, String>>) -> CowenResult<()> {
@@ -298,6 +329,17 @@ impl MonolithicSealStore {
         let encrypted = security::encrypt(&json, &self.key)?;
         let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(&self.path)?;
         file.write_all(&encrypted)?;
+        
+        // Update cache immediately after save
+        let mtime = file.metadata()?.modified()?;
+        {
+            let mut cache = self.cache.lock().unwrap();
+            *cache = Some(CacheEntry {
+                data: data.clone(),
+                mtime,
+            });
+        }
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
