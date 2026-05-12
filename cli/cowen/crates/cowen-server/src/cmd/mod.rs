@@ -138,8 +138,8 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     // --- 子进程：执行核心引擎逻辑 ---
     std::thread::sleep(std::time::Duration::from_millis(50));
     let pid = std::process::id();
-    let build_id = env!("BUILD_ID");
-    let build_time = env!("BUILD_TIME");
+    let build_time = cowen_common::BUILD_TIME;
+    let build_id = cowen_common::BUILD_ID;
     fs::write(&pid_file, format!("{}\n{}\n{}", pid, build_id, build_time))?;
     
     // BUG FIX: Hold an exclusive lock on the PID file to allow reliable liveness detection.

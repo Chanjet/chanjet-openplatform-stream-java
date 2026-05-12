@@ -1,3 +1,7 @@
+pub const BUILD_ID: &str = env!("BUILD_ID");
+pub const BUILD_TIME: &str = env!("BUILD_TIME");
+pub const GIT_HASH: &str = env!("GIT_HASH");
+
 pub mod models;
 pub mod config;
 pub mod vault;

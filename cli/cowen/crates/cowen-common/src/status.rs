@@ -267,24 +267,12 @@ pub async fn collect_daemon_status(
         // 2. Compare Build Time (For "dirty" builds without git changes)
         // We allow a 5-minute buffer to account for sequential workspace compilation.
         if !outdated {
-            if let Some(bt) = &info.build_time {
-                let cli_bt = env!("BUILD_TIME");
-                if let (Ok(d_ts), Ok(c_ts)) = (
-                    chrono::NaiveDateTime::parse_from_str(bt, "%Y-%m-%d %H:%M:%S"),
-                    chrono::NaiveDateTime::parse_from_str(cli_bt, "%Y-%m-%d %H:%M:%S")
-                ) {
-                    let diff = c_ts.signed_duration_since(d_ts).num_seconds();
-                    // 🚀 OCP: Tiered comparison
-                    // If Build ID (Git Hash) matches, code is logically identical, so be lenient with time offsets.
-                    // If Build ID differs, it's a dirty/new build, so be strict.
-                    let is_same_git = info.build_id.as_deref() == Some(env!("BUILD_ID"));
-                    let threshold = if is_same_git { 1800 } else { 10 }; // 30m if same hash, 10s if different
-                    
-                    if diff > threshold {
-                        outdated = true;
-                    }
+                // 🚀 STRICT EQUALITY: No more time drift tolerance.
+                // If Build ID or Build Time don't match exactly, it's outdated.
+                if info.build_id.as_deref() != Some(crate::BUILD_ID) 
+                    || info.build_time.as_deref() != Some(crate::BUILD_TIME) {
+                    outdated = true;
                 }
-            }
         }
     }
 

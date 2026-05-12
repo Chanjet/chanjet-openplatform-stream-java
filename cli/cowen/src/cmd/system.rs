@@ -64,7 +64,7 @@ pub async fn status(
     }
 
     for s in results {
-        println!("\n🔍 COWEN System Status Diagnostics (Profile: '{}', Build: {}, Time: {})", s.profile, env!("BUILD_ID"), env!("BUILD_TIME"));
+        println!("\n🔍 COWEN System Status Diagnostics (Profile: '{}', Build: {}, Time: {})", s.profile, cowen_common::BUILD_ID, cowen_common::BUILD_TIME);
         println!("----------------------------------");
         for entry in s.entries {
             render_entry(&entry, 0);
@@ -227,8 +227,8 @@ impl StatusCollector for ConfigCollector {
         // 0.2.x Style Configuration Entry
         let mode_str = format!("{:?}", ctx.config.app_mode).to_lowercase();
         let mut details = vec![];
-        details.push(format!("Build ID:   {}", env!("BUILD_ID")));
-        details.push(format!("Build Time: {}", env!("BUILD_TIME")));
+        details.push(format!("Build ID:   {}", cowen_common::BUILD_ID));
+        details.push(format!("Build Time: {}", cowen_common::BUILD_TIME));
         details.push(format!("OpenAPI:    {}", ctx.config.openapi_url));
         details.push(format!("Stream:     {}", ctx.config.stream_url));
 
@@ -399,42 +399,19 @@ pub async fn enforce_daemon_version_sync(
     vault: Arc<dyn Vault>,
 ) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
-    let current_bid = env!("BUILD_ID");
-    let current_bt = env!("BUILD_TIME");
-
     for p in profiles {
         if let Some(info) = cowen_common::status::get_active_daemon_info(&p) {
             let mut outdated = false;
             let daemon_bid = info.build_id.as_deref().unwrap_or("N/A");
+            let daemon_bt = info.build_time.as_deref().unwrap_or("N/A");
             
-            // 1. Compare Build ID (Git Hash)
-            if daemon_bid != current_bid {
+            // 🚀 STRICT EQUALITY: Use unified constants for absolute matching.
+            if daemon_bid != cowen_common::BUILD_ID || daemon_bt != cowen_common::BUILD_TIME {
                 outdated = true;
-            }
-            
-            // 2. Compare Build Time (with 5-minute buffer for workspace offset)
-            if !outdated {
-                if let Some(bt) = &info.build_time {
-                    if let (Ok(d_ts), Ok(c_ts)) = (
-                        chrono::NaiveDateTime::parse_from_str(bt, "%Y-%m-%d %H:%M:%S"),
-                        chrono::NaiveDateTime::parse_from_str(current_bt, "%Y-%m-%d %H:%M:%S")
-                    ) {
-                        let diff = c_ts.signed_duration_since(d_ts).num_seconds();
-                        // 🚀 OCP: Tiered comparison
-                        let is_same_git = daemon_bid == current_bid;
-                        let threshold = if is_same_git { 1800 } else { 10 }; // 30m if same hash, 10s if different
-                        
-                        if diff > threshold {
-                            outdated = true;
-                        }
-                    }
-                } else {
-                    outdated = true; // Missing build time
-                }
             }
 
             if outdated {
-                tracing::info!(target: "sys", profile = %p, "Daemon version mismatch (CLI: {} / {}, Daemon: {}). Restarting...", current_bid, current_bt, daemon_bid);
+                tracing::info!(target: "sys", profile = %p, "Daemon version mismatch (CLI: {} / {}, Daemon: {}). Restarting...", cowen_common::BUILD_ID, cowen_common::BUILD_TIME, daemon_bid);
                 eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
                 
                 let config = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::Config::default_with_profile(&p));
