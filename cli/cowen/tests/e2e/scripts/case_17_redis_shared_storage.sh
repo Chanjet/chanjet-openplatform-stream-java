@@ -63,10 +63,13 @@ EOF
     --app-secret AS_REDIS \
     --certificate CERT_REDIS \
     --encrypt-key 1234567890123456 \
-    --openapi-url $MOCK_URL \
-    --stream-url $MOCK_WS \
+    --openapi-url "$MOCK_URL" \
+    --stream-url "$MOCK_WS" \
     --webhook-target "$MOCK_URL/webhook_sink" \
-    --proxy-port 9097 > /dev/null
+    --proxy-port 9097
+
+# Stop the daemon on Node 1 to prevent background token rotation during the test
+"$COWEN_BIN" daemon stop --profile main > /dev/null
 
 assert_pass "Node 1 initialized with Redis storage"
 

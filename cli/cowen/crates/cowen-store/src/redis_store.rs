@@ -11,21 +11,15 @@ use redis::aio::MultiplexedConnection;
 pub struct RedisStore {
     conn: MultiplexedConnection,
     url: String,
-    fingerprint: String,
 }
 
 impl RedisStore {
-    pub fn new(conn: MultiplexedConnection, url: String, fingerprint: String) -> Self {
-        Self { conn, url, fingerprint }
+    pub fn new(conn: MultiplexedConnection, url: String) -> Self {
+        Self { conn, url }
     }
 
     fn key(&self, profile: &str, key: &str) -> String {
-        // If fingerprint is set, use it as the root namespace instead of profile
-        if !self.fingerprint.is_empty() {
-            format!("{}:{}", self.fingerprint, key)
-        } else {
-            format!("{}:{}", profile, key)
-        }
+        format!("{}:{}", profile, key)
     }
 
     async fn raw_get(&self, profile: &str, key: &str) -> CowenResult<String> {
@@ -319,7 +313,7 @@ impl crate::StoreBuilder for RedisStoreBuilder {
     async fn build(&self, url: &str, _app_dir: &std::path::Path, fingerprint: &str) -> CowenResult<Arc<dyn Store>> {
         let client = redis::Client::open(url).map_err(CowenError::from)?;
         let conn = client.get_multiplexed_tokio_connection().await.map_err(CowenError::from)?;
-        Ok(Arc::new(RedisStore::new(conn, url.to_string(), fingerprint.to_string())))
+        Ok(Arc::new(RedisStore::new(conn, url.to_string())))
     }
 }
 

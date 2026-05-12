@@ -38,7 +38,7 @@ build-cli-inte:
 build-cli-prod:
 	@$(MAKE) -C cli/cowen build-prod
 
-test: test-java test-nodejs test-go
+test: test-java test-nodejs test-go test-cli
 
 test-java:
 	@echo "Running Java tests..."
@@ -51,6 +51,10 @@ test-nodejs:
 test-go:
 	@echo "Running Go tests..."
 	@cd sdk/go && go test ./...
+
+test-cli:
+	@echo "Running CLI tests..."
+	@$(MAKE) -C cli/cowen test
 
 clean:
 	@echo "Cleaning artifacts..."
