@@ -13,10 +13,10 @@ pub fn get_machine_fingerprint() -> CowenResult<String> {
     let arch = std::env::consts::ARCH;
     let hostname = hostname::get()?.to_string_lossy().to_string();
     
+    let base = format!("{}-{}-{}", os, arch, hostname);
+    
     let mut hasher = Sha256::new();
-    hasher.update(os);
-    hasher.update(arch);
-    hasher.update(hostname);
+    hasher.update(base.as_bytes());
     
     Ok(hex::encode(hasher.finalize()))
 }

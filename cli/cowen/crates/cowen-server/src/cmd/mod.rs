@@ -138,8 +138,9 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     // --- 子进程：执行核心引擎逻辑 ---
     std::thread::sleep(std::time::Duration::from_millis(50));
     let pid = std::process::id();
-    let build_id = "N/A";
-    fs::write(&pid_file, format!("{}\n{}", pid, build_id))?;
+    let build_id = env!("BUILD_ID");
+    let build_time = env!("BUILD_TIME");
+    fs::write(&pid_file, format!("{}\n{}\n{}", pid, build_id, build_time))?;
     
     // BUG FIX: Hold an exclusive lock on the PID file to allow reliable liveness detection.
     // The lock will be released automatically by the OS if the process crashes or exits.

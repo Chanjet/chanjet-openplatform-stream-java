@@ -106,7 +106,7 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 初始推送检查：决定是否在启动时强制要求平台推送初始凭证 (如 AppTicket)
-    fn requires_initial_push(&self, config: &Config) -> bool {
+    async fn requires_initial_push(&self, config: &Config) -> bool {
         let _ = config;
         false
     }
@@ -119,8 +119,8 @@ pub trait AuthProvider: Send + Sync {
 
     /// 🚀 UI/诊断能力：返回该模式后台进程的显示名称与效率提示
     fn get_daemon_display_info(&self, is_running: bool) -> (String, String) {
-        let name = if is_running { "Auth Renewer (Daemon)" } else { "Auth Bridge (Daemon)" };
-        let tip = if is_running { "主动续约: [ACTIVE]" } else { "建议运行 'cowen daemon start' 以实现自动续约" };
+        let name = if is_running { "Background Worker (Daemon)" } else { "Background Bridge (Daemon)" };
+        let tip = if is_running { "主动续约: [ACTIVE] 令牌环境将保持热启动状态" } else { "建议运行 'cowen daemon start' 以实现自动续约" };
         (name.to_string(), tip.to_string())
     }
 
@@ -138,6 +138,17 @@ pub trait AuthProvider: Send + Sync {
     /// OCP: Capability check for OpenAPI call support.
     fn supports_api_call(&self) -> bool {
         true
+    }
+
+    /// OCP: 去重策略 — 查找是否存在与给定 AppKey 冲突的 Profile。
+    /// 默认实现：全局严格去重（按 AppKey 全局唯一）。
+    /// 特定模式（如 OAuth2）可重写为松散策略（仅同模式内去重）。
+    async fn find_conflicting_profile(
+        &self,
+        app_key: &str,
+        cfg_mgr: &cowen_common::ConfigManager,
+    ) -> CowenResult<Option<String>> {
+        cfg_mgr.find_profile_by_key(app_key).await
     }
 
     /// OCP: Unified Initialization Hook.

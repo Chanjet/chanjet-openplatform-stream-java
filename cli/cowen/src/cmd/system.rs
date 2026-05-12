@@ -1,11 +1,11 @@
-use cowen_common::vault::Vault;
-use cowen_common::daemon::DaemonService;
-use cowen_common::{ConfigManager, CowenResult};
 use anyhow::Result;
+use cowen_common::daemon::DaemonService;
+use cowen_common::vault::Vault;
+use cowen_common::{ConfigManager, CowenResult};
 use serde::Serialize;
 use std::sync::Arc;
 
-use cowen_common::status::{StatusEntry, StatusLevel, StatusContext, StatusCollector};
+use cowen_common::status::{StatusCollector, StatusContext, StatusEntry, StatusLevel};
 
 #[derive(Serialize)]
 pub struct SystemStatus {
@@ -21,7 +21,10 @@ pub async fn status(
     all: bool,
 ) -> Result<()> {
     let profiles = if all {
-        cfg_mgr.list_profiles().await.map_err(|e| anyhow::anyhow!(e))?
+        cfg_mgr
+            .list_profiles()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?
     } else {
         vec![active_profile.to_string()]
     };
@@ -61,7 +64,7 @@ pub async fn status(
     }
 
     for s in results {
-        println!("\n🌍 System Status (Profile: \x1b[1;32m{}\x1b[0m)", s.profile);
+        println!("\n🔍 COWEN System Status Diagnostics (Profile: '{}', Build: {}, Time: {})", s.profile, env!("BUILD_ID"), env!("BUILD_TIME"));
         println!("----------------------------------");
         for entry in s.entries {
             render_entry(&entry, 0);
@@ -79,8 +82,14 @@ pub async fn status(
 }
 
 pub async fn config(profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Result<()> {
-    let cfg = cfg_mgr.load(profile).await.map_err(|e| anyhow::anyhow!(e))?;
-    let app_cfg = cfg_mgr.load_app_config().await.map_err(|e| anyhow::anyhow!(e))?;
+    let cfg = cfg_mgr
+        .load(profile)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    let app_cfg = cfg_mgr
+        .load_app_config()
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     #[derive(Serialize)]
     struct CombinedConfig {
@@ -100,11 +109,17 @@ pub async fn config(profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Res
         println!("----------------------------------");
         println!("Storage Type:  {}", report.global.storage.store);
         if let Some(url) = &report.global.storage.db_url {
-            println!("Storage URL:   {}", cowen_common::utils::mask_url_query(url));
+            println!(
+                "Storage URL:   {}",
+                cowen_common::utils::mask_url_query(url)
+            );
         }
         println!("Cache Type:    {}", report.global.storage.cache);
         if let Some(url) = &report.global.storage.cache_url {
-            println!("Cache URL:     {}", cowen_common::utils::mask_url_query(url));
+            println!(
+                "Cache URL:     {}",
+                cowen_common::utils::mask_url_query(url)
+            );
         }
 
         println!("\n👤 Profile Configuration ({}.yaml)", profile);
@@ -125,19 +140,42 @@ pub async fn config(profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Res
 
 fn render_entry(entry: &StatusEntry, indent: usize) {
     let prefix = "  ".repeat(indent);
-    let level_icon = match entry.level {
-        StatusLevel::OK => "✅",
-        StatusLevel::WARN => "⚠️ ",
-        StatusLevel::ERROR => "❌",
-        _ => "⚪",
+    let level_str = match entry.level {
+        StatusLevel::OK => "\x1b[32m(OK)\x1b[0m",
+        StatusLevel::WARN => "\x1b[33m(WARN)\x1b[0m",
+        StatusLevel::ERROR => "\x1b[31m(ERROR)\x1b[0m",
+        _ => "(UNKNOWN)",
     };
 
-    println!("{}{} {} {} - {}", prefix, level_icon, entry.icon, entry.name, entry.message);
+    println!(
+        "{}{} {}: {} {}",
+        prefix, entry.icon, entry.name, entry.message, level_str
+    );
     if let Some(reason) = &entry.reason {
         println!("{}   \x1b[31m╰─ Reason: {}\x1b[0m", prefix, reason);
     }
+    for detail in &entry.details {
+        println!("{}   - {}", prefix, detail);
+    }
     for child in &entry.children {
         render_entry(child, indent + 1);
+    }
+}
+
+struct DaemonCollector;
+#[async_trait::async_trait]
+impl StatusCollector for DaemonCollector {
+    fn name(&self) -> &str {
+        "Daemon"
+    }
+    async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
+        cowen_common::status::collect_daemon_status(
+            ctx,
+            "Stream Bridge (Daemon)",
+            "若需实现多租户消息同步，请运行 'cowen daemon start'",
+            true,
+        )
+        .await
     }
 }
 
@@ -157,6 +195,7 @@ async fn get_system_status(
 
     let collectors: Vec<Box<dyn StatusCollector>> = vec![
         Box::new(ConfigCollector),
+        Box::new(SecurityCollector),
         Box::new(ProviderCollector),
     ];
 
@@ -180,38 +219,94 @@ use cowen_auth::client::Client;
 struct ConfigCollector;
 #[async_trait::async_trait]
 impl StatusCollector for ConfigCollector {
-    fn name(&self) -> &str { "Configuration" }
+    fn name(&self) -> &str {
+        "Configuration"
+    }
     async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
         use cowen_common::status::CommonTemplate;
-        let mut children = Vec::new();
-        
-        // 1. AppKey
-        let ak_level = if ctx.config.app_key.trim().is_empty() { StatusLevel::ERROR } else { StatusLevel::OK };
-        children.push(StatusEntry::new(CommonTemplate::Custom("AppKey".to_string(), "🔑".to_string()), ak_level, 
-            if ak_level == StatusLevel::OK { format!("Configured ({})", ctx.config.app_key) } else { "Missing".to_string() }));
 
-        // 2. Secret in Vault
-        let has_secret = ctx.vault.get_secret(&ctx.profile, "app_secret").await.is_ok();
-        let sec_level = if has_secret { StatusLevel::OK } else { StatusLevel::ERROR };
-        children.push(StatusEntry::new(CommonTemplate::Custom("AppSecret".to_string(), "🔐".to_string()), sec_level,
-            if has_secret { "Stored in Vault".to_string() } else { "Missing from Vault".to_string() }));
+        // 0.2.x Style Configuration Entry
+        let mode_str = format!("{:?}", ctx.config.app_mode).to_lowercase();
+        let mut details = vec![];
+        details.push(format!("Build ID:   {}", env!("BUILD_ID")));
+        details.push(format!("Build Time: {}", env!("BUILD_TIME")));
+        details.push(format!("OpenAPI:    {}", ctx.config.openapi_url));
+        details.push(format!("Stream:     {}", ctx.config.stream_url));
 
-        let max_level = if ak_level == StatusLevel::ERROR || sec_level == StatusLevel::ERROR { StatusLevel::ERROR } else { StatusLevel::OK };
-        
-        Ok(StatusEntry::new(CommonTemplate::Configuration, max_level, "Profile identity settings".to_string())
-            .with_children(children))
+        let ak_level = if ctx.config.app_key.trim().is_empty() {
+            StatusLevel::ERROR
+        } else {
+            StatusLevel::OK
+        };
+        let ak_msg = if ak_level == StatusLevel::OK {
+            format!("AppKey: {} (Mode: {})", ctx.config.app_key, mode_str)
+        } else {
+            "AppKey is missing".to_string()
+        };
+
+        Ok(StatusEntry::new(
+            CommonTemplate::Custom("Configuration".to_string(), "⚙️".to_string()),
+            ak_level,
+            ak_msg,
+        )
+        .with_details(details))
+    }
+}
+
+struct SecurityCollector;
+#[async_trait::async_trait]
+impl StatusCollector for SecurityCollector {
+    fn name(&self) -> &str {
+        "Security"
+    }
+    async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
+        use cowen_common::status::{CommonTemplate, StatusEntry, StatusLevel};
+        let vault = ctx.vault.clone();
+
+        let mut missing = Vec::new();
+        // Check both Vault and hydrated config (for environment variable support)
+        let has_secret = vault.get_secret(&ctx.profile, "app_secret").await.is_ok()
+            || !ctx.config.app_secret.is_empty();
+        let has_encrypt_key = vault.get_secret(&ctx.profile, "encrypt_key").await.is_ok()
+            || !ctx.config.encrypt_key.is_empty();
+
+        if !has_secret {
+            missing.push("app_secret".to_string());
+        }
+        if !has_encrypt_key {
+            missing.push("encrypt_key".to_string());
+        }
+
+        let (sec_level, sec_msg) = if missing.is_empty() {
+            (
+                StatusLevel::OK,
+                "All core secrets are securely stored.".to_string(),
+            )
+        } else {
+            (
+                StatusLevel::WARN,
+                format!("Missing: {}", missing.join(", ")),
+            )
+        };
+        Ok(StatusEntry::new(
+            CommonTemplate::Custom("Security (Vault)".to_string(), "🛡️".to_string()),
+            sec_level,
+            sec_msg,
+        ))
     }
 }
 
 struct ProviderCollector;
 #[async_trait::async_trait]
 impl StatusCollector for ProviderCollector {
-    fn name(&self) -> &str { "Provider" }
+    fn name(&self) -> &str {
+        "Provider"
+    }
     async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
         use cowen_common::status::CommonTemplate;
         let auth_cli = cowen_auth::create_auth_client_with_vault(ctx.vault.clone());
         let children = auth_cli.get_diagnostics(ctx).await?;
-        
+
         let mut max_level = StatusLevel::OK;
         for c in &children {
             if c.level as i32 > max_level as i32 {
@@ -220,29 +315,51 @@ impl StatusCollector for ProviderCollector {
         }
 
         let mode_str = format!("{:?}", ctx.config.app_mode);
-        Ok(StatusEntry::new(CommonTemplate::ProviderSummary(format!("{} Mode Diagnostics", mode_str), "💎".to_string()), max_level, format!("Collected {} status indicators", children.len()))
-            .with_children(children))
+        Ok(StatusEntry::new(
+            CommonTemplate::ProviderSummary(
+                format!("{} Mode Diagnostics", mode_str),
+                "💎".to_string(),
+            ),
+            max_level,
+            format!("Collected {} status indicators", children.len()),
+        )
+        .with_children(children))
     }
 }
 
-pub async fn reset(profile: &str, vault: Option<&dyn Vault>, cfg_mgr: &ConfigManager, event_bus: Option<&cowen_common::events::EventBus>) -> Result<()> {
+pub async fn reset(
+    profile: &str,
+    vault: Option<&dyn Vault>,
+    cfg_mgr: &ConfigManager,
+    event_bus: Option<&cowen_common::events::EventBus>,
+) -> Result<()> {
     if let Some(v) = vault {
-        v.clear_profile(profile).await.map_err(|e| anyhow::anyhow!(e))?;
+        v.clear_profile(profile)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
     }
-    cfg_mgr.delete(profile).await.map_err(|e| anyhow::anyhow!(e))?;
-    
+    cfg_mgr
+        .delete(profile)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+
     if let Some(bus) = event_bus {
-        bus.publish(cowen_common::events::GlobalEvent::ProfileDeleted { name: profile.to_string() });
+        bus.publish(cowen_common::events::GlobalEvent::ProfileDeleted {
+            name: profile.to_string(),
+        });
     }
-    
-    println!("✅ Profile '{}' and all associated data have been physically removed.", profile);
+
+    println!(
+        "✅ Profile '{}' and all associated data have been physically removed.",
+        profile
+    );
     Ok(())
 }
 
 pub async fn rename_profile(
-    old: &str, 
-    new: &str, 
-    cfg_mgr: &ConfigManager, 
+    old: &str,
+    new: &str,
+    cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
     event_bus: &cowen_common::events::EventBus,
 ) -> Result<()> {
@@ -254,20 +371,28 @@ pub async fn rename_profile(
     }
 
     // 1. Rename files
-    cfg_mgr.rename(old, new).await.map_err(|e| anyhow::anyhow!(e))?;
-    
+    cfg_mgr
+        .rename(old, new)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+
     // 2. Rename in Vault (SQL/Redis)
-    vault.rename_profile(old, new).await.map_err(|e| anyhow::anyhow!(e))?;
+    vault
+        .rename_profile(old, new)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     // 3. Update default if needed
     if cfg_mgr.get_default_profile() == old {
-        cfg_mgr.set_default_profile(new).map_err(|e| anyhow::anyhow!(e))?;
+        cfg_mgr
+            .set_default_profile(new)
+            .map_err(|e| anyhow::anyhow!(e))?;
     }
 
     // 4. Broadcast event
-    event_bus.publish(cowen_common::events::GlobalEvent::ProfileRenamed { 
-        old: old.to_string(), 
-        new: new.to_string() 
+    event_bus.publish(cowen_common::events::GlobalEvent::ProfileRenamed {
+        old: old.to_string(),
+        new: new.to_string(),
     });
 
     println!("✅ Profile '{}' has been renamed to '{}'", old, new);
@@ -282,14 +407,16 @@ pub async fn ensure_daemon_running(
     auth_cli: &dyn cowen_auth::client::Client,
 ) -> Result<()> {
     // 1. Check if already running
-    let (pid, _) = cowen_common::status::get_active_daemon_info(profile).await;
-    if pid.is_some() {
+    let info = cowen_common::status::get_active_daemon_info(profile);
+    if info.is_some() {
         return Ok(());
     }
 
     // 2. Check if recovery is recommended by provider
-    let provider = auth_cli.get_provider(&config.app_mode).ok_or_else(|| anyhow::anyhow!("No provider found for profile '{}'", profile))?;
-    
+    let provider = auth_cli
+        .get_provider(&config.app_mode)
+        .ok_or_else(|| anyhow::anyhow!("No provider found for profile '{}'", profile))?;
+
     // We check pid file existence for extra safety (should_auto_recover might care)
     let pid_file = cowen_common::config::get_app_dir().join(format!("{}_daemon.pid", profile));
     let pid_file_exists = pid_file.exists();
@@ -297,12 +424,67 @@ pub async fn ensure_daemon_running(
     let app_cfg = _cfg_mgr.load_app_config().await.unwrap_or_default();
     let is_distributed = _cfg_mgr.is_distributed_storage(&app_cfg);
 
-    if provider.should_auto_recover(profile, config, false, pid_file_exists, is_distributed).await {
+    if provider
+        .should_auto_recover(profile, config, false, pid_file_exists, is_distributed)
+        .await
+    {
         tracing::info!(target: "sys", profile = %profile, "Daemon not running, triggering auto-recovery...");
-        
+
         let daemon_svc = cowen_server::ServerDaemonService::new(_cfg_mgr.clone());
         let _ = daemon_svc.start_daemon(profile, config, vault).await;
     }
 
+    Ok(())
+}
+
+pub async fn enforce_daemon_version_sync(
+    cfg_mgr: &ConfigManager,
+    vault: Arc<dyn Vault>,
+) -> Result<()> {
+    let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
+    let current_bid = env!("BUILD_ID");
+    let current_bt = env!("BUILD_TIME");
+
+    for p in profiles {
+        if let Some(info) = cowen_common::status::get_active_daemon_info(&p) {
+            let mut outdated = false;
+            let daemon_bid = info.build_id.as_deref().unwrap_or("N/A");
+            
+            // 1. Compare Build ID (Git Hash)
+            if daemon_bid != current_bid {
+                outdated = true;
+            }
+            
+            // 2. Compare Build Time (with 5-minute buffer for workspace offset)
+            if !outdated {
+                if let Some(bt) = &info.build_time {
+                    if let (Ok(d_ts), Ok(c_ts)) = (
+                        chrono::NaiveDateTime::parse_from_str(bt, "%Y-%m-%d %H:%M:%S"),
+                        chrono::NaiveDateTime::parse_from_str(current_bt, "%Y-%m-%d %H:%M:%S")
+                    ) {
+                        let diff = c_ts.signed_duration_since(d_ts).num_seconds();
+                        // 🚀 OCP: Tiered comparison
+                        let is_same_git = daemon_bid == current_bid;
+                        let threshold = if is_same_git { 1800 } else { 10 }; // 30m if same hash, 10s if different
+                        
+                        if diff > threshold {
+                            outdated = true;
+                        }
+                    }
+                } else {
+                    outdated = true; // Missing build time
+                }
+            }
+
+            if outdated {
+                tracing::info!(target: "sys", profile = %p, "Daemon version mismatch (CLI: {} / {}, Daemon: {}). Restarting...", current_bid, current_bt, daemon_bid);
+                eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
+                
+                let config = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::Config::default_with_profile(&p));
+                // Execute restart
+                let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone()).await;
+            }
+        }
+    }
     Ok(())
 }

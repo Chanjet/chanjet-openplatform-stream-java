@@ -317,19 +317,41 @@ pub async fn run(cli: Cli) -> Result<()> {
         let _ = cmd::completion::install_completion(None);
     }
 
+    let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
+
+    // --- Daemon Lifecycle Enforcement ---
+    // 🚀 UNCONDITIONAL VERSION SYNC: Always ensure background processes match the current binary.
+    // Freshness is prioritized over command context.
+    let _ = cmd::system::enforce_daemon_version_sync(&cfg_mgr, vault.clone()).await;
+
+    // 2. Auto-recovery: "确保必要的后台进程正在运行"
+    // We still skip auto-recovery for lifecycle commands to avoid starting a daemon 
+    // that the user is explicitly trying to stop or reset.
     let skip_recovery = matches!(&cli.command, 
         Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. } |
-        Commands::Config | Commands::Profile { .. } | Commands::Dlq { .. }
+        Commands::Config | Commands::Profile { .. } | Commands::Dlq { .. } |
+        Commands::Status { .. } | Commands::System { action: SystemCommands::Status { .. } }
     ) || matches!(&cli.command, Commands::Auth { action: AuthCommands::Login { finalize: Some(_), .. } });
 
-    let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
     if !skip_recovery {
         let _ = cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
     }
 
     match &cli.command {
         Commands::Init { app_key, app_secret, certificate, encrypt_key, webhook_target, openapi_url, stream_url, app_mode, proxy_port } => {
-            cmd::init::execute(&active_profile, &cfg_mgr, &mut app_config, vault.clone(), app_key, app_secret, certificate, encrypt_key, webhook_target, openapi_url, stream_url, app_mode, proxy_port, true, Some(daemon_svc.clone())).await?;
+            let ctx = cmd::init::InitContext {
+                app_key: app_key.clone(),
+                app_secret: app_secret.clone(),
+                certificate: certificate.clone(),
+                encrypt_key: encrypt_key.clone(),
+                webhook_target: webhook_target.clone(),
+                openapi_url: openapi_url.clone(),
+                stream_url: stream_url.clone(),
+                app_mode: app_mode.clone(),
+                proxy_port: proxy_port.clone(),
+                auto_start: true,
+            };
+            cmd::init::execute(&active_profile, &cfg_mgr, &mut app_config, vault.clone(), ctx, Some(daemon_svc.clone())).await?;
         }
         Commands::Api { method, path, data, data_file, action } => {
             if let Some(act) = action {

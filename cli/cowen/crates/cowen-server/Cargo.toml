@@ -23,3 +23,6 @@ connector-sdk = { path = "../../../../sdk/rust" }
 cowen-common = { path = "../cowen-common" }
 cowen-auth = { path = "../cowen-auth" }
 cowen-store = { path = "../cowen-store" }
+
+[build-dependencies]
+chrono = "0.4"

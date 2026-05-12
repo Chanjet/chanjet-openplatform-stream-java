@@ -107,27 +107,26 @@ pub fn get_app_dir() -> PathBuf {
     crate::config::get_app_dir()
 }
 
-pub async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<String>) {
-        let app_dir = get_app_dir();
-        let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
+pub struct DaemonInfo {
+    pub pid: u32,
+    pub build_id: Option<String>,
+    pub build_time: Option<String>,
+}
 
+pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
+    let app_dir = get_app_dir();
+    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
     if !pid_file.exists() {
-                return (None, None);
+        return None;
     }
 
-    // BUG FIX: Use file locking for reliable liveness detection.
-    // If we CAN acquire an exclusive lock, it means the daemon is NOT running.
-    let is_alive =     if let Ok(f) = std::fs::File::open(&pid_file) {
+    let _is_alive_hint = if let Ok(f) = std::fs::File::open(&pid_file) {
         use fs2::FileExt;
         let lock_res = f.try_lock_exclusive();
-                lock_res.is_err()
+        lock_res.is_err() // If lock fails, someone (daemon) has it.
     } else {
         false
     };
-
-    if !is_alive {
-        return (None, None);
-    }
 
     if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
         let mut lines = pid_content.lines();
@@ -143,13 +142,18 @@ pub async fn get_active_daemon_info(profile: &str) -> (Option<u32>, Option<Strin
                     
                     if name.contains(&bin_name) || cmdline.contains(&bin_name) {
                         let build_id = lines.next().map(|s| s.trim().to_string());
-                        return (Some(pid_val), build_id);
+                        let build_time = lines.next().map(|s| s.trim().to_string());
+                        return Some(DaemonInfo {
+                            pid: pid_val,
+                            build_id,
+                            build_time,
+                        });
                     }
                 }
             }
         }
     }
-    (None, None)
+    None
 }
 
 pub async fn is_port_responsive(port: u16) -> bool {
@@ -169,17 +173,17 @@ pub async fn collect_daemon_status(
     efficiency_tip: &str,
     supports_webhooks: bool,
 ) -> CowenResult<StatusEntry> {
-    let (found_daemon_pid, found_build_id) = get_active_daemon_info(&ctx.profile).await;
+    let daemon_info = get_active_daemon_info(&ctx.profile);
     
-    let (mut level, msg, mut children) = if let Some(pid) = found_daemon_pid {
+    let (mut level, msg, mut children) = if let Some(info) = &daemon_info {
         (
             StatusLevel::OK, 
-            format!("[RUNNING] (PID: {})", pid),
+            format!("[RUNNING] (PID: {})", info.pid),
             vec![
                 StatusEntry::new(
                     CommonTemplate::ProactiveRefresh,
                     StatusLevel::OK,
-                    format!("{} 令牌环境将保持热启动状态", efficiency_tip)
+                    "主动续约: [ACTIVE] 令牌环境将保持热启动状态".to_string()
                 )
             ]
         )
@@ -198,7 +202,7 @@ pub async fn collect_daemon_status(
     };
 
     // Inject Connection State if running AND new version (status file exists)
-    if found_daemon_pid.is_some() {
+    if daemon_info.is_some() {
         let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
         if let Ok(content) = std::fs::read_to_string(status_file) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -241,13 +245,54 @@ pub async fn collect_daemon_status(
     }
 
     let mut details = vec![];
-    if let Some(bid) = found_build_id {
-        details.push(format!("Build ID: {}", bid));
+    let mut outdated = false;
+    if let Some(info) = &daemon_info {
+        if let Some(bid) = &info.build_id {
+            details.push(format!("Daemon Build: {}", bid));
+        }
+        if let Some(bt) = &info.build_time {
+            details.push(format!("Daemon Time:  {}", bt));
+        }
+
+        // Version Sync Logic:
+        // 1. Compare Build ID (Git Hash) - Definitive version
+        if let Some(bid) = &info.build_id {
+            if bid != env!("BUILD_ID") {
+                outdated = true;
+            }
+        } else {
+            outdated = true; // Missing Build ID is old
+        }
+
+        // 2. Compare Build Time (For "dirty" builds without git changes)
+        // We allow a 5-minute buffer to account for sequential workspace compilation.
+        if !outdated {
+            if let Some(bt) = &info.build_time {
+                let cli_bt = env!("BUILD_TIME");
+                if let (Ok(d_ts), Ok(c_ts)) = (
+                    chrono::NaiveDateTime::parse_from_str(bt, "%Y-%m-%d %H:%M:%S"),
+                    chrono::NaiveDateTime::parse_from_str(cli_bt, "%Y-%m-%d %H:%M:%S")
+                ) {
+                    let diff = c_ts.signed_duration_since(d_ts).num_seconds();
+                    // 🚀 OCP: Tiered comparison
+                    // If Build ID (Git Hash) matches, code is logically identical, so be lenient with time offsets.
+                    // If Build ID differs, it's a dirty/new build, so be strict.
+                    let is_same_git = info.build_id.as_deref() == Some(env!("BUILD_ID"));
+                    let threshold = if is_same_git { 1800 } else { 10 }; // 30m if same hash, 10s if different
+                    
+                    if diff > threshold {
+                        outdated = true;
+                    }
+                }
+            }
+        }
     }
 
     Ok(StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
-        .with_reason(if found_daemon_pid.is_none() { 
+        .with_reason(if daemon_info.is_none() { 
             Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
+        } else if outdated {
+            Some("⚠️ 当前后台进程版本已过时。建议运行 'cowen daemon restart' 以同步最新功能。".to_string())
         } else if level == StatusLevel::ERROR {
             Some("Daemon 已启动，但当前连接状态异常。".to_string())
         } else { 

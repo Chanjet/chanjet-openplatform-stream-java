@@ -298,6 +298,16 @@ impl AuthProvider for OAuth2Provider {
         false
     }
 
+    /// OCP: OAuth2 uses relaxed dedup — only conflicts with other OAuth2 profiles using the same key.
+    /// This allows the same AppKey to coexist across different auth modes (e.g., OAuth2 + SelfBuilt).
+    async fn find_conflicting_profile(
+        &self,
+        app_key: &str,
+        cfg_mgr: &cowen_common::ConfigManager,
+    ) -> CowenResult<Option<String>> {
+        cfg_mgr.find_profile_by_key_and_mode(app_key, &cowen_common::models::AuthMode::Oauth2).await
+    }
+
     async fn intercept_request(
         &self,
         profile: &str,
@@ -540,8 +550,8 @@ impl AuthProvider for OAuth2Provider {
         }
 
         // 2. Daemon Status
-        let (found_pid, _) = cowen_common::status::get_active_daemon_info(profile).await;
-        let is_running = found_pid.is_some();
+        let daemon_info = cowen_common::status::get_active_daemon_info(profile);
+        let is_running = daemon_info.is_some();
         let (display_name, efficiency_tip) = self.get_daemon_display_info(is_running);
         results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks()).await?);
 

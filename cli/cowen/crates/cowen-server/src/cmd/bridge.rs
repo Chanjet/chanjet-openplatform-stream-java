@@ -73,6 +73,8 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         let pk_config = config.clone();
         dispatcher.on_app_ticket(move |msg| {
             let ticket_val = msg.biz_content.app_ticket.trim().to_string();
+            tracing::info!(target: "stream", "CALLBACK: AppTicket received in dispatcher (masked: {}...)", &ticket_val[..5]);
+            
             let pk_pool_inner = pk_pool.clone();
             let pk_profile_inner = pk_profile.clone();
             let pk_config_inner = pk_config.clone();
@@ -137,6 +139,27 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         }
     };
 
+    let p_profile_h = profile.to_string();
+    let heartbeat_fut = async move {
+        if supports_webhooks {
+            let status_file = cowen_common::config::get_app_dir().join(format!("{}_status.json", p_profile_h));
+            loop {
+                sleep(Duration::from_secs(30)).await;
+                if let Ok(content) = std::fs::read_to_string(&status_file) {
+                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let now = chrono::Utc::now().to_rfc3339();
+                        if let Some(obj) = json.as_object_mut() {
+                            obj.insert("updated_at".to_string(), serde_json::Value::String(now));
+                            let _ = std::fs::write(&status_file, serde_json::to_string(&json).unwrap_or_default());
+                        }
+                    }
+                }
+            }
+        } else {
+            std::future::pending::<()>().await
+        }
+    };
+
     let p_profile_m = profile.to_string();
     let p_config_m = config.clone();
     let p_pool_m = pool.clone();
@@ -145,7 +168,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         let auth = cowen_auth::create_auth_client(p_pool_m.clone());
 
         // 🚀 OCP: Generic Initial Push Check
-        if auth.requires_initial_push(&p_config_m) && supports_webhooks {
+        if auth.requires_initial_push(&p_config_m).await && supports_webhooks {
             tracing::info!(target: "sys", "Initial credential missing. Requesting platform push...");
             let _ = auth.trigger_push(&p_profile_m, &p_config_m, true).await;
         }
@@ -176,6 +199,9 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         _ = maintenance_fut => { 
             tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); 
             Err(anyhow::anyhow!("Maintenance task stopped"))
+        },
+        _ = heartbeat_fut => {
+            Ok(())
         },
     }
 }

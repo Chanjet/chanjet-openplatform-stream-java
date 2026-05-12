@@ -113,7 +113,7 @@ pub trait Client: Send + Sync {
 
     // 🚀 OCP Lifecycle Hooks
     async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> CowenResult<()>;
-    fn requires_initial_push(&self, cfg: &Config) -> bool;
+    async fn requires_initial_push(&self, cfg: &Config) -> bool;
     async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::provider::PlatformEvent) -> CowenResult<()>;
     #[allow(dead_code)]
     fn requires_ticket(&self, cfg: &Config) -> bool;
@@ -210,8 +210,8 @@ impl Client for AuthClient {
         self.provider(&cfg.app_mode).on_maintenance_tick(profile, cfg).await
     }
 
-    fn requires_initial_push(&self, cfg: &Config) -> bool {
-        self.provider(&cfg.app_mode).requires_initial_push(cfg)
+    async fn requires_initial_push(&self, cfg: &Config) -> bool {
+        self.provider(&cfg.app_mode).requires_initial_push(cfg).await
     }
 
     fn requires_ticket(&self, cfg: &Config) -> bool {

@@ -1,4 +1,3 @@
-use cowen_auth::models::AuthMode;
 use cowen_common::ConfigManager;
 use cowen_common::vault::Vault;
 use std::sync::Arc;
@@ -55,52 +54,52 @@ impl Drop for InitCleanupGuard {
     }
 }
 
+/// Aggregated parameters for the init command.
+/// Decouples the execute() signature from individual CLI flags,
+/// so adding new parameters only requires changing this struct.
+pub struct InitContext {
+    pub app_key: Option<String>,
+    pub app_secret: Option<String>,
+    pub certificate: Option<String>,
+    pub encrypt_key: Option<String>,
+    pub webhook_target: Option<String>,
+    pub openapi_url: Option<String>,
+    pub stream_url: Option<String>,
+    pub app_mode: Option<String>,
+    pub proxy_port: Option<u16>,
+    pub auto_start: bool,
+}
+
 pub async fn execute(
     profile: &str,
     cfg_mgr: &ConfigManager,
     _app_config: &mut cowen_common::AppConfig,
     vault: Arc<dyn Vault>,
-    app_key: &Option<String>,
-    app_secret: &Option<String>,
-    certificate: &Option<String>,
-    encrypt_key: &Option<String>,
-    webhook_target: &Option<String>,
-    openapi_url: &Option<String>,
-    stream_url: &Option<String>,
-    app_mode: &Option<String>,
-    proxy_port: &Option<u16>,
-    auto_start: bool,
+    ctx: InitContext,
     daemon_svc: Option<Arc<dyn cowen_common::daemon::DaemonService>>,
 ) -> anyhow::Result<()> {
     let is_new = !cfg_mgr.exists(profile).await;
     
-    // 1. Resolve Mode
-    let mode = if let Some(m_str) = app_mode {
-        match m_str.as_str() {
-            "self_built" | "self-built" => AuthMode::SelfBuilt,
-            "oauth2" => AuthMode::Oauth2,
-            "store_app" | "store-app" => AuthMode::StoreApp,
-            _ => return Err(anyhow::anyhow!("Invalid app-mode: {}. Supported: self_built, oauth2, store_app", m_str)),
-        }
+    // 1. Resolve Mode — delegates parsing to AuthMode::FromStr, no variant awareness needed
+    let mode = if let Some(m_str) = &ctx.app_mode {
+        m_str.parse().map_err(|e: String| anyhow::anyhow!(e))?
     } else if !is_new {
         let config = cfg_mgr.load(profile).await.map_err(|e| anyhow::anyhow!(e))?;
         config.app_mode.clone()
     } else {
-        AuthMode::Oauth2
+        Default::default()
     };
 
-    // 2. Check for duplicate parameters (app_key + mode) in OTHER profiles
-    if let Some(ak) = app_key {
-        let conflict_profile = match mode {
-            AuthMode::SelfBuilt | AuthMode::StoreApp => {
-                // Strict Mode: Check globally for this appKey
-                cfg_mgr.find_profile_by_key(ak).await.ok().flatten()
-            }
-            AuthMode::Oauth2 => {
-                // Relaxed Mode: Only check for other Oauth2 profiles with same key (idempotency)
-                cfg_mgr.find_profile_by_key_and_mode(ak, &AuthMode::Oauth2).await.ok().flatten()
-            }
-        };
+    // 2. Obtain provider — all mode-specific logic is delegated through this handle
+    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+    let provider = auth_cli.provider(&mode);
+
+    // 3. Check for duplicate parameters — strategy delegated to provider
+    if let Some(ak) = &ctx.app_key {
+        let conflict_profile = provider
+            .find_conflicting_profile(ak, cfg_mgr)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
 
         if let Some(existing_profile) = conflict_profile {
             if existing_profile != profile {
@@ -116,22 +115,19 @@ pub async fn execute(
     
     let mut _guard = InitCleanupGuard::new(profile, cfg_mgr, is_new);
     let mut config = cfg_mgr.load(profile).await.map_err(|e| anyhow::anyhow!(e))?;
-    config.app_mode = mode.clone();
+    config.app_mode = mode;
 
-    // 2. Initialize Provider
-    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
-    let provider = auth_cli.provider(&mode);
-
+    // 4. Initialize Provider — all parameter validation, vault writes, daemon start delegated
     let params = cowen_auth::provider::InitParams {
-        app_key: app_key.clone(),
-        app_secret: app_secret.clone(),
-        certificate: certificate.clone(),
-        encrypt_key: encrypt_key.clone(),
-        webhook_target: webhook_target.clone(),
-        openapi_url: openapi_url.clone(),
-        stream_url: stream_url.clone(),
-        proxy_port: proxy_port.clone(),
-        auto_start,
+        app_key: ctx.app_key,
+        app_secret: ctx.app_secret,
+        certificate: ctx.certificate,
+        encrypt_key: ctx.encrypt_key,
+        webhook_target: ctx.webhook_target,
+        openapi_url: ctx.openapi_url,
+        stream_url: ctx.stream_url,
+        proxy_port: ctx.proxy_port,
+        auto_start: ctx.auto_start,
         is_new,
     };
 
@@ -141,7 +137,7 @@ pub async fn execute(
         return Err(e.into());
     }
 
-    // 4. Post-init: Install autocomplete if not already
+    // 5. Post-init: Install autocomplete if not already
     let _ = crate::cmd::completion::install_completion(None);
 
     // Automatically set the new profile as the active one

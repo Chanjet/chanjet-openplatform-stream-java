@@ -36,3 +36,6 @@ postgres = ["dep:sqlx"]
 mysql = ["dep:sqlx"]
 mssql = ["dep:sqlx"]
 redis = ["dep:redis"]
+
+[build-dependencies]
+chrono = "0.4"

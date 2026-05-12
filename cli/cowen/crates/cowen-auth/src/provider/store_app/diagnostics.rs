@@ -60,6 +60,8 @@ pub(crate) async fn get_diagnostics_entries(
         let is_expired = token.is_expired();
         let mut details = vec![];
         if let Some(identity) = token.extract_identity() {
+            details.push(format!("User ID: {}", identity.user_id));
+            details.push(format!("Org ID:  {}", identity.org_id));
             details.push(format!("App ID:  {}", identity.app_id));
         }
 

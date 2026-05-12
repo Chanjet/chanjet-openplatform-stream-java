@@ -1,5 +1,6 @@
 use cowen_common::{CowenResult, CowenError};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -77,7 +78,8 @@ impl cowen_common::store::Store for FileStore {
     }
 
     async fn get_access_token(&self, p: &str) -> CowenResult<cowen_common::models::Token> {
-        let json = fs::read_to_string(self.get_path(p, "tok_v2", "access", false))?;
+        let json = fs::read_to_string(self.get_path(p, "tok_v2", "access", false))
+            .or_else(|_| fs::read_to_string(self.get_path(p, "tok", "access", false)))?;
         Ok(serde_json::from_str(&json)?)
     }
     async fn save_access_token(&self, p: &str, t: cowen_common::models::Token) -> CowenResult<()> {
@@ -90,7 +92,8 @@ impl cowen_common::store::Store for FileStore {
         Ok(())
     }
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token> {
-        let json = fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tok_v2", "app_access", false))?;
+        let json = fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tok_v2", "app_access", false))
+            .or_else(|_| fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tok", "app_access", false)))?;
         Ok(serde_json::from_str(&json)?)
     }
     async fn save_app_access_token(&self, app_key: &str, t: cowen_common::models::Token) -> CowenResult<()> {
@@ -99,7 +102,8 @@ impl cowen_common::store::Store for FileStore {
     }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<cowen_common::models::Ticket> {
-        let json = fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tic", "v1", false))?;
+        let json = fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tic", "v1", false))
+            .or_else(|_| fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tic", "v0", false)))?; 
         Ok(serde_json::from_str(&json)?)
     }
     async fn save_app_ticket(&self, app_key: &str, t: cowen_common::models::Ticket) -> CowenResult<()> {
@@ -318,7 +322,7 @@ impl cowen_common::store::Store for MonolithicSealStore {
         })
     }
     async fn get_config_metadata(&self, _p: &str, _k: &str) -> CowenResult<(u64, i64)> {
-        Ok((0, 0)) // MonolithicSealStore is for local sensitive data, polling not usually needed here
+        Ok((0, 0)) 
     }
     async fn get_config_full(&self, p: &str, k: &str) -> CowenResult<Item> {
         let val = self.get_config(p, k).await?;
@@ -353,8 +357,30 @@ impl cowen_common::store::Store for MonolithicSealStore {
     async fn list_secrets(&self, p: &str) -> CowenResult<Vec<String>> { self.list_configs(p).await }
 
     async fn get_access_token(&self, p: &str) -> CowenResult<cowen_common::models::Token> {
-        let json = self.get_config(p, "access_token_v2").await?;
-        Ok(serde_json::from_str(&json)?)
+        match self.get_config(p, "access_token_v2").await {
+            Ok(j) => Ok(serde_json::from_str(&j)?),
+            Err(_) => {
+                // FALLBACK: Try legacy access_token (JSON)
+                if let Ok(j) = self.get_config(p, "access_token").await {
+                    if let Ok(t) = serde_json::from_str::<cowen_common::models::Token>(&j) {
+                        return Ok(t);
+                    }
+                    // Individual keys assembly
+                    let expires = self.get_config(p, "access_token_expires").await.unwrap_or_default();
+                    let created = self.get_config(p, "access_token_created").await.unwrap_or_default();
+                    
+                    let expires_at = DateTime::parse_from_rfc3339(&expires).map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
+                    let created_at = DateTime::parse_from_rfc3339(&created).map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
+                    
+                    return Ok(cowen_common::models::Token {
+                        value: j,
+                        expires_at,
+                        created_at,
+                    });
+                }
+                Err(CowenError::Store("AccessToken not found".to_string()))
+            }
+        }
     }
     async fn save_access_token(&self, p: &str, t: cowen_common::models::Token) -> CowenResult<()> {
         let json = serde_json::to_string(&t)?;
@@ -364,8 +390,27 @@ impl cowen_common::store::Store for MonolithicSealStore {
         self.delete_config(p, "access_token_v2").await
     }
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token> {
-        let json = self.get_config(&format!("app:{}", app_key), "app_access_token_v2").await?;
-        Ok(serde_json::from_str(&json)?)
+        let p = format!("app:{}", app_key);
+        match self.get_config(&p, "app_access_token_v2").await {
+            Ok(j) => Ok(serde_json::from_str(&j)?),
+            Err(_) => {
+                // FALLBACK: Try legacy access_token (Individual keys)
+                if let Ok(token) = self.get_config(&p, "access_token").await {
+                    let expires = self.get_config(&p, "access_token_expires").await.unwrap_or_default();
+                    let created = self.get_config(&p, "access_token_created").await.unwrap_or_default();
+                    
+                    let expires_at = DateTime::parse_from_rfc3339(&expires).map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
+                    let created_at = DateTime::parse_from_rfc3339(&created).map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
+                    
+                    return Ok(cowen_common::models::Token {
+                        value: token,
+                        expires_at,
+                        created_at,
+                    });
+                }
+                Err(CowenError::Store("AppAccessToken not found".to_string()))
+            }
+        }
     }
     async fn save_app_access_token(&self, app_key: &str, t: cowen_common::models::Token) -> CowenResult<()> {
         let json = serde_json::to_string(&t)?;
@@ -373,8 +418,25 @@ impl cowen_common::store::Store for MonolithicSealStore {
     }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<cowen_common::models::Ticket> {
-        let json = self.get_config(&format!("app:{}", app_key), "app_ticket_v2").await?;
-        Ok(serde_json::from_str(&json)?)
+        let p = format!("app:{}", app_key);
+        match self.get_config(&p, "app_ticket_v2").await {
+            Ok(j) => Ok(serde_json::from_str(&j)?),
+            Err(_) => {
+                // FALLBACK: Try legacy app_ticket
+                if let Ok(j) = self.get_config(&p, "app_ticket").await {
+                    if let Ok(t) = serde_json::from_str::<cowen_common::models::Ticket>(&j) {
+                        return Ok(t);
+                    }
+                    let created = self.get_config(&p, "app_ticket_created").await.unwrap_or_default();
+                    let created_at = DateTime::parse_from_rfc3339(&created).map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
+                    return Ok(cowen_common::models::Ticket {
+                        value: j,
+                        created_at,
+                    });
+                }
+                Err(CowenError::Store("AppTicket not found".to_string()))
+            }
+        }
     }
     async fn save_app_ticket(&self, app_key: &str, t: cowen_common::models::Ticket) -> CowenResult<()> {
         let json = serde_json::to_string(&t)?;
@@ -384,7 +446,6 @@ impl cowen_common::store::Store for MonolithicSealStore {
         self.delete_config(&format!("app:{}", app_key), "app_ticket_v2").await
     }
 
-    // --- Permanent Code ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String> {
         self.get_config(&format!("app:{}", app_key), &format!("perm:{}:org", org_id)).await
     }
@@ -453,3 +514,4 @@ impl cowen_common::store::StoreBuilder for LocalStoreBuilder {
 }
 
 inventory::submit! { cowen_common::store::StoreBuilderRegistration { builder: &LocalStoreBuilder } }
+

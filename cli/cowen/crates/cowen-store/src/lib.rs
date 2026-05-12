@@ -28,6 +28,9 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
     // 1. Core Logic Redirection (Legacy Support)
     if url == "local" {
          let seal_path = app_dir.join(".seal");
+         if seal_path.is_file() {
+             return Ok(Arc::new(file::MonolithicSealStore::new(seal_path, fingerprint)) as Arc<dyn Store>);
+         }
          return Ok(Arc::new(FileStore::new(seal_path, fingerprint)?) as Arc<dyn Store>);
     }
 

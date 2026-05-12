@@ -380,8 +380,14 @@ impl AuthProvider for StoreAppProvider {
 
 
 
-    fn requires_initial_push(&self, _config: &Config) -> bool {
-        false // Store App usually waits for platform events passively
+    async fn requires_initial_push(&self, config: &Config) -> bool {
+        // Check if ticket is missing or older than 50 minutes
+        if let Ok(ticket) = self.pool.get_app_ticket(&config.app_key).await {
+            let age = chrono::Utc::now().signed_duration_since(ticket.created_at).num_minutes();
+            age > 50
+        } else {
+            true
+        }
     }
 
     async fn handle_platform_event(&self, profile: &str, config: &Config, event: crate::provider::PlatformEvent) -> CowenResult<()> {
@@ -448,8 +454,8 @@ impl AuthProvider for StoreAppProvider {
         }
 
         // 2. Daemon Status
-        let (found_pid, _) = cowen_common::status::get_active_daemon_info(&ctx.profile).await;
-        let is_running = found_pid.is_some();
+        let daemon_info = cowen_common::status::get_active_daemon_info(&ctx.profile);
+        let is_running = daemon_info.is_some();
         let (display_name, efficiency_tip) = self.get_daemon_display_info(is_running);
         results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks()).await?);
 

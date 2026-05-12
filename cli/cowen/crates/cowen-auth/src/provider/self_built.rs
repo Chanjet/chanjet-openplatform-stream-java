@@ -230,8 +230,14 @@ impl AuthProvider for SelfBuiltProvider {
         Ok(())
     }
 
-    fn requires_initial_push(&self, _cfg: &Config) -> bool {
-        false
+    async fn requires_initial_push(&self, _cfg: &Config) -> bool {
+        // Check if ticket is missing or older than 50 minutes
+        if let Ok(ticket) = self.pool.as_vault().get_app_ticket(&_cfg.app_key).await {
+            let age = chrono::Utc::now().signed_duration_since(ticket.created_at).num_minutes();
+            age > 50
+        } else {
+            true
+        }
     }
 
     async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::provider::PlatformEvent) -> CowenResult<()> {
@@ -242,7 +248,8 @@ impl AuthProvider for SelfBuiltProvider {
                     created_at: Utc::now(),
                 };
                 self.pool.as_vault().save_app_ticket(&cfg.app_key, ticket).await?;
-                tracing::info!(target: "sys", profile = %profile, "AppTicket updated via PlatformEvent");
+                tracing::info!(target: "sys", profile = %profile, "✅ AppTicket updated via PlatformEvent and saved to vault");
+                eprintln!("✨ 收到平台推送的新 AppTicket，已同步至 Vault (Profile: {})", profile);
                 
                 // Proactively refresh token if it's about to expire or missing
                 let pool = self.pool.clone();
@@ -282,28 +289,76 @@ impl AuthProvider for SelfBuiltProvider {
     async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
         use cowen_common::status::{StatusEntry, StatusLevel, CommonTemplate};
         let mut entries = Vec::new();
+        let vault = self.pool.as_vault();
 
-        // 1. AppTicket Status (Optional for Self-Built)
-        let ticket_res = self.pool.as_vault().get_app_ticket(&ctx.config.app_key).await;
+        // 1. Security Check
+        let mut missing = Vec::new();
+        let has_secret = vault.get_secret(&ctx.profile, "app_secret").await.is_ok();
+        let has_encrypt_key = vault.get_secret(&ctx.profile, "encrypt_key").await.is_ok();
+        
+        if !has_secret { missing.push("app_secret".to_string()); }
+        if !has_encrypt_key { missing.push("encrypt_key".to_string()); }
+        
+        let (sec_level, sec_msg) = if missing.is_empty() {
+            (StatusLevel::OK, "All core secrets are securely stored.".to_string())
+        } else {
+            (StatusLevel::WARN, format!("Missing: {}", missing.join(", ")))
+        };
+        entries.push(StatusEntry::new(CommonTemplate::Custom("Security (Vault)".to_string(), "🛡️".to_string()), sec_level, sec_msg));
+
+        // 2. AppTicket Status (Optional for Self-Built)
+        // 2. AppTicket Status (Optional for Self-Built)
+        let ticket_res = match self.pool.as_vault().get_app_ticket(&ctx.config.app_key).await {
+            Ok(t) => Ok(t),
+            Err(_) => {
+                // FALLBACK: Try profile-level app_ticket secret
+                let vault = self.pool.as_vault();
+                let val = vault.get_secret(&ctx.profile, "app_ticket").await;
+                match val {
+                    Ok(v) => {
+                        let created_str = vault.get_secret(&ctx.profile, "app_ticket_created").await.unwrap_or_default();
+                        let created_at = chrono::DateTime::parse_from_rfc3339(&created_str).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or_else(|_| chrono::Utc::now());
+                        Ok(cowen_common::models::Ticket { value: v, created_at })
+                    },
+                    Err(e) => Err(e)
+                }
+            }
+        };
+
         if let Ok(t) = ticket_res {
             let age = Utc::now().signed_duration_since(t.created_at).num_minutes();
             let level = if age > 1440 { StatusLevel::WARN } else { StatusLevel::OK };
             entries.push(StatusEntry::new(
                 CommonTemplate::Custom("AppTicket".to_string(), "🎫".to_string()),
                 level,
-                format!("Received {} mins ago", age)
+                format!("[CACHED] (Received: {})", t.created_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"))
             ));
         }
 
         // 2. Token Pool Status
-        match self.pool.get_app_access_token(&ctx.config.app_key).await {
+        let token_res = match self.pool.get_app_access_token(&ctx.config.app_key).await {
+            Ok(t) if !t.is_expired() => Ok(t),
+            _ => {
+                // FALLBACK: Try profile-level access_token
+                self.pool.get_access_token(&ctx.profile).await
+            }
+        };
+
+        match token_res {
             Ok(t) => {
                 let level = if t.is_expired() { StatusLevel::ERROR } else { StatusLevel::OK };
+                let mut details = vec![];
+                if let Some(ident) = t.extract_identity() {
+                    details.push(format!("User ID: {}", ident.user_id));
+                    details.push(format!("Org ID:  {}", ident.org_id));
+                    details.push(format!("App ID:  {}", ident.app_id));
+                }
+
                 entries.push(StatusEntry::new(
                     CommonTemplate::Custom("AccessToken".to_string(), "🔑".to_string()),
                     level,
-                    format!("{} (Expires at: {})", if t.is_expired() { "Expired" } else { "Active" }, t.expires_at)
-                ));
+                    format!("{} (Expires at: {})", if t.is_expired() { "[EXPIRED]" } else { "[VALID]" }, t.real_expires_at().with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"))
+                ).with_details(details));
             }
             Err(_) => {
                 entries.push(StatusEntry::new(
@@ -315,8 +370,8 @@ impl AuthProvider for SelfBuiltProvider {
         }
 
         // 3. Daemon Status
-        let (found_pid, _) = cowen_common::status::get_active_daemon_info(&ctx.profile).await;
-        let is_running = found_pid.is_some();
+        let daemon_info = cowen_common::status::get_active_daemon_info(&ctx.profile);
+        let is_running = daemon_info.is_some();
         let (display_name, efficiency_tip) = self.get_daemon_display_info(is_running);
         entries.push(cowen_common::status::collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks()).await?);
 
