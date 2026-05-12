@@ -89,11 +89,13 @@ inventory::collect!(SqlBuilderRegistration);
 
 pub struct SqlStore {
     driver: Arc<dyn SqlDriver>,
+    name: String,
+    url: String,
 }
 
 impl SqlStore {
-    pub fn new(driver: Arc<dyn SqlDriver>) -> Self {
-        Self { driver }
+    pub fn new(driver: Arc<dyn SqlDriver>, name: &str, url: &str) -> Self {
+        Self { driver, name: name.to_string(), url: url.to_string() }
     }
 
     pub fn supported_schemes() -> Vec<String> {
@@ -128,7 +130,7 @@ impl SqlStore {
         for reg in inventory::iter::<SqlBuilderRegistration> {
             if reg.builder.scheme() == scheme {
                 let driver = reg.builder.build(&actual_url).await?;
-                return Ok(Self::new(driver));
+                return Ok(Self::new(driver, scheme, url));
             }
         }
 
@@ -193,6 +195,13 @@ impl Store for SqlStore {
     async fn list_all_profiles(&self) -> CowenResult<Vec<String>> { self.driver.list_all_profiles().await }
     async fn raw_del(&self, key: &str) -> CowenResult<()> { self.driver.raw_del(key).await }
 
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> String {
+        format!("SQL Database ({}): {}", self.name, cowen_common::utils::mask_url(&self.url))
+    }
 }
 
 pub struct SqlStoreBuilder;

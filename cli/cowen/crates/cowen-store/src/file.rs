@@ -249,6 +249,13 @@ impl cowen_common::store::Store for FileStore {
         Ok(profiles)
     }
 
+    fn name(&self) -> &str {
+        "File"
+    }
+
+    fn description(&self) -> String {
+        format!("Local Directory: {}", self.root_dir.display())
+    }
 }
 
 pub struct MonolithicSealStore {
@@ -495,6 +502,13 @@ impl cowen_common::store::Store for MonolithicSealStore {
         Ok(data.keys().cloned().collect())
     }
 
+    fn name(&self) -> &str {
+        "MonolithicSeal"
+    }
+
+    fn description(&self) -> String {
+        format!("Encrypted File: {}", self.path.display())
+    }
 }
 
 pub struct LocalStoreBuilder;

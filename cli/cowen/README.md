@@ -24,8 +24,12 @@
 
 ```bash
 cd cli/cowen
-# 构建当前平台二进制
-make macos-aarch64    # 或 linux-x86_64, windows-x86_64
+# 构建当前平台二进制 (Full Version)
+make windows-x86_64
+# 构建兼容旧款 CPU (无 AVX) 的版本
+make windows-x86_64-legacy
+# Linux 兼容版本 (使用 Podman)
+make linux-x86_64-legacy-with-podman
 # 安装到系统路径
 make install
 ```

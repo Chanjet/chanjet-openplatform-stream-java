@@ -104,7 +104,7 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
              };
              let client = redis::Client::open(redis_url.as_str()).map_err(CowenError::from)?;
              let conn = client.get_multiplexed_tokio_connection().await.map_err(CowenError::from)?;
-             return Ok(Arc::new(RedisStore::new(conn)));
+             return Ok(Arc::new(RedisStore::new(conn, redis_url)));
         }
         #[cfg(not(feature = "redis"))]
         {

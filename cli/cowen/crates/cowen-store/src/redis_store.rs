@@ -10,11 +10,12 @@ use redis::aio::MultiplexedConnection;
 
 pub struct RedisStore {
     conn: MultiplexedConnection,
+    url: String,
 }
 
 impl RedisStore {
-    pub fn new(conn: MultiplexedConnection) -> Self {
-        Self { conn }
+    pub fn new(conn: MultiplexedConnection, url: String) -> Self {
+        Self { conn, url }
     }
 
     fn key(&self, profile: &str, key: &str) -> String {
@@ -294,6 +295,14 @@ impl Store for RedisStore {
         redis::cmd("DEL").arg(key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
         Ok(())
     }
+
+    fn name(&self) -> &str {
+        "Redis"
+    }
+
+    fn description(&self) -> String {
+        format!("Redis Server: {}", cowen_common::utils::mask_url(&self.url))
+    }
 }
 
 pub struct RedisStoreBuilder;
@@ -304,7 +313,7 @@ impl crate::StoreBuilder for RedisStoreBuilder {
     async fn build(&self, url: &str, _app_dir: &std::path::Path, _fingerprint: &str) -> CowenResult<Arc<dyn Store>> {
         let client = redis::Client::open(url).map_err(CowenError::from)?;
         let conn = client.get_multiplexed_tokio_connection().await.map_err(CowenError::from)?;
-        Ok(Arc::new(RedisStore::new(conn)))
+        Ok(Arc::new(RedisStore::new(conn, url.to_string())))
     }
 }
 

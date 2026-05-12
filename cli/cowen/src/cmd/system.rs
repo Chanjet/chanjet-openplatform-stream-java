@@ -63,12 +63,28 @@ pub async fn status(
         return Ok(());
     }
 
+    // 1. Print Global Environment Header (Once)
+    println!("\n🔍 COWEN System Status Diagnostics");
+    println!("----------------------------------");
+    println!("Build ID:      {}", cowen_common::BUILD_ID);
+    println!("Build Time:    {}", cowen_common::BUILD_TIME);
+    
+    // Get storage info from the first successful profile (storage is global)
+    if let Some(s) = results.first() {
+        if let Some(storage_entry) = s.entries.iter().find(|e| e.name == "Storage") {
+             render_entry(storage_entry, 0);
+        }
+    }
+    println!();
+
     for s in results {
-        println!("\n🔍 COWEN System Status Diagnostics (Profile: '{}', Build: {}, Time: {})", s.profile, cowen_common::BUILD_ID, cowen_common::BUILD_TIME);
+        println!("👤 Profile: '{}'", s.profile);
         println!("----------------------------------");
         for entry in s.entries {
+            if entry.name == "Storage" { continue; } // Already shown globally
             render_entry(&entry, 0);
         }
+        println!();
     }
 
     if !broken_profiles.is_empty() {
@@ -162,22 +178,6 @@ fn render_entry(entry: &StatusEntry, indent: usize) {
     }
 }
 
-struct DaemonCollector;
-#[async_trait::async_trait]
-impl StatusCollector for DaemonCollector {
-    fn name(&self) -> &str {
-        "Daemon"
-    }
-    async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
-        cowen_common::status::collect_daemon_status(
-            ctx,
-            "Stream Bridge (Daemon)",
-            "若需实现多租户消息同步，请运行 'cowen daemon start'",
-            true,
-        )
-        .await
-    }
-}
 
 async fn get_system_status(
     profile: &str,
@@ -195,6 +195,7 @@ async fn get_system_status(
 
         let collectors: Vec<Box<dyn StatusCollector>> = vec![
             Box::new(ConfigCollector),
+            Box::new(StorageCollector),
             Box::new(ProviderCollector),
         ];
 
@@ -252,6 +253,26 @@ impl StatusCollector for ConfigCollector {
     }
 }
 
+struct StorageCollector;
+#[async_trait::async_trait]
+impl StatusCollector for StorageCollector {
+    fn name(&self) -> &str {
+        "Storage"
+    }
+    async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
+        use cowen_common::status::CommonTemplate;
+        let store = ctx.vault.primary_store();
+        let name = store.name();
+        let desc = store.description();
+
+        Ok(StatusEntry::new(
+            CommonTemplate::Custom("Storage".to_string(), "📦".to_string()),
+            StatusLevel::OK,
+            format!("Mode: {}", name),
+        )
+        .with_details(vec![desc]))
+    }
+}
 
 struct ProviderCollector;
 #[async_trait::async_trait]

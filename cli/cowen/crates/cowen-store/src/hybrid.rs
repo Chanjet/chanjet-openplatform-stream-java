@@ -210,4 +210,14 @@ impl cowen_common::store::Store for HybridStore {
         self.persistence.list_all_profiles().await
     }
 
+    fn name(&self) -> &str {
+        "Hybrid"
+    }
+
+    fn description(&self) -> String {
+        format!("Cache: {} ({}) | Persistence: {} ({})", 
+            self.cache.name(), self.cache.description(),
+            self.persistence.name(), self.persistence.description()
+        )
+    }
 }

@@ -71,8 +71,13 @@
 - **索引策略**: 
     - 本地构建基于 Cosine Similarity 的线性搜索。
     - 缓存规约 MD5 校验，避免重复执行长文本向量化。
+- **兼容性 (Compatibility)**: 
+    - **AVX 依赖**: `onnxruntime` 默认需要 CPU 支持 AVX 指令集（如 Intel Core 系列）。
+    - **Legacy 模式**: 对于不支持 AVX 的旧款或低功耗 CPU（如 Intel Pentium G5400, Celeron 等），提供 **Legacy Build**。
+    - **功能差异**: Legacy 版本通过禁用 `ai` Feature 编译，将不支持语义搜索 (`api list -s`)，但保留所有核心鉴权、代理与 Streaming 桥接能力。
 
 ---
+
 
 ## 6. 日志、审计与遥测 (Observability)
 

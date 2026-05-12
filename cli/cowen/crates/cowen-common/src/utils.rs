@@ -105,3 +105,34 @@ pub fn mask_tail(val: &str, show_len: usize) -> String {
     result.push_str(&val[masked_len..]);
     result
 }
+
+pub fn mask_url(url: &str) -> String {
+    use regex::Regex;
+    // Pattern to match userinfo in URL: scheme://[user:pass@]host
+    let re = Regex::new(r"^([^:]+://)([^@/]+@)(.*)$").unwrap();
+    if let Some(caps) = re.captures(url) {
+        let userinfo = &caps[2];
+        if let Some(colon_idx) = userinfo.find(':') {
+            // mask password part: user:***@
+            format!("{}{}:***@{}", &caps[1], &userinfo[..colon_idx], &caps[3])
+        } else {
+            // no password, just user@: mask user: ***@
+            format!("{}***@{}", &caps[1], &caps[3])
+        }
+    } else {
+        url.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mask_url() {
+        assert_eq!(mask_url("redis://:password@localhost:6379"), "redis://:***@localhost:6379");
+        assert_eq!(mask_url("mysql://user:pass@127.0.0.1:3306/db"), "mysql://user:***@127.0.0.1:3306/db");
+        assert_eq!(mask_url("postgres://admin@localhost/mydb"), "postgres://***@localhost/mydb");
+        assert_eq!(mask_url("https://openapi.chanjet.com"), "https://openapi.chanjet.com");
+    }
+}

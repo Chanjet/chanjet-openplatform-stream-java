@@ -59,6 +59,10 @@ pub trait Store: Send + Sync {
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()>;
     async fn list_all_profiles(&self) -> CowenResult<Vec<String>>;
     async fn raw_del(&self, key: &str) -> CowenResult<()>;
+
+    // --- Metadata ---
+    fn name(&self) -> &str;
+    fn description(&self) -> String;
 }
 
 #[async_trait]

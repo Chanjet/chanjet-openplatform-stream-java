@@ -55,10 +55,10 @@ PROD_STREAM  = https://stream-open.chanapp.chanjet.com
 TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
-.PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
+.PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 windows-x86_64-legacy test-macos-aarch64 \
         test test-linux test-win test-macos \
         package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
-        package-linux-aarch64 package-windows-x86_64 clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
+        package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-legacy clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # --- 默认构建目标 (Default Build Target) ---
 build:
@@ -183,6 +183,28 @@ linux-x86_64-with-podman: prepare-podman-image
 	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
+# 提速版 Podman 构建 (Legacy/No-AVX)
+linux-x86_64-legacy-with-podman: prepare-podman-image
+	@echo "🐧 Building Linux x86_64 (Legacy/No-AVX) via Podman v$(VERSION)..."
+	@mkdir -p $(OUTPUT_DIR)/linux-x86_64-legacy
+	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
+	@trap '$(MAKE) stop-podman-machine' EXIT; \
+	podman run --rm \
+		-v "$$(pwd)/../..:/workspace" \
+		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
+		-v "$(CARGO_CACHE_DIR)/git:/usr/local/cargo/git" \
+		-w /workspace/cli/cowen \
+		$(BUILDER_IMAGE) \
+		bash -c "export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc && \
+			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
+			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+			BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
+			cargo build --release --target x86_64-unknown-linux-gnu --no-default-features && \
+			cp target/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64-legacy/$(BINARY)" && \
+	$(call MD5,$(OUTPUT_DIR)/linux-x86_64-legacy/$(BINARY)) && \
+	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64-legacy/$(BINARY)) && \
+	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64-legacy/$(BINARY))
+
 linux-aarch64:
 	@echo "🐧 Building Linux aarch64 v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64
@@ -199,6 +221,14 @@ windows-x86_64:
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
+
+windows-x86_64-legacy:
+	@echo "🪟 Building Windows x86_64 (Legacy/No-AVX) v$(VERSION)..."
+	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64-legacy"
+	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc --no-default-features"
+	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64-legacy/$(BINARY).exe -Force"
+	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-legacy/$(BINARY).exe)
+	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64-legacy/$(BINARY).exe)
 
 # --- 打包目标 ---
 
@@ -256,6 +286,20 @@ package-windows-x86_64: clean windows-x86_64
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@echo "🔍 Automating Windows package verification..."
 	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
+
+package-windows-x86_64-legacy: clean windows-x86_64-legacy
+	@echo "📦 Packaging Windows x86_64 (Legacy)..."
+	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64-legacy/release"
+	@echo "🛠️ Preparing legacy binary for setup..."
+	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
+	powershell -NoProfile -Command "Copy-Item -Path $(OUTPUT_DIR)/windows-x86_64-legacy/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
+	powershell -NoProfile -Command "Copy-Item -Path CHANGELOG.md -Destination ../cowen_setup/ -Force"
+	powershell -NoProfile -Command "cd ../cowen_setup; $$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; cargo build --release --target x86_64-pc-windows-msvc"
+	powershell -NoProfile -Command "Copy-Item -Path ../cowen_setup/target/x86_64-pc-windows-msvc/release/cowen_setup.exe -Destination $(OUTPUT_DIR)/windows-x86_64-legacy/release/$(BINARY)-v$(VERSION)-windows-x86_64-legacy-setup.exe -Force"
+	@echo "🗜️ Zipping Windows package..."
+	powershell -NoProfile -Command "Compress-Archive -Path $(OUTPUT_DIR)/windows-x86_64-legacy/release/$(BINARY)-v$(VERSION)-windows-x86_64-legacy-setup.exe -DestinationPath $(OUTPUT_DIR)/windows-x86_64-legacy/release/$(BINARY)-v$(VERSION)-windows-x86_64-legacy-setup.zip -Force"
+	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-legacy/release/$(BINARY)-v$(VERSION)-windows-x86_64-legacy-setup.zip)
+	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64-legacy/release/$(BINARY)-v$(VERSION)-windows-x86_64-legacy-setup.zip)
 
 # 内部复用的 Linux 打包逻辑
 impl-package-linux-x86_64:
