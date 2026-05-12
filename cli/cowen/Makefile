@@ -331,7 +331,9 @@ impl-package-linux-x86_64-legacy:
 
 # --- 测试目标 (Test Targets) ---
 
-
+test-rust:
+	@echo "🧪 Running Rust internal and integration tests..."
+	cargo test
 
 # 自动根据环境运行测试
 test:
@@ -344,7 +346,7 @@ else ifeq ($(HOST_OS),windows)
 endif
 
 # 在 Linux 容器中执行并行 E2E (Podman) - 封闭纯净环境
-test-linux: prepare-podman-machine prepare-podman-image
+test-linux: prepare-podman-machine prepare-podman-image test-rust
 	@echo "🧪 Running Parallel E2E Suite in Linux container (Isolated)..."
 	podman run --rm -it \
 		--network host \
@@ -358,12 +360,12 @@ test-linux: prepare-podman-machine prepare-podman-image
 		./tests/runners/run_parallel.sh
 
 # 在 Windows PowerShell 环境下执行测试
-test-win:
+test-win: test-rust
 	@echo "🧪 Running Full E2E Suite in Windows PowerShell..."
 	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/runners/run_suites.ps1"
 
 # 在 macOS 原生环境执行并行测试
-test-macos:
+test-macos: test-rust
 	@echo "🧪 Running Parallel E2E Suite natively on macOS (Isolated)..."
 	TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/runners/run_parallel.sh
 

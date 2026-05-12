@@ -29,6 +29,17 @@ pub async fn status(
         vec![active_profile.to_string()]
     };
 
+    // 1. Enforce version sync for all daemons (if mismatch detected, restart)
+    let _ = enforce_daemon_version_sync(active_profile, cfg_mgr, vault.clone()).await;
+
+    // 2. Ensure active profile daemon is running (auto-recover if needed)
+    if !all {
+        if let Ok(cfg) = cfg_mgr.load(active_profile).await {
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            let _ = ensure_daemon_running(active_profile, &cfg, cfg_mgr, vault.clone(), &auth_cli).await;
+        }
+    }
+
     let mut results = Vec::new();
     let mut broken_profiles = Vec::new();
 

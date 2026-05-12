@@ -170,17 +170,18 @@ pub async fn spec(
         return Ok(());
     }
 
-    println!("\n📖 API Specification: \x1b[1;32m{} {}\x1b[0m", method.to_uppercase(), path);
+    println!("\n📖 API Specification Details");
     println!("--------------------------------------------------");
-    println!("Summary:     {}", op["summary"].as_str().unwrap_or("N/A"));
+    println!("📍 Endpoint:    \x1b[1;32m{} {}\x1b[0m", method.to_uppercase(), path);
+    println!("📌 Summary:     {}", op["summary"].as_str().unwrap_or("N/A"));
     if let Some(tags) = op.get("tags").and_then(|t| t.as_array()) {
         let tags_str: Vec<String> = tags.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
-        println!("Tags:        {}", tags_str.join(", "));
+        println!("🏷️  Tags:        {}", tags_str.join(", "));
     }
-    println!("Description: {}", op["description"].as_str().unwrap_or("N/A"));
+    println!("📝 Description: {}", op["description"].as_str().unwrap_or("N/A"));
 
     if let Some(params) = op.get("parameters").and_then(|p| p.as_array()) {
-        println!("\nParameters:");
+        println!("\n🛠️  Parameters:");
         for p in params {
             let name = p["name"].as_str().unwrap_or("?");
             let location = p["in"].as_str().unwrap_or("?");
@@ -190,7 +191,7 @@ pub async fn spec(
                 .unwrap_or("string");
             let desc = p["description"].as_str().unwrap_or("");
 
-            println!("  - {:<15} ({:<8}) {:<10} {} {}", 
+            println!("  🔹 {:<15} ({:<8}) {:<10} {} {}", 
                 name, 
                 location,
                 format!("<{}>", ty),
@@ -257,7 +258,7 @@ pub async fn spec(
         example_path.push_str(&query_params.join("&"));
     }
 
-    let mut cmd = format!("cowen api {} {}", method.to_uppercase(), example_path);
+    let mut cmd = format!("cowen api {} \"{}\"", method.to_uppercase(), example_path);
 
     if let Some(body) = op.get("requestBody") {
         if let Some(content) = body.get("content").and_then(|c| c.as_object()) {
@@ -304,14 +305,14 @@ fn generate_sample_json(spec: &serde_json::Value, schema: &serde_json::Value, de
         }
         "array" => {
             if let Some(items) = schema.get("items") {
-                serde_json::Value::Array(vec![generate_sample_json(spec, items, depth + 1)])
+                serde_json::json!([generate_sample_json(spec, items, depth + 1)])
             } else {
-                serde_json::Value::Array(vec![])
+                serde_json::json!([])
             }
         }
-        "string" => serde_json::Value::String("string".to_string()),
-        "number" | "integer" => serde_json::Value::Number(0.into()),
-        "boolean" => serde_json::Value::Bool(false),
+        "string" => serde_json::Value::String("<string>".to_string()),
+        "integer" | "number" => serde_json::json!(0),
+        "boolean" => serde_json::json!(true),
         _ => serde_json::Value::Null,
     }
 }
