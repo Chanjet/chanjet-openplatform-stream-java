@@ -264,17 +264,20 @@ impl StatusCollector for SecurityCollector {
         let vault = ctx.vault.clone();
 
         let mut missing = Vec::new();
-        // Check both Vault and hydrated config (for environment variable support)
-        let has_secret = vault.get_secret(&ctx.profile, "app_secret").await.is_ok()
-            || !ctx.config.app_secret.is_empty();
-        let has_encrypt_key = vault.get_secret(&ctx.profile, "encrypt_key").await.is_ok()
-            || !ctx.config.encrypt_key.is_empty();
+        let is_self_built = ctx.config.app_mode == cowen_common::models::AuthMode::SelfBuilt;
 
-        if !has_secret {
-            missing.push("app_secret".to_string());
-        }
-        if !has_encrypt_key {
-            missing.push("encrypt_key".to_string());
+        if is_self_built {
+            let has_secret = vault.get_secret(&ctx.profile, "app_secret").await.is_ok()
+                || !ctx.config.app_secret.is_empty();
+            let has_encrypt_key = vault.get_secret(&ctx.profile, "encrypt_key").await.is_ok()
+                || !ctx.config.encrypt_key.is_empty();
+
+            if !has_secret {
+                missing.push("app_secret".to_string());
+            }
+            if !has_encrypt_key {
+                missing.push("encrypt_key".to_string());
+            }
         }
 
         let (sec_level, sec_msg) = if missing.is_empty() {
