@@ -74,6 +74,10 @@ impl GatewayClient {
         self.dispatcher.clone()
     }
 
+    pub fn client_id(&self) -> &str {
+        &self.client_id
+    }
+
     pub async fn start(&self) -> Result<()> {
         self.start_with_callback(|_| {}).await
     }
@@ -187,7 +191,8 @@ impl GatewayClient {
 
         let full_url = url.to_string();
 
-        let (ws_stream, _) = connect_async(&full_url).await
+        let (ws_stream, _) = tokio::time::timeout(Duration::from_secs(10), connect_async(&full_url)).await
+            .map_err(|_| anyhow!("WebSocket connect timed out"))?
             .map_err(|e| anyhow!("WebSocket connect failed: {}", e))?;
 
         tracing::info!("WebSocket connected.");
@@ -230,6 +235,8 @@ impl GatewayClient {
                     if let Err(_) = write_tx.try_send(Message::Text("{\"msg_type\":\"ping\"}".into())) {
                         tracing::warn!(target: "stream", "Write buffer full, skipping ping");
                     }
+                    // 🚀 Liveness: Call callback even if state hasn't changed to refresh status timestamp
+                    callback(ConnectionState::Connected);
                 }
 
                 // 3. Handle Incoming Messages (Passive Heartbeat via 30s timeout)
@@ -353,7 +360,9 @@ impl GatewayClient {
 
         let sign_prefix = &crypto::hmac_sha256(&options.app_key, &options.app_secret)[..16];
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()?;
         let resp = client.get(url.to_string())
             .header("X-CJT-PreAuth", sign_prefix)
             .header("User-Agent", "cjtCli-Rust-SDK/0.1.0")

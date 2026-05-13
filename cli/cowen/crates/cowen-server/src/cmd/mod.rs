@@ -29,9 +29,26 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
         }
         
         let pid_file = cowen_common::config::get_app_dir().join(format!("{}_daemon.pid", p));
-        if all && pid_file.exists() {
-            println!("ℹ️ Daemon for profile '{}' is already running. Skipping.", p);
-            continue;
+        
+        // 🚀 OCP/Robustness: Even if pid_file doesn't exist, we must check for "ghost" processes 
+        // that might be holding the proxy port or streaming connection.
+        if !foreground {
+            if let Some(ghost_pid) = find_ghost_process(&p, p_cfg.proxy_port) {
+                if all && pid_file.exists() {
+                     println!("ℹ️ Daemon for profile '{}' is already running (PID: {}). Skipping.", p, ghost_pid);
+                     continue;
+                }
+                
+                // If we are explicitly starting, and a ghost exists WITHOUT a valid pid file (or we want to be sure),
+                // we should probably NOT just skip, but either fail or evict. 
+                // Given the user's "ghost process" report, eviction is the desired "auto-recovery" behavior.
+                if !pid_file.exists() {
+                    tracing::warn!(target: "sys", profile = %p, ghost_pid = %ghost_pid, port = %p_cfg.proxy_port, "Detected ghost process without PID file. Evicting...");
+                    eprintln!("⚠️ 检测到 Profile '{}' 存在幽灵进程 (PID: {}, Port: {})，正在强制驱逐以释放资源...", p, ghost_pid, p_cfg.proxy_port);
+                    let _ = kill_process(ghost_pid);
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            }
         }
 
         if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, cfg_mgr, vault.clone()).await {
@@ -39,6 +56,55 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
         }
     }
     Ok(())
+}
+
+fn find_ghost_process(profile: &str, proxy_port: u16) -> Option<u32> {
+    let mut s = System::new_all();
+    s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    let bin_name = cowen_common::utils::get_bin_name().to_lowercase();
+    let port_str = proxy_port.to_string();
+    
+    for (pid, process) in s.processes() {
+        let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>();
+        let cmd_str = cmdline.join(" ");
+        
+        // Identify our daemon: must have the binary name AND --profile <profile> AND daemon start
+        let has_bin = process.name().to_string_lossy().to_lowercase().contains(&bin_name) || cmd_str.to_lowercase().contains(&bin_name);
+        if !has_bin { continue; }
+
+        let has_profile = cmdline.iter().any(|arg| arg == "--profile") && 
+                          cmdline.windows(2).any(|w| w[0] == "--profile" && w[1] == profile);
+        let is_daemon = cmdline.iter().any(|arg| arg == "daemon") && cmdline.iter().any(|arg| arg == "start");
+        
+        // Match proxy port to avoid killing independent nodes in a cluster
+        let has_port = cmdline.iter().any(|arg| arg == "--proxy-port") &&
+                       cmdline.windows(2).any(|w| w[0] == "--proxy-port" && w[1] == port_str);
+        
+        if has_profile && is_daemon && has_port && pid.as_u32() != std::process::id() {
+            return Some(pid.as_u32());
+        }
+    }
+    None
+}
+
+fn kill_process(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
+    }
+    
+    // Verify death
+    let mut s = System::new_all();
+    for _ in 0..5 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        if s.process(sysinfo::Pid::from_u32(pid)).is_none() { return true; }
+    }
+    false
 }
 
 /// 执行启动的核心逻辑，处理父子进程逻辑

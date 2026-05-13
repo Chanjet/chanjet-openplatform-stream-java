@@ -72,7 +72,8 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         let pk_config = config.clone();
         dispatcher.on_app_ticket(move |msg| {
             let ticket_val = msg.biz_content.app_ticket.trim().to_string();
-            tracing::info!(target: "stream", "CALLBACK: AppTicket received in dispatcher (masked: {}...)", &ticket_val[..5]);
+            let masked = if ticket_val.len() > 5 { &ticket_val[..5] } else { "***" };
+            tracing::info!(target: "stream", "CALLBACK: AppTicket received in dispatcher (masked: {}...)", masked);
             
             let pk_pool_inner = pk_pool.clone();
             let pk_profile_inner = pk_profile.clone();
@@ -107,23 +108,25 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     };
 
     let p_profile_s = profile.to_string();
+    let client_inner = client.clone();
     let stream_fut = async move {
         if supports_webhooks {
             let status_file = cowen_common::config::get_app_dir().join(format!("{}_status.json", p_profile_s));
+            let client_id = client_inner.client_id().to_string();
 
             // Use the SDK's internal reconnection loop, but hook into its status callbacks
             let now = chrono::Utc::now().to_rfc3339();
-            let _ = std::fs::write(&status_file, format!("{{\"state\":\"Starting\", \"updated_at\":\"{}\"}}", now));
+            let _ = std::fs::write(&status_file, format!("{{\"state\":\"Starting\", \"client_id\":\"{}\", \"updated_at\":\"{}\"}}", client_id, now));
             
-            let res = client.start_with_callback(move |state| {
+            let res = client_inner.start_with_callback(move |state| {
                 let state_str = match state {
                     connector_sdk::ConnectionState::Connecting => "Connecting",
                     connector_sdk::ConnectionState::Connected => "Connected",
                     connector_sdk::ConnectionState::Disconnected => "Disconnected",
                 };
-                tracing::info!(target: "stream", profile = %p_profile_s, state = %state_str, "Bridge connection state changed");
+                tracing::info!(target: "stream", profile = %p_profile_s, state = %state_str, client_id = %client_id, "Bridge connection state changed");
                 let now = chrono::Utc::now().to_rfc3339();
-                let _ = std::fs::write(&status_file, format!("{{\"state\":\"{}\", \"updated_at\":\"{}\"}}", state_str, now));
+                let _ = std::fs::write(&status_file, format!("{{\"state\":\"{}\", \"client_id\":\"{}\", \"updated_at\":\"{}\"}}", state_str, client_id, now));
             }).await;
 
             if let Err(e) = res {
@@ -135,27 +138,6 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
             let mode = config.app_mode;
             tracing::info!(target: "sys", "Streaming bridge is disabled for mode {:?}.", mode);
             std::future::pending::<Result<()>>().await
-        }
-    };
-
-    let p_profile_h = profile.to_string();
-    let heartbeat_fut = async move {
-        if supports_webhooks {
-            let status_file = cowen_common::config::get_app_dir().join(format!("{}_status.json", p_profile_h));
-            loop {
-                sleep(Duration::from_secs(30)).await;
-                if let Ok(content) = std::fs::read_to_string(&status_file) {
-                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
-                        let now = chrono::Utc::now().to_rfc3339();
-                        if let Some(obj) = json.as_object_mut() {
-                            obj.insert("updated_at".to_string(), serde_json::Value::String(now));
-                            let _ = std::fs::write(&status_file, serde_json::to_string(&json).unwrap_or_default());
-                        }
-                    }
-                }
-            }
-        } else {
-            std::future::pending::<()>().await
         }
     };
 
@@ -185,12 +167,14 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     tokio::select! {
         res = proxy_fut => { 
             tracing::error!(target: "sys", "Proxy task exited unexpectedly"); 
-            res.context("Proxy task stopped")
+            let r: Result<()> = res;
+            r.context("Proxy task stopped")
         },
         res = stream_fut => { 
             if supports_webhooks {
                 tracing::error!(target: "sys", "Stream task exited unexpectedly"); 
-                res.context("Stream client crashed")
+                let r: Result<()> = res;
+                r.context("Stream client crashed")
             } else {
                 Ok(())
             }
@@ -198,9 +182,6 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         _ = maintenance_fut => { 
             tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); 
             Err(anyhow::anyhow!("Maintenance task stopped"))
-        },
-        _ = heartbeat_fut => {
-            Ok(())
         },
     }
 }

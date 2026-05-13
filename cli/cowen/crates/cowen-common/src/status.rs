@@ -226,11 +226,11 @@ pub async fn collect_daemon_status(
                 } else { false };
 
                 let (conn_level, conn_icon_override, final_state) = if !is_fresh {
-                    (StatusLevel::WARN, Some("💤"), format!("{} (Stale)", conn_state))
+                    (StatusLevel::ERROR, Some("💤"), format!("{} (Stale)", conn_state))
                 } else {
                     match conn_state.as_str() {
                         "Connected" => (StatusLevel::OK, None, conn_state),
-                        "Connecting" => (StatusLevel::OK, Some("⏳"), conn_state), // OK during startup
+                        "Connecting" => (StatusLevel::WARN, Some("⏳"), conn_state), 
                         "Disconnected" => (StatusLevel::WARN, Some("💤"), conn_state),
                         "Reconnecting" => (StatusLevel::ERROR, Some("📡"), conn_state),
                         _ => (StatusLevel::WARN, Some("❓"), conn_state),
@@ -245,6 +245,9 @@ pub async fn collect_daemon_status(
                     let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state);
                     if let Some(icon) = conn_icon_override {
                         entry.icon = icon.to_string();
+                    }
+                    if let Some(cid) = json.get("client_id").and_then(|v| v.as_str()) {
+                        entry.details.push(format!("Client ID: {}", cid));
                     }
                     children.push(entry);
                 }
