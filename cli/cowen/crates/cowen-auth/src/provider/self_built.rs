@@ -16,8 +16,8 @@ struct PlatformTokenResponse {
     pub result: Option<bool>,
     pub value: Option<PlatformTokenValue>,
     pub code: Option<String>,
-    pub message: Option<String>,
-    pub error: Option<String>,
+    pub message: Option<serde_json::Value>,
+    pub error: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,7 +33,7 @@ struct PlatformTokenValue {
 #[derive(Debug, Serialize, Deserialize)]
 struct PlatformResendResponse {
     pub code: String,
-    pub message: Option<String>,
+    pub message: Option<serde_json::Value>,
 }
 
 pub struct SelfBuiltProvider {
@@ -89,7 +89,12 @@ impl SelfBuiltProvider {
         // Success if result is true OR code is 200
         let is_success = token_resp.result.unwrap_or(false) || token_resp.code.as_deref() == Some("200");
         if !is_success || token_resp.value.is_none() {
-            let err_msg = token_resp.error.or(token_resp.message).unwrap_or_else(|| "Unknown platform error".to_string());
+            let err_val = token_resp.error.or(token_resp.message);
+            let err_msg = match err_val {
+                Some(serde_json::Value::String(s)) => s,
+                Some(v) => v.to_string(),
+                None => "Unknown platform error".to_string(),
+            };
             return Err(CowenError::Auth(format!("Platform error: {}", err_msg)));
         }
 
@@ -139,7 +144,12 @@ impl SelfBuiltProvider {
 
         let resend_resp: PlatformResendResponse = resp.json().await?;
         if resend_resp.code != "200" {
-            return Err(CowenError::Auth(format!("Platform error: {} - {:?}", resend_resp.code, resend_resp.message)));
+            let err_msg = match resend_resp.message {
+                Some(serde_json::Value::String(s)) => s,
+                Some(v) => v.to_string(),
+                None => "Unknown error".to_string(),
+            };
+            return Err(CowenError::Auth(format!("Platform error: {} - {}", resend_resp.code, err_msg)));
         }
 
         tracing::info!(target: "sys", profile = %profile, "Proactive AppTicket push triggered");
@@ -273,7 +283,7 @@ impl AuthProvider for SelfBuiltProvider {
                 let provider_clone = Self::new(pool, self.http_sender.clone());
                 
                 tokio::spawn(async move {
-                    let should_refresh = match provider_clone.pool.get_access_token(&profile).await {
+                    let should_refresh = match provider_clone.pool.get_app_access_token(&cfg.app_key).await {
                         Ok(t) => t.is_expired(),
                         Err(_) => true,
                     };

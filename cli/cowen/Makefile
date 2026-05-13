@@ -11,7 +11,7 @@ endif
 
 # 缓存目录与镜像定义
 CARGO_CACHE_DIR=$(HOME)/.cache/cowen-cargo
-BUILDER_IMAGE=cowen-builder
+BUILDER_IMAGE=localhost/cowen-builder
 
 # 检测当前主机环境
 ifeq ($(OS),Windows_NT)
@@ -150,7 +150,7 @@ endif
 
 # 哨兵文件：记录镜像最后一次成功构建的时间
 .builder_image_built: Dockerfile.builder
-	@echo "🛠️ Building/Updating custom builder image $(BUILDER_IMAGE)..."
+	@echo "🛠️ Building/Updating custom builder image $(BUILDER_IMAGE) (Native/Cross)..."
 	podman build -t $(BUILDER_IMAGE) -f Dockerfile.builder .
 	@touch .builder_image_built
 
@@ -167,7 +167,7 @@ linux-x86_64-with-podman: prepare-podman-image
 	@mkdir -p $(OUTPUT_DIR)/linux-x86_64
 	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
 	@trap '$(MAKE) stop-podman-machine' EXIT; \
-	podman run --rm \
+	podman run --rm --platform linux/amd64 \
 		-v "$$(pwd)/../..:/workspace" \
 		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
 		-v "$(CARGO_CACHE_DIR)/git:/usr/local/cargo/git" \
@@ -189,7 +189,7 @@ linux-x86_64-legacy-with-podman: prepare-podman-image
 	@mkdir -p $(OUTPUT_DIR)/linux-x86_64-legacy
 	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
 	@trap '$(MAKE) stop-podman-machine' EXIT; \
-	podman run --rm \
+	podman run --rm --platform linux/amd64 \
 		-v "$$(pwd)/../..:/workspace" \
 		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
 		-v "$(CARGO_CACHE_DIR)/git:/usr/local/cargo/git" \
@@ -346,8 +346,10 @@ else ifeq ($(HOST_OS),windows)
 endif
 
 # 在 Linux 容器中执行并行 E2E (Podman) - 封闭纯净环境
-test-linux: prepare-podman-machine prepare-podman-image test-rust
-	@echo "🧪 Running Parallel E2E Suite in Linux container (Isolated)..."
+test-linux: prepare-podman-machine prepare-podman-image db-up
+	@echo "🧪 Running Full Test Suite in Linux container (Native build -> x86_64 test)..."
+	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
+	trap '$(MAKE) db-down' EXIT; \
 	podman run --rm -it \
 		--network host \
 		-v "$(shell pwd)/../..:/workspace" \
@@ -355,9 +357,10 @@ test-linux: prepare-podman-machine prepare-podman-image test-rust
 		-v "$(HOME)/.cargo/git:/usr/local/cargo/git" \
 		-e TEST_BASE=target/cowen_tests_linux \
 		-e BASE_PORT_START=16000 \
+		-e QEMU_LD_PREFIX=/usr/x86_64-linux-gnu/ \
 		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
-		./tests/runners/run_parallel.sh
+		bash -c "cargo test --target x86_64-unknown-linux-gnu && ./tests/runners/run_parallel.sh"
 
 # 在 Windows PowerShell 环境下执行测试
 test-win: test-rust
@@ -365,11 +368,9 @@ test-win: test-rust
 	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/runners/run_suites.ps1"
 
 # 在 macOS 原生环境执行并行测试
-test-macos: test-rust
+test-macos: test-rust local-db-up
 	@echo "🧪 Running Parallel E2E Suite natively on macOS (Isolated)..."
 	TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/runners/run_parallel.sh
-
-# --- 其他 ---
 
 # --- 数据库管理 (Database Management) ---
 
@@ -388,8 +389,8 @@ local-db-up:
 	brew services start postgresql@15 || brew services restart postgresql@15
 	@echo "⌛ Waiting for local services to be ready..."
 	@sleep 5
-	@mysql -u root -h 127.0.0.1 -e "CREATE DATABASE IF NOT EXISTS cowen_test;" || echo "⚠️ MySQL DB create failed, might already exist"
-	@psql -h 127.0.0.1 -d postgres -c "CREATE DATABASE cowen_test;" || echo "⚠️ Postgres DB create failed, might already exist"
+	@mysql -u root -h 127.0.0.1 -e "CREATE DATABASE IF NOT EXISTS cowen_test;" < /dev/null || echo "⚠️ MySQL DB create failed, might already exist"
+	@psql -h 127.0.0.1 -w -d postgres -c "CREATE DATABASE cowen_test;" || echo "⚠️ Postgres DB create failed, might already exist"
 	@echo "✅ Local databases are ready."
 
 local-db-down:
@@ -398,29 +399,32 @@ local-db-down:
 	brew services stop postgresql@15 || true
 
 db-up: prepare-podman-machine
-	@echo "🚀 Starting MySQL and PostgreSQL containers..."
+	@echo "🚀 Starting MySQL, PostgreSQL and Redis containers..."
 	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
 	if [ "$(COMPOSE_BIN)" = "" ]; then \
 		echo "⚠️  No compose provider found, falling back to 'podman run'..."; \
-		podman start cowen-mysql 2>/dev/null || podman run -d --name cowen-mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=cowen_test --health-cmd="mysqladmin ping -h localhost" --health-interval=5s mysql:8.0; \
-		podman start cowen-postgres 2>/dev/null || podman run -d --name cowen-postgres -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=cowen_test --health-cmd="pg_isready -U postgres" --health-interval=5s postgres:15; \
+		podman rm -f cowen-mysql cowen-postgres cowen-redis 2>/dev/null || true; \
+		podman run -d --name cowen-mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=cowen_test --health-cmd="mysqladmin ping -h localhost" --health-interval=5s mysql:8.0; \
+		podman run -d --name cowen-postgres -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=cowen_test --health-cmd="pg_isready -U postgres" --health-interval=5s postgres:15; \
+		podman run -d --name cowen-redis -p 6379:6379 --health-cmd="redis-cli ping" --health-interval=5s redis:7.0-alpine; \
 	else \
 		echo "🚀 Using $(COMPOSE_BIN)..."; \
+		cd tests/infra && $(COMPOSE_BIN) down -v 2>/dev/null || true; \
 		cd tests/infra && $(COMPOSE_BIN) up -d || (echo "❌ Failed to start containers." && exit 1); \
 	fi; \
 	echo "⌛ Waiting for databases to be ready..."; \
 	MAX_WAIT=30; count=0; \
-	until [ $$count -ge $$MAX_WAIT ] || (podman ps 2>/dev/null | grep -q 'healthy'); do \
+	until [ $$count -ge $$MAX_WAIT ] || [ $$(podman ps 2>/dev/null | grep 'healthy' | wc -l) -ge 3 ]; do \
 		echo -n "."; sleep 2; count=$$((count + 1)); \
 	done; \
-	echo " ✅ Databases should be ready now (or check logs if failed)."
+	echo " ✅ Databases are ready."
 
 db-down:
 	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
 	echo "🛑 Stopping and removing containers..."; \
 	if [ "$(COMPOSE_BIN)" = "" ]; then \
-		podman stop cowen-mysql cowen-postgres 2>/dev/null || true; \
-		podman rm cowen-mysql cowen-postgres 2>/dev/null || true; \
+		podman stop cowen-mysql cowen-postgres cowen-redis 2>/dev/null || true; \
+		podman rm cowen-mysql cowen-postgres cowen-redis 2>/dev/null || true; \
 	else \
 		cd tests/infra && $(COMPOSE_BIN) down -v; \
 	fi; \

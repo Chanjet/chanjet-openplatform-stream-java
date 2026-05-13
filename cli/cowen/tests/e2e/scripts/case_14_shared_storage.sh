@@ -28,7 +28,7 @@ function final_cleanup {
     cleanup_suite
     rm -rf "$HOME_1" "$HOME_2"
 }
-trap final_cleanup EXIT
+# trap final_cleanup EXIT
 
 rm -rf "$HOME_1" "$HOME_2"
 rm -f "$SHARED_DB"* "shared_cowen.db"*
@@ -90,13 +90,25 @@ echo -e "${BOLD}3. Verify Token Synchronization${NC}"
 
 # 1. Get initial token from Node 1
 export COWEN_HOME="$HOME_1"
-TOKEN_1=$("$COWEN_BIN" auth token --profile main --format json | python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token'))")
-echo -e "   Node 1 Initial Token: ${BLUE}${TOKEN_1:0:15}...${NC}"
+echo -n "   Extracting token from Node 1..."
+TOKEN_1=$(extract_token "main")
+if [ -z "$TOKEN_1" ]; then
+    echo -e " ${RED}[FAILED]${NC} Node 1 token extraction failed. Raw output:"
+    "$COWEN_BIN" auth token --profile main
+    exit 1
+fi
+echo -e " ${GREEN}[OK]${NC} (${TOKEN_1:0:15}...)"
 
 # 2. Get token from Node 2 (should read from DB)
 export COWEN_HOME="$HOME_2"
-TOKEN_2=$("$COWEN_BIN" auth token --profile main --format json | python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token'))")
-echo -e "   Node 2 Initial Token: ${BLUE}${TOKEN_2:0:15}...${NC}"
+echo -n "   Extracting token from Node 2..."
+TOKEN_2=$(extract_token "main")
+if [ -z "$TOKEN_2" ]; then
+    echo -e " ${RED}[FAILED]${NC} Node 2 token extraction failed. Raw output:"
+    "$COWEN_BIN" auth token --profile main
+    exit 1
+fi
+echo -e " ${GREEN}[OK]${NC} (${TOKEN_2:0:15}...)"
 
 if [ "$TOKEN_1" == "$TOKEN_2" ]; then
     echo -e "   ✓ Initial token synchronized via shared DB"
@@ -107,12 +119,16 @@ fi
 
 echo -e "${BOLD}4. Refresh Token on Node 1${NC}"
 export COWEN_HOME="$HOME_1"
-TOKEN_V2=$("$COWEN_BIN" auth token --profile main --refresh --format json | python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token'))")
+TOKEN_V2=$(extract_token "main" "--refresh")
+if [ -z "$TOKEN_V2" ]; then
+    echo -e "   ${RED}[FAILED]${NC} Node 1 refresh failed"
+    exit 1
+fi
 echo -e "   Node 1 New Token:     ${BLUE}${TOKEN_V2:0:15}...${NC}"
 
 echo -e "${BOLD}5. Verify Node 2 Sync${NC}"
 export COWEN_HOME="$HOME_2"
-TOKEN_2_V2=$("$COWEN_BIN" auth token --profile main --format json | python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token'))")
+TOKEN_2_V2=$(extract_token "main")
 echo -e "   Node 2 New Token:     ${BLUE}${TOKEN_2_V2:0:15}...${NC}"
 
 if [ "$TOKEN_V2" == "$TOKEN_2_V2" ]; then
@@ -128,22 +144,25 @@ echo -e "${BOLD}6. Verify Node 2 Proxy Implementation${NC}"
 export COWEN_HOME="$HOME_2"
 # Start Node 2 daemon to test proxy on port PROXY_PORT_2
 "$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 &
-sleep 2
+echo -n "   Waiting for Node 2 daemon to stabilize..."
+sleep 10
 
 echo -n "   Verifying Node 2 Proxy uses new token..."
 # We use curl with a retry because the daemon might take a moment to bind
-MAX_RETRIES=5
+MAX_RETRIES=15
 SUCCESS=0
 for i in $(seq 1 $MAX_RETRIES); do
     if curl -s -f -X POST -d '{"test":true}' -x "http://127.0.0.1:$PROXY_PORT_2" "$MOCK_URL/webhook_sink" > /dev/null; then
         SUCCESS=1
         break
     fi
-    sleep 1
+    echo -n "."
+    sleep 2
 done
 
 if [ $SUCCESS -eq 0 ]; then
-    echo -e " ${RED}[FAILED]${NC} Node 2 Proxy unreachable"
+    echo -e " ${RED}[FAILED]${NC} Node 2 Proxy unreachable after $MAX_RETRIES attempts"
+    echo "  --- Daemon Log ---"
     cat "$HOME_2/daemon.log"
     exit 1
 fi

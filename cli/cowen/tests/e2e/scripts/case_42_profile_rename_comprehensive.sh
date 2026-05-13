@@ -112,28 +112,40 @@ fi
 # --- 4. MySQL Mode ---
 MYSQL_PORT=3306
 DB_NAME="cowen_test_rename_42"
-if mysql -u root -h 127.0.0.1 -P $MYSQL_PORT -e "select 1" &> /dev/null; then
+if mysql -u root -h 127.0.0.1 -P $MYSQL_PORT -e "select 1" < /dev/null &> /dev/null; then
     MYSQL_URL="mysql://root@127.0.0.1:$MYSQL_PORT/$DB_NAME"
-    mysql -u root -h 127.0.0.1 -P $MYSQL_PORT -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;"
+    mysql -u root -h 127.0.0.1 -P $MYSQL_PORT -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;" < /dev/null
     test_rename_for_storage "mysql" "$MYSQL_URL"
-elif podman exec cowen-mysql mysql -u root -proot -e "select 1" &> /dev/null; then
+elif mysql -u root -proot -h 127.0.0.1 -P $MYSQL_PORT -e "select 1" < /dev/null &> /dev/null; then
     MYSQL_URL="mysql://root:root@127.0.0.1:$MYSQL_PORT/$DB_NAME"
-    podman exec cowen-mysql mysql -u root -proot -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;"
+    mysql -u root -proot -h 127.0.0.1 -P $MYSQL_PORT -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;" < /dev/null
     test_rename_for_storage "mysql" "$MYSQL_URL"
 else
-    echo -e "${YELLOW}  [SKIP] MySQL not found, skipping MySQL rename test${NC}"
+    echo -e "${YELLOW}  [SKIP] Local MySQL not found or inaccessible, skipping MySQL rename test${NC}"
 fi
 
 # --- 5. Postgres Mode ---
 PG_PORT=5432
-if psql -U postgres -h 127.0.0.1 -p $PG_PORT -c "select 1" &> /dev/null; then
-    psql -U postgres -h 127.0.0.1 -p $PG_PORT -c "DROP DATABASE IF EXISTS $DB_NAME;"
-    psql -U postgres -h 127.0.0.1 -p $PG_PORT -c "CREATE DATABASE $DB_NAME;"
-    test_rename_for_storage "postgres" "postgres://postgres@127.0.0.1:$PG_PORT/$DB_NAME"
-elif podman exec cowen-postgres psql -U postgres -c "select 1" &> /dev/null; then
-    podman exec cowen-postgres psql -U postgres -c "DROP DATABASE IF EXISTS $DB_NAME;"
-    podman exec cowen-postgres psql -U postgres -c "CREATE DATABASE $DB_NAME;"
-    test_rename_for_storage "postgres" "postgres://postgres:postgres@127.0.0.1:$PG_PORT/$DB_NAME"
+# Support both local brew (current user) and postgres user
+CURRENT_USER=$(whoami)
+if psql -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
+    PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -d postgres -w"
+    PG_CONN_URL="postgres://127.0.0.1:$PG_PORT/$DB_NAME"
+elif psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
+    PG_CMD="psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w"
+    PG_CONN_URL="postgres://$CURRENT_USER@127.0.0.1:$PG_PORT/$DB_NAME"
+elif PGPASSWORD=password psql -U postgres -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
+    export PGPASSWORD=password
+    PG_CMD="psql -U postgres -h 127.0.0.1 -p $PG_PORT -d postgres -w"
+    PG_CONN_URL="postgres://postgres:password@127.0.0.1:$PG_PORT/$DB_NAME"
+fi
+
+if [ -n "$PG_CMD" ]; then
+    safe_psql_exec "DROP DATABASE IF EXISTS $DB_NAME;" "postgres" >/dev/null 2>&1 || true
+    if safe_psql_exec "CREATE DATABASE $DB_NAME;" "postgres"; then
+        sleep 2
+        test_rename_for_storage "postgres" "$PG_CONN_URL"
+    fi
 else
     echo -e "${YELLOW}  [SKIP] Postgres not found, skipping Postgres rename test${NC}"
 fi

@@ -10,13 +10,16 @@ source tests/e2e/scripts/common.sh
 MYSQL_PORT=3306
 DB_NAME=$(get_case_db_name "case_32")
 
-# Support both local brew (no password) and podman (root password)
-if mysql -u root -h 127.0.0.1 -e "select 1" &> /dev/null; then
+# Support both local brew (no password) and local with root password
+if mysql -u root -h 127.0.0.1 -e "select 1" < /dev/null &> /dev/null; then
     MYSQL_BASE_URL="mysql://root@127.0.0.1:$MYSQL_PORT"
     MYSQL_CMD="mysql -u root -h 127.0.0.1"
-else
+elif mysql -u root -proot -h 127.0.0.1 -e "select 1" < /dev/null &> /dev/null; then
     MYSQL_BASE_URL="mysql://root:root@127.0.0.1:$MYSQL_PORT"
     MYSQL_CMD="mysql -u root -proot -h 127.0.0.1"
+else
+    echo -e " ${RED}[ERROR] Local MySQL service not found or inaccessible.${NC}"
+    exit 1
 fi
 
 MYSQL_URL="$MYSQL_BASE_URL/$DB_NAME"

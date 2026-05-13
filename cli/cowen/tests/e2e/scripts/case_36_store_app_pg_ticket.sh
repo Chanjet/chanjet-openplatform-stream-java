@@ -11,13 +11,31 @@ source tests/e2e/scripts/common.sh
 PG_PORT=5432
 DB_NAME=$(get_case_db_name "case_36")
 
-# Support both local brew (current user) and podman (postgres user)
-if psql -d postgres -c "select 1" &> /dev/null; then
-    PG_BASE_URL="postgres://$(whoami)@127.0.0.1:$PG_PORT"
-    PG_CMD="psql -d postgres"
-else
-    PG_BASE_URL="postgres://postgres:password@127.0.0.1:$PG_PORT"
-    PG_CMD="PGPASSWORD=password psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres"
+# Support both local brew (current user) and postgres user
+CURRENT_USER=$(whoami)
+PG_READY=false
+for i in {1..5}; do
+    if psql -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
+        PG_BASE_URL="postgres://127.0.0.1:$PG_PORT"
+        PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -d postgres -w"
+        PG_READY=true && break
+    elif psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
+        PG_BASE_URL="postgres://$CURRENT_USER@127.0.0.1:$PG_PORT"
+        PG_CMD="psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w"
+        PG_READY=true && break
+    elif PGPASSWORD=password psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres -w -c "select 1" &> /dev/null; then
+        PG_BASE_URL="postgres://postgres:password@127.0.0.1:$PG_PORT"
+        export PGPASSWORD=password
+        PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres -w"
+        PG_READY=true && break
+    fi
+    echo -e "  ${YELLOW}Waiting for PostgreSQL to be ready (attempt $i/5)...${NC}"
+    sleep 3
+done
+
+if [ "$PG_READY" != "true" ]; then
+    echo -e " ${RED}[ERROR] Local PostgreSQL service not found or inaccessible.${NC}"
+    exit 1
 fi
 
 PG_URL="$PG_BASE_URL/$DB_NAME?sslmode=disable"
@@ -27,9 +45,14 @@ setup_workspace "case_36"
 
 # Create isolated DB
 echo -n "  Preparing isolated PostgreSQL database '$DB_NAME'..."
-$PG_CMD -c "DROP DATABASE IF EXISTS $DB_NAME;" 2>/dev/null || true
-$PG_CMD -c "CREATE DATABASE $DB_NAME;"
-echo -e " ${GREEN}[OK]${NC}"
+safe_psql_exec "DROP DATABASE IF EXISTS $DB_NAME;" "postgres" >/dev/null 2>&1 || true
+if safe_psql_exec "CREATE DATABASE $DB_NAME;" "postgres"; then
+    echo -e " ${GREEN}[OK]${NC}"
+    sleep 2
+else
+    echo -e " ${RED}[FAILED]${NC} Could not create database $DB_NAME"
+    exit 1
+fi
 
 HOME_1="$COWEN_HOME/node_1"
 HOME_2="$COWEN_HOME/node_2"
@@ -67,11 +90,11 @@ echo -e "${BOLD}2. Trigger AppTicket Push and Verify Storage${NC}"
 
 # Start daemon on Node 1 to receive ticket
 "$COWEN_BIN" daemon start --profile main
-sleep 2
+sleep 5
 
 # Verify ticket exists in PostgreSQL
 echo -n "  Verifying AppTicket in PostgreSQL..."
-TICKET_IN_DB=$($PG_CMD -d $DB_NAME -t -c "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';")
+TICKET_IN_DB=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';" "$DB_NAME" | grep -v "ticket_value" | grep -v "\-\-\-" | xargs)
 
 if [[ -n "$TICKET_IN_DB" ]]; then
     echo -e " ${GREEN}[OK]${NC} (Value found: ${TICKET_IN_DB:0:15}...)"
@@ -86,7 +109,7 @@ echo -e "${BOLD}3. Verify Persistence after Node 1 Restart${NC}"
 sleep 1
 
 echo -n "  Verifying AppTicket persists after daemon stop..."
-TICKET_AFTER_STOP=$($PG_CMD -d $DB_NAME -t -c "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';")
+TICKET_AFTER_STOP=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';" "$DB_NAME" | grep -v "ticket_value" | grep -v "\-\-\-" | xargs)
 if [[ "$TICKET_IN_DB" == "$TICKET_AFTER_STOP" ]]; then
     echo -e " ${GREEN}[OK]${NC}"
 else

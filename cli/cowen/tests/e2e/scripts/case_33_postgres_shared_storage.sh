@@ -10,14 +10,21 @@ source tests/e2e/scripts/common.sh
 PG_PORT=5432
 DB_NAME=$(get_case_db_name "case_33")
 
-# Support both local brew (current user) and podman (postgres user)
-if psql -d postgres -c "select 1" &> /dev/null; then
-    PG_BASE_URL="postgres://$(whoami)@127.0.0.1:$PG_PORT"
-    PG_CMD="psql -d postgres"
-else
+# Support both local brew (current user) and postgres user
+CURRENT_USER=$(whoami)
+if psql -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
+    PG_BASE_URL="postgres://127.0.0.1:$PG_PORT"
+    PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -d postgres -w"
+elif psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
+    PG_BASE_URL="postgres://$CURRENT_USER@127.0.0.1:$PG_PORT"
+    PG_CMD="psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w"
+elif PGPASSWORD=password psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres -w -c "select 1" &> /dev/null; then
     PG_BASE_URL="postgres://postgres:password@127.0.0.1:$PG_PORT"
     export PGPASSWORD=password
-    PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres"
+    PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres -w"
+else
+    echo -e " ${RED}[ERROR] Local PostgreSQL service not found or inaccessible (checked users: default, $CURRENT_USER, postgres).${NC}"
+    exit 1
 fi
 
 PG_URL="$PG_BASE_URL/$DB_NAME?sslmode=disable"
@@ -28,13 +35,17 @@ setup_workspace "case_33"
 # Ensure PostgreSQL is up and create isolated DB
 echo -n "  Preparing isolated PostgreSQL database '$DB_NAME'..."
 if ! command -v psql &> /dev/null; then
-    echo -e " ${YELLOW}[WARNING] psql not found, falling back to podman exec${NC}"
-    podman exec cowen-postgres psql -U postgres -c "DROP DATABASE IF EXISTS $DB_NAME;" 2>/dev/null || true
-    podman exec cowen-postgres psql -U postgres -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
+    echo -e " ${RED}[ERROR] psql command not found.${NC}"
+    exit 1
 else
-    $PG_CMD -c "DROP DATABASE IF EXISTS $DB_NAME;" 2>/dev/null || true
-    $PG_CMD -c "CREATE DATABASE $DB_NAME;"
-    echo -e " ${GREEN}[OK]${NC}"
+    safe_psql_exec "DROP DATABASE IF EXISTS $DB_NAME;" "postgres" >/dev/null 2>&1 || true
+    if safe_psql_exec "CREATE DATABASE $DB_NAME;" "postgres"; then
+        echo -e " ${GREEN}[OK]${NC}"
+        sleep 2
+    else
+        echo -e " ${RED}[FAILED]${NC} Could not create database $DB_NAME"
+        exit 1
+    fi
 fi
 
 # Define nodes

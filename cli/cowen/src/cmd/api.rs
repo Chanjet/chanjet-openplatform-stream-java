@@ -162,8 +162,9 @@ pub async fn spec(
     raw: bool,
 ) -> anyhow::Result<()> {
     let spec = auth_cli.get_openapi_spec(profile, cfg, false).await.map_err(|e| anyhow::anyhow!(e))?;
-    let op = cowen_auth::client::get_operation(&spec, path, method)
-        .ok_or_else(|| anyhow!("API endpoint not found: {} {}", method.to_uppercase(), path))?;
+    let method_upper = method.to_uppercase();
+    let op = cowen_auth::client::get_operation(&spec, path, &method_upper)
+        .ok_or_else(|| anyhow!("API endpoint not found: {} {}", method_upper, path))?;
 
     if raw {
         println!("{}", serde_json::to_string_pretty(&op)?);
@@ -172,7 +173,7 @@ pub async fn spec(
 
     println!("\n📖 API Specification Details");
     println!("--------------------------------------------------");
-    println!("📍 Endpoint:    \x1b[1;32m{} {}\x1b[0m", method.to_uppercase(), path);
+    println!("📍 Endpoint:    \x1b[1;32m{} {}\x1b[0m", method_upper, path);
     println!("📌 Summary:     {}", op["summary"].as_str().unwrap_or("N/A"));
     if let Some(tags) = op.get("tags").and_then(|t| t.as_array()) {
         let tags_str: Vec<String> = tags.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
@@ -418,8 +419,10 @@ pub async fn call(
     // PROTECT CLI: Whitelist Check
     let spec = auth_cli.get_openapi_spec(profile, cfg, false).await.map_err(|e| anyhow::anyhow!(e))?;
 
+    let method_upper = method.to_uppercase();
+
     // PRE-CHECK: Validate Parameters & Body against OpenAPI spec
-    cowen_common::openapi::validate_request(&spec, method, path, &body_option).map_err(|e| anyhow::anyhow!(e))?;
+    cowen_common::openapi::validate_request(&spec, &method_upper, path, &body_option).map_err(|e| anyhow::anyhow!(e))?;
 
     let path_no_query = path.split('?').next().unwrap_or(path);
     if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
@@ -438,7 +441,7 @@ pub async fn call(
         format!("{}{}", base, path)
     };
 
-    let method_enum = Method::from_bytes(method.as_bytes()).map_err(|_| anyhow!("Invalid HTTP method: {}", method))?;
+    let method_enum = Method::from_bytes(method_upper.as_bytes()).map_err(|_| anyhow!("Invalid HTTP method: {}", method_upper))?;
     
     let mut req = client.request(method_enum, &url)
         .header("openToken", token.value)

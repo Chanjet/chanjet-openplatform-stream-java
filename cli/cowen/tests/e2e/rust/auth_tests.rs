@@ -100,12 +100,10 @@ fn setup_auth_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile::Te
     let config_path = cowen_home.join(format!("{}.yaml", profile));
     let config = json!({
         "app_key": "test_key",
-        "openapi_url": openapi_url,
-        "stream_url": "http://localhost:8081",
-        "webhook_target": "http://localhost:8082",
         "app_mode": mode,
-        "ai_enabled": false,
-        "telemetry_enabled": false,
+        "openapi_url": openapi_url,
+        "stream_url": openapi_url,
+        "webhook_target": "http://localhost:8080",
         "auto_start": false,
         "version": 1,
         "log": {
@@ -116,7 +114,7 @@ fn setup_auth_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile::Te
         }
     });
     fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
-    
+
     (dir, cowen_home_str)
 }
 
@@ -150,6 +148,119 @@ async fn test_auth_login_self_built() {
     cmd.assert()
         .success()
         .stdout(predicates::str::contains("Token forcefully refreshed"));
+    
+    let token = vault.get_app_access_token("test_key").await.unwrap();
+    assert_eq!(token.value, "mock_at_sb_12345");
+
+    let _ = dir;
+}
+
+async fn handle_generate_token_error(
+    State(state): State<Arc<Mutex<MockState>>>,
+    _headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let mut s = state.lock().await;
+    s.last_generate_token_body = Some(body);
+
+    (StatusCode::OK, Json(json!({
+        "result": false,
+        "code": "401",
+        "message": {
+            "error_code": "ticket_expired",
+            "reason": "The provided app ticket is no longer valid"
+        }
+    })))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_auth_login_complex_error_serialization() {
+    let state = Arc::new(Mutex::new(MockState {
+        last_generate_token_body: None,
+        last_refresh_token_body: None,
+    }));
+
+    let app = Router::new()
+        .route("/v1/common/auth/selfBuiltApp/generateToken", post(handle_generate_token_error))
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    
+    let _handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let openapi_url = format!("http://{}", addr);
+    let (dir, home) = setup_auth_env("error_profile", "self-built", &openapi_url);
+    
+    let app_cfg = cowen_common::config::AppConfig::default();
+    let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
+    
+    vault.set_config("error_profile", "app_key", "test_key").await.unwrap();
+    vault.set_secret("error_profile", "app_secret", "test_secret").await.unwrap();
+    vault.set_secret("error_profile", "encrypt_key", "test_encrypt_key").await.unwrap();
+
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.env("HOME", &home);
+    cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
+    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    cmd.arg("--profile").arg("error_profile");
+    cmd.arg("auth").arg("login");
+    
+    // Should NOT fail with serialization error, but with the reported platform error
+    cmd.assert()
+        .failure()
+        .stderr(predicates::str::contains("Platform error:"));
+    
+    // Verify it doesn't contain "Serialization error"
+    let output = cmd.output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("Serialization error"), "Should not have serialization error, got: {}", stderr);
+    assert!(stderr.contains("ticket_expired"), "Should contain the complex error content");
+
+    let _ = dir;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_auth_logout_login_sequence() {
+    let (addr, _server_handle) = start_mock_platform().await;
+    let openapi_url = format!("http://{}", addr);
+    let (dir, home) = setup_auth_env("seq_profile", "self-built", &openapi_url);
+    
+    let app_cfg = cowen_common::config::AppConfig::default();
+    let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
+    
+    vault.set_config("seq_profile", "app_key", "test_key").await.unwrap();
+    vault.set_secret("seq_profile", "app_secret", "test_secret").await.unwrap();
+    vault.set_secret("seq_profile", "encrypt_key", "test_encrypt_key").await.unwrap();
+
+    // 1. Logout first (Ensure clean state)
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.env("HOME", &home);
+    cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
+    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    cmd.arg("--profile").arg("seq_profile");
+    cmd.arg("auth").arg("logout");
+    cmd.assert().success();
+
+    // 2. Login (Should trigger network refresh because logout cleared the token)
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.env("HOME", &home);
+    cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
+    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    cmd.arg("--profile").arg("seq_profile");
+    cmd.arg("auth").arg("login");
+    
+    cmd.assert()
+        .success()
+        .stdout(predicates::str::contains("Token is active and ready"));
     
     let token = vault.get_app_access_token("test_key").await.unwrap();
     assert_eq!(token.value, "mock_at_sb_12345");
@@ -237,8 +348,6 @@ async fn test_auth_logout() {
     cmd.assert().success();
 
     // 4. Verify they are cleared
-    // Note: logout might only clear profile-specific stuff, but for self-built 
-    // it should probably clear the app-level token if that's what was being used.
-    assert!(vault.get_app_access_token("test_key").await.is_err(), "Access token should be cleared");
-    assert!(vault.get_app_ticket("test_key").await.is_err(), "App ticket should be cleared");
+    assert!(vault.get_app_access_token("test_key").await.is_err());
+    assert!(vault.get_app_ticket("test_key").await.is_err());
 }

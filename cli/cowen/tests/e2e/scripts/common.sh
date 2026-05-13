@@ -169,7 +169,9 @@ start_mock() {
 # Token Extraction
 extract_token() {
     local prof=$1
-    "$COWEN_BIN" auth token --profile "$prof" --format json 2>/dev/null | python3 -c "
+    shift
+    local extra_args="$@"
+    "$COWEN_BIN" auth token --profile "$prof" $extra_args --format json 2>/dev/null | python3 -c "
 import sys, json
 raw = sys.stdin.read()
 try:
@@ -229,6 +231,42 @@ clear_redis() {
     else
         redis-cli FLUSHALL >/dev/null 2>&1 || true
     fi
+}
+
+# Helper to execute psql commands with retries for transient errors
+safe_psql_exec() {
+    local cmd="$1"
+    local db="${2:-postgres}"
+    local max_retries=10
+    local attempt=1
+    local out_file=$(mktemp)
+    
+    while [ $attempt -le $max_retries ]; do
+        # 🚀 Fix: Force LC_ALL=C for consistent English error matching
+        if LC_ALL=C $PG_CMD -d "$db" -c "$cmd" 2>&1 | tee "$out_file"; then
+            rm -f "$out_file"
+            return 0
+        fi
+        
+        local err=$(cat "$out_file")
+        # 🚀 Fix: Expanded keywords and handle potential race conditions
+        if [[ "$err" == *"recovery mode"* || "$err" == *"starting up"* || 
+              "$err" == *"connection refused"* || "$err" == *"too many clients"* ||
+              "$err" == *"closed the connection"* || "$err" == *"意外地关闭了联接"* ]]; then
+            
+            # Exponential backoff with jitter
+            local wait_time=$(( (RANDOM % 3) + attempt * 2 ))
+            echo -e "  ${YELLOW}[RETRY] Postgres busy/recovering (Attempt $attempt/$max_retries), waiting ${wait_time}s...${NC}"
+            sleep $wait_time
+            ((attempt++))
+        else
+            echo -e "  ${RED}[FATAL] Postgres error not retryable:${NC} $err"
+            rm -f "$out_file"
+            return 1
+        fi
+    done
+    rm -f "$out_file"
+    return 1
 }
 
 # Helper to get an unused TCP port from the OS

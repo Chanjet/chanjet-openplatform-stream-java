@@ -2,7 +2,7 @@ use crate::protocol::{EventFrame, AckFrame};
 use crate::crypto;
 use crate::dispatcher::MessageDispatcher;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures_util::{StreamExt, SinkExt, stream::SplitSink};
+use futures_util::{StreamExt, SinkExt};
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tokio::time::{sleep, Duration};
@@ -196,85 +196,137 @@ impl GatewayClient {
         let (mut write, mut read) = ws_stream.split();
         let encrypt_key = options.encrypt_key.clone().unwrap_or_else(|| options.app_secret.clone());
 
+        // 🚀 OCP: Decouple Read/Write loops to prevent HOL blocking when connection is flaky
+        let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<Message>(100);
+        
+        // Write Task
+        let mut write_task = tokio::spawn(async move {
+            while let Some(msg) = write_rx.recv().await {
+                if let Err(e) = tokio::time::timeout(Duration::from_secs(5), write.send(msg)).await {
+                    tracing::error!(target: "stream", "Write operation timed out or failed: {}", e);
+                    return Err(anyhow!("Write timeout"));
+                }
+            }
+            Ok(())
+        });
+
+        let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(10));
+        heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
-            // 每 10 秒服务端发送一次 ping，如果 25 秒没有收到任何消息（包括 ping），则判定连接已死
-            let next_msg = tokio::time::timeout(Duration::from_secs(25), read.next()).await;
-
-            match next_msg {
-                Ok(Some(msg)) => {
-                    match msg {
-                        Ok(Message::Text(text)) => {
-                            tracing::info!(target: "stream", "Received raw message: {}", text);
-                            let root: serde_json::Value = match serde_json::from_str(&text) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!("Failed to parse incoming WebSocket message as JSON: {}. Raw: {}", e, text);
-                                    continue;
-                                }
-                            };
-                            let msg_type = root.get("msg_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-                            if msg_type == "event" {
-                                let frame: EventFrame = match serde_json::from_str(&text) {
-                                    Ok(f) => f,
-                                    Err(e) => {
-                                        tracing::error!("Failed to parse EventFrame: {}. Raw: {}", e, text);
-                                        continue;
-                                    }
-                                };
-                                
-                                tracing::info!(target: "sys", msg_id = %frame.msg_id, "Processing event frame");
-                                
-                                let success = {
-                                    let dispatcher_lock = dispatcher.lock().unwrap();
-                                    match dispatcher_lock.dispatch(&frame, &encrypt_key) {
-                                        Ok(s) => s,
-                                        Err(e) => {
-                                            tracing::error!("Error dispatching event {}: {}", frame.msg_id, e);
-                                            false
-                                        }
-                                    }
-                                };
-                                Self::send_ack(&mut write, frame.msg_id, success).await?;
-                            } else if msg_type == "ping" {
-                                write.send(Message::Text("{\"msg_type\":\"pong\"}".into())).await?;
-                            } else if !msg_type.is_empty() {
-                                // Handle top-level system messages (e.g. APP_TICKET)
-                                let msg_id = root.get("msg_id").or_else(|| root.get("msgId")).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-                                
-                                let success = {
-                                    let dispatcher_lock = dispatcher.lock().unwrap();
-                                    match dispatcher_lock.dispatch_value(root, None) {
-                                        Ok(s) => s,
-                                        Err(e) => {
-                                            tracing::error!("Error dispatching raw message type {}: {}", msg_type, e);
-                                            false
-                                        }
-                                    }
-                                };
-
-                                if msg_id != "unknown" {
-                                    Self::send_ack(&mut write, msg_id, success).await?;
-                                }
-                            }
-                        }
-                        Ok(Message::Close(_)) => {
-                            tracing::info!("WebSocket closed by server.");
-                            break;
-                        }
-                        Err(e) => {
-                            return Err(anyhow!("WebSocket read error: {}", e));
-                        }
-                        _ => {}
+            tokio::select! {
+                // 1. Handle Write Task termination
+                res = &mut write_task => {
+                    match res {
+                        Ok(Err(e)) => return Err(e),
+                        Err(e) => return Err(anyhow!("Write task panicked: {}", e)),
+                        Ok(Ok(())) => return Err(anyhow!("Write task exited unexpectedly")),
                     }
                 }
-                Ok(None) => {
-                    tracing::info!("WebSocket stream ended.");
-                    break;
+
+                // 2. Handle Heartbeat (Active Ping)
+                _ = heartbeat_interval.tick() => {
+                    tracing::debug!(target: "stream", "Sending active heartbeat ping to gateway");
+                    if let Err(_) = write_tx.try_send(Message::Text("{\"msg_type\":\"ping\"}".into())) {
+                        tracing::warn!(target: "stream", "Write buffer full, skipping ping");
+                    }
                 }
-                Err(_) => {
-                    // Timeout occurred
-                    return Err(anyhow!("WebSocket read timeout (no heartbeats from server for 25s). Triggering reconnect."));
+
+                // 3. Handle Incoming Messages (Passive Heartbeat via 30s timeout)
+                next_msg = tokio::time::timeout(Duration::from_secs(30), read.next()) => {
+                    match next_msg {
+                        Ok(Some(msg)) => {
+                            match msg {
+                                Ok(Message::Text(text)) => {
+                                    tracing::info!(target: "stream", "Received raw message: {}", text);
+                                    let root: serde_json::Value = match serde_json::from_str(&text) {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            tracing::error!("Failed to parse incoming WebSocket message as JSON: {}. Raw: {}", e, text);
+                                            continue;
+                                        }
+                                    };
+                                    let msg_type = root.get("msg_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                                    if msg_type == "event" {
+                                        let frame: EventFrame = match serde_json::from_str(&text) {
+                                            Ok(f) => f,
+                                            Err(e) => {
+                                                tracing::error!("Failed to parse EventFrame: {}. Raw: {}", e, text);
+                                                continue;
+                                            }
+                                        };
+                                        
+                                        tracing::info!(target: "sys", msg_id = %frame.msg_id, "Processing event frame");
+                                        
+                                        let (msg_id, success) = {
+                                            let dispatcher_lock = dispatcher.lock().unwrap();
+                                            let s = match dispatcher_lock.dispatch(&frame, &encrypt_key) {
+                                                Ok(s) => s,
+                                                Err(e) => {
+                                                    tracing::error!("Error dispatching event {}: {}", frame.msg_id, e);
+                                                    false
+                                                }
+                                            };
+                                            (frame.msg_id, s)
+                                        };
+
+                                        // Send ACK via channel
+                                        let ack = AckFrame {
+                                            msg_id,
+                                            code: if success { 200 } else { 500 },
+                                            message: if success { "success".into() } else { "failed".into() },
+                                            timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+                                        };
+                                        let _ = write_tx.send(Message::Text(serde_json::to_string(&ack)?.into())).await;
+
+                                    } else if msg_type == "ping" {
+                                        let _ = write_tx.send(Message::Text("{\"msg_type\":\"pong\"}".into())).await;
+                                    } else if !msg_type.is_empty() {
+                                        // Handle top-level system messages (e.g. APP_TICKET)
+                                        let msg_id = root.get("msg_id").or_else(|| root.get("msgId")).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                                        
+                                        let success = {
+                                            let dispatcher_lock = dispatcher.lock().unwrap();
+                                            match dispatcher_lock.dispatch_value(root, None) {
+                                                Ok(s) => s,
+                                                Err(e) => {
+                                                    tracing::error!("Error dispatching raw message type {}: {}", msg_type, e);
+                                                    false
+                                                }
+                                            }
+                                        };
+
+                                        if msg_id != "unknown" {
+                                            let ack = AckFrame {
+                                                msg_id,
+                                                code: if success { 200 } else { 500 },
+                                                message: if success { "success".into() } else { "failed".into() },
+                                                timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+                                            };
+                                            let _ = write_tx.send(Message::Text(serde_json::to_string(&ack)?.into())).await;
+                                        }
+                                    }
+                                }
+                                Ok(Message::Close(_)) => {
+                                    tracing::info!("WebSocket closed by server.");
+                                    break;
+                                }
+                                Err(e) => {
+                                    return Err(anyhow!("WebSocket read error: {}", e));
+                                }
+                                _ => {}
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::info!("WebSocket stream ended.");
+                            break;
+                        }
+                        Err(_) => {
+                            // Timeout occurred
+                            return Err(anyhow!("WebSocket read timeout (no heartbeats from server for 30s). Triggering reconnect."));
+                        }
+                    }
                 }
             }
         }
@@ -320,26 +372,6 @@ impl GatewayClient {
             .ok_or_else(|| anyhow!("Invalid nonce response"))?;
 
         Ok(nonce.to_string())
-    }
-
-    async fn send_ack(
-        write: &mut SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>,
-        msg_id: String,
-        success: bool
-    ) -> Result<()> {
-        let code = if success { 200 } else { 500 };
-        let message = if success { "success" } else { "failed" };
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64;
-
-        let ack = AckFrame {
-            msg_id,
-            code,
-            message: message.to_string(),
-            timestamp,
-        };
-
-        write.send(Message::Text(serde_json::to_string(&ack)?.into())).await
-            .map_err(|e| anyhow!("Failed to send ACK: {}", e))
     }
 
     fn calculate_backoff(attempt: u32, options: &ClientOptions) -> Duration {

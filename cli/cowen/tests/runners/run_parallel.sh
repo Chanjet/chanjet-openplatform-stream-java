@@ -1,9 +1,22 @@
 #!/bin/bash
 # Cowen CLI Parallel Test Runner (Hybrid Mode for 100% Stability)
-# 1. Parallel execute 25 standard suites.
-# 2. Serial execute high-IO/conflict-prone suites (18, 20).
 
-source tests/e2e/scripts/common.sh
+# 确保脚本在 bash 下运行
+if [ -z "$BASH_VERSION" ]; then
+    exec bash "$0" "$@"
+fi
+
+# Load common utilities if available
+[ -f tests/e2e/scripts/common.sh ] && source tests/e2e/scripts/common.sh
+
+# Basic colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
 set +e
 
 echo -e "${BLUE}${BOLD}========================================================${NC}"
@@ -11,7 +24,7 @@ echo -e "${BLUE}${BOLD}   Cowen CLI Hybrid Verification Suite (Stable)         $
 echo -e "${BLUE}${BOLD}========================================================${NC}"
 
 # Configuration
-MAX_PARALLEL=8
+MAX_PARALLEL=16
 TEST_BASE="${TEST_BASE:-target/cowen_tests}"
 RESULTS_DIR="$TEST_BASE/results"
 BASE_PORT_START="${BASE_PORT_START:-16000}"
@@ -21,12 +34,14 @@ final_parallel_cleanup() {
     CLEANUP_DONE="true"
     echo -e "\n${BLUE}🧹 Performing final cleanup...${NC}"
     
-    # Kill all leftover processes from all jobs
-    cleanup_all_workspaces
+    # Try to cleanup workspaces if helper exists
+    if command -v cleanup_all_workspaces >/dev/null 2>&1; then
+        cleanup_all_workspaces
+    fi
     
     rm -rf "$TEST_BASE"/.cowen_test_job_*
     if [ "${FAILED_COUNT:-0}" -eq 0 ] && [ "$KEEP_TEST_ENV" != "true" ]; then
-        rm -rf "$RESULTS_DIR"
+        # rm -rf "$RESULTS_DIR"
         echo -e "${GREEN}✨ All temporary files cleared.${NC}"
     else
         echo -e "${YELLOW}⚠️  Failing logs preserved in $RESULTS_DIR.${NC}"
@@ -40,59 +55,26 @@ echo -e "${BLUE}🧹 Cleaning up previous test artifacts in $TEST_BASE...${NC}"
 rm -rf "$TEST_BASE"
 mkdir -p "$RESULTS_DIR/tmp_scripts"
 
-echo -n "  Building cowen binary..."
-if cargo build; then
+echo -n "  Building cowen binary (release)..."
+BUILD_ARGS="--release"
+BINARY_PATH="target/release/cowen"
+if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
+    BUILD_ARGS="--release --target x86_64-unknown-linux-gnu"
+    BINARY_PATH="target/x86_64-unknown-linux-gnu/release/cowen"
+fi
+
+if cargo build --quiet $BUILD_ARGS 2>/dev/null; then
     echo -e " ${GREEN}[OK]${NC}"
 else
     echo -e " ${RED}[FAILED]${NC}"
     exit 1
 fi
 
-# Group 1: Reliable Parallel Suites
-PARALLEL_SUITES=(
-    "tests/e2e/scripts/case_01_self_built.sh"
-    "tests/e2e/scripts/case_02_store_app.sh"
-    "tests/e2e/scripts/case_03_oauth2.sh"
-    "tests/e2e/scripts/case_04_migration.sh"
-    "tests/e2e/scripts/case_05_proxy_interception.sh"
-    "tests/e2e/scripts/case_06_webhook_forwarding.sh"
-    "tests/e2e/scripts/case_07_token_lifecycle.sh"
-    "tests/e2e/scripts/case_08_concurrent_stress.sh"
-    "tests/e2e/scripts/case_09_dlq_retries.sh"
-    "tests/e2e/scripts/case_10_profile_management.sh"
-    "tests/e2e/scripts/case_11_reconnect_resilience.sh"
-    "tests/e2e/scripts/case_12_daemon_recovery.sh"
-    "tests/e2e/scripts/case_13_distributed_lb.sh"
-    "tests/e2e/scripts/case_14_shared_storage.sh"
-    "tests/e2e/scripts/case_15_store_app_shared_storage.sh"
-    "tests/e2e/scripts/case_16_migration_block.sh"
-    "tests/e2e/scripts/case_17_redis_shared_storage.sh"
-    "tests/e2e/scripts/case_19_ticket_auto_resend.sh"
-    "tests/e2e/scripts/case_21_openapi_whitelist.sh"
-    "tests/e2e/scripts/case_22_dlq_manual_retry.sh"
-    "tests/e2e/scripts/case_24_completion.sh"
-    "tests/e2e/scripts/case_25_status_all.sh"
-    "tests/e2e/scripts/case_26_cluster_idempotency.sh"
-    "tests/e2e/scripts/case_27_hybrid_data_drift.sh"
-    "tests/e2e/scripts/case_28_store_app_multi_org_stress.sh"
-    "tests/e2e/scripts/case_29_sidecar_startup.sh"
-    "tests/e2e/scripts/case_18_redis_fault_tolerance.sh"
-    "tests/e2e/scripts/case_20_oauth2_refresh.sh"
-    "tests/e2e/scripts/case_30_sidecar_scaling_stress.sh"
-    "tests/e2e/scripts/case_31_sidecar_self_built_stress.sh"
-    "tests/e2e/scripts/case_32_mysql_shared_storage.sh"
-    "tests/e2e/scripts/case_33_postgres_shared_storage.sh"
-    "tests/e2e/scripts/case_34_exclusive_connection.sh"
-    "tests/e2e/scripts/case_35_daemon_recovery_enhanced.sh"
-    "tests/e2e/scripts/case_37_store_app_activation.sh"
-    "tests/e2e/scripts/case_40_init_cleanup.sh"
-    "tests/e2e/scripts/case_41_init_deduplication.sh"
-    "tests/e2e/scripts/case_42_profile_rename_comprehensive.sh"
-)
+export COWEN_BIN="$(pwd)/$BINARY_PATH"
 
-# Group 2: Sensitive Serial Suites (Empty for now, all moved to parallel)
-SERIAL_SUITES=(
-)
+# Collect suites (All suites are parallelized)
+PARALLEL_SUITES=($(ls tests/e2e/scripts/case_*.sh 2>/dev/null))
+SEQUENTIAL_SUITES=()
 
 run_job() {
     local suite=$1
@@ -120,9 +102,9 @@ EOF
     
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
-        echo -e "  [JOB $job_id] ${GREEN}✅ $(basename $suite) PASSED${NC}"
+        echo -e "  [JOB $job_id] ${GREEN}✅ $(basename "$suite") PASSED${NC}"
     else
-        echo -e "  [JOB $job_id] ${RED}❌ $(basename $suite) FAILED${NC}"
+        echo -e "  [JOB $job_id] ${RED}❌ $(basename "$suite") FAILED${NC}"
     fi
     return $exit_code
 }
@@ -130,53 +112,73 @@ EOF
 # --- Phase 1: Parallel ---
 job_id=0
 FAILED_COUNT=0
+TOTAL_PARALLEL=${#PARALLEL_SUITES[@]}
 
-if [ ${#PARALLEL_SUITES[@]} -gt 0 ]; then
-    echo -e "\n${BOLD}Phase 1: Running Parallel Suites (${#PARALLEL_SUITES[@]})${NC}"
+if [ "$TOTAL_PARALLEL" -gt 0 ]; then
+    echo -e "\n${BOLD}Phase 1: Running Parallel Suites ($TOTAL_PARALLEL)${NC}"
     for suite in "${PARALLEL_SUITES[@]}"; do
-    base_port=$((BASE_PORT_START + job_id * 50))
-    tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$job_id"
-    cp "$suite" "$tmp_suite"
-    
-    for p in 29101 9909 9908 9903 9902 9901 9128 9127 9126 9122 9112 9111 9101 9098 9097 9096 9095 9094 9093 9092 9091 9299 8080 6387 6382 6381 6380 6379; do
-        new_p=$((base_port + (p % 100)))
-        [ $p -eq 9299 ] && new_p=$base_port
-        perl -pi -e "s/\b${p}\b/${new_p}/g" "$tmp_suite"
-    done
-    
-    # 路径隔离：将所有 .cowen_test_ 替换为带有 Job ID 的唯一路径
-    perl -pi -e "s/\.cowen_test_/.cowen_test_job_${job_id}_/g" "$tmp_suite"
-    
-    run_job "$tmp_suite" "$job_id" "$base_port" &
-    job_id=$((job_id + 1))
-    [ $((job_id % MAX_PARALLEL)) -eq 0 ] && wait
+        base_port=$((BASE_PORT_START + job_id * 50))
+        tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$job_id"
+        cp "$suite" "$tmp_suite"
+        
+        for p in 29101 9909 9908 9903 9902 9901 9128 9127 9126 9122 9112 9111 9101 9098 9097 9096 9095 9094 9093 9092 9091 9299 8080 6387 6382 6381 6380 6379; do
+            new_p=$((base_port + (p % 100)))
+            [ "$p" -eq 9299 ] && new_p=$base_port
+            perl -pi -e "s/\b${p}\b/${new_p}/g" "$tmp_suite"
+        done
+        
+        perl -pi -e "s/\.cowen_test_/.cowen_test_job_${job_id}_/g" "$tmp_suite"
+        
+        run_job "$tmp_suite" "$job_id" "$base_port" &
+        job_id=$((job_id + 1))
+        
+        # 🚀 Fix: Staggered start to reduce DB contention
+        sleep 0.2
+        
+        [ $((job_id % MAX_PARALLEL)) -eq 0 ] && wait
     done
 fi
 wait
 
-# --- Phase 2: Serial ---
-if [ ${#SERIAL_SUITES[@]} -gt 0 ]; then
-    echo -e "\n${BOLD}Phase 2: Running Serial Suites (${#SERIAL_SUITES[@]})${NC}"
-    for suite in "${SERIAL_SUITES[@]}"; do
-        run_job "$suite" "$job_id" "19999"
+# --- Phase 2: Sequential (Heavy DB Suites) ---
+TOTAL_SEQ=${#SEQUENTIAL_SUITES[@]}
+if [ "$TOTAL_SEQ" -gt 0 ]; then
+    echo -e "\n${BOLD}Phase 2: Running Sequential Suites ($TOTAL_SEQ)${NC}"
+    for suite in "${SEQUENTIAL_SUITES[@]}"; do
+        base_port=$((BASE_PORT_START + job_id * 50))
+        tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$job_id"
+        cp "$suite" "$tmp_suite"
+        
+        # Still remap ports to avoid collisions with any leftover background tasks
+        for p in 29101 9909 9908 9903 9902 9901 9128 9127 9126 9122 9112 9111 9101 9098 9097 9096 9095 9094 9093 9092 9091 9299 8080 6387 6382 6381 6380 6379; do
+            new_p=$((base_port + (p % 100)))
+            [ "$p" -eq 9299 ] && new_p=$base_port
+            perl -pi -e "s/\b${p}\b/${new_p}/g" "$tmp_suite"
+        done
+        
+        perl -pi -e "s/\.cowen_test_/.cowen_test_job_${job_id}_/g" "$tmp_suite"
+        
+        run_job "$tmp_suite" "$job_id" "$base_port"
         job_id=$((job_id + 1))
     done
 fi
 
 # Summary Analysis
 echo -e "\n${BLUE}${BOLD}========================================================${NC}"
-for log in "$RESULTS_DIR"/job_*.log; do
-    [ ! -f "$log" ] && continue
+# Use find to avoid globbing issues if no files exist
+while IFS= read -r log; do
+    [ -z "$log" ] && continue
+    # Clean ANSI codes and check for success keywords
     if perl -pe 's/\e\[[0-9;]*m//g' "$log" | grep -Eiq "Passed!|Successful!"; then
         continue
     else
         FAILED_COUNT=$((FAILED_COUNT + 1))
         echo -e "  ${RED}FAILED:${NC} Job log $log"
-        tail -n 10 "$log" | sed 's/^/      /'
+        tail -n 5 "$log" | sed 's/^/      /'
     fi
-done
+done < <(find "$RESULTS_DIR" -name "job_*.log" 2>/dev/null)
 
-if [ $FAILED_COUNT -eq 0 ]; then
+if [ "$FAILED_COUNT" -eq 0 ]; then
     echo -e "${GREEN}${BOLD}✅ ALL SUITES PASSED!${NC}"
     exit 0
 else

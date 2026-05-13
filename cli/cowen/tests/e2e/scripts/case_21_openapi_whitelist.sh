@@ -25,7 +25,7 @@ assert_pass "SelfBuilt initialized"
 # 2. Test Whitelisted Path
 echo -e "${BOLD}2. Test Whitelisted Path (/v1/app/data/get)${NC}"
 # Use a path that IS in the mock server's spec
-"$COWEN_BIN" api post /v1/app/data/get --data '{"id": 1}' --profile main > "$COWEN_HOME/api_out_1.json" 2>&1
+"$COWEN_BIN" api POST /v1/app/data/get --data '{"id": 1}' --profile main > "$COWEN_HOME/api_out_1.json" 2>&1
 if grep -q "mock_at_sb_" "$COWEN_HOME/api_out_1.json" || grep -q "success" "$COWEN_HOME/api_out_1.json"; then
     echo -e "   ${GREEN}✓${NC} Whitelisted path allowed"
 else
@@ -37,7 +37,7 @@ fi
 # 3. Test Non-Whitelisted Path
 echo -e "${BOLD}3. Test Non-Whitelisted Path (/v1/evil/hacker/path)${NC}"
 # Use a path that is NOT in the mock server's spec
-"$COWEN_BIN" api post /v1/evil/hacker/path --data '{"cmd": "rm -rf /"}' --profile main > "$COWEN_HOME/api_out_2.json" 2>&1 || true
+"$COWEN_BIN" api POST /v1/evil/hacker/path --data '{"cmd": "rm -rf /"}' --profile main > "$COWEN_HOME/api_out_2.json" 2>&1 || true
 
 if grep -i "not in whitelist" "$COWEN_HOME/api_out_2.json" || grep -i "blocked" "$COWEN_HOME/api_out_2.json" || grep -i "Forbidden" "$COWEN_HOME/api_out_2.json" || grep -i "not found in OpenAPI spec" "$COWEN_HOME/api_out_2.json"; then
     echo -e "   ${GREEN}✓${NC} Non-whitelisted path correctly blocked"
