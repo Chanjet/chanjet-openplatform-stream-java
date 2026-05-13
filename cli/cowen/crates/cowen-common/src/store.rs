@@ -26,6 +26,7 @@ pub trait Store: Send + Sync {
     async fn delete_access_token(&self, profile: &str) -> CowenResult<()>;
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token>;
     async fn save_app_access_token(&self, app_key: &str, token: Token) -> CowenResult<()>;
+    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()>;
 
     // --- Ticket Domain ---
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket>;

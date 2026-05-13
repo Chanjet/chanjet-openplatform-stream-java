@@ -26,6 +26,8 @@ pub trait TokenDomain: Send + Sync {
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token>;
     /// 保存应用级别的 AccessToken
     async fn save_app_access_token(&self, app_key: &str, token: Token) -> CowenResult<()>;
+    /// 删除应用级别的 AccessToken
+    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()>;
 }
 
 #[async_trait]

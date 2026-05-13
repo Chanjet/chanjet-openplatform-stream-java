@@ -98,6 +98,10 @@ impl cowen_common::store::Store for HybridStore {
         let _ = self.cache.save_app_access_token(app_key, t).await;
         Ok(())
     }
+    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
+        let _ = self.cache.delete_app_access_token(app_key).await;
+        self.persistence.delete_app_access_token(app_key).await
+    }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<cowen_common::models::Ticket> {
         match self.cache.get_app_ticket(app_key).await {

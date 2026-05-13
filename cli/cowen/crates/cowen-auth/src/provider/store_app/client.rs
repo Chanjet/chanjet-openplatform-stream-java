@@ -59,7 +59,8 @@ pub(crate) async fn intercept_exchange(
     );
 
     // Forward to platform
-    let headers = reqwest::header::HeaderMap::new();
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
     let resp = http_sender.post_form(&url, headers, body_json).await?;
 
     if !resp.is_success() {
@@ -420,7 +421,9 @@ pub(crate) async fn request_token(
     body: serde_json::Value,
     cfg: &Config,
 ) -> CowenResult<cowen_common::models::Token> {
-    let headers = reqwest::header::HeaderMap::new();
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+    
     let resp = http_sender.post_form(url, headers, body).await?;
 
     if !resp.is_success() {

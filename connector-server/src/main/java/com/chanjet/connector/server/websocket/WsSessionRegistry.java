@@ -48,13 +48,14 @@ public class WsSessionRegistry {
         }
     }
 
-    public void unregister(String clientId, WebSocketSession sessionToClose) {
+    public boolean unregister(String clientId, WebSocketSession sessionToClose) {
         // 仅当当前存储的 Session 和要关闭的 Session 是同一个实例时才移除。
         // 这防止了“旧连接关闭事件”意外注销掉刚刚建立的“新连接”。
         boolean removed = sessions.remove(clientId, sessionToClose);
         if (removed) {
             lastActiveTimes.remove(clientId);
         }
+        return removed;
     }
 
     // 兼容遗留的强制清理调用（如心跳超时）

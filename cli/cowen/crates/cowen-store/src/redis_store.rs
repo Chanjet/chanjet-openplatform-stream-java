@@ -141,6 +141,9 @@ impl Store for RedisStore {
         let json = serde_json::to_string(&token)?;
         self.raw_set(&format!("app:{}", app_key), "tok_v2:app_access", &json, None).await
     }
+    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
+        self.raw_del(&format!("app:{}:tok_v2:app_access", app_key)).await
+    }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {
         let json = self.raw_get(&format!("app:{}", app_key), "tic:v1").await?;

@@ -484,13 +484,17 @@ impl AuthProvider for StoreAppProvider {
         headers.insert("appKey", config.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
     }
 
-    async fn on_logout(&self, profile: &str, _config: &Config) -> CowenResult<()> {
+    async fn on_logout(&self, profile: &str, config: &Config) -> CowenResult<()> {
         let vault = self.pool.as_vault();
         let _ = vault.delete_secret(profile, "oauth2_token_pair").await;
         let _ = vault.delete_config(profile, "oauth2_revoked").await;
         let _ = vault.delete_config(profile, "last_refresh_error").await;
-        let _ = vault.delete_secret(profile, "app_ticket").await;
-        let _ = vault.delete_config(profile, "app_ticket_created").await;
+        
+        let app_key = config.app_key.trim();
+        if !app_key.is_empty() {
+             let _ = vault.delete_app_access_token(app_key).await;
+             let _ = vault.delete_app_ticket(app_key).await;
+        }
         Ok(())
     }
 

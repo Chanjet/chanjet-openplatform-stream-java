@@ -450,16 +450,12 @@ pub async fn ensure_daemon_running(
 }
 
 pub async fn enforce_daemon_version_sync(
-    active_profile: &str,
+    _active_profile: &str,
     cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
 ) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
     for p in profiles {
-        // Skip active profile as it will be checked/started by ensure_daemon_running anyway
-        if p == active_profile {
-            continue;
-        }
         if let Some(info) = cowen_common::status::get_active_daemon_info(&p) {
             let mut outdated = false;
             let daemon_bid = info.build_id.as_deref().unwrap_or("N/A");

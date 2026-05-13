@@ -54,10 +54,7 @@ impl TokenPool for VaultTokenPool {
     }
 
     async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
-        // TokenDomain currently doesn't have delete_app_access_token, we can use the generic delete if needed 
-        // or add it to the trait. For now, we'll use delete_access_token with app profile.
-        let profile = format!("app:{}", app_key);
-        self.v.delete_access_token(&profile).await
+        self.v.delete_app_access_token(app_key).await
     }
 
     async fn get_access_token(&self, profile: &str) -> CowenResult<cowen_common::models::Token> {

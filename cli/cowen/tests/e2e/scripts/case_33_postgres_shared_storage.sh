@@ -16,7 +16,8 @@ if psql -d postgres -c "select 1" &> /dev/null; then
     PG_CMD="psql -d postgres"
 else
     PG_BASE_URL="postgres://postgres:password@127.0.0.1:$PG_PORT"
-    PG_CMD="PGPASSWORD=password psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres"
+    export PGPASSWORD=password
+    PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres"
 fi
 
 PG_URL="$PG_BASE_URL/$DB_NAME?sslmode=disable"

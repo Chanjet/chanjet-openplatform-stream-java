@@ -313,7 +313,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
-    if cmd::completion::is_auto_install_needed() {
+    if std::env::var("COWEN_SKIP_COMPLETION_INSTALL").is_err() && cmd::completion::is_auto_install_needed() {
         let _ = cmd::completion::install_completion(None);
     }
 
@@ -326,9 +326,9 @@ pub async fn run(cli: Cli) -> Result<()> {
     let skip_recovery = matches!(&cli.command, 
         Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. } |
         Commands::Config | Commands::Profile { .. } | Commands::Dlq { .. } |
-        Commands::Status { .. } | Commands::System { action: SystemCommands::Status { .. } }
-    ) || matches!(&cli.command, Commands::Auth { action: AuthCommands::Login { finalize: Some(_), .. } });
-
+        Commands::Status { .. } | Commands::System { action: SystemCommands::Status { .. } } |
+        Commands::Auth { .. }
+    ) || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     if !skip_recovery {
         // 🚀 UNCONDITIONAL VERSION SYNC: Always ensure background processes match the current binary.
         // Freshness is prioritized over command context.

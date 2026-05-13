@@ -228,6 +228,14 @@ impl SqlDriver for MssqlDriver {
         Ok(())
     }
 
+    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
+        let mut conn = self.connect().await?;
+        let key = format!("app_token:{}", app_key);
+        conn.execute("DELETE FROM cowen_token WHERE profile = 'global' AND key = @p1", &[&key]).await
+            .map_err(|e| CowenError::Store(format!("MSSQL execute failed: {}", e)))?;
+        Ok(())
+    }
+
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {
         let mut conn = self.connect().await?;
         let key = format!("app_ticket:{}", app_key);

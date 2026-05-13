@@ -60,13 +60,18 @@ impl SelfBuiltProvider {
 
         // 1. Build Request
         let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/auth/selfBuiltApp/generateToken"));
-        let headers = HeaderMap::new();
+        let mut headers = HeaderMap::new();
+        headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+        headers.insert("appSecret", cfg.app_secret.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
         
         let mut body_map = serde_json::Map::new();
-        body_map.insert("appKey".to_string(), serde_json::Value::String(cfg.app_key.clone()));
-        body_map.insert("appSecret".to_string(), serde_json::Value::String(cfg.app_secret.clone()));
         
-        // Optional AppTicket if available
+        // 🚀 OCP: Include certificate if provided (Required for some platform versions)
+        if !cfg.certificate.trim().is_empty() {
+            body_map.insert("certificate".to_string(), serde_json::Value::String(cfg.certificate.clone()));
+        }
+
+        // Optional AppTicket (May be required by some platform versions, but optional for others/mocks)
         if let Ok(ticket) = self.pool.as_vault().get_app_ticket(&cfg.app_key).await {
             body_map.insert("appTicket".to_string(), serde_json::Value::String(ticket.value));
         }
@@ -116,11 +121,11 @@ impl SelfBuiltProvider {
         }
 
         let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/auth/appTicket/resend"));
-        let headers = HeaderMap::new();
+        let mut headers = HeaderMap::new();
+        headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+        headers.insert("appSecret", cfg.app_secret.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
         
         let mut body_map = serde_json::Map::new();
-        body_map.insert("appKey".to_string(), serde_json::Value::String(cfg.app_key.clone()));
-        body_map.insert("appSecret".to_string(), serde_json::Value::String(cfg.app_secret.clone()));
         if force {
              body_map.insert("force".to_string(), serde_json::Value::Bool(true));
         }
@@ -147,6 +152,16 @@ impl SelfBuiltProvider {
 
 #[async_trait]
 impl AuthProvider for SelfBuiltProvider {
+    async fn on_logout(&self, _profile: &str, config: &Config) -> CowenResult<()> {
+        let vault = self.pool.as_vault();
+        let app_key = config.app_key.trim();
+        if !app_key.is_empty() {
+            let _ = vault.delete_app_access_token(app_key).await;
+            let _ = vault.delete_app_ticket(app_key).await;
+        }
+        Ok(())
+    }
+
     async fn get_token(&self, profile: &str, config: &Config, _headers: &HeaderMap) -> CowenResult<cowen_common::models::Token> {
         // 1. Try Cache
         if let Ok(token) = self.pool.get_app_access_token(&config.app_key).await {

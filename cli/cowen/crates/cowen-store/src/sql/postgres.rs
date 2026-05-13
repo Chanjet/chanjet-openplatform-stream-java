@@ -165,6 +165,14 @@ impl SqlDriver for PostgresDriver {
         Ok(())
     }
 
+    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_app_token WHERE app_key = $1")
+            .bind(app_key)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+        Ok(())
+    }
+
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {
         let row: (String, DateTime<Utc>) = sqlx::query_as("SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = $1")
             .bind(app_key)

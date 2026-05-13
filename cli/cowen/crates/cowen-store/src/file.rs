@@ -100,6 +100,11 @@ impl cowen_common::store::Store for FileStore {
         let json = serde_json::to_string(&t)?;
         Ok(fs::write(self.get_path(&format!("app:{}", app_key), "tok_v2", "app_access", true), json)?)
     }
+    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
+        let path = self.get_path(&format!("app:{}", app_key), "tok_v2", "app_access", false);
+        if path.exists() { fs::remove_file(path)?; }
+        Ok(())
+    }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<cowen_common::models::Ticket> {
         let json = fs::read_to_string(self.get_path(&format!("app:{}", app_key), "tic", "v1", false))
@@ -464,6 +469,9 @@ impl cowen_common::store::Store for MonolithicSealStore {
     async fn save_app_access_token(&self, app_key: &str, t: cowen_common::models::Token) -> CowenResult<()> {
         let json = serde_json::to_string(&t)?;
         self.set_config(&format!("app:{}", app_key), "app_access_token_v2", &json).await
+    }
+    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
+        self.delete_config(&format!("app:{}", app_key), "app_access_token_v2").await
     }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<cowen_common::models::Ticket> {

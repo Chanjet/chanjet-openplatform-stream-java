@@ -79,6 +79,7 @@ impl OAuth2Provider {
         let body = serde_json::json!({
             "grant_type": "refresh_token",
             "client_id": crate::models::BUILTIN_CLIENT_ID,
+            "appKey": crate::models::BUILTIN_CLIENT_ID,
             "refresh_token": refresh_token,
         });
 
@@ -90,9 +91,11 @@ impl OAuth2Provider {
         profile: &str,
         url: &str,
         body: serde_json::Value,
-        _cfg: &Config,
+        cfg: &Config,
     ) -> CowenResult<cowen_common::models::Token> {
-        let headers = reqwest::header::HeaderMap::new();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+        
         let resp = self.http_sender.post_form(url, headers, body).await?;
 
         if !resp.is_success() {

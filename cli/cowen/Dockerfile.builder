@@ -1,17 +1,18 @@
 # syntax=docker/dockerfile:1
-FROM docker.io/library/rust:1.81-bullseye
+FROM ubuntu:24.04
 
-# 替换为大陆镜像源 (清华大学 TUNA) 以加速下载
-# Bullseye 使用传统的 sources.list 格式
-RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list 2>/dev/null || true; \
-    sed -i 's/security.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list 2>/dev/null || true
+# 替换为内地的 Ubuntu 镜像源 (可选)
+# RUN sed -i 's/archive.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list && \
+#     sed -i 's/security.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
 
-# 使用缓存挂载加速 apt 安装
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y \
-    g++-x86-64-linux-gnu \
-    libc6-amd64-cross \
+# 安装编译依赖
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    clang \
+    pkg-config \
+    libssl-dev \
+    libatomic1 \
     python3 \
     python3-aiohttp \
     sqlite3 \
@@ -21,7 +22,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     curl \
     procps \
     lsof \
-    perl
+    perl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
-# 独立层级：添加编译目标
+# 安装 Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# 添加编译目标
 RUN rustup target add x86_64-unknown-linux-gnu

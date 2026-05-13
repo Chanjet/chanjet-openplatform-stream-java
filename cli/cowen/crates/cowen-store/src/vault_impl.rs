@@ -31,6 +31,7 @@ impl TokenDomain for StoreVault {
     async fn delete_access_token(&self, p: &str) -> CowenResult<()> { self.sensitive.delete_access_token(p).await }
     async fn get_app_access_token(&self, ak: &str) -> CowenResult<Token> { self.sensitive.get_app_access_token(ak).await }
     async fn save_app_access_token(&self, ak: &str, t: Token) -> CowenResult<()> { self.sensitive.save_app_access_token(ak, t).await }
+    async fn delete_app_access_token(&self, ak: &str) -> CowenResult<()> { self.sensitive.delete_app_access_token(ak).await }
 }
 
 #[async_trait]

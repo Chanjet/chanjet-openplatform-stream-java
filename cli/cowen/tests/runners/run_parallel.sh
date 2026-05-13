@@ -41,7 +41,7 @@ rm -rf "$TEST_BASE"
 mkdir -p "$RESULTS_DIR/tmp_scripts"
 
 echo -n "  Building cowen binary..."
-if cargo build --quiet 2>/dev/null; then
+if cargo build; then
     echo -e " ${GREEN}[OK]${NC}"
 else
     echo -e " ${RED}[FAILED]${NC}"
@@ -87,6 +87,7 @@ PARALLEL_SUITES=(
     "tests/e2e/scripts/case_37_store_app_activation.sh"
     "tests/e2e/scripts/case_40_init_cleanup.sh"
     "tests/e2e/scripts/case_41_init_deduplication.sh"
+    "tests/e2e/scripts/case_42_profile_rename_comprehensive.sh"
 )
 
 # Group 2: Sensitive Serial Suites (Empty for now, all moved to parallel)
