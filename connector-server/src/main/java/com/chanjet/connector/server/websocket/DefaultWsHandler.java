@@ -4,6 +4,9 @@ import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.core.state.ToleranceManager;
 import com.chanjet.connector.server.config.NodeIdResolver;
+import com.chanjet.connector.common.protocol.AckFrame;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -26,17 +29,23 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     private final IRouteStore routeStore;
     private final ToleranceManager toleranceManager;
     private final IP2PClient p2pClient;
+    private final PushAuditLogger auditLogger;
+    private final ObjectMapper objectMapper;
 
     public DefaultWsHandler(NodeIdResolver nodeIdResolver,
             WsSessionRegistry sessionRegistry,
             IRouteStore routeStore,
             ToleranceManager toleranceManager,
-            IP2PClient p2pClient) {
+            IP2PClient p2pClient,
+            PushAuditLogger auditLogger,
+            ObjectMapper objectMapper) {
         this.nodeId = nodeIdResolver.getResolvedNodeId();
         this.sessionRegistry = sessionRegistry;
         this.routeStore = routeStore;
         this.toleranceManager = toleranceManager;
         this.p2pClient = p2pClient;
+        this.auditLogger = auditLogger;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -139,6 +148,19 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             if (appKey != null) {
                 routeStore.add(appKey, nodeId, clientId);
                 toleranceManager.handleReconnect(appKey);
+            }
+
+            // 🚀 Parse Application ACK
+            String payload = message.getPayload();
+            try {
+                JsonNode root = objectMapper.readTree(payload);
+                if (root.has("code") && (root.has("msg_id") || root.has("msgId"))) {
+                    AckFrame ack = objectMapper.treeToValue(root, AckFrame.class);
+                    auditLogger.logAck(clientId, ack);
+                }
+            } catch (Exception e) {
+                // Ignore non-ACK messages or malformed JSON
+                log.trace("Received non-ACK or malformed message from client {}: {}", clientId, payload);
             }
         }
     }

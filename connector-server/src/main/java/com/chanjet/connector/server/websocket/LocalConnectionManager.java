@@ -20,10 +20,12 @@ public class LocalConnectionManager implements IConnectionManager {
     private static final Logger log = LoggerFactory.getLogger(LocalConnectionManager.class);
     private final WsSessionRegistry sessionRegistry;
     private final ObjectMapper objectMapper;
+    private final PushAuditLogger auditLogger;
 
-    public LocalConnectionManager(WsSessionRegistry sessionRegistry, ObjectMapper objectMapper) {
+    public LocalConnectionManager(WsSessionRegistry sessionRegistry, ObjectMapper objectMapper, PushAuditLogger auditLogger) {
         this.sessionRegistry = sessionRegistry;
         this.objectMapper = objectMapper;
+        this.auditLogger = auditLogger;
     }
 
     @Override
@@ -33,7 +35,7 @@ public class LocalConnectionManager implements IConnectionManager {
                     try {
                         // 确保下发的消息带有 msg_type 标识
                         EventFrame fullFrame = new EventFrame(
-                                "event",
+                                frame.msgType() != null ? frame.msgType() : "event",
                                 frame.msgId(),
                                 frame.traceId(),
                                 frame.appKey(),
@@ -44,12 +46,17 @@ public class LocalConnectionManager implements IConnectionManager {
                         );
                         String json = objectMapper.writeValueAsString(fullFrame);
                         session.sendMessage(new TextMessage(json));
+                        auditLogger.logPushResult(frame.msgId(), clientId, true, null);
                         return true;
                     } catch (IOException e) {
                         log.error("Failed to push message to client {}: {}", clientId, e.getMessage());
+                        auditLogger.logPushResult(frame.msgId(), clientId, false, e.getMessage());
                         return false;
                     }
-                }).orElse(false);
+                }).orElseGet(() -> {
+                    auditLogger.logPushResult(frame.msgId(), clientId, false, "Client not found in session registry");
+                    return false;
+                });
     }
 
     @Override

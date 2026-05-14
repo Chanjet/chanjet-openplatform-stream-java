@@ -49,9 +49,12 @@ public class MessageDispatcher {
     public void dispatch(EventFrame frame) {
         AcquisitionResult result = resilienceManager.tryAcquire(frame.appKey());
         if (result != AcquisitionResult.ALLOWED) {
-            log.warn("Request throttled for AppKey: {}", frame.appKey());
+            log.warn("[THROTTLED] MsgId: {}, AppKey: {}", frame.msgId(), frame.appKey());
             return;
         }
+
+        log.info("[DISPATCH_START] Node: {}, MsgId: {}, AppKey: {}, TraceId: {}", 
+            nodeId, frame.msgId(), frame.appKey(), frame.traceId());
 
         boolean success = false;
         try {
@@ -67,7 +70,7 @@ public class MessageDispatcher {
         // 1. 本地优先策略
         List<String> localClients = connectionManager.getClientsByAppKey(appKey);
         if (localClients != null && !localClients.isEmpty()) {
-            log.debug("Local-First: Found {} clients on current node {}. Pushing locally.", localClients.size(), nodeId);
+            log.debug("Local-First: Found {} clients on current node {}. Pushing locally. MsgId: {}", localClients.size(), nodeId, frame.msgId());
             boolean anySuccess = false;
             for (String clientId : localClients) {
                 if (connectionManager.push(clientId, frame)) {
@@ -79,20 +82,20 @@ public class MessageDispatcher {
                 return true;
             }
             // 如果本地所有连接都推送失败（可能是僵尸连接），则 fallback 到集群查找或失败处理
-            log.warn("Local-First: All {} local clients failed to receive push for AppKey [{}].", localClients.size(), appKey);
+            log.warn("Local-First: All {} local clients failed to receive push for AppKey [{}]. MsgId: {}", localClients.size(), appKey, frame.msgId());
         }
 
         // 2. 防环路检查：如果该帧已经经过转发且本地没有连接，则不再继续转发
         String hopCountStr = frame.headers().getOrDefault("X-GW-Hop-Count", "0");
         if (Integer.parseInt(hopCountStr) > 0) {
-            log.warn("P2P Loop Prevention: Message [{}] already hopped, local push failed. Dropping.", frame.msgId());
+            log.warn("P2P Loop Prevention: Message [{}] already hopped, local push failed. Dropping. MsgId: {}", frame.msgId(), frame.msgId());
             return false;
         }
 
         // 3. 集群重试逻辑
         Set<String> availableRoutes = routeStore.getNodes(appKey);
         if (availableRoutes == null || availableRoutes.isEmpty()) {
-            log.info("No routes found in cluster for AppKey: {}", appKey);
+            log.warn("[DISPATCH_ERROR] No online clients/routes found for AppKey: {}. MsgId: {}", appKey, frame.msgId());
             toleranceManager.handleFailure(appKey, System.currentTimeMillis());
             throw new NoOnlineClientException(appKey);
         }
@@ -127,16 +130,17 @@ public class MessageDispatcher {
                     targetClientId, frame.headers(), frame.payload(), frame.timestamp()
             );
 
-            log.info("Dispatching attempt {}: [{}] -> remote node [{}]", i + 1, frame.msgId(), targetNodeId);
+            log.info("Dispatching attempt {}: MsgId: [{}] -> remote node [{}]", i + 1, frame.msgId(), targetNodeId);
             if (p2pClient.forward(targetNodeId, targetedFrame)) {
+                log.info("[FORWARD_SUCCESS] MsgId: {}, TargetNode: {}", frame.msgId(), targetNodeId);
                 toleranceManager.handleReconnect(appKey);
                 return true; // 转发成功，流程结束
             }
-            log.warn("Cluster-Retry: Failed to forward message to target node [{}] for AppKey [{}].", targetNodeId, appKey);
+            log.warn("[FORWARD_FAILED] MsgId: {}, TargetNode: {}", frame.msgId(), targetNodeId);
             log.warn("P2P attempt {} failed for node {}, trying next...", i + 1, targetNodeId);
         }
 
-        log.error("All P2P attempts failed for message [{}] under AppKey [{}]", frame.msgId(), appKey);
+        log.error("[DISPATCH_FAILED] All P2P attempts failed for message [{}] under AppKey [{}]", frame.msgId(), appKey);
         toleranceManager.handleFailure(appKey, System.currentTimeMillis());
         return false;
     }
