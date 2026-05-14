@@ -389,8 +389,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Ok(cfg) => cfg,
         Err(e) if e.to_string().contains("SKIPPED:") => return Err(anyhow::anyhow!(e)),
         Err(e) => {
-            if cfg_mgr.exists(&active_profile).await {
-                return Err(anyhow::anyhow!("Failed to load existing profile '{}': {}", active_profile, e));
+            let is_lifecycle_cmd = matches!(&cli.command, Commands::Reset | Commands::Init { .. } | Commands::Profile { .. });
+            if cfg_mgr.exists(&active_profile).await && !is_lifecycle_cmd {
+                return Err(anyhow::anyhow!("Failed to load existing profile '{}': {}. Try 'cowen reset -p {}' if the config is corrupted.", active_profile, e, active_profile));
             }
             cowen_common::Config::default_with_profile(&active_profile)
         }

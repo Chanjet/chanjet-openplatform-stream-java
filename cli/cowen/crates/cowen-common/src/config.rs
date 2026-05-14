@@ -48,6 +48,7 @@ pub struct Config {
     pub openapi_url: String,
     pub stream_url: String,
     pub webhook_target: String,
+    #[serde(default = "default_log")]
     pub log: LogConfig,
     #[serde(default = "default_true")]
     pub telemetry_enabled: bool,
@@ -74,8 +75,18 @@ pub struct Config {
 fn default_true() -> bool { true }
 fn default_8080() -> u16 { 8080 }
 
+fn default_log() -> LogConfig {
+    LogConfig {
+        level: "info".to_string(),
+        rotation: default_rotation(),
+        max_size_mb: default_max_size(),
+        max_files: default_max_files(),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogConfig {
+    #[serde(default = "default_log_level")]
     pub level: String,
     #[serde(default = "default_rotation")]
     pub rotation: String,
@@ -86,6 +97,7 @@ pub struct LogConfig {
 }
 
 fn default_rotation() -> String { "daily".to_string() }
+fn default_log_level() -> String { "info".to_string() }
 fn default_max_size() -> u64 { 100 }
 fn default_max_files() -> usize { 7 }
 
