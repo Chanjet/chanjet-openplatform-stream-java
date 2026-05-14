@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
@@ -31,6 +32,7 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     private final IP2PClient p2pClient;
     private final PushAuditLogger auditLogger;
     private final ObjectMapper objectMapper;
+    private final EvictionArbitrator evictionArbitrator;
 
     public DefaultWsHandler(NodeIdResolver nodeIdResolver,
             WsSessionRegistry sessionRegistry,
@@ -38,7 +40,8 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             ToleranceManager toleranceManager,
             IP2PClient p2pClient,
             PushAuditLogger auditLogger,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            EvictionArbitrator evictionArbitrator) {
         this.nodeId = nodeIdResolver.getResolvedNodeId();
         this.sessionRegistry = sessionRegistry;
         this.routeStore = routeStore;
@@ -46,65 +49,30 @@ public class DefaultWsHandler extends TextWebSocketHandler {
         this.p2pClient = p2pClient;
         this.auditLogger = auditLogger;
         this.objectMapper = objectMapper;
+        this.evictionArbitrator = evictionArbitrator;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
+        String clientId = (String) session.getAttributes().get("clientId");
+        MDC.put("traceId", "CONN-" + clientId);
+        try {
+            doAfterConnectionEstablished(session);
+        } finally {
+            MDC.remove("traceId");
+        }
+    }
+
+    private void doAfterConnectionEstablished(WebSocketSession session) {
         log.info("Handshake Attributes: {}", session.getAttributes());
         String clientId = (String) session.getAttributes().get("clientId");
         String appKey = (String) session.getAttributes().get("appKey");
 
         if (clientId != null) {
-            // 0. 抢占式下线探测 (Proactive Eviction)
-            // 无论 appKey 是否存在，clientId 必须唯一
-            // 遍历 Redis 中的该 clientId（如果存在某种全局映射）
-            // 目前 routeStore 是基于 appKey 组织的，为了解决没有 appKey 也能连接的问题，
-            // 我们需要确保 clientId 的唯一性。
-
+            // 0. 执行原子仲裁驱逐 (分布式锁保护)
             if (appKey != null) {
-                Boolean exclusive = (Boolean) session.getAttributes().get("exclusive");
-                Set<String> existingRoutes = routeStore.getNodes(appKey);
-                if (existingRoutes != null) {
-                    for (String route : existingRoutes) {
-                        int lastColonIndex = route.lastIndexOf(":");
-                        if (lastColonIndex == -1)
-                            continue;
-
-                        String oldNodeId = route.substring(0, lastColonIndex);
-                        String oldClientId = route.substring(lastColonIndex + 1);
-
-                        // 情况 A：同一 ClientId 在不同节点（抢占式下线探测）
-                        if (oldClientId.equals(clientId)) {
-                            if (!oldNodeId.equals(this.nodeId)) {
-                                log.info(
-                                        "Proactive Eviction: Removing zombie route and notifying remote node [{}] to close conflicting session for [{}]",
-                                        oldNodeId, clientId);
-                                routeStore.remove(appKey, oldNodeId, clientId);
-                                new Thread(() -> p2pClient.evict(oldNodeId, clientId)).start();
-                            }
-                        }
-                        // 情况 B：开启互斥模式，下线该 AppKey 的所有【其它】本地或远程连接
-                        else if (Boolean.TRUE.equals(exclusive)) {
-                            log.info(
-                                    "Exclusive Mode Eviction: AppKey [{}] requested exclusive access. Evicting client [{}] on node [{}]",
-                                    appKey, oldClientId, oldNodeId);
-                            if (oldNodeId.equals(this.nodeId)) {
-                                sessionRegistry.getSession(oldClientId).ifPresent(s -> {
-                                    try {
-                                        s.close();
-                                    } catch (Exception e) {
-                                        log.warn("Failed to close local session [{}] during exclusive eviction: {}",
-                                                oldClientId, e.getMessage());
-                                    }
-                                });
-                            } else {
-                                // 远程节点：清理 Redis 路由并发送 P2P 驱逐指令
-                                routeStore.remove(appKey, oldNodeId, oldClientId);
-                                new Thread(() -> p2pClient.evict(oldNodeId, oldClientId)).start();
-                            }
-                        }
-                    }
-                }
+                boolean exclusive = Boolean.TRUE.equals(session.getAttributes().get("exclusive"));
+                evictionArbitrator.arbitrate(appKey, clientId, exclusive);
             }
 
             // 1. 注册本地会话
@@ -126,16 +94,20 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String clientId = (String) session.getAttributes().get("clientId");
-        String appKey = (String) session.getAttributes().get("appKey");
-        if (clientId != null) {
-            // 使用带有 session 引用的安全注销方法
-            // 防止在同节点重连引发的 "旧连接关闭事件" 意外注销掉刚刚被放进 registry 的 "新连接"
-            if (sessionRegistry.unregister(clientId, session)) {
-                if (appKey != null) {
-                    routeStore.remove(appKey, nodeId, clientId);
+        MDC.put("traceId", "DISC-" + clientId);
+        try {
+            String appKey = (String) session.getAttributes().get("appKey");
+            if (clientId != null) {
+                // 使用带有 session 引用的安全注销方法
+                if (sessionRegistry.unregister(clientId, session)) {
+                    if (appKey != null) {
+                        routeStore.remove(appKey, nodeId, clientId);
+                    }
                 }
+                log.info("Client disconnected: {} (App: {})", clientId, appKey != null ? appKey : "NONE");
             }
-            log.info("Client disconnected: {} (App: {})", clientId, appKey != null ? appKey : "NONE");
+        } finally {
+            MDC.remove("traceId");
         }
     }
 
@@ -143,7 +115,10 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession session, org.springframework.web.socket.TextMessage message) {
         String clientId = (String) session.getAttributes().get("clientId");
         String appKey = (String) session.getAttributes().get("appKey");
-        if (clientId != null) {
+        if (clientId == null) return;
+
+        MDC.put("traceId", "WS-" + clientId);
+        try {
             sessionRegistry.updateActiveTime(clientId);
             if (appKey != null) {
                 routeStore.add(appKey, nodeId, clientId);
@@ -156,12 +131,16 @@ public class DefaultWsHandler extends TextWebSocketHandler {
                 JsonNode root = objectMapper.readTree(payload);
                 if (root.has("code") && (root.has("msg_id") || root.has("msgId"))) {
                     AckFrame ack = objectMapper.treeToValue(root, AckFrame.class);
+                    // Override traceId for actual ACK messages to match the original message
+                    MDC.put("traceId", ack.msgId());
                     auditLogger.logAck(clientId, ack);
                 }
             } catch (Exception e) {
                 // Ignore non-ACK messages or malformed JSON
                 log.trace("Received non-ACK or malformed message from client {}: {}", clientId, payload);
             }
+        } finally {
+            MDC.remove("traceId");
         }
     }
 
