@@ -27,10 +27,11 @@ public class TraceIdFilter implements Filter {
             throws IOException, ServletException {
         
         if (request instanceof HttpServletRequest httpRequest) {
-            // 优先级：Header(TraceId) > Header(MsgId) > Auto-Generated
-            String traceId = httpRequest.getHeader(HEADER_TRACE_ID);
+            // 优先级：Header(MsgId) > Header(TraceId) > Auto-Generated
+            // 强制使用 MsgId 作为全链路追踪 ID，以完美解决跨节点及 WebSocket 异步 ACK 时的日志割裂问题
+            String traceId = httpRequest.getHeader(HEADER_MSG_ID);
             if (traceId == null || traceId.isEmpty()) {
-                traceId = httpRequest.getHeader(HEADER_MSG_ID);
+                traceId = httpRequest.getHeader(HEADER_TRACE_ID);
             }
             if (traceId == null || traceId.isEmpty()) {
                 traceId = UUID.randomUUID().toString().replace("-", "");
