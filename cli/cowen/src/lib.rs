@@ -458,20 +458,29 @@ pub async fn run(cli: Cli) -> Result<()> {
     let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
 
     // --- Daemon Lifecycle Enforcement ---
+    // 1. Version Sync: Ensure all CURRENTLY RUNNING daemons match the CLI version.
+    // We only skip this during explicit stop or reset operations to avoid wasted restarts.
+    let skip_version_sync = matches!(&cli.command, 
+        Commands::Daemon { action: DaemonCommands::Stop { .. } } | 
+        Commands::Reset | 
+        Commands::Init { .. }
+    ) || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
+    
+    if !skip_version_sync {
+        let _ = cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr, vault.clone()).await;
+    }
+
     // 2. Auto-recovery: "确保必要的后台进程正在运行"
-    // We still skip auto-recovery for lifecycle commands to avoid starting a daemon 
-    // that the user is explicitly trying to stop or reset.
+    // We skip auto-recovery for lifecycle/diagnostic commands to avoid starting a daemon 
+    // that the user is explicitly trying to stop or just inspect.
     let skip_recovery = matches!(&cli.command, 
         Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. } |
         Commands::Config { .. } | Commands::Profile { .. } | Commands::Dlq { .. } |
         Commands::Status { .. } | Commands::System { action: SystemCommands::Status { .. } } |
-        Commands::Auth { .. }
+        Commands::Auth { .. } | Commands::Log { .. }
     ) || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
+    
     if !skip_recovery {
-        // 🚀 UNCONDITIONAL VERSION SYNC: Always ensure background processes match the current binary.
-        // Freshness is prioritized over command context.
-        let _ = cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr, vault.clone()).await;
-
         let _ = cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
     }
 
