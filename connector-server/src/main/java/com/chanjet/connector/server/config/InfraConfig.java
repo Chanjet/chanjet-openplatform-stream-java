@@ -42,20 +42,27 @@ public class InfraConfig {
         return new RedisFailStore(redisTemplate);
     }
 
+    // 负载均衡 RestClient (用于调用 Auth / Sub 服务)
     @Bean
     @LoadBalanced
-    public RestClient.Builder restClientBuilder() {
+    public RestClient.Builder loadBalancedRestClientBuilder() {
+        return RestClient.builder();
+    }
+
+    // 原生直连 RestClient (用于 P2P 节点间通信)
+    @Bean
+    @Primary
+    public RestClient.Builder directRestClientBuilder() {
         return RestClient.builder();
     }
 
     @Bean
     @ConditionalOnMissingBean(IInternalHttpClient.class)
-    public IInternalHttpClient internalHttpClient(RestClient.Builder builder) {
-        return new DefaultInternalHttpClient(builder.build());
+    public IInternalHttpClient internalHttpClient(@LoadBalanced RestClient.Builder loadBalancedBuilder) {
+        return new DefaultInternalHttpClient(loadBalancedBuilder.build());
     }
 
     @Bean
-    @Primary
     public RemoteCjtCoreAdapter remoteCjtCoreAdapter(
             IInternalHttpClient httpClient,
             @Value("${services.auth.id}") String authServiceId,
@@ -64,7 +71,8 @@ public class InfraConfig {
     }
 
     @Bean
-    public IP2PClient p2pClient(IInternalHttpClient httpClient, ConnectorProperties properties) {
-        return new RestP2PClient(httpClient, properties);
+    public IP2PClient p2pClient(ConnectorProperties properties) {
+        // 使用直连的 RestClient 避免 Spring Cloud LoadBalancer 拦截 IP 地址
+        return new RestP2PClient(new DefaultInternalHttpClient(RestClient.builder().build()), properties);
     }
 }
