@@ -462,7 +462,8 @@ pub async fn call(
         let mut json_val: Value = serde_json::from_str(&body).unwrap_or(Value::String(body));
         
         // 🚀 OCP: Inject Trace ID into JSON if available for better observability
-        if let Some(trace_id) = headers.get("x-msg-id")
+        if let Some(trace_id) = headers.get("x-b3-traceid")
+            .or_else(|| headers.get("x-msg-id"))
             .or_else(|| headers.get("msgId"))
             .or_else(|| headers.get("x-trace-id"))
             .and_then(|v| v.to_str().ok()) {
@@ -474,7 +475,8 @@ pub async fn call(
         cowen_common::utils::render(&json_val, format).map_err(|e| anyhow::anyhow!(e))?;
     } else {
         println!("\n🚀 API Response (Status: {})", status);
-        if let Some(trace_id) = headers.get("x-msg-id")
+        if let Some(trace_id) = headers.get("x-b3-traceid")
+            .or_else(|| headers.get("x-msg-id"))
             .or_else(|| headers.get("msgId"))
             .or_else(|| headers.get("x-trace-id"))
             .and_then(|v| v.to_str().ok()) {
