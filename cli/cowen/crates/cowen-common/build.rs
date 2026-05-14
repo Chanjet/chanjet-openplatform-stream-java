@@ -3,6 +3,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
     println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=build.rs");
+    // Ensure we rebuild when git HEAD changes to keep BUILD_ID fresh
+    println!("cargo:rerun-if-changed=../../../.git/HEAD");
+    println!("cargo:rerun-if-changed=../../../.git/index");
+    
     println!("cargo:rerun-if-env-changed=DEF_OPENAPI_URL");
     println!("cargo:rerun-if-env-changed=DEF_STREAM_URL");
     println!("cargo:rerun-if-env-changed=DEF_MARKET_URL");

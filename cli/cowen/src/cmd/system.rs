@@ -419,8 +419,15 @@ pub async fn ensure_daemon_running(
     auth_cli: &dyn cowen_auth::client::Client,
 ) -> Result<()> {
     // 1. Check if already running
-    let info = cowen_common::status::get_active_daemon_info(profile);
-    if info.is_some() {
+    if cowen_common::status::get_active_daemon_info(profile).is_some() {
+        return Ok(());
+    }
+
+    // 🚀 STABILITY FIX: If we just performed a version sync restart, there might be a brief delay 
+    // before the new PID file is visible or the process is registered in the OS table.
+    // We add a tiny grace period and one re-check to avoid "double-starting" or recovery conflicts.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    if cowen_common::status::get_active_daemon_info(profile).is_some() {
         return Ok(());
     }
 
@@ -468,13 +475,16 @@ pub async fn enforce_daemon_version_sync(
 
             if outdated {
                 tracing::info!(target: "sys", profile = %p, "Daemon version mismatch (CLI: {} / {}, Daemon: {}). Restarting...", cowen_common::BUILD_ID, cowen_common::BUILD_TIME, daemon_bid);
-                eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
-                
+
                 let config = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::Config::default_with_profile(&p));
-                // Execute restart
-                let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone()).await;
-            }
-        }
+
+                // 🛡️ SECURITY & UX: Only attempt restart and show message if the profile is actually initialized.
+                // This prevents "AppKey is empty" warnings for unused default profiles during version sync.
+                if !config.app_key.trim().is_empty() {
+                    eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
+                    let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone()).await;
+                }
+            }        }
     }
     Ok(())
 }
