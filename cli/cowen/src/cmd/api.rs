@@ -454,14 +454,32 @@ pub async fn call(
 
     let resp = req.send().await.map_err(|e| anyhow!("Request failed: {}", e))?;
     let status = resp.status();
+    let headers = resp.headers().clone();
     let body = resp.text().await.unwrap_or_default();
 
     // 4. Render Result
     if format == "json" || format == "yaml" {
-        let json_val: Value = serde_json::from_str(&body).unwrap_or(Value::String(body));
+        let mut json_val: Value = serde_json::from_str(&body).unwrap_or(Value::String(body));
+        
+        // 🚀 OCP: Inject Trace ID into JSON if available for better observability
+        if let Some(trace_id) = headers.get("x-msg-id")
+            .or_else(|| headers.get("msgId"))
+            .or_else(|| headers.get("x-trace-id"))
+            .and_then(|v| v.to_str().ok()) {
+            if let Value::Object(ref mut map) = json_val {
+                map.insert("_trace_id".to_string(), Value::String(trace_id.to_string()));
+            }
+        }
+
         cowen_common::utils::render(&json_val, format).map_err(|e| anyhow::anyhow!(e))?;
     } else {
         println!("\n🚀 API Response (Status: {})", status);
+        if let Some(trace_id) = headers.get("x-msg-id")
+            .or_else(|| headers.get("msgId"))
+            .or_else(|| headers.get("x-trace-id"))
+            .and_then(|v| v.to_str().ok()) {
+            println!("\x1b[1;30mTrace ID: {}\x1b[0m", trace_id);
+        }
         println!("--------------------------------------------------");
         if let Ok(json_val) = serde_json::from_str::<Value>(&body) {
             println!("{}", serde_json::to_string_pretty(&json_val).unwrap());
