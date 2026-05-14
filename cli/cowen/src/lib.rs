@@ -90,8 +90,11 @@ pub enum Commands {
         #[arg(short, long)]
         all: bool,
     },
-    /// 查看当前环境的配置详情
-    Config,
+    /// 管理当前环境的配置
+    Config {
+        #[command(subcommand)]
+        action: Option<ConfigCommands>,
+    },
     /// 重置当前环境的配置状态
     Reset,
     /// 生成或自动安装命令行自动补全脚本 (Bash, Zsh, Fish)
@@ -132,6 +135,17 @@ pub enum Commands {
     System {
         #[command(subcommand)]
         action: SystemCommands,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum ConfigCommands {
+    /// 设置配置项的值 (e.g., cowen config set log.level debug)
+    Set {
+        #[arg(help = "配置项名称 (目前支持: log.level)")]
+        key: String,
+        #[arg(help = "配置项的新值")]
+        value: String,
     },
 }
 
@@ -281,7 +295,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Daemon { .. } => "daemon",
         Commands::Init { .. } => "init",
         Commands::Status { .. } => "status",
-        Commands::Config => "config",
+        Commands::Config { .. } => "config",
         Commands::Reset => "reset",
         Commands::Completion { .. } => "completion",
         Commands::Profile { .. } => "profile",
@@ -325,7 +339,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     // that the user is explicitly trying to stop or reset.
     let skip_recovery = matches!(&cli.command, 
         Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. } |
-        Commands::Config | Commands::Profile { .. } | Commands::Dlq { .. } |
+        Commands::Config { .. } | Commands::Profile { .. } | Commands::Dlq { .. } |
         Commands::Status { .. } | Commands::System { action: SystemCommands::Status { .. } } |
         Commands::Auth { .. }
     ) || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
@@ -403,7 +417,19 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?,
         Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? }
-        Commands::Config => cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?,
+        Commands::Config { action } => match action {
+            Some(ConfigCommands::Set { key, value }) => {
+                let mut updated_config = config.clone();
+                if key == "log.level" {
+                    updated_config.log.level = value.to_lowercase();
+                    cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?;
+                    println!("✅ Successfully updated log.level to '{}'", value);
+                } else {
+                    return Err(anyhow::anyhow!("Unsupported configuration key: {}. Currently only 'log.level' is supported.", key));
+                }
+            }
+            None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?,
+        },
         Commands::Reset => cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus())).await?,
         Commands::Completion { shell, install, uninstall } => {
             if *uninstall { cmd::completion::uninstall_completion()?; }
