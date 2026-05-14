@@ -106,6 +106,15 @@ pub async fn execute(
                 println!("💡 Profile with same parameters already exists: \x1b[1;33m{}\x1b[0m", &existing_profile);
                 println!("   Switching to existing profile instead of creating '{}'.", profile);
                 let _ = cfg_mgr.set_default_profile(&existing_profile);
+                
+                // 🚀 ENSURE DAEMON RUNNING for the existing profile too
+                if ctx.auto_start {
+                    if let Ok(existing_cfg) = cfg_mgr.load(&existing_profile).await {
+                        if let Some(ds) = &daemon_svc {
+                            let _ = ds.start_daemon(&existing_profile, &existing_cfg, vault.clone()).await;
+                        }
+                    }
+                }
                 return Ok(());
             }
         }

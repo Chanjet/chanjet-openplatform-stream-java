@@ -459,12 +459,12 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     // --- Daemon Lifecycle Enforcement ---
     // 1. Version Sync: Ensure all CURRENTLY RUNNING daemons match the CLI version.
-    // We only skip this during explicit stop or reset operations to avoid wasted restarts.
-    let skip_version_sync = matches!(&cli.command, 
-        Commands::Daemon { action: DaemonCommands::Stop { .. } } | 
-        Commands::Reset | 
-        Commands::Init { .. }
-    ) || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
+    // We only skip this during explicit stop, reset, or init operations.
+    let skip_version_sync = match cmd_name {
+        "reset" | "init" => true,
+        "daemon" => matches!(&cli.command, Commands::Daemon { action: DaemonCommands::Stop { .. } }),
+        _ => false,
+    } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     
     if !skip_version_sync {
         let _ = cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr, vault.clone()).await;
@@ -473,12 +473,10 @@ pub async fn run(cli: Cli) -> Result<()> {
     // 2. Auto-recovery: "确保必要的后台进程正在运行"
     // We skip auto-recovery for lifecycle/diagnostic commands to avoid starting a daemon 
     // that the user is explicitly trying to stop or just inspect.
-    let skip_recovery = matches!(&cli.command, 
-        Commands::Daemon { .. } | Commands::Reset | Commands::Init { .. } |
-        Commands::Config { .. } | Commands::Profile { .. } | Commands::Dlq { .. } |
-        Commands::Status { .. } | Commands::System { action: SystemCommands::Status { .. } } |
-        Commands::Auth { .. } | Commands::Log { .. }
-    ) || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
+    let skip_recovery = match cmd_name {
+        "daemon" | "reset" | "init" | "config" | "profile" | "dlq" | "status" | "system" | "auth" | "log" => true,
+        _ => false,
+    } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     
     if !skip_recovery {
         let _ = cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
