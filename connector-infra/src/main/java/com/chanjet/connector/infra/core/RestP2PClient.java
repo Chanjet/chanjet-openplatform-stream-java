@@ -37,11 +37,13 @@ public class RestP2PClient implements IP2PClient {
         try {
             httpClient.post(url, frame, Void.class, Map.of(
                     "X-Internal-Token", properties.getPrimaryToken(),
-                    "X-GW-Hop-Count", String.valueOf(hopCount + 1)
+                    "X-GW-Hop-Count", String.valueOf(hopCount + 1),
+                    "X-Trace-Id", frame.traceId()
             ));
             return true;
         } catch (Exception e) {
-            log.warn("P2P Forward failed to {}: {}", targetNodeId, e.getMessage());
+            log.error("[FORWARD_FAILED_DETAIL] MsgId: {}, TargetNode: {}, Reason: {}, Exception: {}", 
+                frame.msgId(), targetNodeId, e.getMessage(), e.getClass().getSimpleName());
             return false;
         }
     }
