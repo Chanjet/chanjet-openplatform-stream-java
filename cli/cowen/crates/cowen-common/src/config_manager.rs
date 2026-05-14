@@ -365,7 +365,7 @@ impl ConfigManager {
             if let Ok(remote_profiles) = vault.list_all_profiles().await {
                 let remote_profiles: Vec<String> = remote_profiles;
                 for p in remote_profiles {
-                    if !p.starts_with("app:") {
+                    if !p.starts_with("app:") && p != "global" && p != "system" {
                         profiles.insert(p);
                     }
                 }
@@ -395,7 +395,7 @@ impl ConfigManager {
                 let path = entry.path();
                 if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
                     if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        if !name.contains("_openapi") && name != "app" {
+                        if !name.contains("_openapi") && name != "app" && name != "global" && name != "system" {
                             profiles.push(name.to_string());
                         }
                     }
