@@ -58,66 +58,94 @@ impl SelfBuiltProvider {
 
         tracing::info!(target: "sys", profile = %profile, "Proceeding with Self-Built token exchange...");
 
-        // 1. Build Request
-        let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/auth/selfBuiltApp/generateToken"));
-        let mut headers = HeaderMap::new();
-        headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-        headers.insert("appSecret", cfg.app_secret.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-        
-        let mut body_map = serde_json::Map::new();
-        
-        // 🚀 OCP: Include certificate if provided (Required for some platform versions)
-        if !cfg.certificate.trim().is_empty() {
-            body_map.insert("certificate".to_string(), serde_json::Value::String(cfg.certificate.clone()));
-        }
+        let mut retry_count = 0;
+        loop {
+            // 1. Build Request
+            let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/auth/selfBuiltApp/generateToken"));
+            let mut headers = HeaderMap::new();
+            headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+            headers.insert("appSecret", cfg.app_secret.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+            
+            let mut body_map = serde_json::Map::new();
+            
+            // 🚀 OCP: Include certificate if provided (Required for some platform versions)
+            if !cfg.certificate.trim().is_empty() {
+                body_map.insert("certificate".to_string(), serde_json::Value::String(cfg.certificate.clone()));
+            }
 
-        // Optional AppTicket (May be required by some platform versions, but optional for others/mocks)
-        if let Ok(ticket) = self.pool.as_vault().get_app_ticket(&cfg.app_key).await {
-            body_map.insert("appTicket".to_string(), serde_json::Value::String(ticket.value));
-        }
+            // Optional AppTicket (May be required by some platform versions, but optional for others/mocks)
+            if let Ok(ticket) = self.pool.as_vault().get_app_ticket(&cfg.app_key).await {
+                body_map.insert("appTicket".to_string(), serde_json::Value::String(ticket.value));
+            }
 
-        // 2. Execute
-        let resp = self.http_sender.post(&url, headers, serde_json::Value::Object(body_map)).await?;
-        if !resp.is_success() {
-            let status = resp.status;
-            let safe_err = cowen_common::utils::mask_sensitive_json(&resp.body);
-            return Err(CowenError::Auth(format!("Platform auth failed (HTTP {}): {}", status, safe_err)));
-        }
+            // 2. Execute
+            let resp = self.http_sender.post(&url, headers, serde_json::Value::Object(body_map)).await?;
+            if !resp.is_success() {
+                let status = resp.status;
+                let safe_err = cowen_common::utils::mask_sensitive_json(&resp.body);
+                return Err(CowenError::Auth(format!("Platform auth failed (HTTP {}): {}", status, safe_err)));
+            }
 
-        let token_resp: PlatformTokenResponse = resp.json().await?;
-        
-        // Success if result is true OR code is 200
-        let is_success = token_resp.result.unwrap_or(false) || token_resp.code.as_deref() == Some("200");
-        if !is_success || token_resp.value.is_none() {
-            let err_val = token_resp.error.or(token_resp.message);
-            let err_msg = match err_val {
-                Some(serde_json::Value::String(s)) => s,
-                Some(v) => v.to_string(),
-                None => "Unknown platform error".to_string(),
+            let token_resp: PlatformTokenResponse = resp.json().await?;
+            
+            // Success if result is true OR code is 200
+            let is_success = token_resp.result.unwrap_or(false) || token_resp.code.as_deref() == Some("200");
+            if !is_success || token_resp.value.is_none() {
+                let code_str = token_resp.code.as_deref().unwrap_or("");
+                let err_val = token_resp.error.clone().or(token_resp.message.clone());
+                let err_msg = match err_val {
+                    Some(serde_json::Value::String(s)) => s,
+                    Some(v) => v.to_string(),
+                    None => "Unknown platform error".to_string(),
+                };
+
+                if retry_count < 3 && (code_str == "4041" || code_str == "4031" || code_str == "4019" || err_msg.contains("4041") || err_msg.contains("4031") || err_msg.contains("4019")) {
+                    tracing::warn!(target: "sys", profile = %profile, "AppTicket expired/invalid ({}). Clearing and triggering push... (Attempt {}/3)", err_msg, retry_count + 1);
+                    let _ = self.pool.as_vault().delete_app_ticket(cfg.app_key.trim()).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    
+                    let _ = self.trigger_push_internal(profile, cfg, true).await;
+                    
+                    tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 20s)...");
+                    let mut waited = 0;
+                    while waited < 20 {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        if self.pool.as_vault().get_app_ticket(cfg.app_key.trim()).await.is_ok() {
+                            tracing::info!(target: "sys", profile = %profile, "Received new AppTicket.");
+                            // Additional brief sleep to ensure ticket is fully propagated or avoid hitting platform replication delay
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            break;
+                        }
+                        waited += 1;
+                    }
+                    retry_count += 1;
+                    continue;
+                }
+
+                return Err(CowenError::Auth(format!("Platform error: {}", err_msg)));
+            }
+
+            let val = token_resp.value.unwrap();
+            let expires_at = if let Some(ts) = val.expires_at {
+                DateTime::from_timestamp(ts / 1000, 0).unwrap_or_else(|| Utc::now() + chrono::Duration::hours(2))
+            } else if let Some(secs) = val.expires_in {
+                Utc::now() + chrono::Duration::seconds(secs as i64)
+            } else {
+                Utc::now() + chrono::Duration::hours(2)
             };
-            return Err(CowenError::Auth(format!("Platform error: {}", err_msg)));
+
+            let token = cowen_common::models::Token {
+                value: val.access_token,
+                expires_at,
+                created_at: Utc::now(),
+            };
+
+            // 3. Persist
+            self.pool.set_app_access_token(&cfg.app_key, &token).await?;
+            tracing::info!(target: "sys", profile = %profile, "AccessToken successfully rotated from network");
+
+            return Ok(token);
         }
-
-        let val = token_resp.value.unwrap();
-        let expires_at = if let Some(ts) = val.expires_at {
-            DateTime::from_timestamp(ts / 1000, 0).unwrap_or_else(|| Utc::now() + chrono::Duration::hours(2))
-        } else if let Some(secs) = val.expires_in {
-            Utc::now() + chrono::Duration::seconds(secs as i64)
-        } else {
-            Utc::now() + chrono::Duration::hours(2)
-        };
-
-        let token = cowen_common::models::Token {
-            value: val.access_token,
-            expires_at,
-            created_at: Utc::now(),
-        };
-
-        // 3. Persist
-        self.pool.set_app_access_token(&cfg.app_key, &token).await?;
-        tracing::info!(target: "sys", profile = %profile, "AccessToken successfully rotated from network");
-
-        Ok(token)
     }
 
     async fn trigger_push_internal(&self, profile: &str, cfg: &Config, force: bool) -> CowenResult<()> {

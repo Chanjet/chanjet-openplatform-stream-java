@@ -195,8 +195,8 @@ pub(crate) async fn get_app_access_token(
         let resp = http_sender.post(&url, headers, body).await?;
         if !resp.is_success() {
             let body_str = resp.body.clone();
-            if body_str.contains("4031") {
-                tracing::warn!(target: "sys", "AppTicket expired (4031). Clearing invalid ticket and retrying...");
+            if body_str.contains("4031") || body_str.contains("4041") || body_str.contains("4019") {
+                tracing::warn!(target: "sys", "AppTicket expired/invalid ({}). Clearing invalid ticket and retrying...", body_str);
                 let _ = pool.as_vault().delete_app_ticket(cfg.app_key.trim()).await;
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 continue;

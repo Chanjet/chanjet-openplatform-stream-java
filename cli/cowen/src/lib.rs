@@ -151,87 +151,210 @@ pub enum ConfigCommands {
 
 #[derive(clap::Subcommand)]
 pub enum ProfileCommands {
-    Use { name: String },
+    /// Switch to a different profile
+    Use {
+        /// Profile name to activate
+        name: String,
+    },
+    /// Show the currently active profile
     Current,
+    /// List all configured profiles
     List,
-    Rename { old_name: String, new_name: String },
+    /// Rename an existing profile
+    Rename {
+        /// Current profile name
+        old_name: String,
+        /// New profile name
+        new_name: String,
+    },
 }
 
 #[derive(clap::Subcommand)]
 pub enum SystemCommands {
-    Status { #[arg(short, long)] all: bool },
+    /// Check system overall status (Daemon, Store, Auth, AI)
+    Status {
+        /// Show detailed status for all profiles
+        #[arg(short, long)]
+        all: bool,
+    },
 }
 
 #[derive(clap::Subcommand)]
 pub enum StoreCommands {
     Set {
-        #[arg(long, env = "COWEN_STORE_TYPE")] store: Option<String>,
-        #[arg(long, env = "COWEN_DB_URL")] db_url: Option<String>,
-        #[arg(long, env = "COWEN_CACHE_TYPE")] cache: Option<String>,
-        #[arg(long, env = "COWEN_CACHE_URL")] cache_url: Option<String>,
+        /// Store type (e.g. sqlite, mysql, postgres, redis, local, innerdb)
+        #[arg(
+            long, 
+            env = "COWEN_STORE_TYPE",
+            long_help = "Primary storage engine type.\n\nValues:\n  - sqlite / innerdb: Local SQLite database\n  - mysql / postgres: Distributed SQL database\n  - redis: High-performance key-value store\n  - local: Legacy flat-file storage"
+        )]
+        store: Option<String>,
+        /// Database connection URL
+        #[arg(
+            long, 
+            env = "COWEN_DB_URL",
+            long_help = "Connection URL for the selected store.\n\nExamples:\n  - sqlite:data/cowen.db\n  - postgres://user:pass@localhost:5432/cowen\n  - mysql://user:pass@localhost:3306/cowen\n  - redis://localhost:6379"
+        )]
+        db_url: Option<String>,
+        /// Cache store type (e.g. redis, memory)
+        #[arg(long, env = "COWEN_CACHE_TYPE")]
+        cache: Option<String>,
+        /// Cache connection URL (e.g. redis://localhost:6379)
+        #[arg(long, env = "COWEN_CACHE_URL")]
+        cache_url: Option<String>,
     },
     Status,
     Migrate {
-        #[arg(long)] to: String,
-        #[arg(long, value_enum, default_value = "clone")] mode: cowen_store::migration::MigrationMode,
+        /// Target Store URL to migrate to.
+        #[arg(
+            long, 
+            value_name = "URL",
+            long_help = "Target Store URL to migrate to.\n\nSupported formats:\n  - sqlite:path/to/db.sqlite (e.g. sqlite:data/cowen.db)\n  - mysql://user:pass@host:port/db\n  - postgres://user:pass@host:port/db\n  - redis://host:port\n  - local (Legacy file-based store)\n  - innerdb (Default managed SQLite)"
+        )]
+        to: String,
+        /// Migration mode
+        #[arg(long, value_enum, default_value = "clone")]
+        mode: cowen_store::migration::MigrationMode,
     },
 }
 
 #[derive(clap::Subcommand)]
 pub enum ApiCommands {
+    /// List available APIs from the current specification
     List {
-        #[arg(short, long)] search: Option<String>,
-        #[arg(long, default_value_t = 1)] page: usize,
-        #[arg(short = 'n', long, default_value_t = 20)] page_size: usize,
-        #[arg(short, long)] refresh: bool,
+        /// Optional search term to filter APIs
+        #[arg(short, long)]
+        search: Option<String>,
+        /// Page number for results
+        #[arg(long, default_value_t = 1)]
+        page: usize,
+        /// Number of results per page
+        #[arg(short = 'n', long, default_value_t = 20)]
+        page_size: usize,
+        /// Force refresh the local specification from the platform
+        #[arg(short, long)]
+        refresh: bool,
     },
-    Spec { method: String, path: String, #[arg(long)] raw: bool },
+    /// Show detailed specification for a specific API
+    Spec {
+        /// HTTP method (GET, POST, etc.)
+        method: String,
+        /// API path
+        path: String,
+        /// Show raw JSON specification
+        #[arg(long)]
+        raw: bool,
+    },
 }
 
 #[derive(clap::Subcommand)]
 pub enum AuthCommands {
+    /// Check current authentication status
     Status,
+    /// Reset authentication state
     Reset,
+    /// Clear local session and logout
     Logout,
+    /// Perform interactive or forced login
     Login {
-        #[arg(short, long)] force: bool,
-        #[arg(long, hide = true)] finalize: Option<String>,
+        /// Force re-authentication even if token is valid
+        #[arg(short, long)]
+        force: bool,
+        /// Internal use only for finalizing async login flows
+        #[arg(long, hide = true)]
+        finalize: Option<String>,
     },
-    Token { #[arg(short, long)] refresh: bool },
+    /// Retrieve or refresh the current access token
+    Token {
+        /// Proactively refresh the token from the platform
+        #[arg(short, long)]
+        refresh: bool,
+    },
 }
 
 #[derive(clap::Subcommand)]
 pub enum DaemonCommands {
+    /// Start the background daemon service
     Start {
-        #[arg(long)] proxy_port: Option<u16>,
-        #[arg(long)] enable_proxy: bool,
-        #[arg(long)] no_proxy: bool,
-        #[arg(long)] foreground: bool,
-        #[arg(short, long)] all: bool,
+        /// Override the proxy listening port
+        #[arg(long)]
+        proxy_port: Option<u16>,
+        /// Force enable API proxying
+        #[arg(long)]
+        enable_proxy: bool,
+        /// Force disable API proxying
+        #[arg(long)]
+        no_proxy: bool,
+        /// Run in foreground instead of background
+        #[arg(long)]
+        foreground: bool,
+        /// Start daemons for all configured profiles
+        #[arg(short, long)]
+        all: bool,
     },
-    Stop { #[arg(short, long)] all: bool },
+    /// Stop the background daemon service
+    Stop {
+        /// Stop daemons for all running profiles
+        #[arg(short, long)]
+        all: bool,
+    },
+    /// Restart the background daemon service
     Restart {
-        #[arg(long)] proxy_port: Option<u16>,
-        #[arg(long)] enable_proxy: bool,
-        #[arg(long)] no_proxy: bool,
-        #[arg(short, long)] all: bool,
+        /// Override the proxy listening port
+        #[arg(long)]
+        proxy_port: Option<u16>,
+        /// Force enable API proxying
+        #[arg(long)]
+        enable_proxy: bool,
+        /// Force disable API proxying
+        #[arg(long)]
+        no_proxy: bool,
+        /// Restart daemons for all configured profiles
+        #[arg(short, long)]
+        all: bool,
     },
+    /// Manage OS-level system services (e.g. systemd/launchd)
     Service { #[command(subcommand)] action: ServiceCommands },
 }
 
 #[derive(clap::Subcommand)]
-pub enum ServiceCommands { Install, Uninstall, Status }
+pub enum ServiceCommands {
+    /// Install the daemon as an OS system service (systemd/launchd)
+    Install,
+    /// Uninstall the OS system service
+    Uninstall,
+    /// Check the OS system service status
+    Status,
+}
 
 #[derive(clap::Subcommand)]
-pub enum DlqCommands { List, Retry { id: String }, Purge }
+pub enum DlqCommands {
+    /// List events currently in the Dead Letter Queue
+    List,
+    /// Retry processing a specific event by ID
+    Retry {
+        /// Event ID to retry
+        id: String,
+    },
+    /// Clear all events from the Dead Letter Queue
+    Purge,
+}
 
 #[derive(clap::Subcommand)]
 pub enum LogCommands {
+    /// List available log files or domains
     List,
+    /// View or follow log content
     View {
-        #[arg(default_value = "sys")] domain: String,
-        #[arg(short, long)] follow: bool,
-        #[arg(short = 'n', long, default_value_t = 10)] lines: usize,
+        /// Log domain to view (e.g. sys, audit, proxy)
+        #[arg(default_value = "sys")]
+        domain: String,
+        /// Follow log output in real-time
+        #[arg(short, long)]
+        follow: bool,
+        /// Number of lines to show from the end
+        #[arg(short = 'n', long, default_value_t = 10)]
+        lines: usize,
     },
 }
 
