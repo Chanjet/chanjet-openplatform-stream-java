@@ -25,7 +25,10 @@ impl SqlDriver for SqliteDriver {
             .bind(profile)
             .bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(row.0)
     }
 
@@ -34,7 +37,10 @@ impl SqlDriver for SqliteDriver {
             .bind(profile)
             .bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok((row.0 as u64, row.1.timestamp()))
     }
 
@@ -43,7 +49,10 @@ impl SqlDriver for SqliteDriver {
             .bind(profile)
             .bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(Item {
             profile: row.0,
             key: row.1,
@@ -94,7 +103,10 @@ impl SqlDriver for SqliteDriver {
         let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_secret WHERE profile = ? AND item_key = ?")
             .bind(profile).bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(row.0)
     }
 
@@ -127,7 +139,10 @@ impl SqlDriver for SqliteDriver {
         let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = ? AND token_type = 'access_token'")
             .bind(profile)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("AccessToken not found for profile '{}'", profile)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
     }
 
@@ -148,11 +163,42 @@ impl SqlDriver for SqliteDriver {
         Ok(())
     }
 
+    async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token> {
+        let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = ? AND token_type = 'refresh_token'")
+            .bind(profile)
+            .fetch_one(&self.pool).await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("RefreshToken not found for profile '{}'", profile)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
+        Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
+    }
+
+    async fn save_refresh_token(&self, profile: &str, token: Token) -> CowenResult<()> {
+        sqlx::query("INSERT INTO cowen_tenant_token (profile, token_type, token_value, expires_at, created_at) VALUES (?, 'refresh_token', ?, ?, ?) 
+                     ON CONFLICT(profile, token_type) DO UPDATE SET token_value=excluded.token_value, expires_at=excluded.expires_at, created_at=excluded.created_at")
+            .bind(profile).bind(token.value).bind(token.expires_at).bind(token.created_at)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+        Ok(())
+    }
+
+    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_tenant_token WHERE profile = ? AND token_type = 'refresh_token'")
+            .bind(profile)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+        Ok(())
+    }
+
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
         let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_app_token WHERE app_key = ?")
             .bind(app_key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("AppToken not found for key '{}'", app_key)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
     }
 
@@ -177,7 +223,10 @@ impl SqlDriver for SqliteDriver {
         let row: (String, DateTime<Utc>) = sqlx::query_as("SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = ?")
             .bind(app_key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("AppTicket not found for key '{}'", app_key)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(Ticket { value: row.0, created_at: row.1 })
     }
 
@@ -202,7 +251,10 @@ impl SqlDriver for SqliteDriver {
         let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND code_type = 'org_permanent'")
             .bind(app_key).bind(org_id)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("OrgPermanentCode not found for app '{}' and org '{}'", app_key, org_id)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(row.0)
     }
 
@@ -219,7 +271,10 @@ impl SqlDriver for SqliteDriver {
         let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = ? AND org_id = ? AND user_id = ? AND code_type = 'user_permanent'")
             .bind(app_key).bind(org_id).bind(user_id)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("UserPermanentCode not found for app '{}', org '{}' and user '{}'", app_key, org_id, user_id)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(row.0)
     }
 
@@ -236,7 +291,10 @@ impl SqlDriver for SqliteDriver {
         let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_token WHERE profile = ? AND item_key = ?")
             .bind(profile).bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Sqlite error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => anyhow::anyhow!("Sqlite error: {}", e).into(),
+            })?;
         Ok(row.0)
     }
 

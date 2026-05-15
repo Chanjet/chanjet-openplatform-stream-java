@@ -61,7 +61,7 @@ impl cowen_common::store::Store for FileStore {
     async fn list_configs(&self, p: &str) -> CowenResult<Vec<String>> {
         let dir = self.root_dir.join(p).join("cfg");
         if !dir.exists() { return Ok(vec![]); }
-        Ok(fs::read_dir(dir)?.filter_map(|e| e.ok().map(|x| x.file_name().to_string_lossy().replace("_", ":"))).collect())
+        Ok(fs::read_dir(dir)?.filter_map(|e| e.ok().map(|x| x.file_name().to_string_lossy().into_owned())).collect())
     }
 
     async fn get_secret(&self, p: &str, k: &str) -> CowenResult<String> { Ok(fs::read_to_string(self.get_path(p, "sec", k, false))?) }
@@ -74,7 +74,7 @@ impl cowen_common::store::Store for FileStore {
     async fn list_secrets(&self, p: &str) -> CowenResult<Vec<String>> {
         let dir = self.root_dir.join(p).join("sec");
         if !dir.exists() { return Ok(vec![]); }
-        Ok(fs::read_dir(dir)?.filter_map(|e| e.ok().map(|x| x.file_name().to_string_lossy().replace("_", ":"))).collect())
+        Ok(fs::read_dir(dir)?.filter_map(|e| e.ok().map(|x| x.file_name().to_string_lossy().into_owned())).collect())
     }
 
     async fn get_access_token(&self, p: &str) -> CowenResult<cowen_common::models::Token> {
@@ -88,6 +88,19 @@ impl cowen_common::store::Store for FileStore {
     }
     async fn delete_access_token(&self, p: &str) -> CowenResult<()> {
         let path = self.get_path(p, "tok_v2", "access", false);
+        if path.exists() { fs::remove_file(path)?; }
+        Ok(())
+    }
+    async fn get_refresh_token(&self, p: &str) -> CowenResult<cowen_common::models::Token> {
+        let json = fs::read_to_string(self.get_path(p, "tok_v2", "refresh", false))?;
+        Ok(serde_json::from_str(&json)?)
+    }
+    async fn save_refresh_token(&self, p: &str, t: cowen_common::models::Token) -> CowenResult<()> {
+        let json = serde_json::to_string(&t)?;
+        Ok(fs::write(self.get_path(p, "tok_v2", "refresh", true), json)?)
+    }
+    async fn delete_refresh_token(&self, p: &str) -> CowenResult<()> {
+        let path = self.get_path(p, "tok_v2", "refresh", false);
         if path.exists() { fs::remove_file(path)?; }
         Ok(())
     }
@@ -442,6 +455,17 @@ impl cowen_common::store::Store for MonolithicSealStore {
     }
     async fn delete_access_token(&self, p: &str) -> CowenResult<()> {
         self.delete_config(p, "access_token_v2").await
+    }
+    async fn get_refresh_token(&self, p: &str) -> CowenResult<cowen_common::models::Token> {
+        let j = self.get_config(p, "refresh_token_v2").await?;
+        Ok(serde_json::from_str(&j)?)
+    }
+    async fn save_refresh_token(&self, p: &str, t: cowen_common::models::Token) -> CowenResult<()> {
+        let json = serde_json::to_string(&t)?;
+        self.set_config(p, "refresh_token_v2", &json).await
+    }
+    async fn delete_refresh_token(&self, p: &str) -> CowenResult<()> {
+        self.delete_config(p, "refresh_token_v2").await
     }
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token> {
         let p = format!("app:{}", app_key);

@@ -126,17 +126,28 @@ pub async fn execute(
     let mut config = cfg_mgr.load(profile).await.map_err(|e| anyhow::anyhow!(e))?;
     config.app_mode = mode;
 
+    // 🚀 RESOLVE RANDOM PORT: If port is 0 (default or explicit), pick a stable one now
+    // and persist it, so subsequent restarts are consistent.
+    let mut resolved_ctx = ctx;
+    if resolved_ctx.proxy_port == Some(0) || (resolved_ctx.proxy_port.is_none() && config.proxy_port == 0) {
+        let free_port = cfg_mgr.find_free_port().await;
+        if free_port != 0 {
+            tracing::info!(target: "sys", profile = %profile, port = %free_port, "Assigned random stable port during init");
+            resolved_ctx.proxy_port = Some(free_port);
+        }
+    }
+
     // 4. Initialize Provider — all parameter validation, vault writes, daemon start delegated
     let params = cowen_auth::provider::InitParams {
-        app_key: ctx.app_key,
-        app_secret: ctx.app_secret,
-        certificate: ctx.certificate,
-        encrypt_key: ctx.encrypt_key,
-        webhook_target: ctx.webhook_target,
-        openapi_url: ctx.openapi_url,
-        stream_url: ctx.stream_url,
-        proxy_port: ctx.proxy_port,
-        auto_start: ctx.auto_start,
+        app_key: resolved_ctx.app_key,
+        app_secret: resolved_ctx.app_secret,
+        certificate: resolved_ctx.certificate,
+        encrypt_key: resolved_ctx.encrypt_key,
+        webhook_target: resolved_ctx.webhook_target,
+        openapi_url: resolved_ctx.openapi_url,
+        stream_url: resolved_ctx.stream_url,
+        proxy_port: resolved_ctx.proxy_port,
+        auto_start: resolved_ctx.auto_start,
         is_new,
     };
 

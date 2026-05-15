@@ -89,15 +89,29 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
 
     tracing::info!(target: "sys", "All bridge tasks initialized. Entering watchdog mode.");
 
+    let status_file = cowen_common::config::get_app_dir().join(format!("{}_status.json", profile));
+    let client_id = client.client_id().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut status_json = serde_json::json!({
+        "state": if supports_webhooks { "Starting" } else { "Active" },
+        "client_id": client_id,
+        "updated_at": now,
+    });
+    if proxy_port != 0 {
+        status_json["proxy_port"] = proxy_port.into();
+    }
+    let _ = std::fs::write(&status_file, serde_json::to_string(&status_json).unwrap());
+
     // Define futures directly for select! (NO tokio::spawn here for core tasks)
     // This ensures that when the run() future is dropped (e.g. during reload),
     // all component tasks are also cancelled.
     
+    let (port_tx, mut port_rx) = tokio::sync::oneshot::channel();
     let p_profile_proxy = profile.to_string();
     let p_config_proxy = config.clone();
     let proxy_fut = async move {
         if enable_proxy {
-            if let Err(e) = start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port).await {
+            if let Err(e) = start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port, Some(port_tx)).await {
                 tracing::error!(target: "sys", error = %e, "Local Proxy Server crashed");
                 return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
             }
@@ -109,15 +123,10 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
 
     let p_profile_s = profile.to_string();
     let client_inner = client.clone();
+    let status_file_s = status_file.clone();
+    
     let stream_fut = async move {
         if supports_webhooks {
-            let status_file = cowen_common::config::get_app_dir().join(format!("{}_status.json", p_profile_s));
-            let client_id = client_inner.client_id().to_string();
-
-            // Use the SDK's internal reconnection loop, but hook into its status callbacks
-            let now = chrono::Utc::now().to_rfc3339();
-            let _ = std::fs::write(&status_file, format!("{{\"state\":\"Starting\", \"client_id\":\"{}\", \"updated_at\":\"{}\"}}", client_id, now));
-            
             let res = client_inner.start_with_callback(move |state| {
                 let state_str = match state {
                     connector_sdk::ConnectionState::Connecting => "Connecting",
@@ -125,8 +134,19 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
                     connector_sdk::ConnectionState::Disconnected => "Disconnected",
                 };
                 tracing::info!(target: "stream", profile = %p_profile_s, state = %state_str, client_id = %client_id, "Bridge connection state changed");
-                let now = chrono::Utc::now().to_rfc3339();
-                let _ = std::fs::write(&status_file, format!("{{\"state\":\"{}\", \"client_id\":\"{}\", \"updated_at\":\"{}\"}}", state_str, client_id, now));
+                
+                // Try to read existing to preserve proxy_port if we don't have it yet in this closure
+                let mut current_status = if let Ok(c) = std::fs::read_to_string(&status_file_s) {
+                    serde_json::from_str::<serde_json::Value>(&c).unwrap_or_default()
+                } else {
+                    serde_json::json!({})
+                };
+
+                current_status["state"] = state_str.into();
+                current_status["client_id"] = client_id.clone().into();
+                current_status["updated_at"] = chrono::Utc::now().to_rfc3339().into();
+
+                let _ = std::fs::write(&status_file_s, serde_json::to_string(&current_status).unwrap());
             }).await;
 
             if let Err(e) = res {
@@ -144,8 +164,23 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     let p_profile_m = profile.to_string();
     let p_config_m = config.clone();
     let p_pool_m = pool.clone();
+    let status_file_m = status_file.clone();
     let maintenance_fut = async move {
-        sleep(Duration::from_secs(2)).await;
+        tokio::select! {
+            _ = sleep(Duration::from_secs(2)) => {},
+            port_res = &mut port_rx => {
+                if let Ok(p) = port_res {
+                    // Update status file with the actual port
+                    if let Ok(c) = std::fs::read_to_string(&status_file_m) {
+                        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&c) {
+                            json["proxy_port"] = p.into();
+                            let _ = std::fs::write(&status_file_m, serde_json::to_string(&json).unwrap());
+                        }
+                    }
+                }
+            }
+        }
+
         let auth = cowen_auth::create_auth_client(p_pool_m.clone());
 
         // 🚀 OCP: Generic Initial Push Check

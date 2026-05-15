@@ -28,29 +28,8 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
             let _ = auth_cli.provider(&p_cfg.app_mode).hydrate_config(&p, &mut p_cfg, vault.clone()).await;
         }
         
-        let pid_file = cowen_common::config::get_app_dir().join(format!("{}_daemon.pid", p));
+        let _pid_file = cowen_common::config::get_app_dir().join(format!("{}_daemon.pid", p));
         
-        // 🚀 OCP/Robustness: Even if pid_file doesn't exist, we must check for "ghost" processes 
-        // that might be holding the proxy port or streaming connection.
-        if !foreground {
-            if let Some(ghost_pid) = find_ghost_process(&p, p_cfg.proxy_port) {
-                if all && pid_file.exists() {
-                     println!("ℹ️ Daemon for profile '{}' is already running (PID: {}). Skipping.", p, ghost_pid);
-                     continue;
-                }
-                
-                // If we are explicitly starting, and a ghost exists WITHOUT a valid pid file (or we want to be sure),
-                // we should probably NOT just skip, but either fail or evict. 
-                // Given the user's "ghost process" report, eviction is the desired "auto-recovery" behavior.
-                if !pid_file.exists() {
-                    tracing::warn!(target: "sys", profile = %p, ghost_pid = %ghost_pid, port = %p_cfg.proxy_port, "Detected ghost process without PID file. Evicting...");
-                    eprintln!("⚠️ 检测到 Profile '{}' 存在幽灵进程 (PID: {}, Port: {})，正在强制驱逐以释放资源...", p, ghost_pid, p_cfg.proxy_port);
-                    let _ = kill_process(ghost_pid);
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                }
-            }
-        }
-
         if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, cfg_mgr, vault.clone()).await {
             eprintln!("⚠️ Failed to start daemon for profile '{}': {}", p, e);
         }
@@ -117,31 +96,31 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         anyhow::bail!("AppKey is empty for profile '{}'. Please run 'cowen init' first or provide COWEN_APP_KEY/COWEN_APP_MODE.", profile);
     }
 
-    // --- CHECK FOR ALREADY RUNNING DAEMON ---
-    if pid_file.exists() {
-        if let Ok(content) = fs::read_to_string(&pid_file) {
-            if let Some(saved_pid_str) = content.lines().next() {
-                if let Ok(saved_pid) = saved_pid_str.trim().parse::<u32>() {
-                    let mut s = System::new_all();
-                    s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-                    if let Some(process) = s.process(sysinfo::Pid::from_u32(saved_pid)) {
-                         let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-                         let bin_name = cowen_common::utils::get_bin_name().to_lowercase();
-                         if cmdline.to_lowercase().contains(&bin_name) {
-                             if foreground {
-                                 eprintln!("ℹ️ Daemon for profile '{}' is already running (PID: {}). Continuing anyway (foreground mode).", profile, saved_pid);
-                             } else {
-                                 eprintln!("ℹ️ Daemon for profile '{}' is already running (PID: {}). Skipping.", profile, saved_pid);
-                                 return Ok(());
-                             }
-                         }
+    // --- CHECK FOR ALREADY RUNNING DAEMON OR PORT CONFLICTS ---
+    if !foreground {
+        if let Some(ghost_pid) = find_ghost_process(profile, proxy_port) {
+            if pid_file.exists() {
+                 eprintln!("ℹ️ Daemon for profile '{}' is already running (PID: {}). Skipping.", profile, ghost_pid);
+                 return Ok(());
+            }
+            
+            // If we reach here, it's a ghost (running but no PID file)
+            tracing::warn!(target: "sys", profile = %profile, ghost_pid = %ghost_pid, port = %proxy_port, "Detected ghost process without PID file. Evicting...");
+            eprintln!("⚠️ 检测到 Profile '{}' 存在幽灵进程 (PID: {}, Port: {})，正在强制驱逐以释放资源...", profile, ghost_pid, proxy_port);
+            let _ = kill_process(ghost_pid);
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        } else if enable_proxy {
+            if let Some((other_pid, other_name)) = cowen_common::network::check_port_occupancy(proxy_port) {
+                if other_name.to_lowercase().contains(&cowen_common::utils::get_bin_name().to_lowercase()) {
+                    let other_profile = cowen_common::network::extract_profile_from_cmdline(other_pid).unwrap_or_else(|| "unknown".to_string());
+                    if other_profile != profile {
+                         anyhow::bail!("Proxy port {} is already occupied by another Cowen profile '{}' (PID: {}). Please use --proxy-port to specify a different port or disable proxy.", proxy_port, other_profile, other_pid);
                     }
+                } else {
+                    anyhow::bail!("Proxy port {} is already occupied by process '{}' (PID: {}). Please free the port or use --proxy-port to specify a different port.", proxy_port, other_name, other_pid);
                 }
             }
         }
-    }
-    
-    if !foreground {
 
         // --- 父进程：拉起并监控子进程 ---
         let exe = std::fs::canonicalize(env::current_exe()?)?;
@@ -169,17 +148,18 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         
         // 同步等待子进程通过存活校验（Watchdog）
         let mut ready = false;
-        let check_interval = std::time::Duration::from_millis(50);
+        let check_interval = std::time::Duration::from_millis(100);
         let mut s = System::new_all();
 
-        for _ in 0..20 { // 1秒超时
+        // 🚀 STABILITY: Increase timeout to 5s (50 * 100ms) to allow child's internal port-retry (2.5s) to complete.
+        for _ in 0..50 { 
             std::thread::sleep(check_interval);
             if pid_file.exists() {
                 if let Ok(content) = fs::read_to_string(&pid_file) {
                     if let Some(saved_pid_str) = content.lines().next() {
                         if let Ok(saved_pid) = saved_pid_str.trim().parse::<u32>() {
-                            s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-                            if s.process(sysinfo::Pid::from_u32(saved_pid)).is_some() {
+                            // If the saved PID matches the one we just spawned, we are good.
+                            if saved_pid == pid {
                                 ready = true;
                                 break;
                             }
@@ -189,7 +169,7 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
             }
             s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
             if s.process(sysinfo::Pid::from_u32(pid)).is_none() {
-                anyhow::bail!("Daemon process exited immediately. Check logs.");
+                anyhow::bail!("Daemon process exited immediately. Check logs at {}_child_crash.log", profile);
             }
         }
 
@@ -362,7 +342,7 @@ async fn do_stop(profile: &str) -> Result<()> {
                     
                     // 等待退出
                     let mut s = System::new_all();
-                    for _ in 0..10 {
+                    for _ in 0..15 {
                         std::thread::sleep(std::time::Duration::from_millis(200));
                         s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
                         if s.process(sysinfo::Pid::from_u32(pid)).is_none() { break; }
@@ -370,8 +350,13 @@ async fn do_stop(profile: &str) -> Result<()> {
                 }
             }
         }
+        // 🚀 HARDENING: Always attempt to remove the PID file to avoid blocking subsequent starts
         let _ = fs::remove_file(&pid_file);
         eprintln!("✅ Daemon stopped for profile '{}'.", profile);
+    } else {
+        // Even if no pid_file exists, try to clean up any potential ghosts using find_ghost_process logic if needed? 
+        // For now, just ensure the file is gone.
+        let _ = fs::remove_file(&pid_file);
     }
     Ok(())
 }

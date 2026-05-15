@@ -185,7 +185,7 @@ pub async fn collect_daemon_status(
 ) -> CowenResult<StatusEntry> {
     let daemon_info = daemon_info.or_else(|| get_active_daemon_info(&ctx.profile));
     
-    let (mut level, msg, mut children) = if let Some(info) = &daemon_info {
+    let (mut level, msg, mut children, port_conflict) = if let Some(info) = &daemon_info {
         (
             StatusLevel::OK, 
             format!("[RUNNING] (PID: {})", info.pid),
@@ -195,11 +195,28 @@ pub async fn collect_daemon_status(
                     StatusLevel::OK,
                     "主动续约: [ACTIVE] 令牌环境将保持热启动状态".to_string()
                 )
-            ]
+            ],
+            None
         )
     } else {
+        let mut level = StatusLevel::WARN;
+        let mut port_conflict = None;
+        
+        // 🚀 DIAGNOSTICS: Check if the configured port is stolen by another process
+        if ctx.config.proxy_enabled {
+            if let Some((other_pid, other_name)) = crate::network::check_port_occupancy(ctx.config.proxy_port) {
+                level = StatusLevel::ERROR;
+                if other_name.to_lowercase().contains(&crate::utils::get_bin_name().to_lowercase()) {
+                    let other_profile = crate::network::extract_profile_from_cmdline(other_pid).unwrap_or_else(|| "unknown".to_string());
+                    port_conflict = Some(format!("端口冲突: 代理端口 {} 已被 Profile '{}' (PID: {}) 占用。", ctx.config.proxy_port, other_profile, other_pid));
+                } else {
+                    port_conflict = Some(format!("端口冲突: 代理端口 {} 已被进程 '{}' (PID: {}) 占用。", ctx.config.proxy_port, other_name, other_pid));
+                }
+            }
+        }
+
         (
-            StatusLevel::WARN, 
+            level, 
             "[OFFLINE] (未检测到活跃后台进程)".to_string(),
             vec![
                 StatusEntry::new(
@@ -207,15 +224,22 @@ pub async fn collect_daemon_status(
                     StatusLevel::WARN,
                     efficiency_tip.to_string()
                 )
-            ]
+            ],
+            port_conflict
         )
     };
+
+    let mut captured_proxy_port = None;
 
     // Inject Connection State if running AND new version (status file exists)
     if daemon_info.is_some() {
         let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
         if let Ok(content) = std::fs::read_to_string(status_file) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(p) = json.get("proxy_port").and_then(|v| v.as_u64()) {
+                    captured_proxy_port = Some(p);
+                }
+                
                 let conn_state = json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
                 
                 // Freshness check: If the status file is older than 1 minute, it's considered stale
@@ -225,7 +249,7 @@ pub async fn collect_daemon_status(
                     } else { false }
                 } else { false };
 
-                let (conn_level, conn_icon_override, final_state) = if !is_fresh {
+                let (conn_level, conn_icon_override, final_state) = if supports_webhooks && !is_fresh {
                     (StatusLevel::ERROR, Some("💤"), format!("{} (Stale)", conn_state))
                 } else {
                     match conn_state.as_str() {
@@ -233,6 +257,7 @@ pub async fn collect_daemon_status(
                         "Connecting" => (StatusLevel::WARN, Some("⏳"), conn_state), 
                         "Disconnected" => (StatusLevel::WARN, Some("💤"), conn_state),
                         "Reconnecting" => (StatusLevel::ERROR, Some("📡"), conn_state),
+                        "Active" if !supports_webhooks => (StatusLevel::OK, None, conn_state),
                         _ => (StatusLevel::WARN, Some("❓"), conn_state),
                     }
                 };
@@ -266,6 +291,11 @@ pub async fn collect_daemon_status(
         if let Some(bt) = &info.build_time {
             details.push(format!("Daemon Time:  {}", bt));
         }
+        if let Some(p) = captured_proxy_port {
+            details.push(format!("Proxy Port:   {}", p));
+        } else if ctx.config.proxy_enabled && ctx.config.proxy_port != 0 {
+            details.push(format!("Proxy Port:   {} (configured)", ctx.config.proxy_port));
+        }
 
         // Version Sync Logic:
         // 1. Compare Build ID (Git Hash) - Definitive version
@@ -291,7 +321,11 @@ pub async fn collect_daemon_status(
 
     let res = StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
         .with_reason(if daemon_info.is_none() { 
-            Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
+            if let Some(conflict) = port_conflict {
+                Some(conflict)
+            } else {
+                Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
+            }
         } else if outdated {
             Some("⚠️ 当前后台进程版本已过时。建议运行 'cowen daemon restart' 以同步最新功能。".to_string())
         } else if level == StatusLevel::ERROR {

@@ -197,6 +197,42 @@ impl SqlDriver for MssqlDriver {
         Ok(())
     }
 
+    async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token> {
+        let mut conn = self.connect().await?;
+        let rows = conn.query("SELECT value, expires_at, created_at FROM cowen_token WHERE profile = @p1 AND key = 'refresh_token'", &[&profile]).await
+            .map_err(|e| CowenError::Store(format!("MSSQL query failed: {}", e)))?
+            .into_first_result().await
+            .map_err(|e| CowenError::Store(format!("MSSQL fetch failed: {}", e)))?;
+            
+        let row = rows.first().ok_or_else(|| CowenError::Store("Not found".to_string()))?;
+        Ok(Token {
+            value: row.get::<&str, _>(0).unwrap().to_string(),
+            expires_at: row.get::<DateTime<Utc>, _>(1).unwrap(),
+            created_at: row.get::<DateTime<Utc>, _>(2).unwrap(),
+        })
+    }
+
+    async fn save_refresh_token(&self, profile: &str, token: Token) -> CowenResult<()> {
+        let mut conn = self.connect().await?;
+        let sql = "MERGE INTO cowen_token WITH (HOLDLOCK) AS target 
+                   USING (SELECT @p1 AS profile, 'refresh_token' AS key) AS source
+                   ON (target.profile = source.profile AND target.key = source.key)
+                   WHEN MATCHED THEN 
+                       UPDATE SET value = @p2, expires_at = @p3, created_at = @p4
+                   WHEN NOT MATCHED THEN 
+                       INSERT (profile, key, value, expires_at, created_at) VALUES (@p1, 'refresh_token', @p2, @p3, @p4);";
+        conn.execute(sql, &[&profile, &token.value, &token.expires_at, &token.created_at]).await
+            .map_err(|e| CowenError::Store(format!("MSSQL execute failed: {}", e)))?;
+        Ok(())
+    }
+
+    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
+        let mut conn = self.connect().await?;
+        conn.execute("DELETE FROM cowen_token WHERE profile = @p1 AND key = 'refresh_token'", &[&profile]).await
+            .map_err(|e| CowenError::Store(format!("MSSQL execute failed: {}", e)))?;
+        Ok(())
+    }
+
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
         let mut conn = self.connect().await?;
         let key = format!("app_token:{}", app_key);

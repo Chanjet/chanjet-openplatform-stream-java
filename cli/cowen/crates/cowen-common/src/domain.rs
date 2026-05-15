@@ -22,6 +22,13 @@ pub trait TokenDomain: Send + Sync {
     /// 删除 Profile 级别的 AccessToken
     async fn delete_access_token(&self, profile: &str) -> CowenResult<()>;
 
+    /// 获取 Profile 级别的 RefreshToken
+    async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token>;
+    /// 保存 Profile 级别的 RefreshToken
+    async fn save_refresh_token(&self, profile: &str, token: Token) -> CowenResult<()>;
+    /// 删除 Profile 级别的 RefreshToken
+    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()>;
+
     /// 获取应用级别的 AccessToken (AppAccessToken)
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token>;
     /// 保存应用级别的 AccessToken

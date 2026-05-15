@@ -83,6 +83,25 @@ impl cowen_common::store::Store for HybridStore {
         let _ = self.cache.delete_access_token(p).await;
         self.persistence.delete_access_token(p).await
     }
+    async fn get_refresh_token(&self, p: &str) -> CowenResult<cowen_common::models::Token> {
+        match self.cache.get_refresh_token(p).await {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                let v = self.persistence.get_refresh_token(p).await?;
+                let _ = self.cache.save_refresh_token(p, v.clone()).await;
+                Ok(v)
+            }
+        }
+    }
+    async fn save_refresh_token(&self, p: &str, t: cowen_common::models::Token) -> CowenResult<()> {
+        self.persistence.save_refresh_token(p, t.clone()).await?;
+        let _ = self.cache.save_refresh_token(p, t).await;
+        Ok(())
+    }
+    async fn delete_refresh_token(&self, p: &str) -> CowenResult<()> {
+        let _ = self.cache.delete_refresh_token(p).await;
+        self.persistence.delete_refresh_token(p).await
+    }
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token> {
         match self.cache.get_app_access_token(app_key).await {
             Ok(v) => Ok(v),

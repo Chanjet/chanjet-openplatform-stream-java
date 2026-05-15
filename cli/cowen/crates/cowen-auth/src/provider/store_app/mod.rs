@@ -486,7 +486,12 @@ impl AuthProvider for StoreAppProvider {
 
     async fn on_logout(&self, profile: &str, config: &Config) -> CowenResult<()> {
         let vault = self.pool.as_vault();
+        let _ = vault.delete_access_token(profile).await;
+        let _ = vault.delete_refresh_token(profile).await;
+        
         let _ = vault.delete_secret(profile, "oauth2_token_pair").await;
+        let _ = vault.delete_config(profile, "oauth2_token_pair").await;
+        
         let _ = vault.delete_config(profile, "oauth2_revoked").await;
         let _ = vault.delete_config(profile, "last_refresh_error").await;
         

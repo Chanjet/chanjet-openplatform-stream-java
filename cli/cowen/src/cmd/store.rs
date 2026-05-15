@@ -117,5 +117,26 @@ pub async fn migrate(
 ) -> Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let fingerprint = cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?;
-    cowen_store::migration::perform_migration(cfg_mgr, to, mode, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!(e))
+    let profiles = cowen_store::migration::perform_migration(cfg_mgr, to, mode, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!(e))?;
+
+    // 🚀 STABILITY: After migration, all active daemons MUST be restarted to pick up the new store.
+    // Otherwise, they'll keep talking to the old store while the CLI talks to the new one.
+    println!("🔄 Storage switched successfully. Restarting active daemons to apply changes...");
+    
+    let vault = cfg_mgr.get_vault().ok_or_else(|| anyhow::anyhow!("Vault not initialized"))?;
+    for p in profiles {
+        // We only care about standard profiles (not hidden app: ones) for daemon restarts
+        if !p.starts_with("app:") {
+            if let Some(_info) = cowen_common::status::get_active_daemon_info(&p) {
+                if let Ok(config) = cfg_mgr.load(&p).await {
+                    if !config.app_key.is_empty() {
+                         println!("♻️  Restarting daemon for profile: {}", p);
+                         let _ = cowen_server::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone()).await;
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(())
 }

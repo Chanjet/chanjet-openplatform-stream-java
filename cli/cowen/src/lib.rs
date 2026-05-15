@@ -471,10 +471,12 @@ pub async fn run(cli: Cli) -> Result<()> {
     }
 
     // 2. Auto-recovery: "确保必要的后台进程正在运行"
-    // We skip auto-recovery for lifecycle/diagnostic commands to avoid starting a daemon 
-    // that the user is explicitly trying to stop or just inspect.
+    // We skip auto-recovery for lifecycle/management commands to avoid starting a daemon 
+    // that the user is explicitly trying to stop, reset or initialize.
+    // However, diagnostic commands like 'status' SHOULD trigger recovery to maintain the "always-on" promise.
     let skip_recovery = match cmd_name {
-        "daemon" | "reset" | "init" | "config" | "profile" | "dlq" | "status" | "system" | "auth" | "log" => true,
+        "daemon" | "reset" | "init" | "config" | "profile" | "dlq" | "log" => true,
+        "auth" => matches!(&cli.command, Commands::Auth { action: AuthCommands::Logout | AuthCommands::Reset }),
         _ => false,
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     

@@ -20,6 +20,7 @@ pub async fn start_proxy(
     profile: &str,
     config: &Config,
     port: u16,
+    port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
 ) -> CowenResult<()> {
     let state = ProxyState {
         client: Client::new(),
@@ -49,7 +50,13 @@ pub async fn start_proxy(
         }
     };
     
-    tracing::info!(target: "sys", "Local Proxy Server listening on http://127.0.0.1:{}", port);
+    let local_addr = listener.local_addr().map_err(|e| CowenError::Store(format!("Failed to get local addr: {}", e)))?;
+    let actual_port = local_addr.port();
+    tracing::info!(target: "sys", "Local Proxy Server listening on http://{}", local_addr);
+    
+    if let Some(tx) = port_tx {
+        let _ = tx.send(actual_port);
+    }
     
     axum::serve(listener, app).await.map_err(CowenError::from)?;
     Ok(())

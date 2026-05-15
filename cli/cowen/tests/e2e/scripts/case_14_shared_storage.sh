@@ -30,15 +30,16 @@ function final_cleanup {
 }
 # trap final_cleanup EXIT
 
-rm -rf "$HOME_1" "$HOME_2"
 rm -f "$SHARED_DB"* "shared_cowen.db"*
 mkdir -p "$HOME_1" "$HOME_2"
+
+start_mock
 
 # --- Node 1: Initializer ---
 export COWEN_HOME="$HOME_1"
 cat > "$HOME_1/app.yaml" <<EOF
 storage:
-  store: sqlite
+  store: innerdb
   db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
@@ -57,8 +58,8 @@ EOF
     --webhook-target "http://127.0.0.1:9299/webhook_sink" \
     --proxy-port $PROXY_PORT_1
 
-# Stop ghost daemon
-"$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
+# 🚀 BUG FIX: We KEEP the daemon running here so it can receive the AppTicket
+# "$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
 assert_pass "Node 1 initialized and linked to shared DB"
 
 # --- Node 2: Follower (No Init) ---
@@ -66,7 +67,7 @@ echo -e "${BOLD}2. Setup Node 2 (No Init)${NC}"
 export COWEN_HOME="$HOME_2"
 cat > "$HOME_2/app.yaml" <<EOF
 storage:
-  store: sqlite
+  store: innerdb
   db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
@@ -83,10 +84,11 @@ else
     exit 1
 fi
 
-start_mock
+# start_mock (Already started)
 
 # 3. Verify Token Synchronization
 echo -e "${BOLD}3. Verify Token Synchronization${NC}"
+
 
 # 1. Get initial token from Node 1
 export COWEN_HOME="$HOME_1"
@@ -125,6 +127,9 @@ if [ -z "$TOKEN_V2" ]; then
     exit 1
 fi
 echo -e "   Node 1 New Token:     ${BLUE}${TOKEN_V2:0:15}...${NC}"
+
+# 🚀 STABILITY: Stop Node 1 daemon so it doesn't background-refresh again and change the token
+"$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
 
 echo -e "${BOLD}5. Verify Node 2 Sync${NC}"
 export COWEN_HOME="$HOME_2"

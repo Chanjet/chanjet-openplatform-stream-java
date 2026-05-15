@@ -54,7 +54,7 @@ pub struct Config {
     pub telemetry_enabled: bool,
     #[serde(default = "default_true")]
     pub ai_enabled: bool,
-    #[serde(default = "default_8080")]
+    #[serde(default = "default_zero")]
     pub proxy_port: u16,
     #[serde(default = "default_true")]
     pub proxy_enabled: bool,
@@ -73,7 +73,7 @@ pub struct Config {
 }
 
 fn default_true() -> bool { true }
-fn default_8080() -> u16 { 8080 }
+fn default_zero() -> u16 { 0 }
 
 fn default_log() -> LogConfig {
     LogConfig {
@@ -116,7 +116,7 @@ impl Config {
             },
             telemetry_enabled: true,
             ai_enabled: true,
-            proxy_port: 8080,
+            proxy_port: 0,
             proxy_enabled: true,
             app_mode: crate::models::AuthMode::Oauth2,
             app_secret: "".to_string(),

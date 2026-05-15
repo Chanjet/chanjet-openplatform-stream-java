@@ -148,6 +148,31 @@ impl SqlDriver for PostgresDriver {
         Ok(())
     }
 
+    async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token> {
+        let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = $1 AND token_type = 'refresh_token'")
+            .bind(profile)
+            .fetch_one(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+        Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
+    }
+
+    async fn save_refresh_token(&self, profile: &str, token: Token) -> CowenResult<()> {
+        sqlx::query("INSERT INTO cowen_tenant_token (profile, token_type, token_value, expires_at, created_at) VALUES ($1, 'refresh_token', $2, $3, $4) 
+                     ON CONFLICT(profile, token_type) DO UPDATE SET token_value=EXCLUDED.token_value, expires_at=EXCLUDED.expires_at, created_at=EXCLUDED.created_at")
+            .bind(profile).bind(token.value).bind(token.expires_at).bind(token.created_at)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+        Ok(())
+    }
+
+    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_tenant_token WHERE profile = $1 AND token_type = 'refresh_token'")
+            .bind(profile)
+            .execute(&self.pool).await
+            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+        Ok(())
+    }
+
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
         let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_app_token WHERE app_key = $1")
             .bind(app_key)

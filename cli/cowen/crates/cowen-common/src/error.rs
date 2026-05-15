@@ -23,6 +23,9 @@ pub enum CowenError {
     #[error("Profile not found: {0}")]
     ProfileNotFound(String),
 
+    #[error("Not found: {0}")]
+    NotFound(String),
+
     #[error("Validation error: {0}")]
     Validation(String),
 

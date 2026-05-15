@@ -60,6 +60,31 @@ impl SelfBuiltProvider {
 
         let mut retry_count = 0;
         loop {
+            // 0. Proactive Ticket Check (for the first attempt if missing)
+            if retry_count == 0 && self.pool.as_vault().get_app_ticket(&cfg.app_key).await.is_err() {
+                tracing::warn!(target: "sys", profile = %profile, "AppTicket missing in Vault. Triggering proactive recovery push...");
+                if let Err(e) = self.trigger_push_internal(profile, cfg, true).await {
+                    return Err(CowenError::Auth(format!("Critical: AppTicket missing and failed to trigger push: {}", e)));
+                }
+                
+                tracing::info!(target: "sys", profile = %profile, "Waiting for initial AppTicket dispatch (up to 20s)...");
+                let mut waited = 0;
+                let mut found = false;
+                while waited < 20 {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    if self.pool.as_vault().get_app_ticket(cfg.app_key.trim()).await.is_ok() {
+                        tracing::info!(target: "sys", profile = %profile, "Successfully recovered initial AppTicket.");
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        found = true;
+                        break;
+                    }
+                    waited += 1;
+                }
+                if !found {
+                    return Err(CowenError::Auth("Authentication failed: AppTicket is missing and did not arrive after 20s. Please ensure 'cowen daemon' is running and connected to the platform.".to_string()));
+                }
+            }
+
             // 1. Build Request
             let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/auth/selfBuiltApp/generateToken"));
             let mut headers = HeaderMap::new();
@@ -73,10 +98,10 @@ impl SelfBuiltProvider {
                 body_map.insert("certificate".to_string(), serde_json::Value::String(cfg.certificate.clone()));
             }
 
-            // Optional AppTicket (May be required by some platform versions, but optional for others/mocks)
-            if let Ok(ticket) = self.pool.as_vault().get_app_ticket(&cfg.app_key).await {
-                body_map.insert("appTicket".to_string(), serde_json::Value::String(ticket.value));
-            }
+            // AppTicket is MANDATORY for this environment
+            let ticket = self.pool.as_vault().get_app_ticket(&cfg.app_key).await
+                .map_err(|_| CowenError::Auth("AppTicket missing. This is required for self-built app authentication.".to_string()))?;
+            body_map.insert("appTicket".to_string(), serde_json::Value::String(ticket.value));
 
             // 2. Execute
             let resp = self.http_sender.post(&url, headers, serde_json::Value::Object(body_map)).await?;
@@ -190,8 +215,11 @@ impl SelfBuiltProvider {
 
 #[async_trait]
 impl AuthProvider for SelfBuiltProvider {
-    async fn on_logout(&self, _profile: &str, config: &Config) -> CowenResult<()> {
+    async fn on_logout(&self, profile: &str, config: &Config) -> CowenResult<()> {
         let vault = self.pool.as_vault();
+        let _ = vault.delete_access_token(profile).await;
+        let _ = vault.delete_refresh_token(profile).await;
+
         let app_key = config.app_key.trim();
         if !app_key.is_empty() {
             let _ = vault.delete_app_access_token(app_key).await;

@@ -12,7 +12,6 @@ use axum::{
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use cowen_common::models::OAuth2TokenPair;
 use serde::{Deserialize, Serialize};
 
 struct MockState {
@@ -200,6 +199,10 @@ async fn test_auth_login_complex_error_serialization() {
     vault.set_config("error_profile", "app_key", "test_key").await.unwrap();
     vault.set_secret("error_profile", "app_secret", "test_secret").await.unwrap();
     vault.set_secret("error_profile", "encrypt_key", "test_encrypt_key").await.unwrap();
+    vault.save_app_ticket("test_key", cowen_common::models::Ticket {
+        value: "test_ticket".to_string(),
+        created_at: chrono::Utc::now(),
+    }).await.unwrap();
 
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
@@ -236,6 +239,10 @@ async fn test_auth_logout_login_sequence() {
     vault.set_config("seq_profile", "app_key", "test_key").await.unwrap();
     vault.set_secret("seq_profile", "app_secret", "test_secret").await.unwrap();
     vault.set_secret("seq_profile", "encrypt_key", "test_encrypt_key").await.unwrap();
+    vault.save_app_ticket("test_key", cowen_common::models::Ticket {
+        value: "test_ticket".to_string(),
+        created_at: chrono::Utc::now(),
+    }).await.unwrap();
 
     // 1. Logout first (Ensure clean state)
     let mut cmd = Command::cargo_bin("cowen").unwrap();
@@ -247,6 +254,12 @@ async fn test_auth_logout_login_sequence() {
     cmd.arg("--profile").arg("seq_profile");
     cmd.arg("auth").arg("logout");
     cmd.assert().success();
+
+    // Re-seed ticket because logout cleared it (in a real scenario, the platform would push it back or daemon would be running)
+    vault.save_app_ticket("test_key", cowen_common::models::Ticket {
+        value: "test_ticket".to_string(),
+        created_at: chrono::Utc::now(),
+    }).await.unwrap();
 
     // 2. Login (Should trigger network refresh because logout cleared the token)
     let mut cmd = Command::cargo_bin("cowen").unwrap();
@@ -280,14 +293,12 @@ async fn test_auth_login_oauth2() {
     vault.set_config("oa2_profile", "app_key", "test_key").await.unwrap();
     vault.set_secret("oa2_profile", "app_secret", "test_secret").await.unwrap();
 
-    let pair = OAuth2TokenPair {
-        access_token: "old_at".to_string(),
-        refresh_token: "old_rt".to_string(),
-        expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
-        refresh_expires_at: chrono::Utc::now() + chrono::Duration::days(1),
+    let rt = cowen_common::models::Token {
+        value: "old_rt".to_string(),
+        expires_at: chrono::Utc::now() + chrono::Duration::days(1),
         created_at: chrono::Utc::now() - chrono::Duration::hours(2),
     };
-    vault.set_config("oa2_profile", "oauth2_token_pair", &serde_json::to_string(&pair).unwrap()).await.unwrap();
+    vault.save_refresh_token("oa2_profile", rt).await.unwrap();
 
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
@@ -302,10 +313,13 @@ async fn test_auth_login_oauth2() {
         .success()
         .stdout(predicates::str::contains("OAuth2 Token Pair has been rotated"));
     
-    let pair_raw = vault.get_config("oa2_profile", "oauth2_token_pair").await.unwrap();
-    let new_pair: OAuth2TokenPair = serde_json::from_str(&pair_raw).unwrap();
-    assert_eq!(new_pair.access_token, "mock_at_oa2_new");
-    assert_eq!(new_pair.refresh_token, "mock_rt_oa2_new");
+    let at = vault.get_access_token("oa2_profile").await.unwrap();
+    let rt = vault.get_refresh_token("oa2_profile").await.unwrap();
+    assert_eq!(at.value, "mock_at_oa2_new");
+    assert_eq!(rt.value, "mock_rt_oa2_new");
+
+    // Legacy JSON blob should be purged
+    assert!(vault.get_config("oa2_profile", "oauth2_token_pair").await.is_err());
 
     let _ = dir;
 }

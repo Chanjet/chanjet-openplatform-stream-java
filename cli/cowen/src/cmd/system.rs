@@ -463,7 +463,8 @@ pub async fn enforce_daemon_version_sync(
             }
 
             if outdated {
-                tracing::info!(target: "sys", profile = %p, "Daemon version mismatch (CLI: {} / {}, Daemon: {}). Restarting...", cowen_common::BUILD_ID, cowen_common::BUILD_TIME, daemon_bid);
+                let daemon_bt = info.build_time.as_deref().unwrap_or("N/A");
+                tracing::info!(target: "sys", profile = %p, "Daemon version mismatch (CLI: {} / {}, Daemon: {} / {}). Restarting...", cowen_common::BUILD_ID, cowen_common::BUILD_TIME, daemon_bid, daemon_bt);
 
                 let config = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::Config::default_with_profile(&p));
 
@@ -472,6 +473,9 @@ pub async fn enforce_daemon_version_sync(
                 if !config.app_key.trim().is_empty() {
                     eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
                     let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone()).await;
+                    
+                    // 🚀 STABILITY: Brief grace period to allow the new daemon to bind ports and write its PID file
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 }
             }        }
     }

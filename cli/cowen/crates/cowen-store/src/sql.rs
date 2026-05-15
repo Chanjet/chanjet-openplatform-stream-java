@@ -35,6 +35,9 @@ pub trait SqlDriver: Send + Sync {
     async fn get_access_token(&self, profile: &str) -> CowenResult<cowen_common::models::Token>;
     async fn save_access_token(&self, profile: &str, token: cowen_common::models::Token) -> CowenResult<()>;
     async fn delete_access_token(&self, profile: &str) -> CowenResult<()>;
+    async fn get_refresh_token(&self, profile: &str) -> CowenResult<cowen_common::models::Token>;
+    async fn save_refresh_token(&self, profile: &str, token: cowen_common::models::Token) -> CowenResult<()>;
+    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()>;
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token>;
     async fn save_app_access_token(&self, app_key: &str, token: cowen_common::models::Token) -> CowenResult<()>;
     async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()>;
@@ -166,6 +169,9 @@ impl Store for SqlStore {
     async fn get_access_token(&self, profile: &str) -> CowenResult<cowen_common::models::Token> { self.driver.get_access_token(&self.resolve_profile(profile)).await }
     async fn save_access_token(&self, profile: &str, token: cowen_common::models::Token) -> CowenResult<()> { self.driver.save_access_token(&self.resolve_profile(profile), token).await }
     async fn delete_access_token(&self, profile: &str) -> CowenResult<()> { self.driver.delete_access_token(&self.resolve_profile(profile)).await }
+    async fn get_refresh_token(&self, profile: &str) -> CowenResult<cowen_common::models::Token> { self.driver.get_refresh_token(&self.resolve_profile(profile)).await }
+    async fn save_refresh_token(&self, profile: &str, token: cowen_common::models::Token) -> CowenResult<()> { self.driver.save_refresh_token(&self.resolve_profile(profile), token).await }
+    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> { self.driver.delete_refresh_token(&self.resolve_profile(profile)).await }
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token> { self.driver.get_app_access_token(app_key).await }
     async fn save_app_access_token(&self, app_key: &str, token: cowen_common::models::Token) -> CowenResult<()> { self.driver.save_app_access_token(app_key, token).await }
     async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> { self.driver.delete_app_access_token(app_key).await }

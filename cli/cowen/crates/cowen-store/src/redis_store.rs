@@ -132,6 +132,23 @@ impl Store for RedisStore {
         Ok(())
     }
 
+    async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token> {
+        let json = self.raw_get(profile, "tok:refresh").await?;
+        Ok(serde_json::from_str(&json)?)
+    }
+
+    async fn save_refresh_token(&self, profile: &str, token: Token) -> CowenResult<()> {
+        let json = serde_json::to_string(&token)?;
+        self.raw_set(profile, "tok:refresh", &json, None).await
+    }
+
+    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
+        let redis_key = self.key(profile, "tok:refresh");
+        let mut conn = self.conn.clone();
+        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(CowenError::from)?;
+        Ok(())
+    }
+
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
         let json = self.raw_get(&format!("app:{}", app_key), "tok_v2:app_access").await?;
         Ok(serde_json::from_str(&json)?)
