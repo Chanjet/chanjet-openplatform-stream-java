@@ -131,7 +131,7 @@ pub async fn migrate(
                 if let Ok(config) = cfg_mgr.load(&p).await {
                     if !config.app_key.is_empty() {
                          println!("♻️  Restarting daemon for profile: {}", p);
-                         let _ = cowen_server::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None).await;
+                         let _ = cowen_server::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone()).await;
                     }
                 }
             }

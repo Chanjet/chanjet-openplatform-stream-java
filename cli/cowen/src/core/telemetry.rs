@@ -5,11 +5,7 @@ use tracing_subscriber::{
     fmt,
     prelude::*,
     EnvFilter,
-    reload,
-    Registry,
 };
-
-pub type LogHandle = reload::Handle<EnvFilter, Registry>;
 use std::sync::Arc;
 use anyhow::Result;
 use serde::{Serialize, Deserialize};
@@ -32,7 +28,7 @@ pub fn init_telemetry(
     profile: &str, 
     config: &cowen_common::config::LogConfig,
     vault_rx: tokio::sync::watch::Receiver<Option<Arc<dyn cowen_common::vault::Vault>>>,
-) -> Result<(Vec<tracing_appender::non_blocking::WorkerGuard>, LogHandle)> {
+) -> Result<Vec<tracing_appender::non_blocking::WorkerGuard>> {
     let log_level = &config.level;
     let bin_name = cowen_common::utils::get_bin_name();
     
@@ -42,18 +38,22 @@ pub fn init_telemetry(
 
     let mut guards = Vec::new();
 
-    let filter = EnvFilter::try_from_default_env()
+    let global_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(format!(
             "warn,{}={},connector_sdk={},sys={},audit={},stream={},dlq={}", 
             bin_name, log_level, log_level, log_level, log_level, log_level, log_level
         )));
 
-    let (filter_layer, handle) = reload::Layer::new(filter);
+    let console_filter = EnvFilter::new(format!(
+        "warn,{}={},connector_sdk={},sys={},audit={},stream={},dlq={}",
+        bin_name, log_level, log_level, log_level, log_level, log_level, log_level
+    ));
 
     let console_layer = fmt::layer()
         .with_target(false)
         .with_ansi(true)
-        .with_writer(std::io::stderr);
+        .with_writer(std::io::stderr)
+        .with_filter(console_filter);
 
     let rotation = if config.max_size_mb > 0 {
         Rotation::SizeBased(RotationSize::MB(config.max_size_mb))
@@ -68,7 +68,7 @@ pub fn init_telemetry(
     let vault_audit_layer = cowen_common::audit::VaultAuditLayer::new(vault_rx);
 
     let registry = tracing_subscriber::registry()
-        .with(filter_layer)
+        .with(global_filter)
         .with(console_layer)
         .with(vault_audit_layer);
 
@@ -111,7 +111,7 @@ pub fn init_telemetry(
 
     registry.init();
 
-    Ok((guards, handle))
+    Ok(guards)
 }
 
 /// 异步上报遥测事件 (静默失败，非阻塞)
@@ -164,7 +164,7 @@ mod tests {
         let config = cowen_common::Config::default_with_profile("testprof");
         
         let (_, rx) = tokio::sync::watch::channel(None);
-        let (_guards, _handle) = init_telemetry(temp_dir.clone(), "testprof", &config.log, rx).unwrap();
+        let _guards = init_telemetry(temp_dir.clone(), "testprof", &config.log, rx).unwrap();
         
         // Tracing appender creates files lazily upon first write OR immediately depending on the exact LogRoller configuration
         // In logroller, they are usually created right away if the builder creates the file.

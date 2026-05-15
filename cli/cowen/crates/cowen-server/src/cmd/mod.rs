@@ -10,20 +10,9 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use cowen_common::vault::Vault;
-use cowen_config::ConfigWatcher;
 
 /// 启动守护进程 (主分发器)
-pub async fn start(
-    profile: &str, 
-    config: &Config, 
-    _proxy_port: u16, 
-    _enable_proxy: bool, 
-    foreground: bool, 
-    all: bool, 
-    cfg_mgr: &ConfigManager, 
-    vault: Arc<dyn Vault>,
-    log_handle: Option<Arc<dyn Fn(String) + Send + Sync>>,
-) -> Result<()> {
+pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
     let target_profiles = if all && !foreground {
         cfg_mgr.list_profiles().await?
     } else {
@@ -41,7 +30,7 @@ pub async fn start(
         
         let _pid_file = cowen_common::config::get_app_dir().join(format!("{}_daemon.pid", p));
         
-        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, cfg_mgr, vault.clone(), log_handle.clone()).await {
+        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, cfg_mgr, vault.clone()).await {
             eprintln!("⚠️ Failed to start daemon for profile '{}': {}", p, e);
         }
     }
@@ -97,16 +86,9 @@ fn kill_process(pid: u32) -> bool {
     false
 }
 
-async fn do_start(
-    profile: &str, 
-    config: &Config, 
-    proxy_port: u16, 
-    enable_proxy: bool, 
-    foreground: bool, 
-    cfg_mgr: &ConfigManager, 
-    vault: Arc<dyn Vault>,
-    log_handle: Option<Arc<dyn Fn(String) + Send + Sync>>,
-) -> Result<()> {
+/// 执行启动的核心逻辑，处理父子进程逻辑
+/// 执行启动的核心逻辑，处理父子进程逻辑
+async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
@@ -203,11 +185,6 @@ async fn do_start(
     // 🚀 NEW: Set process identity to allow easy identification in ps/top
     cowen_common::utils::set_process_name(&format!("cowen:{}", profile));
 
-    // Initialize ConfigWatcher to monitor local file changes and SIGHUP
-    let profile_path = cfg_mgr.get_profile_path(profile);
-    let config_watcher = ConfigWatcher::<Config>::new(profile_path)?;
-    let mut config_rx = config_watcher.subscribe();
-
     std::thread::sleep(std::time::Duration::from_millis(50));
     let pid = std::process::id();
     let build_time = cowen_common::BUILD_TIME;
@@ -282,20 +259,6 @@ async fn do_start(
                 tracing::info!(target: "sys", "Termination signal received"); 
                 result = Ok(());
                 break; 
-            },
-            res = config_rx.changed() => {
-                if res.is_ok() {
-                    let new_config = config_rx.borrow().clone();
-                    tracing::info!(target: "sys", "Local config file change detected. Triggering hot-reload...");
-                    
-                    // Task 2.3: Dynamic Log Level Adjustment
-                    if let Some(ref handle) = log_handle {
-                        tracing::info!(target: "sys", "Updating log level to: {}", new_config.log.level);
-                        handle(new_config.log.level.clone());
-                    }
-                    
-                    reload = true;
-                }
             },
             res = event_rx.recv() => {
                 if let Ok(event) = res {
@@ -401,16 +364,7 @@ async fn do_stop(profile: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn restart(
-    profile: &str, 
-    config: &Config, 
-    _proxy_port: u16, 
-    _enable_proxy: bool, 
-    all: bool, 
-    cfg_mgr: &ConfigManager, 
-    vault: Arc<dyn Vault>,
-    log_handle: Option<Arc<dyn Fn(String) + Send + Sync>>,
-) -> Result<()> {
+pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
     let target_profiles = if all { cfg_mgr.list_profiles().await? } else { vec![profile.to_string()] };
     for p in target_profiles {
         let _ = do_stop(&p).await;
@@ -420,7 +374,7 @@ pub async fn restart(
             if let Ok(cert) = vault.get_secret(&p, "certificate").await { p_cfg.certificate = cert; }
             if let Ok(ek) = vault.get_secret(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
         }
-        let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault.clone(), log_handle.clone()).await;
+        let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault.clone()).await;
     }
     Ok(())
 }

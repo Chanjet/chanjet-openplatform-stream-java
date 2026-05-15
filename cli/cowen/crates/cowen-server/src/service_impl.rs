@@ -19,7 +19,7 @@ impl ServerDaemonService {
 #[async_trait]
 impl DaemonService for ServerDaemonService {
     async fn start_daemon(&self, profile: &str, config: &Config, vault: Arc<dyn Vault>) -> CowenResult<()> {
-        crate::cmd::start(profile, config, config.proxy_port, config.proxy_enabled, false, false, &self.cfg_mgr, vault, None).await
+        crate::cmd::start(profile, config, config.proxy_port, config.proxy_enabled, false, false, &self.cfg_mgr, vault).await
             .map_err(|e| CowenError::Internal(format!("Failed to start daemon: {}", e)))
     }
 }
