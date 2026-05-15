@@ -34,6 +34,7 @@ v0.3.1 版本致力于增强 `cowen` 在生产环境中的 **可观测性 (Obser
     *   **分发优化**: 若配置为 `embedding_search` 但插件库不存在，系统应自动降级到 `string_matching` 并提供安装指引。
 
 ## 3. 技术约束 (Technical Constraints)
+*   **物理隔离架构 (Physical Crate Isolation)**: 为防止代码腐化和模块越界调用，v0.3.1 的所有新特性必须封装在独立的 Cargo Crate 中（如 `cowen-config`, `cowen-monitor`, `cowen-doctor`, `cowen-search`）。核心程序通过最小化 Trait SPI 引用这些 Crate，严格禁止跨域的源码级循环依赖。
 *   **稳定性**: 配置热重载严禁引起内存泄漏或进程崩溃。
 *   **安全性**: 管理 API 必须严格绑定在 `127.0.0.1`，禁止外网访问。
 *   **兼容性**: 插件加载机制需适配 Linux、macOS 和 Windows。
