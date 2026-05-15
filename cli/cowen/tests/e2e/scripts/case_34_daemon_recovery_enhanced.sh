@@ -125,7 +125,7 @@ fi
 REDIRECT_PORT=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['redirect_port'])")
 STATE=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['state'])")
 
-sleep 1
+sleep 2
 # Simulate browser callback to unblock init
 curl -s -o /dev/null "http://127.0.0.1:${REDIRECT_PORT}/callback?code=mock_auth_code_12345&state=${STATE}"
 wait $INIT_PID 2>/dev/null || true

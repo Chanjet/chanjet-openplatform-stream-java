@@ -21,20 +21,24 @@ echo -e "${BOLD}1. Initial OAuth2 Init${NC}"
 
 export COWEN_SKIP_BROWSER=true
 
+# Calculate dynamic ports based on MOCK_PORT to avoid parallel collisions
+PROXY_PORT=$((MOCK_PORT + 100))
+
 # Start init in background
 "$COWEN_BIN" init --profile "$PROF" \
     --app-mode oauth2 \
     --openapi-url "$MOCK_URL" \
     --stream-url "$MOCK_WS" \
-    --proxy-port 16100 > /dev/null 2>&1 &
+    --proxy-port $PROXY_PORT > /dev/null 2>&1 &
 INIT_PID=$!
 
 # Extract state/port from DB
 echo -n "   Waiting for auth session..."
 SESSION_JSON=""
-for i in {1..30}; do
+for i in {1..40}; do
     if [ -f "$COWEN_HOME/cowen.db" ]; then
-        SESSION_JSON=$(sqlite3 "$COWEN_HOME/cowen.db" "SELECT item_value FROM cowen_token WHERE profile='global' AND item_key LIKE 'session:%' LIMIT 1;" 2>/dev/null)
+        # Use a subshell and hide errors to handle 'table not found' during early init
+        SESSION_JSON=$( (sqlite3 "$COWEN_HOME/cowen.db" "SELECT item_value FROM cowen_token WHERE profile='global' AND item_key LIKE 'session:%' LIMIT 1;") 2>/dev/null || echo "")
         [ -n "$SESSION_JSON" ] && break
     fi
     sleep 0.5

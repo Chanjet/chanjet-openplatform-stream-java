@@ -12,6 +12,7 @@ endif
 # 缓存目录与镜像定义
 CARGO_CACHE_DIR=$(HOME)/.cache/cowen-cargo
 BUILDER_IMAGE=localhost/cowen-builder
+MAX_PARALLEL ?= 1
 
 # 检测当前主机环境
 ifeq ($(OS),Windows_NT)
@@ -346,17 +347,18 @@ else ifeq ($(HOST_OS),windows)
 endif
 
 # 在 Linux 容器中执行并行 E2E (Podman) - 封闭纯净环境
-test-linux: prepare-podman-machine prepare-podman-image db-up
-	@echo "🧪 Running Full Test Suite in Linux container (Native build -> x86_64 test)..."
+# 在 Linux 容器中执行并行 E2E (Podman) - All-in-One 封闭容器模式
+# 数据库服务内置于测试容器中，无需外部 db-up，无需 --network host
+test-linux: prepare-podman-machine prepare-podman-image
+	@echo "🧪 Running Full Test Suite in Linux container (All-in-One mode)..."
 	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
-	trap '$(MAKE) db-down' EXIT; \
+	trap '$(MAKE) stop-podman-machine' EXIT; \
 	podman run --rm -it \
-		--network host \
-		-v "$(shell pwd)/../..:/workspace" \
-		-v "$(HOME)/.cargo/registry:/usr/local/cargo/registry" \
-		-v "$(HOME)/.cargo/git:/usr/local/cargo/git" \
-		-e TEST_BASE=target/cowen_tests_linux \
-		-e BASE_PORT_START=16000 \
+		-v $(shell pwd)/../..:/workspace \
+		-v $(HOME)/.cargo/registry:/usr/local/cargo/registry \
+		-v $(HOME)/.cargo/git:/usr/local/cargo/git \
+		-e DB_HOST=127.0.0.1 \
+		-e MAX_PARALLEL=$(MAX_PARALLEL) \
 		-e QEMU_LD_PREFIX=/usr/x86_64-linux-gnu/ \
 		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
@@ -398,12 +400,48 @@ local-db-down:
 	brew services stop mysql || true
 	brew services stop postgresql@15 || true
 
+# 专用于 Podman 测试的统一网络 Pod 模式
+db-up-pod: prepare-podman-machine
+	@echo "🚀 Aggressively purging all Cowen test resources..."
+	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
+	podman stop -a 2>/dev/null || true; \
+	podman rm -f -a 2>/dev/null || true; \
+	podman pod rm -f -a 2>/dev/null || true; \
+	sleep 2; \
+	echo "🚀 Starting MySQL, PostgreSQL and Redis in a unified Podman Pod..."; \
+	podman pod create --name cowen-test-pod -p 3306:3306 -p 5432:5432 -p 6379:6379 || exit 1; \
+	podman run -d --pod cowen-test-pod --name cowen-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=cowen_test --health-cmd="mysqladmin ping -h localhost" --health-interval=2s mysql:8.0 || exit 1; \
+	podman run -d --pod cowen-test-pod --name cowen-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=cowen_test --health-cmd="pg_isready -U postgres" --health-interval=2s postgres:15 || exit 1; \
+	podman run -d --pod cowen-test-pod --name cowen-redis --health-cmd="redis-cli ping" --health-interval=2s redis:7.0-alpine || exit 1; \
+	echo "⌛ Waiting for databases in Pod to be ready..."; \
+	MAX_WAIT=20; count=0; \
+	while [ $$count -lt $$MAX_WAIT ]; do \
+		HEALTHY_COUNT=$$(podman ps --filter "pod=cowen-test-pod" --filter "health=healthy" --format "{{.ID}}" | wc -l); \
+		if [ $$HEALTHY_COUNT -ge 3 ]; then \
+			echo -e "\n✅ Databases in Pod are ready."; \
+			exit 0; \
+		fi; \
+		printf "."; sleep 2; count=$$((count + 1)); \
+	done; \
+	echo -e "\n❌ TIMEOUT: Databases failed to become healthy."; \
+	podman ps -a --filter "pod=cowen-test-pod"; \
+	exit 1
+
+db-down-pod:
+	@echo "🛑 Stopping and removing Podman Pod..."
+	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
+	podman stop -a 2>/dev/null || true; \
+	podman rm -f -a 2>/dev/null || true; \
+	podman pod rm -f -a 2>/dev/null || true; \
+	$(MAKE) stop-podman-machine
+
 db-up: prepare-podman-machine
 	@echo "🚀 Starting MySQL, PostgreSQL and Redis containers..."
 	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
 	if [ "$(COMPOSE_BIN)" = "" ]; then \
 		echo "⚠️  No compose provider found, falling back to 'podman run'..."; \
-		podman rm -f cowen-mysql cowen-postgres cowen-redis 2>/dev/null || true; \
+		podman stop -a 2>/dev/null || true; \
+		podman rm -f -a 2>/dev/null || true; \
 		podman run -d --name cowen-mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=cowen_test --health-cmd="mysqladmin ping -h localhost" --health-interval=5s mysql:8.0; \
 		podman run -d --name cowen-postgres -p 5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=cowen_test --health-cmd="pg_isready -U postgres" --health-interval=5s postgres:15; \
 		podman run -d --name cowen-redis -p 6379:6379 --health-cmd="redis-cli ping" --health-interval=5s redis:7.0-alpine; \

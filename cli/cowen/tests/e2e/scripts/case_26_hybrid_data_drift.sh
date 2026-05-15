@@ -9,7 +9,7 @@
 source tests/e2e/scripts/common.sh
 
 echo -e "${BOLD}1. Setup Environment${NC}"
-setup_workspace "case_27"
+setup_workspace "case_26"
 start_mock
 
 REDIS_PORT=6387

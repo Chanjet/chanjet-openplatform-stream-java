@@ -68,7 +68,7 @@ STATE=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.std
 echo "   Extracted: port=$REDIRECT_PORT, state=${STATE:0:8}..."
 
 # Wait a moment for the finalizer listener to be ready
-sleep 1
+sleep 2
 
 # Simulate browser callback (this is what the platform redirect would do)
 echo -n "   Simulating browser callback..."

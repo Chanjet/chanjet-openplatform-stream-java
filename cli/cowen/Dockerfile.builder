@@ -19,6 +19,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3-aiohttp \
     sqlite3 \
     redis-server \
+    default-mysql-server \
     default-mysql-client \
     postgresql \
     postgresql-client \
@@ -28,6 +29,10 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     perl \
     git \
     && rm -rf /var/lib/apt/lists/*
+
+# 预配置 MySQL 和 PostgreSQL 数据目录
+RUN mkdir -p /run/mysqld && chown mysql:mysql /run/mysqld && \
+    mkdir -p /var/run/postgresql && chown postgres:postgres /var/run/postgresql
 
 # 安装 Rust (使用原生 ARM64)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.92.0
@@ -40,3 +45,4 @@ ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
 RUN rustup target add x86_64-unknown-linux-gnu
 
 WORKDIR /workspace
+

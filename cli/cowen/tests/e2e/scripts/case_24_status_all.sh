@@ -7,7 +7,7 @@
 source tests/e2e/scripts/common.sh
 
 echo -e "${BOLD}1. Setup Environment with Multiple Profiles${NC}"
-setup_workspace "case_25"
+setup_workspace "case_24"
 start_mock
 
 # Profile 1: Healthy

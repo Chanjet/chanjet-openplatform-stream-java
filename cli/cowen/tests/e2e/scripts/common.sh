@@ -14,11 +14,11 @@ export NC='\033[0m'
 # Detect OS and adjust binary name
 OS_TYPE=$(uname -s)
 if [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
-    export COWEN_BIN="./target/debug/cowen.exe"
     export IS_WINDOWS=true
+    export COWEN_BIN="${COWEN_BIN:-./target/debug/cowen.exe}"
 else
-    export COWEN_BIN="./target/debug/cowen"
     export IS_WINDOWS=false
+    export COWEN_BIN="${COWEN_BIN:-./target/debug/cowen}"
 fi
 
 export MOCK_PORT="${MOCK_PORT:-9299}"
@@ -26,6 +26,63 @@ export MOCK_URL="http://127.0.0.1:$MOCK_PORT"
 export MOCK_WS="ws://127.0.0.1:$MOCK_PORT"
 export COWEN_RAW_OUTPUT="true"
 export COWEN_EXCLUSIVE="false"
+
+# Detect Container Environment for DB Access (Podman on macOS support)
+detect_db_host() {
+    # If already detected (e.g., by start_services.sh), skip entirely
+    if [ -n "$DB_HOST_DETECTED" ]; then
+        return
+    fi
+
+    export DB_HOST="127.0.0.1"
+    if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
+        # In-container mode: services should have been started by start_services.sh
+        # If DB_HOST_DETECTED is not set, it means start_services.sh was not sourced
+        # Fall back to probing external hosts
+        TCP_CHECK_CMD="python3 -c \"import socket; 
+def check(h, p):
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)
+        return s.connect_ex((h, p)) == 0
+    except:
+        return False
+
+ports = [5432, 3306, 6379]
+hosts = ['127.0.0.1', 'localhost']
+found = any(check(h, p) for h in hosts for p in ports)
+exit(0 if found else 1)\""
+        
+        echo -n "  [WAIT] Probing for local database services (127.0.0.1)..."
+        for i in {1..10}; do
+            if eval $TCP_CHECK_CMD 2>/dev/null; then
+                echo -e " ${GREEN}[READY]${NC}"
+                export DB_HOST="127.0.0.1"
+                export DB_HOST_DETECTED="true"
+                return
+            fi
+            echo -n "."
+            sleep 1
+        done
+        echo -e " ${YELLOW}[NOT FOUND]${NC}"
+
+        # Fallback to container host gateway
+        if getent hosts host.containers.internal >/dev/null 2>&1; then
+            export DB_HOST="host.containers.internal"
+        elif getent hosts host.docker.internal >/dev/null 2>&1; then
+            export DB_HOST="host.docker.internal"
+        fi
+        
+        echo -e "  ${YELLOW}[INFO] Using DB_HOST fallback: $DB_HOST${NC}"
+    fi
+    export DB_HOST_DETECTED="true"
+}
+
+# Call detection at the start of any suite
+detect_db_host
+# Force PG_CMD to include host
+export PG_CMD="psql -h $DB_HOST -U postgres"
+export PGPASSWORD="${PGPASSWORD:-password}"
 
 # Database Isolation
 get_case_db_name() {
@@ -48,6 +105,7 @@ setup_workspace() {
             PID=$(cat "$pid_file" 2>/dev/null)
             if [ -n "$PID" ]; then
                 kill -9 "$PID" >/dev/null 2>&1 || true
+                sleep 0.5
             fi
         done
     fi
@@ -88,6 +146,7 @@ cleanup_suite() {
                 if [ -n "$PID" ]; then
                     echo "     Killing daemon PID $PID..."
                     kill -9 "$PID" >/dev/null 2>&1 || true
+                    sleep 0.5
                 fi
                 rm -f "$pid_file" >/dev/null 2>&1 || true
             done
@@ -152,6 +211,7 @@ start_mock() {
         lsof -ti ":$MOCK_PORT" | xargs kill -9 2>/dev/null || true
     fi
     sleep 1
+    # Bind to 0.0.0.0 for container accessibility
     MOCK_PORT=$MOCK_PORT python3 tests/infra/mock_server.py > "$TEST_BASE/mock_server_$MOCK_PORT.log" 2>&1 &
     MOCK_PID=$!
     for i in {1..10}; do
@@ -266,6 +326,62 @@ safe_psql_exec() {
         fi
     done
     rm -f "$out_file"
+    return 1
+}
+
+# Helper to wait for PostgreSQL to be ready
+wait_for_postgres() {
+    local host="${1:-$DB_HOST}"
+    local port="${2:-5432}"
+    echo -n "  Waiting for PostgreSQL at $host:$port to be ready..."
+    for i in {1..15}; do
+        # 🚀 Cross-platform TCP check fallback
+        local tcp_ok=false
+        if command -v timeout >/dev/null 2>&1; then
+            timeout 2 bash -c "</dev/tcp/$host/$port" 2>/dev/null && tcp_ok=true
+        else
+            python3 -c "import socket; s=socket.socket(); s.settimeout(2); exit(s.connect_ex(('$host', $port)))" 2>/dev/null && tcp_ok=true
+        fi
+
+        if [ "$tcp_ok" = true ]; then
+            if psql -h "$host" -p "$port" -U postgres -d postgres -c "select 1" >/dev/null 2>&1 || \
+               psql -h "$host" -p "$port" -d postgres -c "select 1" >/dev/null 2>&1 || \
+               PGPASSWORD=password psql -h "$host" -p "$port" -U postgres -d postgres -c "select 1" >/dev/null 2>&1; then
+                echo -e " ${GREEN}[READY]${NC}"
+                return 0
+            fi
+        fi
+        echo -n "."
+        sleep 2
+    done
+    echo -e " ${RED}[TIMEOUT]${NC}"
+    return 1
+}
+
+# Helper to wait for MySQL to be ready
+wait_for_mysql() {
+    local host="${1:-$DB_HOST}"
+    local port="${2:-3306}"
+    echo -n "  Waiting for MySQL at $host:$port to be ready..."
+    for i in {1..15}; do
+        local tcp_ok=false
+        if command -v timeout >/dev/null 2>&1; then
+            timeout 2 bash -c "</dev/tcp/$host/$port" 2>/dev/null && tcp_ok=true
+        else
+            python3 -c "import socket; s=socket.socket(); s.settimeout(2); exit(s.connect_ex(('$host', $port)))" 2>/dev/null && tcp_ok=true
+        fi
+
+        if [ "$tcp_ok" = true ]; then
+            if mysql -h "$host" -P "$port" -u root -e "select 1" >/dev/null 2>&1 || \
+               mysql -h "$host" -P "$port" -u root -proot -e "select 1" >/dev/null 2>&1; then
+                echo -e " ${GREEN}[READY]${NC}"
+                return 0
+            fi
+        fi
+        echo -n "."
+        sleep 2
+    done
+    echo -e " ${RED}[TIMEOUT]${NC}"
     return 1
 }
 

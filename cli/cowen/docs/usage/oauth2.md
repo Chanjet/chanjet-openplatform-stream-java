@@ -79,7 +79,7 @@ OAuth2 模式在 `init` 成功后会尝试自动拉起守护进程。
 ### 1. 强制本地存储
 OAuth2 模式定位于“本地开发调试工具”。如果您尝试在全局配置为远程数据库（如 MySQL, Postgres, Redis）的环境下使用 OAuth2，系统将由于无法同步授权上下文而报错。
 
-- **支持的存储**: `innerdb` (默认 SQLite), `local` (加密文件)
+- **支持的存储**: `innerdb` (默认 SQLite), `local` (基于设备指纹加密的文件)
 - **不支持的存储**: `mysql`, `postgres`, `mssql`, `redis`
 
 ### 2. 为什么不支持远程存储？

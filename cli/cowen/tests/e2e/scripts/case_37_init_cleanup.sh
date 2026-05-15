@@ -9,7 +9,7 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 
-COWEN_BIN="./target/debug/cowen"
+# COWEN_BIN is inherited from common.sh/environment
 if [ ! -f "$COWEN_BIN" ]; then
     COWEN_BIN="../../bin/macos-aarch64/cowen"
 fi

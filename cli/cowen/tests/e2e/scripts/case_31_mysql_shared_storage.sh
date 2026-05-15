@@ -8,24 +8,30 @@ source tests/e2e/scripts/common.sh
 
 # Configuration
 MYSQL_PORT=3306
-DB_NAME=$(get_case_db_name "case_32")
+DB_NAME=$(get_case_db_name "case_31")
 
-# Support both local brew (no password) and local with root password
-if mysql -u root -h 127.0.0.1 -e "select 1" < /dev/null &> /dev/null; then
-    MYSQL_BASE_URL="mysql://root@127.0.0.1:$MYSQL_PORT"
-    MYSQL_CMD="mysql -u root -h 127.0.0.1"
-elif mysql -u root -proot -h 127.0.0.1 -e "select 1" < /dev/null &> /dev/null; then
-    MYSQL_BASE_URL="mysql://root:root@127.0.0.1:$MYSQL_PORT"
-    MYSQL_CMD="mysql -u root -proot -h 127.0.0.1"
-else
-    echo -e " ${RED}[ERROR] Local MySQL service not found or inaccessible.${NC}"
+# Ensure MySQL is ready
+if ! wait_for_mysql "$DB_HOST" "$MYSQL_PORT"; then
     exit 1
+fi
+
+# Detect Auth Credentials
+if mysql -u root -h $DB_HOST -e "select 1" < /dev/null &> /dev/null; then
+    MYSQL_BASE_URL="mysql://root@$DB_HOST:$MYSQL_PORT"
+    MYSQL_CMD="mysql -u root -h $DB_HOST"
+elif mysql -u root -proot -h $DB_HOST -e "select 1" < /dev/null &> /dev/null; then
+    MYSQL_BASE_URL="mysql://root:root@$DB_HOST:$MYSQL_PORT"
+    MYSQL_CMD="mysql -u root -proot -h $DB_HOST"
+else
+    # Fallback to default
+    MYSQL_BASE_URL="mysql://root:root@$DB_HOST:$MYSQL_PORT"
+    MYSQL_CMD="mysql -u root -proot -h $DB_HOST"
 fi
 
 MYSQL_URL="$MYSQL_BASE_URL/$DB_NAME"
 
 echo -e "${BOLD}1. Setup MySQL Isolation and Node 1${NC}"
-setup_workspace "case_32"
+setup_workspace "case_31"
 
 # Ensure MySQL is up and create isolated DB
 echo -n "  Preparing isolated MySQL database '$DB_NAME'..."
@@ -104,14 +110,24 @@ TOKEN_1=$(extract_token "main")
 echo -e "   Node 1 Initial Token: ${BLUE}${TOKEN_1:0:15}...${NC}"
 
 # 2. Get token from Node 2 (should read from DB)
-export COWEN_HOME="$HOME_2"
-TOKEN_2=$(extract_token "main")
-echo -e "   Node 2 Initial Token: ${BLUE}${TOKEN_2:0:15}...${NC}"
+# 🚀 Fix: Added retry loop for shared storage propagation in QEMU/Linux
+echo -n "   Node 2 fetching token from shared MySQL..."
+TOKEN_2=""
+for i in {1..10}; do
+    export COWEN_HOME="$HOME_2"
+    TOKEN_2=$(extract_token "main")
+    if [ "$TOKEN_1" == "$TOKEN_2" ]; then
+        echo -e " ${GREEN}[OK]${NC}"
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
 
-if [ "$TOKEN_1" == "$TOKEN_2" ]; then
-    echo -e "   ✓ Initial token synchronized via MySQL"
-else
+if [ "$TOKEN_1" != "$TOKEN_2" ]; then
     echo -e "   ${RED}[FAILED]${NC} Tokens mismatched between nodes"
+    echo "     Node 1: $TOKEN_1"
+    echo "     Node 2: $TOKEN_2"
     exit 1
 fi
 

@@ -8,7 +8,7 @@
 source tests/e2e/scripts/common.sh
 
 echo -e "${BOLD}1. Setup Environment${NC}"
-setup_workspace "case_26"
+setup_workspace "case_25"
 start_mock
 
 DB_FILE="$COWEN_HOME/shared_cluster.db"

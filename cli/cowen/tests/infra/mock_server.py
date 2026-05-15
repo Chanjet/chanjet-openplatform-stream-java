@@ -24,11 +24,13 @@ def hmac_sha256(data, key):
 # --- Auth Handlers ---
 
 async def handle_self_built_token(request):
-    """Self-Built mode token generation"""
+    """Self-Built mode token generation - Non-deterministic to support fast rotation tests"""
+    app_key = request.headers.get("appKey", "unknown")
+    token_suffix = uuid.uuid4().hex[:8]
     return web.json_response({
         "result": True,
         "value": {
-            "accessToken": f"mock_at_sb_{uuid.uuid4().hex[:8]}",
+            "accessToken": f"mock_at_sb_{token_suffix}",
             "expiresIn": MOCK_STATE["token_expires_in"]
         }
     })
@@ -47,34 +49,43 @@ async def handle_generic_success(request):
 
 
 async def handle_oauth2_token(request):
-    """OAuth2 mode token exchange (code/refresh)"""
+    """OAuth2 mode token exchange - Non-deterministic to support fast rotation tests"""
     data = await request.post()
     grant_type = data.get("grant_type", "authorization_code")
-    print(f"📥 [MOCK] OAuth2 Token Request: grant_type={grant_type}")
+    client_id = data.get("client_id", "unknown")
+    token_suffix = uuid.uuid4().hex[:8]
+    print(f"📥 [MOCK] OAuth2 Token Request: grant_type={grant_type}, client_id={client_id}")
     
     return web.json_response({
-        "access_token": f"mock_at_oa2_{grant_type}_{uuid.uuid4().hex[:8]}",
-        "refresh_token": f"mock_rt_oa2_{uuid.uuid4().hex[:8]}",
+        "access_token": f"mock_at_oa2_{grant_type}_{token_suffix}",
+        "refresh_token": f"mock_rt_oa2_{token_suffix}",
         "expires_in": MOCK_STATE["token_expires_in"],
         "refresh_expires_in": 86400
     })
 
 async def handle_store_app_token(request):
-    """Store-App mode token exchange with org-specific context"""
+    """Store-App mode token exchange - Non-deterministic to support fast rotation tests"""
     try:
         data = await request.json()
     except:
         data = {}
     
     org_id = data.get("orgId") or data.get("org_id", "unknown")
+    token_suffix = uuid.uuid4().hex[:4]
     print(f"📥 [MOCK] Store-App Token Request for Org: {org_id}")
     
     return web.json_response({
         "result": {
-            "appAccessToken": f"mock_at_sa_{org_id}_{uuid.uuid4().hex[:4]}",
+            "appAccessToken": f"mock_at_sa_{org_id}_{token_suffix}",
             "expiresIn": MOCK_STATE["token_expires_in"]
         }
     })
+
+async def handle_rotate_token(request):
+    """Force mock server to change the salt so next token requests yield different values"""
+    MOCK_STATE["salt"] = uuid.uuid4().hex[:8]
+    print(f"🔄 [MOCK] Token Salt Rotated: {MOCK_STATE['salt']}")
+    return web.json_response({"result": True, "new_salt": MOCK_STATE["salt"]})
 
 async def handle_push(request):
     """Platform trigger for proactive push"""
@@ -485,7 +496,7 @@ async def run_server():
     await runner.setup()
     import os
     port = int(os.environ.get("MOCK_PORT", 9299))
-    site = web.TCPSite(runner, '127.0.0.1', port)
+    site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"🚀 Mock Server (Full Capability) running on http://127.0.0.1:{port}")
     await asyncio.Event().wait()

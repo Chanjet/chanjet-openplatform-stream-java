@@ -142,6 +142,7 @@ Daemon 启动后会运行多个并行的 Tokio Task：
 | :--- | :--- | :--- |
 | **InnerDB** | 默认推荐，单机 Daemon | SQLite + WAL Mode |
 | **Redis** | 集群/容器化部署，共享令牌 | Redis Multiplexing |
+| **Hybrid** | 高性能分布式，读写分离 | SQLite (Persistence) + Redis (Cache) |
 | **File** | 简单调试，可读性优先 | YAML + Atomic Write |
 
 **Migration 系统**: 系统启动时会自动检测数据库版本。对于 SQL 后端，会自动应用增量脚本，确保 Schema 始终符合代码预期。
@@ -207,11 +208,13 @@ Daemon 启动后会运行多个并行的 Tokio Task：
 - **并行执行**: 通过 `run_parallel.sh` 调度，每个测试用例拥有独立的：
     - `COWEN_HOME`: 物理隔离的配置与存储目录（位于 `target/cowen_tests/case_xx/`）。
     - **隔离端口**: 动态分配 Mock Server 与 Proxy 端口，防止冲突。
-- **核心 Case**:
-    - `case_01-03`: 三大鉴权模式的基础链路验证。
-    - `case_04 & 16`: 数据库 Schema 自动迁移与版本阻断。
-    - `case_07`: 令牌全生命周期验证（换票、存储、过期、刷新）。
-    - `case_14-18`: 分布式存储（Redis/Shared DB）下的多实例同步与容错。
+- **核心 Case 验证点**:
+    - `case_01-03`: 三大鉴权模式（Self-Built, Store-App, OAuth2）的基础链路验证。
+    - `case_04 & 16`: 数据库 Schema 自动迁移与版本安全阻断。
+    - `case_07 & 20`: 令牌全生命周期验证（换票、存储、自动过期刷新）。
+    - `case_14-18, 31-32`: 分布式存储（Redis/MySQL/PostgreSQL/Shared DB）下的多实例同步与容错。
+    - `case_33`: 验证 Exclusive 独占连接的“后浪推前浪”逻辑。
+    - `case_34`: 增强型守护进程自愈能力验证。
 
 ### 3. Mock 机制与环境隔离
 为了实现完全本地化的 E2E 验证，项目内置了强大的 Mock 基础设施：

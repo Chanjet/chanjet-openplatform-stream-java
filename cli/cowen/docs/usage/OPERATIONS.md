@@ -6,18 +6,20 @@
 
 ## 🛠️ 故障诊断 (Diagnostics)
 
-当您发现无法接收推送或 API 调用返回 401 时，请优先使用内置诊断工具：
+当您发现无法接收推送或 API 调用返回 401 时，请通过以下内置命令检查系统状态：
 
 ```bash
-# 执行全链路自检
-cowen diagnose
+# 查看详细的身份认证与长连接状态
+cowen auth status
+
+# 检查全局存储后端与缓存的连通性
+cowen store status
 ```
 
-**诊断项包括**：
-- **Connectivity**: 检查与畅捷通开放平台（API & WebSocket）的连通性。
-- **Vault Status**: 验证敏感存储是否正常解锁（Keychain/File）。
-- **Token Health**: 检查当前令牌是否过期，以及本地缓存与远端的一致性。
-- **Daemon Pulse**: 检查后台守护进程是否存活及端口占用情况。
+**关键检查点**：
+- **Auth Status**: 确认 `App Access Token` 是否有效。
+- **Stream Bridge**: 确认 WebSocket 状态是否为 `ACTIVE`。
+- **Store Status**: 确认数据库或 Redis 是否可连通。
 
 ---
 
@@ -27,28 +29,25 @@ cowen diagnose
 
 ### 1. 查看待处理消息
 ```bash
-# 查看死信摘要
+# 查看死信摘要列表
 cowen dlq list
-
-# 查看特定消息的详细失败原因（含堆栈）
-cowen dlq show <MSG_ID>
 ```
 
 ### 2. 手动触发重试
-在您的业务系统修复后，可以批量触发重试：
+在您的业务系统修复后，可以触发重试：
 ```bash
-# 重试所有死信
-cowen dlq retry --all
+# 重试指定 ID 的消息 (ID 可通过 dlq list 获取)
+cowen dlq retry <MSG_ID>
 
-# 仅重试特定时间段内的消息
-cowen dlq retry --since "2024-05-01 12:00:00"
+# 清空死信队列 (谨慎操作)
+cowen dlq purge
 ```
 
 ---
 
 ## 🔄 权限同步与动态发现 (API Discovery)
 
-当您在畅捷通开放平台后台修改了应用的 API 权限（如新增了某个接口的权限）时，本地缓存的規约可能不会立即更新。
+当您在畅捷通开放平台后台修改了应用的 API 权限（如新增了某个接口的权限）时，本地缓存的规约可能需要强制刷新。
 
 ```bash
 # 强制从平台刷新最新的 OpenAPI 规约及授权白名单
@@ -64,14 +63,14 @@ cowen api list --refresh
 
 ### 1. 冲突保护
 `cowen` 内部实现了基于分布式锁的 **刷新仲裁机制**：
-- 即使 10 个实例同时发现令牌即将过期，也只有一个实例会发起网络刷新请求。
+- 即使多个实例同时发现令牌即将过期，也只有一个实例会发起网络刷新请求。
 - 其他实例会进入短暂等待，并随后从共享存储中直接读取新令牌。
 
-### 2. 状态一致性检查
-如果您怀疑集群间存在数据偏移，可以运行：
+### 2. 状态批量查看
+如果您需要同时监控多个租户环境：
 ```bash
-# 强制同步集群状态并校验存储校验和
-cowen store status --verify
+# 扫描并输出所有已存在的 Profile 状态
+cowen status --all
 ```
 
 ---
@@ -81,17 +80,12 @@ cowen store status --verify
 ### 1. 命令补全 (Shell Completion)
 支持 Zsh, Bash, Fish 和 PowerShell 的自动补全：
 ```bash
-# 以 Zsh 为例
-cowen completions zsh > /usr/local/share/zsh/site-functions/_cowen
-source ~/.zshrc
+# 以 Zsh 为例，安装补全脚本
+cowen completion --install
 ```
 
-### 2. 状态快速预览
-在终端左侧或监控面板中，可以使用以下命令获取简洁的状态概要：
-```bash
-# 获取精简版状态 (适合脚本监控)
-cowen status --short
-```
+---
+© 2026 Chanjet Advanced Agentic Coding Team.
 
 ---
 © 2026 Chanjet Advanced Agentic Coding Team.

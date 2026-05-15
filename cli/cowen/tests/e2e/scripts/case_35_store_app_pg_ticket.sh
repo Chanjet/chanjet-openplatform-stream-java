@@ -9,39 +9,30 @@ source tests/e2e/scripts/common.sh
 
 # Configuration
 PG_PORT=5432
-DB_NAME=$(get_case_db_name "case_36")
+DB_HOST=${DB_HOST:-127.0.0.1}
+DB_NAME=$(get_case_db_name "case_35")
 
-# Support both local brew (current user) and postgres user
-CURRENT_USER=$(whoami)
-PG_READY=false
-for i in {1..5}; do
-    if psql -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
-        PG_BASE_URL="postgres://127.0.0.1:$PG_PORT"
-        PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -d postgres -w"
-        PG_READY=true && break
-    elif psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
-        PG_BASE_URL="postgres://$CURRENT_USER@127.0.0.1:$PG_PORT"
-        PG_CMD="psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w"
-        PG_READY=true && break
-    elif PGPASSWORD=password psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres -w -c "select 1" &> /dev/null; then
-        PG_BASE_URL="postgres://postgres:password@127.0.0.1:$PG_PORT"
-        export PGPASSWORD=password
-        PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres -w"
-        PG_READY=true && break
-    fi
-    echo -e "  ${YELLOW}Waiting for PostgreSQL to be ready (attempt $i/5)...${NC}"
-    sleep 3
-done
-
-if [ "$PG_READY" != "true" ]; then
-    echo -e " ${RED}[ERROR] Local PostgreSQL service not found or inaccessible.${NC}"
+# Ensure PostgreSQL is ready
+if ! wait_for_postgres "$DB_HOST" "$PG_PORT"; then
     exit 1
+fi
+
+# Detect Auth Credentials
+if PGPASSWORD=password psql -h "$DB_HOST" -U postgres -d postgres -c "select 1" &> /dev/null; then
+    PG_BASE_URL="postgres://postgres:password@$DB_HOST:$PG_PORT"
+    export PGPASSWORD=password
+elif psql -h "$DB_HOST" -d postgres -c "select 1" &> /dev/null; then
+    PG_BASE_URL="postgres://$DB_HOST:$PG_PORT"
+else
+    # Fallback to default postgres/password if unsure
+    PG_BASE_URL="postgres://postgres:password@$DB_HOST:$PG_PORT"
+    export PGPASSWORD=password
 fi
 
 PG_URL="$PG_BASE_URL/$DB_NAME?sslmode=disable"
 
 echo -e "${BOLD}1. Setup PostgreSQL and StoreApp Node 1${NC}"
-setup_workspace "case_36"
+setup_workspace "case_35"
 
 # Create isolated DB
 echo -n "  Preparing isolated PostgreSQL database '$DB_NAME'..."

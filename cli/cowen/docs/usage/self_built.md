@@ -21,8 +21,7 @@ cowen init --profile corp-dev \
 ```
 > [!IMPORTANT]
 > **安全性与存储模式 (Vault)**：
-> 您的 `AppSecret` 和 `EncryptKey` 将存储在 **Vault** 中。系统默认使用 **Keychain 模式**（即操作系统原生安全存储，如 macOS Keychain），确保凭据在物理层面被隔离保护。
-> *(注：在不支持 Keychain 的 Linux 服务器上，系统会自动回退至加密的本地文件存储。)*
+> 您的 `AppSecret` 和 `EncryptKey` 将存储在 **Vault** 中。系统采用 **设备指纹加密 (Machine-Fingerprint Encryption)** 方案，基于主机名、系统版本等硬件信息派生密钥，确保凭据在物理层面被隔离保护。
 
 ### 2. 验证初始化状态
 初始化成功后，系统会**自动启动**后台守护进程。请运行以下命令检查：

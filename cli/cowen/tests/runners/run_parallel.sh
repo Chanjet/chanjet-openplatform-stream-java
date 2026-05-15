@@ -9,6 +9,13 @@ fi
 # Load common utilities if available
 [ -f tests/e2e/scripts/common.sh ] && source tests/e2e/scripts/common.sh
 
+# 🚀 All-in-One: Start in-container databases if running inside Podman/Docker
+if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
+    if [ -f tests/infra/start_services.sh ]; then
+        source tests/infra/start_services.sh
+    fi
+fi
+
 # Basic colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -24,7 +31,7 @@ echo -e "${BLUE}${BOLD}   Cowen CLI Hybrid Verification Suite (Stable)         $
 echo -e "${BLUE}${BOLD}========================================================${NC}"
 
 # Configuration
-MAX_PARALLEL=16
+MAX_PARALLEL="${MAX_PARALLEL:-16}"
 TEST_BASE="${TEST_BASE:-target/cowen_tests}"
 RESULTS_DIR="$TEST_BASE/results"
 BASE_PORT_START="${BASE_PORT_START:-16000}"
@@ -110,15 +117,18 @@ EOF
 }
 
 # --- Phase 1: Parallel ---
-job_id=0
+started_count=0
 FAILED_COUNT=0
 TOTAL_PARALLEL=${#PARALLEL_SUITES[@]}
 
 if [ "$TOTAL_PARALLEL" -gt 0 ]; then
     echo -e "\n${BOLD}Phase 1: Running Parallel Suites ($TOTAL_PARALLEL)${NC}"
     for suite in "${PARALLEL_SUITES[@]}"; do
-        base_port=$((BASE_PORT_START + job_id * 50))
-        tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$job_id"
+        # Extract case ID from filename (e.g., case_01 -> 1)
+        case_id=$(basename "$suite" | cut -d'_' -f2 | sed 's/^0//')
+        
+        base_port=$((BASE_PORT_START + case_id * 50))
+        tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$case_id"
         cp "$suite" "$tmp_suite"
         
         for p in 29101 9909 9908 9903 9902 9901 9128 9127 9126 9122 9112 9111 9101 9098 9097 9096 9095 9094 9093 9092 9091 9299 8080 6387 6382 6381 6380 6379; do
@@ -127,15 +137,15 @@ if [ "$TOTAL_PARALLEL" -gt 0 ]; then
             perl -pi -e "s/\b${p}\b/${new_p}/g" "$tmp_suite"
         done
         
-        perl -pi -e "s/\.cowen_test_/.cowen_test_job_${job_id}_/g" "$tmp_suite"
+        perl -pi -e "s/\.cowen_test_/.cowen_test_job_${case_id}_/g" "$tmp_suite"
         
-        run_job "$tmp_suite" "$job_id" "$base_port" &
-        job_id=$((job_id + 1))
+        run_job "$tmp_suite" "$case_id" "$base_port" &
+        started_count=$((started_count + 1))
         
         # 🚀 Fix: Staggered start to reduce DB contention
         sleep 0.2
         
-        [ $((job_id % MAX_PARALLEL)) -eq 0 ] && wait
+        [ $((started_count % MAX_PARALLEL)) -eq 0 ] && wait
     done
 fi
 wait
@@ -145,8 +155,11 @@ TOTAL_SEQ=${#SEQUENTIAL_SUITES[@]}
 if [ "$TOTAL_SEQ" -gt 0 ]; then
     echo -e "\n${BOLD}Phase 2: Running Sequential Suites ($TOTAL_SEQ)${NC}"
     for suite in "${SEQUENTIAL_SUITES[@]}"; do
-        base_port=$((BASE_PORT_START + job_id * 50))
-        tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$job_id"
+        # Extract case ID from filename
+        case_id=$(basename "$suite" | cut -d'_' -f2 | sed 's/^0//')
+        
+        base_port=$((BASE_PORT_START + case_id * 50))
+        tmp_suite="$RESULTS_DIR/tmp_scripts/$(basename "$suite").$case_id"
         cp "$suite" "$tmp_suite"
         
         # Still remap ports to avoid collisions with any leftover background tasks
@@ -156,10 +169,9 @@ if [ "$TOTAL_SEQ" -gt 0 ]; then
             perl -pi -e "s/\b${p}\b/${new_p}/g" "$tmp_suite"
         done
         
-        perl -pi -e "s/\.cowen_test_/.cowen_test_job_${job_id}_/g" "$tmp_suite"
+        perl -pi -e "s/\.cowen_test_/.cowen_test_job_${case_id}_/g" "$tmp_suite"
         
-        run_job "$tmp_suite" "$job_id" "$base_port"
-        job_id=$((job_id + 1))
+        run_job "$tmp_suite" "$case_id" "$base_port"
     done
 fi
 

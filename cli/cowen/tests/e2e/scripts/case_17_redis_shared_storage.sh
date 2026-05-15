@@ -6,7 +6,7 @@
 
 source tests/e2e/scripts/common.sh
 
-REDIS_PORT=6379
+REDIS_PORT=$(get_unused_port)
 REDIS_URL="redis://127.0.0.1:$REDIS_PORT/0"
 REDIS_PID_FILE="$TEST_BASE/redis_case17.pid"
 
@@ -73,9 +73,16 @@ EOF
 
 assert_pass "Node 1 initialized with Redis storage"
 
-# 2. Get Token on Node 1
+# 2. Get Token on Node 1 (with retries)
 echo -e "${BOLD}2. Get Token on Node 1${NC}"
-TOKEN_1=$(extract_token "main")
+TOKEN_1=""
+for i in {1..5}; do
+    TOKEN_1=$(extract_token "main")
+    if [[ -n "$TOKEN_1" ]]; then break; fi
+    echo "  [WAIT] Node 1 waiting for initial token (Attempt $i/5)..."
+    sleep 2
+done
+
 if [[ -z "$TOKEN_1" ]]; then
     echo -e "   ${RED}[FAILED]${NC} Failed to get token on Node 1"
     stop_test_redis

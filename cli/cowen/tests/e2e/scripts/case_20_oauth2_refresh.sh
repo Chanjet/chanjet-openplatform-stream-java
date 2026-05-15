@@ -9,13 +9,16 @@ start_mock
 
 PROF="oa2_refresh"
 
+# Calculate dynamic ports based on MOCK_PORT to avoid parallel collisions
+PROXY_PORT=$((MOCK_PORT + 101))
+
 # Initialize OAuth2 in background
 # Use --no-ai and --no-telemetry to speed up and simplify logs
 "$COWEN_BIN" init --profile "$PROF" \
     --app-mode oauth2 \
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
-    --proxy-port 9101 \
+    --proxy-port $PROXY_PORT \
     --no-ai \
     --no-telemetry > "$COWEN_HOME/init.log" 2>&1 &
 INIT_PID=$!
@@ -53,10 +56,9 @@ fi
 
 # 3. Simulate Callback
 # Set mock server to return tokens that expire in 7 seconds
-# 5s was too short as the 5-minute safety buffer (min-capped) would trigger immediate refresh
-# After fix, short-lived tokens have no buffer, so 7s is fine.
 curl -s -X POST "$MOCK_URL/control/config" -d '{"token_expires_in": 7}' > /dev/null
 echo "   Triggering callback on port $PORT..."
+sleep 1
 curl -s "http://127.0.0.1:${PORT}/callback?code=mock_code&state=${STATE}" > /dev/null
 
 # Wait for init process to finish

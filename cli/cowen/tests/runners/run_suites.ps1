@@ -45,14 +45,25 @@ $Suites = @(
     "tests/e2e/scripts/case_20_oauth2_refresh.sh",
     "tests/e2e/scripts/case_21_openapi_whitelist.sh",
     "tests/e2e/scripts/case_22_dlq_manual_retry.sh",
-    "tests/e2e/scripts/case_24_completion.sh",
-    "tests/e2e/scripts/case_25_status_all.sh",
-    "tests/e2e/scripts/case_26_cluster_idempotency.sh",
-    "tests/e2e/scripts/case_27_hybrid_data_drift.sh",
-    "tests/e2e/scripts/case_28_store_app_multi_org_stress.sh",
-    "tests/e2e/scripts/case_29_sidecar_startup.sh",
-    "tests/e2e/scripts/case_30_sidecar_scaling_stress.sh",
-    "tests/e2e/scripts/case_31_sidecar_self_built_stress.sh"
+    "tests/e2e/scripts/case_23_completion.sh",
+    "tests/e2e/scripts/case_24_status_all.sh",
+    "tests/e2e/scripts/case_25_cluster_idempotency.sh",
+    "tests/e2e/scripts/case_26_hybrid_data_drift.sh",
+    "tests/e2e/scripts/case_27_store_app_multi_org_stress.sh",
+    "tests/e2e/scripts/case_28_sidecar_startup.sh",
+    "tests/e2e/scripts/case_29_sidecar_scaling_stress.sh",
+    "tests/e2e/scripts/case_30_sidecar_self_built_stress.sh",
+    "tests/e2e/scripts/case_31_mysql_shared_storage.sh",
+    "tests/e2e/scripts/case_32_postgres_shared_storage.sh",
+    "tests/e2e/scripts/case_33_exclusive_connection.sh",
+    "tests/e2e/scripts/case_34_daemon_recovery_enhanced.sh",
+    "tests/e2e/scripts/case_35_store_app_pg_ticket.sh",
+    "tests/e2e/scripts/case_36_store_app_activation.sh",
+    "tests/e2e/scripts/case_37_init_cleanup.sh",
+    "tests/e2e/scripts/case_38_init_deduplication.sh",
+    "tests/e2e/scripts/case_39_profile_rename_comprehensive.sh",
+    "tests/e2e/scripts/case_40_log_level_dynamic.sh",
+    "tests/e2e/scripts/case_41_auth_logout_login_flow.sh"
 )
 
 $Passed = 0

@@ -91,9 +91,11 @@ sleep 5
 
 # 4. Verify Ticket Synchronization
 echo -e "${BOLD}4. Verify Ticket Synchronization${NC}"
-# Check if Node 1 can see the ticket from shared DB
+# Check if Node 1 can see the ticket from shared DB with retries
 export COWEN_HOME="$HOME_1"
-ACTUAL_TICKET=$("$COWEN_BIN" auth status --profile main --format json | python3 -c "import sys, json; 
+ACTUAL_TICKET=""
+for i in {1..10}; do
+    ACTUAL_TICKET=$("$COWEN_BIN" auth status --profile main --format json | python3 -c "import sys, json; 
 data = json.load(sys.stdin);
 def find_entry(entries, name):
     for e in entries:
@@ -101,15 +103,20 @@ def find_entry(entries, name):
         res = find_entry(e.get('children', []), name)
         if res: return res
     return None
-# Structure fix: Navigate into profiles -> entries
 entries = []
 if 'profiles' in data and len(data['profiles']) > 0:
     entries = data['profiles'][0].get('entries', [])
-elif 'entries' in data: # Fallback for older versions or simplified output
+elif 'entries' in data:
     entries = data.get('entries', [])
-
 ticket = find_entry(entries, 'AppTicket');
 print(ticket['message'] if ticket else '')")
+    
+    if [[ "$ACTUAL_TICKET" == *"[CACHED]"* ]]; then
+        break
+    fi
+    echo -e "  [WAIT] Waiting for Ticket to propagate to Node 1 (Attempt $i/10)..."
+    sleep 2
+done
 
 if [[ "$ACTUAL_TICKET" == *"[CACHED]"* ]]; then
     echo -e "   ${GREEN}✓${NC} Node 1 successfully verified Ticket synchronized from Node 2 (Status: [CACHED])"

@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 pub const BUILTIN_CLIENT_ID: &str = "3x45dOtt";
 pub const DEF_MARKET_URL: &str = "https://market.chanjet.com";
@@ -28,8 +28,12 @@ pub struct StorageConfig {
     pub cache_url: Option<String>,
 }
 
-fn default_store() -> String { "innerdb".to_string() }
-fn default_cache() -> String { "none".to_string() }
+fn default_store() -> String {
+    "innerdb".to_string()
+}
+fn default_cache() -> String {
+    "none".to_string()
+}
 
 impl Default for StorageConfig {
     fn default() -> Self {
@@ -72,8 +76,12 @@ pub struct Config {
     pub exclusive: Option<bool>,
 }
 
-fn default_true() -> bool { true }
-fn default_zero() -> u16 { 0 }
+fn default_true() -> bool {
+    true
+}
+fn default_zero() -> u16 {
+    0
+}
 
 fn default_log() -> LogConfig {
     LogConfig {
@@ -96,10 +104,18 @@ pub struct LogConfig {
     pub max_files: usize,
 }
 
-fn default_rotation() -> String { "daily".to_string() }
-fn default_log_level() -> String { "info".to_string() }
-fn default_max_size() -> u64 { 100 }
-fn default_max_files() -> usize { 7 }
+fn default_rotation() -> String {
+    "daily".to_string()
+}
+fn default_log_level() -> String {
+    "info".to_string()
+}
+fn default_max_size() -> u64 {
+    100
+}
+fn default_max_files() -> usize {
+    7
+}
 
 impl Config {
     pub fn default_with_profile(_p: &str) -> Self {
@@ -108,7 +124,7 @@ impl Config {
             openapi_url: "https://openapi.chanjet.com".to_string(),
             stream_url: "https://stream-open.chanapp.chanjet.com".to_string(),
             webhook_target: "http://localhost:8080".to_string(),
-            log: LogConfig { 
+            log: LogConfig {
                 level: "info".to_string(),
                 rotation: default_rotation(),
                 max_size_mb: default_max_size(),
@@ -128,14 +144,28 @@ impl Config {
     }
 
     pub fn apply_env_overrides(&mut self) {
-        if let Ok(key) = std::env::var("COWEN_APP_KEY") { self.app_key = key; }
-        if let Ok(secret) = std::env::var("COWEN_APP_SECRET") { self.app_secret = secret; }
-        if let Ok(ek) = std::env::var("COWEN_ENCRYPT_KEY") { self.encrypt_key = ek; }
-        if let Ok(target) = std::env::var("COWEN_WEBHOOK_TARGET") { self.webhook_target = target; }
-        if let Ok(url) = std::env::var("COWEN_OPENAPI_URL") { self.openapi_url = url; }
-        if let Ok(url) = std::env::var("COWEN_STREAM_URL") { self.stream_url = url; }
+        if let Ok(key) = std::env::var("COWEN_APP_KEY") {
+            self.app_key = key;
+        }
+        if let Ok(secret) = std::env::var("COWEN_APP_SECRET") {
+            self.app_secret = secret;
+        }
+        if let Ok(ek) = std::env::var("COWEN_ENCRYPT_KEY") {
+            self.encrypt_key = ek;
+        }
+        if let Ok(target) = std::env::var("COWEN_WEBHOOK_TARGET") {
+            self.webhook_target = target;
+        }
+        if let Ok(url) = std::env::var("COWEN_OPENAPI_URL") {
+            self.openapi_url = url;
+        }
+        if let Ok(url) = std::env::var("COWEN_STREAM_URL") {
+            self.stream_url = url;
+        }
         if let Ok(port) = std::env::var("COWEN_PROXY_PORT") {
-            if let Ok(p) = port.parse::<u16>() { self.proxy_port = p; }
+            if let Ok(p) = port.parse::<u16>() {
+                self.proxy_port = p;
+            }
         }
         if let Ok(mode) = std::env::var("COWEN_APP_MODE") {
             self.app_mode = match mode.as_str() {
@@ -157,7 +187,10 @@ pub fn get_app_dir() -> PathBuf {
         }
         return p;
     }
-    let home = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
+    let home = directories::BaseDirs::new()
+        .unwrap()
+        .home_dir()
+        .to_path_buf();
     home.join(".cowen")
 }
 

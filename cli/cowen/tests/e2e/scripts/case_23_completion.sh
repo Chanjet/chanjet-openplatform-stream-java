@@ -8,7 +8,7 @@
 source tests/e2e/scripts/common.sh
 
 echo -e "${BOLD}1. Setup Environment${NC}"
-setup_workspace "case_24"
+setup_workspace "case_23"
 
 # Mock the shell RC file
 MOCK_ZSHRC="$COWEN_HOME/.zshrc"

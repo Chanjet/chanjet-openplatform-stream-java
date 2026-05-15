@@ -20,8 +20,7 @@ cowen init --profile isv-prod \
 ```
 > [!IMPORTANT]
 > **安全性与存储模式 (Vault)**：
-> 您的 `AppSecret` 和 `EncryptKey` 将存储在 **Vault** 中。系统默认使用 **Keychain 模式**（即操作系统原生安全存储，如 macOS Keychain），确保凭据在物理层面被隔离保护。
-> *(注：在不支持 Keychain 的 Linux 服务器上，系统会自动回退至加密的本地文件存储。)*
+> 您的 `AppSecret` 和 `EncryptKey` 将存储在 **Vault** 中。系统采用 **设备指纹加密 (Machine-Fingerprint Encryption)** 方案，基于主机名、系统版本等硬件信息派生密钥，确保凭据在物理层面被隔离保护。
 
 ### 2. 侧车自动就绪
 初始化成功后，后台守护进程会**自动启动**。
@@ -174,7 +173,7 @@ spec:
         args: ["--profile", "isv-sidecar", "daemon", "start", "--foreground"]
         env:
         - name: COWEN_APP_MODE
-          value: "store_app"
+          value: "store-app"
         - name: COWEN_APP_KEY
           valueFrom: { secretKeyRef: { name: cowen-secret, key: app-key } }
         - name: COWEN_APP_SECRET
@@ -209,7 +208,7 @@ services:
     network_mode: "service:app" # 【关键】共享 app 的网络命名空间以绕过 SSRF 限制
     command: daemon start --foreground
     environment:
-      - COWEN_APP_MODE=store_app
+      - COWEN_APP_MODE=store-app
       - COWEN_APP_KEY=${APP_KEY}
       - COWEN_APP_SECRET=${APP_SECRET}
       - COWEN_ENCRYPT_KEY=${ENCRYPT_KEY}

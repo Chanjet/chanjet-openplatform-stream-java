@@ -5,7 +5,7 @@
 ## 🚀 如何运行
 
 ### 环境准备
-- **Python 3**: 用于运行 Mock Server (`tests/mock_server.py`)。
+- **Python 3**: 用于运行 Mock Server (`tests/infra/mock_server.py`)。
 - **SQLite3**: 验证数据库状态。
 - **Cargo**: 用于编译待测二进制文件。
 - **Redis**: 运行 `case_17` 和 `case_18` 需要本地 Redis 服务。
@@ -15,7 +15,7 @@
       make brew-deps-install # 安装依赖
       make local-db-up       # 启动服务
       ```
-    - **方法 B (Podman/Docker)**: 运行 `case_32` 和 `case_33` 需要容器环境。
+    - **方法 B (Podman/Docker)**: 运行 `case_31` 和 `case_32` 需要容器环境。
       ```bash
       make db-up             # 启动容器 (自动处理 podman machine)
       ```
@@ -27,15 +27,15 @@
 make local-db-up
 
 # 2. 运行测试
-./tests/run_parallel.sh
+./tests/runners/run_parallel.sh
 
 # 3. 清理环境
 make local-db-down
 ```
 
-运行单个测试用例（例如 Case 28）：
+运行单个测试用例（例如 Case 27）：
 ```bash
-cargo build && bash tests/case_28_store_app_multi_org_stress.sh
+cargo build && bash tests/e2e/scripts/case_27_store_app_multi_org_stress.sh
 ```
 
 ---
@@ -69,26 +69,29 @@ cargo build && bash tests/case_28_store_app_multi_org_stress.sh
 | `case_13` | 分布式负载均衡 | 多节点场景下的 Webhook 负载均衡接收。 |
 | `case_14-15`| SQL 分布式协同 | 验证多节点下的应用票据与 Token 共享竞争。 |
 | `case_17-18`| Redis 高可用 | 验证 Redis 后端下的 Token 同步与宕机自适应恢复。 |
-| `case_32` | MySQL 共享存储 | 验证 MySQL 后端下的 Token 同步与多节点协同。 |
-| `case_33` | PostgreSQL 共享存储 | 验证 PostgreSQL 后端下的 Token 同步与多节点协同。 |
+| `case_31` | MySQL 共享存储 | 验证 MySQL 后端下的 Token 同步与多节点协同。 |
+| `case_32` | PostgreSQL 共享存储 | 验证 PostgreSQL 后端下的 Token 同步与多节点协同。 |
 | `case_19-20`| 自动化保活 | 验证 AppTicket 缺失主动重发与 OAuth2 Refresh 自动续期。 |
 | `case_21` | 零信任安全拦截 | 验证 CLI 对非白名单接口的本地主动拦截防线。 |
 | `case_22` | 死信手动运维 | 验证管理员执行 `cowen dlq retry` 的全链路闭环，消除 DLQ 介入盲区。 |
-| `case_26` | 架构盲区监控: 并发幂等 | 明确验证分布式高并发下，基于 `msgId` 的防重穿透现状（当前预期为失败或依赖上层保证）。 |
-| `case_27` | 架构盲区监控: 混合漂移 | 明确验证 Hybrid Store 在缓存未过期时的底层 SQL 被篡改后的穿透现状。 |
-| `case_28` | **多租户高并发隔离**| 验证 StoreApp 模式下单实例支撑海量企业的授权码并发置换，以及 Proxy 基于 `x-org-id` 的精准 `openToken` 动态寻址注入。 |
+| `case_23` | **智能自动补全** | 验证 Bash/Zsh 环境下的多级命令与 Profile 自动补全能力。 |
+| `case_24` | **全局状态诊断** | 验证 `status --all` 对全量 Profile 的健康度扫描与错误自动归集。 |
+| `case_25` | 架构盲区监控: 并发幂等 | 明确验证分布式高并发下，基于 `msgId` 的防重穿透现状（当前预期为失败或依赖上层保证）。 |
+| `case_26` | 架构盲区监控: 混合漂移 | 明确验证 Hybrid Store 在缓存未过期时的底层 SQL 被篡改后的穿透现状。 |
+| `case_27` | **多租户高并发隔离**| 验证 StoreApp 模式下单实例支撑海量企业的授权码并发置换，以及 Proxy 基于 `x-org-id` 的精准 `openToken` 动态寻址注入。 |
+| `case_41` | **认证自愈全链路** | 验证 `logout` 后 `login` 的自动 Fallback 机制。 |
 
 ---
 
 ## 🔍 已知的架构边界 (Architectural Boundaries)
 
-目前的测试用例已全面覆盖原本的“测试盲区”，包括通过 `case_26` 和 `case_27` 对分布式并发幂等性与混合存储数据漂移进行了**沙盒断言化监控**。这些不再是未经验证的“盲区”，而是通过 E2E 脚本确认的系统当前的**架构级事实边界**：
+目前的测试用例已全面覆盖原本的“测试盲区”，包括通过 `case_25` 和 `case_26` 对分布式并发幂等性与混合存储数据漂移进行了**沙盒断言化监控**。这些不再是未经验证的“盲区”，而是通过 E2E 脚本确认的系统当前的**架构级事实边界**：
 
-1. **并发幂等性依赖于上层 (Case 26 verified)**:
+1. **并发幂等性依赖于上层 (Case 25 verified)**:
    - 现状：CLI 在 `Broadcast` 模式多节点部署时，多个 Node 收到同一事件会同时触发转发。
    - 边界：系统并未在底层存储引入分布式重锁 (`SETNX` / 唯一索引) 拦截并发。完全依赖平台的 `Load Balancing` 模式或下游业务 Sink 自身的幂等表。
-2. **混合存储的 Cache-Aside 现状 (Case 27 verified)**:
-   - 现状：当 Redis 缓存为 Warm 状态且 SQL 凭据被非法篡改时，Proxy 会继续使用缓存数据直至其自然过期，发生“数据漂移”。
+2. **混合存储的 Cache-Aside 现状 (Case 26 verified)**:
+   - 现状：当 Redis 缓存为 Warm 状态且 SQL凭据被非法篡改时，Proxy 会继续使用缓存数据直至其自然过期，发生“数据漂移”。
    - 边界：CLI 严格遵循 Cache-Aside 协议，依赖 Redis 的 TTL 强过期机制，并未引入重资源消耗的后台周期性对账自愈协程。
 
 ---
@@ -98,8 +101,8 @@ cargo build && bash tests/case_28_store_app_multi_org_stress.sh
 根据最新的代码覆盖率报告（LLVM-COV: 15.19%），虽然核心链路已闭环，但仍存在以下**业务死角 (Business Dead Zones)** 需要在后续版本中攻克：
 
 ### 1. 多数据库驱动兼容性 (Database Diversity)
-*   **死角**: 当前 E2E 仅覆盖了 SQLite 路径。`src/core/store/sql/` 下的 MySQL, Postgres, MSSQL 驱动代码覆盖率为 0。
-*   **建议**: 引入 Dockerized 数据库环境，补充 `Case 29-31` 以验证不同数据库方言下的凭据持久化稳定性。
+*   **死角**: 当前 E2E 已覆盖 SQLite/MySQL/Postgres。但 MSSQL 驱动代码覆盖率为 0。
+*   **建议**: 引入 Dockerized MSSQL 环境，补充 `Case 33` (如果已补齐) 以验证不同数据库方言下的凭据持久化稳定性。
 
 ### 2. 极端网络与协议容错 (Network & Protocol Resilience)
 *   **死角**: `src/auth/client.rs` 中的超时、断网重试、502/503 错误处理分支未被充分触发。
@@ -117,10 +120,10 @@ cargo build && bash tests/case_28_store_app_multi_org_stress.sh
 
 ## 🛠️ 测试架构说明
 
-1. **Mock Server** (`tests/mock_server.py`):
+1. **Mock Server** (`tests/infra/mock_server.py`):
    - 模拟畅捷通开放平台的核心 API (Auth, Ticket, OpenAPI)。
    - 提供基于 `x-org-id` 和 `appKey` 的多租户认证验证环境。
    - 提供控制平面 (`/control/...`) 用于向 CLI 发起并发 WebSocket 广播 (模拟平台推送) 或动态篡改服务端行为 (模拟 Token 过期)。
 
-2. **Common Utilities** (`tests/common.sh`):
+2. **Common Utilities** (`tests/e2e/scripts/common.sh`):
    - 提供沙盒环境搭建、Daemon 进程守护与追踪、端口冲突检测等通用支持。

@@ -8,29 +8,30 @@ source tests/e2e/scripts/common.sh
 
 # Configuration
 PG_PORT=5432
-DB_NAME=$(get_case_db_name "case_33")
+DB_HOST=${DB_HOST:-127.0.0.1}
+DB_NAME=$(get_case_db_name "case_32")
 
-# Support both local brew (current user) and postgres user
-CURRENT_USER=$(whoami)
-if psql -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
-    PG_BASE_URL="postgres://127.0.0.1:$PG_PORT"
-    PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -d postgres -w"
-elif psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w -c "select 1" &> /dev/null; then
-    PG_BASE_URL="postgres://$CURRENT_USER@127.0.0.1:$PG_PORT"
-    PG_CMD="psql -U $CURRENT_USER -h 127.0.0.1 -p $PG_PORT -d postgres -w"
-elif PGPASSWORD=password psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres -w -c "select 1" &> /dev/null; then
-    PG_BASE_URL="postgres://postgres:password@127.0.0.1:$PG_PORT"
-    export PGPASSWORD=password
-    PG_CMD="psql -h 127.0.0.1 -p $PG_PORT -U postgres -d postgres -w"
-else
-    echo -e " ${RED}[ERROR] Local PostgreSQL service not found or inaccessible (checked users: default, $CURRENT_USER, postgres).${NC}"
+# Ensure PostgreSQL is ready
+if ! wait_for_postgres "$DB_HOST" "$PG_PORT"; then
     exit 1
+fi
+
+# Detect Auth Credentials
+if PGPASSWORD=password psql -h "$DB_HOST" -U postgres -d postgres -c "select 1" &> /dev/null; then
+    PG_BASE_URL="postgres://postgres:password@$DB_HOST:$PG_PORT"
+    export PGPASSWORD=password
+elif psql -h "$DB_HOST" -d postgres -c "select 1" &> /dev/null; then
+    PG_BASE_URL="postgres://$DB_HOST:$PG_PORT"
+else
+    # Fallback to default postgres/password if unsure
+    PG_BASE_URL="postgres://postgres:password@$DB_HOST:$PG_PORT"
+    export PGPASSWORD=password
 fi
 
 PG_URL="$PG_BASE_URL/$DB_NAME?sslmode=disable"
 
 echo -e "${BOLD}1. Setup PostgreSQL Isolation and Node 1${NC}"
-setup_workspace "case_33"
+setup_workspace "case_32"
 
 # Ensure PostgreSQL is up and create isolated DB
 echo -n "  Preparing isolated PostgreSQL database '$DB_NAME'..."
@@ -115,14 +116,24 @@ TOKEN_1=$(extract_token "main")
 echo -e "   Node 1 Initial Token: ${BLUE}${TOKEN_1:0:15}...${NC}"
 
 # 2. Get token from Node 2 (should read from DB)
-export COWEN_HOME="$HOME_2"
-TOKEN_2=$(extract_token "main")
-echo -e "   Node 2 Initial Token: ${BLUE}${TOKEN_2:0:15}...${NC}"
+# 🚀 Fix: Added retry loop for shared storage propagation in QEMU/Linux
+echo -n "   Node 2 fetching token from shared PostgreSQL..."
+TOKEN_2=""
+for i in {1..10}; do
+    export COWEN_HOME="$HOME_2"
+    TOKEN_2=$(extract_token "main")
+    if [ "$TOKEN_1" == "$TOKEN_2" ]; then
+        echo -e " ${GREEN}[OK]${NC}"
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
 
-if [ "$TOKEN_1" == "$TOKEN_2" ]; then
-    echo -e "   ✓ Initial token synchronized via PostgreSQL"
-else
+if [ "$TOKEN_1" != "$TOKEN_2" ]; then
     echo -e "   ${RED}[FAILED]${NC} Tokens mismatched between nodes"
+    echo "     Node 1: $TOKEN_1"
+    echo "     Node 2: $TOKEN_2"
     exit 1
 fi
 

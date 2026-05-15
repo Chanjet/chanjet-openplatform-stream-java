@@ -7,12 +7,12 @@
 source tests/e2e/scripts/common.sh
 
 echo -e "${BOLD}1. Setup Environment${NC}"
-setup_workspace "case_28"
+setup_workspace "case_27"
 start_mock
 
 PROF="multi_org"
 ORG_COUNT=10
-DB_FILE="$COWEN_HOME/case_28_real.db"
+DB_FILE="$COWEN_HOME/case_27_real.db"
 
 # Force App Configuration with explicit SQLite URL
 cat > "$COWEN_HOME/app.yaml" <<EOF

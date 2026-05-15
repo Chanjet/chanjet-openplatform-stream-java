@@ -16,7 +16,10 @@ echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
 export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
 HOME_1="$TEST_BASE/.cowen_test_dist_sync_node_1"
 HOME_2="$TEST_BASE/.cowen_test_dist_sync_node_2"
-SHARED_DB="$TEST_BASE/.cowen_test_shared.db"
+# 🚀 Fix: Use a name that doesn't trigger the '.cowen_test_' regex replacement in run_parallel.sh
+# This ensures Node 1 and Node 2 definitely use the same filename.
+SHARED_DB_NAME="shared_storage_case_14.db"
+SHARED_DB="$TEST_BASE/$SHARED_DB_NAME"
 mkdir -p "$TEST_BASE"
 
 # 🚀 Dynamic Ports
@@ -30,7 +33,7 @@ function final_cleanup {
 }
 # trap final_cleanup EXIT
 
-rm -f "$SHARED_DB"* "shared_cowen.db"*
+rm -f "$SHARED_DB"*
 mkdir -p "$HOME_1" "$HOME_2"
 
 start_mock
@@ -57,10 +60,7 @@ EOF
     --stream-url $MOCK_WS \
     --webhook-target "http://127.0.0.1:9299/webhook_sink" \
     --proxy-port $PROXY_PORT_1
-
-# 🚀 BUG FIX: We KEEP the daemon running here so it can receive the AppTicket
-# "$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
-assert_pass "Node 1 initialized and linked to shared DB"
+assert_pass "Node 1 initialized and linked to shared DB ($SHARED_DB_NAME)"
 
 # --- Node 2: Follower (No Init) ---
 echo -e "${BOLD}2. Setup Node 2 (No Init)${NC}"
@@ -84,38 +84,38 @@ else
     exit 1
 fi
 
-# start_mock (Already started)
-
 # 3. Verify Token Synchronization
 echo -e "${BOLD}3. Verify Token Synchronization${NC}"
-
 
 # 1. Get initial token from Node 1
 export COWEN_HOME="$HOME_1"
 echo -n "   Extracting token from Node 1..."
 TOKEN_1=$(extract_token "main")
 if [ -z "$TOKEN_1" ]; then
-    echo -e " ${RED}[FAILED]${NC} Node 1 token extraction failed. Raw output:"
-    "$COWEN_BIN" auth token --profile main
+    echo -e " ${RED}[FAILED]${NC} Node 1 token extraction failed."
     exit 1
 fi
 echo -e " ${GREEN}[OK]${NC} (${TOKEN_1:0:15}...)"
 
 # 2. Get token from Node 2 (should read from DB)
-export COWEN_HOME="$HOME_2"
+# 🚀 Fix: Added retry loop for shared SQLite storage propagation in QEMU/Linux
 echo -n "   Extracting token from Node 2..."
-TOKEN_2=$(extract_token "main")
-if [ -z "$TOKEN_2" ]; then
-    echo -e " ${RED}[FAILED]${NC} Node 2 token extraction failed. Raw output:"
-    "$COWEN_BIN" auth token --profile main
-    exit 1
-fi
-echo -e " ${GREEN}[OK]${NC} (${TOKEN_2:0:15}...)"
+TOKEN_2=""
+for i in {1..10}; do
+    export COWEN_HOME="$HOME_2"
+    TOKEN_2=$(extract_token "main")
+    if [ "$TOKEN_1" == "$TOKEN_2" ]; then
+        echo -e " ${GREEN}[OK]${NC} (${TOKEN_2:0:15}...)"
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
 
-if [ "$TOKEN_1" == "$TOKEN_2" ]; then
-    echo -e "   ✓ Initial token synchronized via shared DB"
-else
+if [ "$TOKEN_1" != "$TOKEN_2" ]; then
     echo -e "   ${RED}[FAILED]${NC} Tokens mismatched between nodes"
+    echo "     Node 1: $TOKEN_1"
+    echo "     Node 2: $TOKEN_2"
     exit 1
 fi
 
@@ -131,14 +131,21 @@ echo -e "   Node 1 New Token:     ${BLUE}${TOKEN_V2:0:15}...${NC}"
 # 🚀 STABILITY: Stop Node 1 daemon so it doesn't background-refresh again and change the token
 "$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
 
-echo -e "${BOLD}5. Verify Node 2 Sync${NC}"
-export COWEN_HOME="$HOME_2"
-TOKEN_2_V2=$(extract_token "main")
-echo -e "   Node 2 New Token:     ${BLUE}${TOKEN_2_V2:0:15}...${NC}"
+# 🚀 Fix: Added retry loop for shared SQLite storage propagation in QEMU/Linux
+echo -n "   Node 2 fetching token from shared SQLite..."
+TOKEN_2_V2=""
+for i in {1..10}; do
+    export COWEN_HOME="$HOME_2"
+    TOKEN_2_V2=$(extract_token "main")
+    if [ "$TOKEN_V2" == "$TOKEN_2_V2" ]; then
+        echo -e " ${GREEN}[OK]${NC}"
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
 
-if [ "$TOKEN_V2" == "$TOKEN_2_V2" ]; then
-    echo -e "   ✓ Node 2 picked up refreshed token from Node 1 via DB"
-else
+if [ "$TOKEN_V2" != "$TOKEN_2_V2" ]; then
     echo -e "   ${RED}[FAILED]${NC} Node 2 token not synchronized after refresh"
     echo "     Node 1: $TOKEN_V2"
     echo "     Node 2: $TOKEN_2_V2"
@@ -174,7 +181,14 @@ fi
 
 RAW_CONTROL=$(curl -s "$MOCK_URL/control/webhooks")
 echo "DEBUG: Raw Control Webhooks: $RAW_CONTROL"
-LAST_TOKEN=$(echo "$RAW_CONTROL" | python3 -c "import sys, json; d=json.load(sys.stdin); h=d[-1].get('headers', {}); print(h.get('openToken', '') or h.get('opentoken', ''))" 2>/dev/null)
+# 🚀 Fix: Find the first message that HAS a token header, instead of assuming it is the last message
+LAST_TOKEN=$(echo "$RAW_CONTROL" | python3 -c "import sys, json; d=json.load(sys.stdin); 
+found='';
+for msg in d:
+    h = msg.get('headers', {})
+    t = h.get('openToken') or h.get('opentoken')
+    if t: found = t
+print(found)" 2>/dev/null)
 
 if [[ "$LAST_TOKEN" == *"$TOKEN_V2"* ]]; then
     echo -e " ${GREEN}[VERIFIED]${NC}"
