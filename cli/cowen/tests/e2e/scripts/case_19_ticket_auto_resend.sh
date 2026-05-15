@@ -8,7 +8,7 @@
 source tests/e2e/scripts/common.sh
 
 echo -e "${BOLD}1. Setup Environment${NC}"
-pkill cowen || true
+pkill cowen-test || true
 sleep 2
 setup_workspace "case_19"
 start_mock

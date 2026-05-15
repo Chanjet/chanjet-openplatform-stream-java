@@ -47,7 +47,7 @@ start_test_redis() {
 
 stop_test_redis() {
     echo -e "  Stopping test Redis on port $REDIS_PORT..."
-    pkill -f "cowen.*$PROF" 2>/dev/null || true
+    pkill -f "cowen-test.*$PROF" 2>/dev/null || true
     lsof -ti ":$REDIS_PORT" | xargs kill -9 2>/dev/null || true
     rm -f "$REDIS_PID_FILE"
     sleep 1
@@ -57,7 +57,7 @@ start_test_redis
 DB_FILE="$COWEN_HOME/persistence.db"
 PROF="hybrid_drift"
 
-pkill -f "cowen.*$PROF" 2>/dev/null || true
+pkill -f "cowen-test.*$PROF" 2>/dev/null || true
 
 # Setup Hybrid configuration
 cat > "$COWEN_HOME/app.yaml" <<EOF

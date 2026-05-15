@@ -2,7 +2,7 @@
 source tests/e2e/scripts/common.sh
 
 # Aggressive cleanup of any leftover cowen processes from previous failed runs
-pkill -9 cowen || true
+pkill -9 cowen-test || true
 sleep 1
 
 setup_workspace "store_app_activation"

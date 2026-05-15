@@ -9,10 +9,12 @@ Write-Host "${B}${BOLD}========================================================$
 Write-Host "${B}${BOLD}   Cowen CLI Windows PowerShell Test Runner            ${NC}"
 Write-Host "${B}${BOLD}========================================================${NC}"
 
-# 1. 编译二进制
+# 1. 编译并隔离二进制
 Write-Host -NoNewline "  Building cowen binary..."
 & cargo build --quiet
 if ($LASTEXITCODE -ne 0) { Write-Host " ${R}[FAILED]${NC}"; exit 1 }
+Copy-Item "target/debug/cowen.exe" "target/debug/cowen-test.exe" -Force
+$env:COWEN_BIN = "$(Get-Location)/target/debug/cowen-test.exe"
 Write-Host " ${G}[OK]${NC}"
 
 # 2. 启动 Mock Server
@@ -70,8 +72,8 @@ $Passed = 0
 $env:COWEN_MOCK_MANAGED = "true"
 
 foreach ($suite in $Suites) {
-    # Aggressive isolation: kill any lingering cowen processes from previous suites
-    & sh -c "pkill -9 -f cowen" 2>$null
+    # Aggressive isolation: kill any lingering cowen-test processes from previous suites
+    & sh -c "pkill -9 -f cowen-test" 2>$null
     
     Write-Host "`n${BOLD}⏳ Running $suite...${NC}"
     # 在 PowerShell 中通过 sh 调用脚本
@@ -89,7 +91,7 @@ foreach ($suite in $Suites) {
 # 4. 清理
 Write-Host "`n${Y}  Cleaning up...${NC}"
 Stop-Process -Id $MockProcess.Id -Force -ErrorAction SilentlyContinue
-& sh -c "pkill -9 -f cowen" 2>$null
+& sh -c "pkill -9 -f cowen-test" 2>$null
 
 Write-Host "${B}${BOLD}========================================================${NC}"
 if ($Passed -eq $Suites.Length) {

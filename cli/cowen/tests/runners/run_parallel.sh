@@ -55,7 +55,7 @@ final_parallel_cleanup() {
     fi
 }
 trap "final_parallel_cleanup" EXIT
-pkill -9 cowen >/dev/null 2>&1 || true
+pkill -9 cowen-test >/dev/null 2>&1 || true
 
 # --- Initialization ---
 echo -e "${BLUE}🧹 Cleaning up previous test artifacts in $TEST_BASE...${NC}"
@@ -77,7 +77,8 @@ else
     exit 1
 fi
 
-export COWEN_BIN="$(pwd)/$BINARY_PATH"
+cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"
+export COWEN_BIN="$(pwd)/$(dirname "$BINARY_PATH")/cowen-test"
 
 # Collect suites (All suites are parallelized)
 PARALLEL_SUITES=($(ls tests/e2e/scripts/case_*.sh 2>/dev/null))

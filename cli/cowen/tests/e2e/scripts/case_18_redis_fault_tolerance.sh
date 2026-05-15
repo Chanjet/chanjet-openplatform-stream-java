@@ -85,7 +85,7 @@ echo -e "${BOLD}4. Restart Redis and Verify Recovery${NC}"
 start_test_redis
 
 # Optional: restart daemon to clear any backoff if it's too long
-pkill -9 -f "cowen.*$PROF" || true
+pkill -9 -f "cowen-test.*$PROF" || true
 "$COWEN_BIN" daemon start --profile "$PROF" > /dev/null 2>&1
 sleep 3
 

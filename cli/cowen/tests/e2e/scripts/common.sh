@@ -154,7 +154,7 @@ cleanup_suite() {
 
         # 1.5 Global pkill as fallback (Robustness)
         if [ "$COWEN_MOCK_MANAGED" == "true" ]; then
-             pkill -9 cowen >/dev/null 2>&1 || true
+             pkill -9 cowen-test >/dev/null 2>&1 || true
         fi
         
         # 2. Cleanup mock server state for next case (Only if shared)
@@ -252,12 +252,12 @@ except:
 cleanup_all_workspaces() {
     # 1. Kill all cowen related processes
     if [ "$IS_WINDOWS" = true ]; then
-        taskkill //F //IM cowen.exe >/dev/null 2>&1 || true
+        taskkill //F //IM cowen-test.exe >/dev/null 2>&1 || true
     else
-        # Kill by name and by path to be thorough
-        pkill -9 cowen >/dev/null 2>&1 || true
-        pkill -9 -f "target/debug/cowen" >/dev/null 2>&1 || true
-        pkill -9 -f "target/release/cowen" >/dev/null 2>&1 || true
+        # Kill ONLY the test binary name
+        pkill -9 cowen-test >/dev/null 2>&1 || true
+        # Also kill by path if it contains cowen-test
+        pkill -9 -f "cowen-test" >/dev/null 2>&1 || true
     fi
 
     # 2. Kill all mock servers

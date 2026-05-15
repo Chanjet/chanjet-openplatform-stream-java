@@ -7,7 +7,7 @@
 source tests/e2e/scripts/common.sh
 
 # Force cleanup before starting
-# pkill -9 cowen || true
+# pkill -9 cowen-test || true
 sleep 1
 
 echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
