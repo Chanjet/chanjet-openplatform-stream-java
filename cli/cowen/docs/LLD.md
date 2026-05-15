@@ -140,3 +140,30 @@ pub unsafe extern "C" fn cowen_search_provider_v1_free(ptr: *mut c_void) {
 *   **GIVEN**: `search_engine: embedding_search`，但缺失动态库。
 *   **WHEN**: 执行 `cowen api list --search "test"`。
 *   **THEN**: 成功返回结果，提示 `WARN: Advanced search plugin not found...`。
+
+---
+
+## 6. 变更范围约束 (Scope of Change Constraints)
+
+为了确保 v0.3.1 的功能迭代不会对 v0.3.0 已经稳定的核心业务流程造成破坏，所有代码变更必须严格遵守以下物理隔离与依赖约束。任何越界修改将在 Code Review 或 CI 阶段被阻断。
+
+### 6.1 新增 Crate 职责边界
+1.  **`cowen-config`**: 仅允许存在与配置解析（YAML）、文件监听（notify）以及信号处理相关的逻辑。**禁止**引入任何业务模型或与具体协议（如 WebSocket, HTTP Client）相关的依赖。
+2.  **`cowen-monitor`**: 仅允许存在指标采集与轻量级管理端点（Axum）。**禁止**依赖核心业务 Crate（如 `cowen-server`），只能被核心 Crate 单向依赖。
+3.  **`cowen-doctor`**: 作为纯粹的 SPI 调度层，仅允许定义 `Diagnostic` Trait 并提供并发执行引擎。**禁止**在此 Crate 内部实现具体的数据库探针或网络探针，具体的探针应在调用方或专门的 Provider 中实现并注入。
+4.  **`cowen-search`**: 仅包含搜索核心 Trait 及无外部依赖的字符串匹配逻辑。**禁止**在此包中引入 ONNX 或深度学习相关的依赖。
+5.  **`cowen-search-embedding`**: 仅负责将模型推理逻辑打包为动态链接库 (`.so/.dylib`)。**禁止**暴露 Rust ABI 以外的接口，所有交互必须通过 C ABI 边界 (`extern "C"`) 进行。
+
+### 6.2 现有核心的修改限制
+1.  **`cowen-server` (核心引擎)**: 
+    *   为了集成热重载，允许修改 `Config` 传递方式（从静态拷贝变更为 `watch::Receiver`）。
+    *   为了集成监控，允许插入非阻塞的埋点宏（如 `counter!()`）。
+    *   **禁止**修改原有的重连逻辑、限流退避算法以及协议解析核心逻辑。
+2.  **`cowen-auth` / `cowen-store` (鉴权与存储)**: 
+    *   允许这部分模块实现 `cowen-doctor` 的 `Diagnostic` Trait 以提供自身状态自检。
+    *   **禁止**更改现有的 `TokenPool` 或 `Store` SPI 的核心行为契约。
+
+### 6.3 违规行为示例 (Anti-Patterns to Avoid)
+*   🚫 在 `cowen-monitor` 中硬编码读取 `cowen-auth` 的结构体以获取 Token 状态。*(正确做法：在 `cowen-auth` 中主动调用 `cowen_monitor::gauge!()` 汇报状态)*
+*   🚫 在 `cowen-doctor` 中引入 `redis` crate 来检查缓存。*(正确做法：在主程序或 `cowen-store` 中实现 `Diagnostic` Trait 并注入到 Doctor)*
+*   🚫 直接在 `cowen-server` 内部写 `notify` 监听逻辑。*(正确做法：由 `cowen-config` 抽象出订阅通道)*
