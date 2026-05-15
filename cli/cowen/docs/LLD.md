@@ -9,10 +9,10 @@
 
 ### 1.2 原子性逻辑算子
 1.  **监听阶段**: `tokio::signal::unix::signal(SignalKind::hangup())` 捕获信号，或 `notify` 发现 `Write` 事件。
-2.  **校验阶段**: 
-    *   读取新 `app.yaml`。
-    *   尝试 `serde_yaml::from_str` 解析。
-    *   **语义校验**: 检查关键字段（如 `db_url`）是否发生不兼容变更。
+2.  **校验阶段 (可变性边界)**: 
+    *   读取新 `app.yaml` 并尝试 `serde_yaml::from_str` 解析。
+    *   **不可变字段校验**: 检查基础设施级配置（如 `app_mode`, `app_key`, `db_url`）。若发生变化，则记录 `ERROR` 日志并放弃本次更新（要求用户执行硬重启）。
+    *   **可热载字段**: `log.level`, `proxy_port` (需重启内层监听器), `webhook_target` 等。
 3.  **分发阶段**:
     *   通过 `tokio::sync::watch::Sender` 广播。
     *   业务层（如 `ProxyServer` Task）原子替换其局部状态。
@@ -23,6 +23,9 @@
 
 ### 2.1 物理模型契约
 *   **边界约束**: `cowen-monitor` 作为全局的指标聚合器，单向被其他业务 Crate 依赖。它内部包含 Axum Web Server 逻辑。
+*   **依赖倒置 (Health Probe Registry)**: 
+    为避免 `cowen-monitor` 依赖具体业务模块，提供注册机制。业务模块启动时注入检查闭包：
+    `pub fn register_health_probe(name: &str, probe: Box<dyn Fn() -> HealthStatus + Send + Sync>);`
 *   **I/O JSON 模板 (Health Endpoint)**:
 ```json
 {
@@ -86,9 +89,16 @@ pub struct DiagnosticResult {
     *   `cowen-search-embedding` 是完全隔离的动态库 Crate，封装臃肿的 ONNX。
 
 ### 4.2 ABI 兼容性契约 (FFI Interface)
-为确保动态库加载安全，定义 `extern "C"` 边界：
+为确保跨动态库边界的内存安全，**严禁使用 Rust 原生集合 (`Vec`, `&str`)**，必须使用纯 C ABI 传递指针或 C 字符串：
 
 ```rust
+// 跨界通信结构体 (C ABI)
+#[repr(C)]
+pub struct CSearchResult {
+    pub ptr: *const libc::c_char, // JSON 序列化的结果数组
+    pub len: usize,
+}
+
 // cowen-search/src/provider.rs
 pub trait SearchProvider: Send + Sync {
     fn name(&self) -> &str;
@@ -100,6 +110,25 @@ pub trait SearchProvider: Send + Sync {
 pub unsafe extern "C" fn cowen_search_provider_v1_init() -> *mut c_void {
     let provider = Box::new(EmbeddingSearchProvider::new());
     Box::into_raw(provider) as *mut c_void
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cowen_search_provider_v1_search(
+    provider_ptr: *mut c_void,
+    query_ptr: *const libc::c_char,
+    items_json_ptr: *const libc::c_char, // 使用 JSON 字符串传递复杂数组以规避内存布局问题
+    top_k: usize,
+) -> CSearchResult {
+    // 内部实现：反序列化 -> 搜索 -> 序列化为 CSearchResult 返回
+    // ...
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cowen_search_provider_v1_free_result(res: CSearchResult) {
+    // 由插件分配的内存，必须由插件释放
+    if !res.ptr.is_null() {
+        let _ = std::ffi::CString::from_raw(res.ptr as *mut libc::c_char);
+    }
 }
 
 #[no_mangle]
