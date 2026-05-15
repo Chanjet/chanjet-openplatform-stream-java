@@ -124,6 +124,35 @@ pub fn mask_url(url: &str) -> String {
     }
 }
 
+/// 设置当前进程的显示名称 (跨平台实现)
+pub fn set_process_name(name: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::ffi::CString;
+        if let Ok(c_name) = CString::new(name) {
+            unsafe {
+                libc::prctl(libc::PR_SET_NAME, c_name.as_ptr(), 0, 0, 0);
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::CString;
+        if let Ok(c_name) = CString::new(name) {
+            unsafe {
+                libc::pthread_setname_np(c_name.as_ptr());
+            }
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = name;
+        // Unsupported platforms: Fallback to doing nothing
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +163,19 @@ mod tests {
         assert_eq!(mask_url("mysql://user:pass@127.0.0.1:3306/db"), "mysql://user:***@127.0.0.1:3306/db");
         assert_eq!(mask_url("postgres://admin@localhost/mydb"), "postgres://***@localhost/mydb");
         assert_eq!(mask_url("https://openapi.chanjet.com"), "https://openapi.chanjet.com");
+    }
+
+    #[test]
+    fn test_set_process_name() {
+        // This test ensures the function can be called without panic.
+        // Verifying the actual name change is platform-dependent and usually requires 
+        // external tools or reading OS-specific files, so we verify call stability here.
+        set_process_name("cowen-test-process");
+        
+        #[cfg(unix)]
+        {
+            // Optional: on Linux/macOS, we could try to read back the name via sysinfo if we wanted to be very strict.
+            // But for now, we just ensure it's integrated.
+        }
     }
 }

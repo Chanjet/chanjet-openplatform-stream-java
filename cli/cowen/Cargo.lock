@@ -874,6 +874,7 @@ dependencies = [
  "hex",
  "hostname",
  "inventory",
+ "libc",
  "rand 0.8.6",
  "redis",
  "regex",

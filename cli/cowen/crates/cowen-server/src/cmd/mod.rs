@@ -182,6 +182,9 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
     }
 
     // --- 子进程：执行核心引擎逻辑 ---
+    // 🚀 NEW: Set process identity to allow easy identification in ps/top
+    cowen_common::utils::set_process_name(&format!("cowen:{}", profile));
+
     std::thread::sleep(std::time::Duration::from_millis(50));
     let pid = std::process::id();
     let build_time = cowen_common::BUILD_TIME;

@@ -1,0 +1,32 @@
+[
+  {
+    "number": 1,
+    "category": "Infrastructure",
+    "task": "Add libc dependency to cowen-common",
+    "steps": [
+      { "step": "Add libc to cli/cowen/crates/cowen-common/Cargo.toml", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 2,
+    "category": "Core Logic (TDD)",
+    "task": "Implement and test set_process_name in cowen-common",
+    "steps": [
+      { "step": "Create a failing test case for set_process_name in cowen-common/src/utils.rs", "completed": false },
+      { "step": "Implement set_process_name utility in cowen-common/src/utils.rs using libc", "completed": false },
+      { "step": "Verify the test case passes", "completed": false }
+    ],
+    "passes": false
+  },
+  {
+    "number": 3,
+    "category": "Integration",
+    "task": "Integrate identity setting into cowen-server daemon",
+    "steps": [
+      { "step": "Modify cowen-server/src/cmd/mod.rs to call set_process_name with the profile name in the child process logic", "completed": false },
+      { "step": "Verify the process name in a real-world scenario (manual or E2E)", "completed": false }
+    ],
+    "passes": false
+  }
+]
