@@ -585,41 +585,50 @@ impl AuthProvider for OAuth2Provider {
             }
         };
 
-        if let (Ok(at), Ok(rt)) = (at_res, rt_res) {
-            let is_expired = at.is_expired();
-            let ref_expired = rt.is_expired();
+        match (at_res, rt_res) {
+            (Ok(at), Ok(rt)) => {
+                let is_expired = at.is_expired();
+                let ref_expired = rt.is_expired();
 
-            let token_children = vec![
-                StatusEntry::new(OAuth2Template::AccessToken, if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
-                        if is_expired || ref_revoked { "EXPIRED" } else { "VALID" },
-                        at.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
-                    .with_reason(if ref_revoked {
-                        Some("关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。".to_string())
-                    } else if is_expired { 
-                        refresh_error.as_ref().map(|e| format!("自动续约失败: {}", e))
-                            .or(Some("AccessToken 已过期，正在等待后台续约进程处理...".to_string()))
-                    } else { None }),
-                StatusEntry::new(OAuth2Template::RefreshToken, if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
-                        if ref_revoked { "REVOKED" } else if ref_expired { "EXPIRED" } else { "VALID" },
-                        rt.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
-                    .with_reason(if ref_revoked {
-                        Some("令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。".to_string())
-                    } else if ref_expired { 
-                        Some("RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。".to_string()) 
-                    } else { None }),
-            ];
+                let token_children = vec![
+                    StatusEntry::new(OAuth2Template::AccessToken, if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
+                            if is_expired || ref_revoked { "EXPIRED" } else { "VALID" },
+                            at.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
+                        .with_reason(if ref_revoked {
+                            Some("关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。".to_string())
+                        } else if is_expired { 
+                            refresh_error.as_ref().map(|e| format!("自动续约失败: {}", e))
+                                .or(Some("AccessToken 已过期，正在等待后台续约进程处理...".to_string()))
+                        } else { None }),
+                    StatusEntry::new(OAuth2Template::RefreshToken, if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
+                            if ref_revoked { "REVOKED" } else if ref_expired { "EXPIRED" } else { "VALID" },
+                            rt.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
+                        .with_reason(if ref_revoked {
+                            Some("令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。".to_string())
+                        } else if ref_expired { 
+                            Some("RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。".to_string()) 
+                        } else { None }),
+                ];
 
-            let mut details = vec![];
-            if let Some(identity) = at.extract_identity() {
-                details.push(format!("User ID: {}", identity.user_id));
-                details.push(format!("Org ID:  {}", identity.org_id));
-                details.push(format!("App ID:  {}", identity.app_id));
+                let mut details = vec![];
+                if let Some(identity) = at.extract_identity() {
+                    details.push(format!("User ID: {}", identity.user_id));
+                    details.push(format!("Org ID:  {}", identity.org_id));
+                    details.push(format!("App ID:  {}", identity.app_id));
+                }
+
+                auth_entries.push(StatusEntry::new(OAuth2Template::Authentication, if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK }, "OAuth2 tokens are locally managed.".to_string())
+                    .with_reason(if ref_revoked { Some("会话已失效 (Revoked)".to_string()) } else { None })
+                    .with_details(details)
+                    .with_children(token_children));
             }
-
-            auth_entries.push(StatusEntry::new(OAuth2Template::Authentication, if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK }, "OAuth2 tokens are locally managed.".to_string())
-                .with_reason(if ref_revoked { Some("会话已失效 (Revoked)".to_string()) } else { None })
-                .with_details(details)
-                .with_children(token_children));
+            _ => {
+                auth_entries.push(StatusEntry::new(
+                    OAuth2Template::Authentication, 
+                    StatusLevel::WARN, 
+                    "Not logged in or session expired.".to_string()
+                ).with_reason(Some("本地未发现有效的 OAuth2 会话，或您已退出登录。请执行 `cowen auth login` 重新授权。".to_string())));
+            }
         }
 
         // Wrap Authentication Summary

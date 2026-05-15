@@ -346,7 +346,7 @@ pub enum LogCommands {
     List,
     /// View or follow log content
     View {
-        /// Log domain to view (e.g. sys, audit, proxy)
+        /// Log domain to view (e.g. sys, audit, stream, dlq). Use 'cowen log list' to see all available files.
         #[arg(default_value = "sys")]
         domain: String,
         /// Follow log output in real-time
