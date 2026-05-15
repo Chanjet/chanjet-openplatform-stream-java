@@ -403,8 +403,12 @@ pub async fn run(cli: Cli) -> Result<()> {
     if cli.no_ai { config.ai_enabled = false; }
 
     let (vault_tx, vault_rx) = tokio::sync::watch::channel(None);
+    let mut log_handle = None;
     let _guards = match core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {
-        Ok(g) => Some(g),
+        Ok((g, handle)) => {
+            log_handle = Some(handle);
+            Some(g)
+        },
         Err(e) => {
             eprintln!("⚠️ Warning: Telemetry system failed to initialize: {}. Continuing without structured logging.", e);
             None
@@ -522,30 +526,43 @@ pub async fn run(cli: Cli) -> Result<()> {
             AuthCommands::Login { force, finalize } => cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref(), Some(daemon_svc.clone())).await?,
             AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format, *refresh).await?,
         }
-        Commands::Daemon { action } => match action {
-            DaemonCommands::Start { proxy_port, enable_proxy, no_proxy, foreground, all } => {
-                let mut updated_config = config.clone();
-                let mut changed = false;
-                if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
-                if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
-                else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
-                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
-                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone()).await?;
-            }
-            DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
-            DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {
-                let mut updated_config = config.clone();
-                let mut changed = false;
-                if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
-                if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
-                else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
-                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
-                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone()).await?;
-            }
-            DaemonCommands::Service { action } => match action {
-                ServiceCommands::Install => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Install).await?,
-                ServiceCommands::Uninstall => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Uninstall).await?,
-                ServiceCommands::Status => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Status).await?,
+        Commands::Daemon { action } => {
+            let log_handle_wrapper = log_handle.map(|h| {
+                Arc::new(move |level: String| {
+                    let bin_name = get_bin_name();
+                    let new_filter = tracing_subscriber::EnvFilter::new(format!(
+                        "warn,{}={},connector_sdk={},sys={},audit={},stream={},dlq={}", 
+                        bin_name, level, level, level, level, level, level
+                    ));
+                    let _ = h.reload(new_filter);
+                }) as Arc<dyn Fn(String) + Send + Sync>
+            });
+
+            match action {
+                DaemonCommands::Start { proxy_port, enable_proxy, no_proxy, foreground, all } => {
+                    let mut updated_config = config.clone();
+                    let mut changed = false;
+                    if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
+                    if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
+                    else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
+                    if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
+                    cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone(), log_handle_wrapper).await?;
+                }
+                DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
+                DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {
+                    let mut updated_config = config.clone();
+                    let mut changed = false;
+                    if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
+                    if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
+                    else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
+                    if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
+                    cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), log_handle_wrapper).await?;
+                }
+                DaemonCommands::Service { action } => match action {
+                    ServiceCommands::Install => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Install).await?,
+                    ServiceCommands::Uninstall => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Uninstall).await?,
+                    ServiceCommands::Status => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Status).await?,
+                }
             }
         }
         Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?,
