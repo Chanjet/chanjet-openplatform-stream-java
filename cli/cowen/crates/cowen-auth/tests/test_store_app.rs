@@ -41,8 +41,12 @@ impl TokenDomain for MockVault {
     async fn get_access_token(&self, _: &str) -> CowenResult<cowen_common::models::Token> { Err(CowenError::Auth(format!("not found"))) }
     async fn save_access_token(&self, _: &str, _: Token) -> CowenResult<()> { Ok(()) }
     async fn delete_access_token(&self, _: &str) -> CowenResult<()> { Ok(()) }
+    async fn get_refresh_token(&self, _: &str) -> CowenResult<cowen_common::models::Token> { Err(CowenError::Auth(format!("not found"))) }
+    async fn save_refresh_token(&self, _: &str, _: Token) -> CowenResult<()> { Ok(()) }
+    async fn delete_refresh_token(&self, _: &str) -> CowenResult<()> { Ok(()) }
     async fn get_app_access_token(&self, _: &str) -> CowenResult<cowen_common::models::Token> { Err(CowenError::Auth(format!("not found"))) }
     async fn save_app_access_token(&self, _: &str, _: Token) -> CowenResult<()> { Ok(()) }
+    async fn delete_app_access_token(&self, _: &str) -> CowenResult<()> { Ok(()) }
 }
 
 #[async_trait]
