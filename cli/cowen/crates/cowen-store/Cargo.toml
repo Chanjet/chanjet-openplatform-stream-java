@@ -21,7 +21,9 @@ serde_yaml = "0.9"
 inventory = "0.3"
 uuid = { version = "1.12", features = ["v4"] }
 clap = { version = "4.6", features = ["derive"] }
-cowen-common = { path = "../cowen-common", features = ["sqlite", "postgres", "mysql", "mssql", "redis"] }
+cowen-common = { path = "../cowen-common", features = ["sqlx", "redis"] }
+cowen-infra = { path = "../cowen-infra" }
+cowen-config = { path = "../cowen-config" }
 
 [features]
 default = ["sqlite"]

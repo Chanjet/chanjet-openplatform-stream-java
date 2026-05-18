@@ -1,11 +1,12 @@
 use anyhow::Result;
 use cowen_common::daemon::DaemonService;
 use cowen_common::vault::Vault;
-use cowen_common::{ConfigManager, CowenResult};
+use cowen_common::CowenResult;
+use cowen_config::ConfigManager;
 use serde::Serialize;
 use std::sync::Arc;
 
-use cowen_common::status::{StatusCollector, StatusContext, StatusEntry, StatusLevel};
+use cowen_monitor::status::{StatusCollector, StatusContext, StatusEntry, StatusLevel};
 
 #[derive(Serialize)]
 pub struct SystemStatus {
@@ -246,7 +247,7 @@ impl StatusCollector for ConfigCollector {
         "Configuration"
     }
     async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
-        use cowen_common::status::CommonTemplate;
+        use cowen_monitor::status::CommonTemplate;
 
         // 0.2.x Style Configuration Entry
         let mode_str = format!("{:?}", ctx.config.app_mode).to_lowercase();
@@ -283,7 +284,7 @@ impl StatusCollector for StorageCollector {
         "Storage"
     }
     async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
-        use cowen_common::status::CommonTemplate;
+        use cowen_monitor::status::CommonTemplate;
         let store = ctx.vault.primary_store();
         let name = store.name();
         let desc = store.description();
@@ -304,7 +305,7 @@ impl StatusCollector for ProviderCollector {
         "Provider"
     }
     async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
-        use cowen_common::status::CommonTemplate;
+        use cowen_monitor::status::CommonTemplate;
         let auth_cli = cowen_auth::create_auth_client_with_vault(ctx.vault.clone());
         let children = auth_cli.get_diagnostics(ctx).await?;
 
@@ -408,7 +409,7 @@ pub async fn ensure_daemon_running(
     auth_cli: &dyn cowen_auth::client::Client,
 ) -> Result<()> {
     // 1. Check if already running
-    if cowen_common::status::get_active_daemon_info(profile).is_some() {
+    if cowen_monitor::status::get_active_daemon_info(profile).is_some() {
         return Ok(());
     }
 
@@ -416,7 +417,7 @@ pub async fn ensure_daemon_running(
     // before the new PID file is visible or the process is registered in the OS table.
     // We add a tiny grace period and one re-check to avoid "double-starting" or recovery conflicts.
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    if cowen_common::status::get_active_daemon_info(profile).is_some() {
+    if cowen_monitor::status::get_active_daemon_info(profile).is_some() {
         return Ok(());
     }
 
@@ -452,7 +453,7 @@ pub async fn enforce_daemon_version_sync(
 ) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
     for p in profiles {
-        if let Some(info) = cowen_common::status::get_active_daemon_info(&p) {
+        if let Some(info) = cowen_monitor::status::get_active_daemon_info(&p) {
             let mut outdated = false;
             let daemon_bid = info.build_id.as_deref().unwrap_or("N/A");
             let daemon_bt = info.build_time.as_deref().unwrap_or("N/A");

@@ -1,9 +1,9 @@
-use crate::CowenResult;
+use cowen_common::CowenResult;
 use chrono::Utc;
 use std::sync::Arc;
 use uuid::Uuid;
-use crate::vault::Vault;
-use crate::models::AuditEntry;
+use cowen_common::vault::Vault;
+use cowen_common::models::AuditEntry;
 
 pub struct AuditStore;
 

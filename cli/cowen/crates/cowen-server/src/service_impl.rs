@@ -4,7 +4,7 @@ use std::sync::Arc;
 use cowen_common::daemon::DaemonService;
 use cowen_common::config::Config;
 use cowen_common::vault::Vault;
-use cowen_common::ConfigManager;
+use cowen_config::ConfigManager;
 
 pub struct ServerDaemonService {
     cfg_mgr: ConfigManager,

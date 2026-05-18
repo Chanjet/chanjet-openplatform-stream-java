@@ -2,7 +2,7 @@ use cowen_common::CowenResult;
 use cowen_common::config::Config;
 use chrono::Local;
 use crate::pool::TokenPool;
-use cowen_common::status::{StatusEntry, StatusLevel, AsStatusUI};
+use cowen_monitor::status::{StatusEntry, StatusLevel, AsStatusUI};
 
 pub enum StoreAppTemplate {
     SecurityVault,

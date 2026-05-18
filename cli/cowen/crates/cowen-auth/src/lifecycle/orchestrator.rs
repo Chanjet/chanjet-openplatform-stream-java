@@ -1,5 +1,5 @@
 use cowen_common::{CowenResult, CowenError};
-use cowen_common::ConfigManager;
+use cowen_config::ConfigManager;
 use cowen_common::vault::Vault;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -31,7 +31,7 @@ pub async fn wait_for_token_exchange(
                 let is_new = self.is_new;
                 
                 tokio::spawn(async move {
-                    if let Ok(cfg_mgr) = cowen_common::ConfigManager::new() {
+                    if let Ok(cfg_mgr) = cowen_config::ConfigManager::new() {
                         perform_failure_cleanup(&profile, vault, pid, is_new, &cfg_mgr).await;
                     }
                 });

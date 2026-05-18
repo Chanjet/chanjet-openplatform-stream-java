@@ -1,6 +1,5 @@
 use cowen_auth::provider::oauth2::OAuth2Provider;
 use cowen_auth::provider::AuthProvider;
-use cowen_auth::pool::TokenPool;
 use cowen_common::{CowenResult, CowenError};
 use cowen_common::domain::*;
 use cowen_common::models::{Token, Ticket, AuthSession};

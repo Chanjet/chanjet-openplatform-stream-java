@@ -1,13 +1,14 @@
-use crate::{CowenResult, CowenError};
+use cowen_common::{CowenResult, CowenError};
 use anyhow::Context;
 use std::fs;
 use std::path::PathBuf;
-use crate::config::{AppConfig, StorageConfig, Config};
+use cowen_common::config::{AppConfig, StorageConfig, Config};
 use tokio::sync::OnceCell;
 use std::sync::Arc;
-use crate::vault::Vault;
-use crate::events::event_bus;
+use cowen_common::vault::Vault;
+use cowen_common::events::event_bus;
 use serde_yaml;
+use cowen_infra::path::get_app_dir;
 
 pub trait ConfigValidator: Send + Sync {
     fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool, exists: bool) -> CowenResult<()>;
@@ -23,7 +24,7 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     pub fn new() -> CowenResult<Self> {
-        let app_dir = crate::config::get_app_dir();
+        let app_dir = get_app_dir();
         if !app_dir.exists() {
             fs::create_dir_all(&app_dir).context("Failed to create app directory")?;
         }
@@ -213,7 +214,7 @@ impl ConfigManager {
                 // For version 0, it might be a truly new profile or a legacy fallback
                 vault.set_config(profile, "system:manifest", &manifest).await?;
             }
-            event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
+            event_bus().publish(cowen_common::events::GlobalEvent::ConfigChanged { 
                 profile: profile.to_string(), 
                 key: "system:manifest".to_string() 
             });
@@ -337,7 +338,7 @@ impl ConfigManager {
         let path = self.app_dir.join("app.yaml");
         let content = serde_yaml::to_string(config)?;
         fs::write(path, content)?;
-        event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
+        event_bus().publish(cowen_common::events::GlobalEvent::ConfigChanged { 
             profile: "system".to_string(), 
             key: "app".to_string() 
         });
@@ -417,7 +418,7 @@ impl ConfigManager {
         Ok(None)
     }
 
-    pub async fn find_profile_by_key_and_mode(&self, app_key: &str, mode: &crate::models::AuthMode) -> CowenResult<Option<String>> {
+    pub async fn find_profile_by_key_and_mode(&self, app_key: &str, mode: &cowen_common::models::AuthMode) -> CowenResult<Option<String>> {
         let profiles = self.list_profiles().await?;
         for profile in profiles {
             if let Ok(config) = self.load(&profile).await {
@@ -441,7 +442,7 @@ impl ConfigManager {
             vault.rename_profile(old_name, new_name).await?;
         }
 
-        event_bus().publish(crate::events::GlobalEvent::ProfileRenamed { 
+        event_bus().publish(cowen_common::events::GlobalEvent::ProfileRenamed { 
             old: old_name.to_string(), 
             new: new_name.to_string() 
         });
@@ -460,7 +461,7 @@ impl ConfigManager {
             vault.clear_profile(profile).await?;
         }
 
-        event_bus().publish(crate::events::GlobalEvent::ConfigChanged { 
+        event_bus().publish(cowen_common::events::GlobalEvent::ConfigChanged { 
             profile: profile.to_string(), 
             key: "system:manifest".to_string() 
         });

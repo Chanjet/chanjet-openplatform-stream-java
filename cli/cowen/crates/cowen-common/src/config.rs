@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 pub const BUILTIN_CLIENT_ID: &str = "3x45dOtt";
 pub const DEF_MARKET_URL: &str = "https://market.chanjet.com";
@@ -177,22 +176,7 @@ impl Config {
     }
 }
 
-pub fn get_app_dir() -> PathBuf {
-    if let Ok(path) = std::env::var("COWEN_HOME") {
-        let p = PathBuf::from(path);
-        if p.is_relative() {
-            if let Ok(cwd) = std::env::current_dir() {
-                return cwd.join(p);
-            }
-        }
-        return p;
-    }
-    let home = directories::BaseDirs::new()
-        .unwrap()
-        .home_dir()
-        .to_path_buf();
-    home.join(".cowen")
-}
+pub use cowen_infra::path::get_app_dir;
 
 impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

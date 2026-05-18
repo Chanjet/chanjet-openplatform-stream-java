@@ -294,7 +294,7 @@ impl AuthProvider for StoreAppProvider {
         profile: &str,
         config: &mut Config,
         vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
-        cfg_mgr: &cowen_common::ConfigManager,
+        cfg_mgr: &cowen_config::ConfigManager,
         params: crate::provider::InitParams,
         daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
     ) -> CowenResult<()> {
@@ -432,8 +432,8 @@ impl AuthProvider for StoreAppProvider {
         }
     }
 
-    async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
-        use cowen_common::status::{StatusEntry, StatusLevel, CommonTemplate, collect_daemon_status};
+    async fn get_diagnostics(&self, ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
+        use cowen_monitor::status::{StatusEntry, StatusLevel, CommonTemplate, collect_daemon_status};
         
         let mut results = Vec::new();
         
@@ -453,7 +453,7 @@ impl AuthProvider for StoreAppProvider {
         }
 
         // 2. Daemon Status
-        let daemon_info = cowen_common::status::get_active_daemon_info(&ctx.profile);
+        let daemon_info = cowen_monitor::status::get_active_daemon_info(&ctx.profile);
         let (display_name, efficiency_tip) = self.get_daemon_display_info(daemon_info.is_some());
         results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks(), daemon_info).await?);
 

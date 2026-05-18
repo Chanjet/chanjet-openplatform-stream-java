@@ -12,7 +12,7 @@ pub enum CowenError {
     Store(String),
 
     #[error("Network error: {0}")]
-    Network(#[from] reqwest::Error),
+    Network(String),
 
     #[error("API error: {0}")]
     Api(String),
@@ -33,7 +33,7 @@ pub enum CowenError {
     Serialization(String),
 
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
 
     #[error("Internal error: {0}")]
     Internal(String),
@@ -43,6 +43,12 @@ pub enum CowenError {
 }
 
 pub type CowenResult<T> = std::result::Result<T, CowenError>;
+
+impl From<std::io::Error> for CowenError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err.to_string())
+    }
+}
 
 impl From<serde_json::Error> for CowenError {
     fn from(err: serde_json::Error) -> Self {
@@ -62,13 +68,21 @@ impl From<base64::DecodeError> for CowenError {
     }
 }
 
-impl From<reqwest::header::InvalidHeaderValue> for CowenError {
-    fn from(err: reqwest::header::InvalidHeaderValue) -> Self {
-        Self::Config(format!("Invalid header value: {}", err))
+#[cfg(feature = "reqwest")]
+impl From<reqwest::Error> for CowenError {
+    fn from(err: reqwest::Error) -> Self {
+        Self::Network(err.to_string())
     }
 }
 
-#[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql", feature = "mssql"))]
+#[cfg(feature = "reqwest")]
+impl From<reqwest::header::InvalidHeaderValue> for CowenError {
+    fn from(err: reqwest::header::InvalidHeaderValue) -> Self {
+        Self::Validation(err.to_string())
+    }
+}
+
+#[cfg(feature = "sqlx")]
 impl From<sqlx::Error> for CowenError {
     fn from(err: sqlx::Error) -> Self {
         Self::Store(err.to_string())
@@ -101,5 +115,9 @@ impl CowenError {
 
     pub fn internal(msg: impl Into<String>) -> Self {
         Self::Internal(msg.into())
+    }
+
+    pub fn network(msg: impl Into<String>) -> Self {
+        Self::Network(msg.into())
     }
 }

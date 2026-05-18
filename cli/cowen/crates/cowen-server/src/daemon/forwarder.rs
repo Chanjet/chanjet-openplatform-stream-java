@@ -93,7 +93,7 @@ impl Forwarder {
                 tracing::error!(target: "stream", msg_id = %msg_id, error = %e, "Forward network failed, saving to DLQ");
                 println!("❌ Forward network failed: {}", err_msg);
                 let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg).await;
-                Err(CowenError::Network(e))
+                Err(CowenError::Network(e.to_string()))
             }
         }
     }

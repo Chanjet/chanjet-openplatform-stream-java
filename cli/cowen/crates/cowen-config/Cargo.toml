@@ -1,0 +1,15 @@
+[package]
+name = "cowen-config"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cowen-common = { path = "../cowen-common" }
+cowen-infra = { path = "../cowen-infra" }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tokio = { version = "1.0", features = ["sync", "rt", "net"] }
+tracing = "0.1"
+rand = "0.8"
+fs2 = "0.4"

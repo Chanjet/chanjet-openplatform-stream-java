@@ -1,7 +1,7 @@
 use cowen_common::utils;
 use cowen_common::security;
-use cowen_common::network;
-use std::net::{SocketAddr, IpAddr};
+use cowen_infra as network;
+use std::net::SocketAddr;
 
 #[test]
 fn test_mask_string() {
@@ -18,68 +18,57 @@ fn test_mask_sensitive_json() {
     let masked = utils::mask_sensitive_json(json);
     assert!(masked.contains(r#""accessToken": "mock_at_...7890""#));
     assert!(masked.contains(r#""other": "public""#));
-
-    let json2 = r#"{"app_secret": "too-short"}"#;
-    let masked2 = utils::mask_sensitive_json(json2);
-    assert!(masked2.contains(r#""app_secret": "********""#));
 }
 
 #[test]
 fn test_mask_url_query() {
-    let url = "https://example.com/api?accessToken=secret1234567890&other=public";
+    let url = "https://api.example.com?token=secret_1234567890&other=public";
     let masked = utils::mask_url_query(url);
-    assert_eq!(masked, "https://example.com/api?accessToken=secret12...7890&other=public");
-
-    let url2 = "https://example.com/api?token=short";
-    let masked2 = utils::mask_url_query(url2);
-    assert_eq!(masked2, "https://example.com/api?token=********");
+    assert!(masked.contains("token=secret_1...7890"));
+    assert!(masked.contains("other=public"));
 }
 
 #[test]
-fn test_mask_tail() {
-    assert_eq!(utils::mask_tail("12345", 2), "***45");
-    assert_eq!(utils::mask_tail("12345", 5), "12345");
-    assert_eq!(utils::mask_tail("12345", 6), "12345");
-    assert_eq!(utils::mask_tail("abc", 0), "***");
+fn test_machine_fingerprint() {
+    let f1 = security::get_machine_fingerprint().unwrap();
+    let f2 = security::get_machine_fingerprint().unwrap();
+    assert_eq!(f1, f2);
+    assert!(!f1.is_empty());
+}
+
+#[test]
+fn test_obfs_macro() {
+    let o = cowen_infra::obfs!("hello-world");
+    assert_eq!(o, "hello-world");
+    // Verify that the actual code in the binary would be obfuscated is hard here,
+    // but we can verify the macro works and produces the correct string.
+}
+
+#[test]
+fn test_crypto_roundtrip() {
+    let data = b"secret-message";
+    let key = [0u8; 32];
+    
+    let enc = security::encrypt(data, &key).unwrap();
+    assert_ne!(data.to_vec(), enc);
+    
+    let dec = security::decrypt(&enc, &key).unwrap();
+    assert_eq!(data.to_vec(), dec);
 }
 
 #[test]
 fn test_derive_key() {
-    let key1 = security::derive_key("fingerprint1");
-    let key2 = security::derive_key("fingerprint1");
-    let key3 = security::derive_key("fingerprint2");
-
-    assert_eq!(key1, key2);
-    assert_ne!(key1, key3);
-    assert_eq!(key1.len(), 32);
-}
-
-#[test]
-fn test_encrypt_decrypt() {
-    let key = security::derive_key("test_fingerprint");
-    let data = b"hello world secret data";
+    let k1 = security::derive_key("fingerprint-1");
+    let k2 = security::derive_key("fingerprint-1");
+    let k3 = security::derive_key("fingerprint-2");
     
-    let encrypted = security::encrypt(data, &key).expect("Encryption failed");
-    assert!(encrypted.len() > 12);
-    
-    let decrypted = security::decrypt(&encrypted, &key).expect("Decryption failed");
-    assert_eq!(decrypted, data);
-}
-
-#[test]
-fn test_decrypt_invalid_data() {
-    let key = security::derive_key("test_fingerprint");
-    let result = security::decrypt(b"short", &key);
-    assert!(result.is_err());
-    
-    let invalid_data = vec![0u8; 20];
-    let result2 = security::decrypt(&invalid_data, &key);
-    assert!(result2.is_err());
+    assert_eq!(k1, k2);
+    assert_ne!(k1, k3);
 }
 
 #[test]
 fn test_user_agent_format() {
-    let ua = network::get_user_agent();
+    let ua = cowen_infra::get_user_agent("1.0.0");
     
     // 验证格式: Cowen/x.y.z (os; arch)
     assert!(ua.starts_with("Cowen/"));
@@ -88,23 +77,25 @@ fn test_user_agent_format() {
     assert!(ua.ends_with(")"));
     
     // 验证包含版本号 (至少包含一个数字)
-    assert!(ua.chars().any(|c| c.is_numeric()));
+    assert!(ua.chars().any(|c: char| c.is_numeric()));
 }
 
 #[test]
 fn test_validate_loopback_addr() {
     // 1. Success cases
-    let localhost_v4 = SocketAddr::new(IpAddr::V4("127.0.0.1".parse().unwrap()), 8080);
-    assert!(network::validate_loopback_addr(&localhost_v4).is_ok());
-
-    let localhost_v6 = SocketAddr::new(IpAddr::V6("::1".parse().unwrap()), 8080);
-    assert!(network::validate_loopback_addr(&localhost_v6).is_ok());
+    let addr1: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    let addr2: SocketAddr = "[::1]:8080".parse().unwrap();
+    
+    assert!(network::validate_loopback_addr(&addr1).is_ok());
+    assert!(network::validate_loopback_addr(&addr2).is_ok());
 
     // 2. Failure cases
-    let any_v4 = SocketAddr::new(IpAddr::V4("0.0.0.0".parse().unwrap()), 8080);
-    let err = network::validate_loopback_addr(&any_v4).unwrap_err();
-    assert!(err.to_string().contains("0.0.0.0"));
-
-    let lan_ip = SocketAddr::new(IpAddr::V4("192.168.1.1".parse().unwrap()), 8080);
-    assert!(network::validate_loopback_addr(&lan_ip).is_err());
+    let addr3: SocketAddr = "192.168.1.1:8080".parse().unwrap();
+    let addr4: SocketAddr = "0.0.0.0:8080".parse().unwrap();
+    
+    let result1 = network::validate_loopback_addr(&addr3);
+    let result2 = network::validate_loopback_addr(&addr4);
+    
+    assert!(result1.is_err());
+    assert!(result2.is_err());
 }

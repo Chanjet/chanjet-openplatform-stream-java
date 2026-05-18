@@ -2,7 +2,7 @@ use cowen_common::{CowenResult, CowenError};
 use std::sync::Arc;
 pub use cowen_common::models::{Item, AuditEntry, DlqMessage};
 pub use cowen_common::store::{Store, StoreBuilder, StoreBuilderRegistration, CacheBuilder, CacheBuilderRegistration};
-pub use cowen_common::{ConfigManager, ConfigValidator};
+pub use cowen_config::{ConfigManager, ConfigValidator};
 
 pub mod file;
 pub mod hybrid;
@@ -50,7 +50,6 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
         if !path_part.is_empty() {
             let path = std::path::Path::new(path_part);
             if path.is_relative() {
-                // If it already starts with app_dir (as a relative path or subpath), don't join again
                 if path.starts_with(&app_dir) || (app_dir.is_absolute() && path.to_string_lossy().contains(app_dir.to_string_lossy().as_ref())) {
                      actual_url = format!("sqlite://{}", path.to_string_lossy());
                 } else {
@@ -82,7 +81,6 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
             }
         }
         
-        // SQLx 0.8 Fix: Re-unify sqlite:// to sqlite: for relative paths to avoid hostname parsing
         if actual_url.starts_with("sqlite://") {
             let path = &actual_url[9..];
             if !path.starts_with('/') {
@@ -93,10 +91,8 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
         actual_url = actual_url.replace("mysql:", "mysql://").replace("postgres:", "postgres://");
     }
 
-    // 4. Resolve final scheme (after mutations are finished)
     let scheme = actual_url.split(':').next().ok_or_else(|| CowenError::api("Invalid database URL"))?.to_string();
 
-    // 5. Dispatch to Redis if needed
     if scheme == "redis" {
         #[cfg(feature = "redis")]
         {
@@ -105,8 +101,8 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
              } else {
                  actual_url.clone()
              };
-             let client = redis::Client::open(redis_url.as_str()).map_err(CowenError::from)?;
-             let conn = client.get_multiplexed_tokio_connection().await.map_err(CowenError::from)?;
+             let client = redis::Client::open(redis_url.as_str()).map_err(|e| CowenError::Store(e.to_string()))?;
+             let conn = client.get_multiplexed_tokio_connection().await.map_err(|e| CowenError::Store(e.to_string()))?;
              return Ok(Arc::new(RedisStore::new(conn, redis_url)));
         }
         #[cfg(not(feature = "redis"))]
@@ -119,7 +115,6 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
         return Ok(Arc::new(SqlStore::from_url(&actual_url).await?));
     }
 
-    // 7. Generic Discovery Fallback
     for reg in inventory::iter::<StoreBuilderRegistration> {
         if reg.builder.scheme() == scheme {
             return reg.builder.build(&actual_url, app_dir, fingerprint).await;
@@ -132,7 +127,6 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
 pub async fn create_vault(app_cfg: &cowen_common::config::AppConfig, app_dir: &std::path::Path, fingerprint: &str) -> CowenResult<Arc<dyn cowen_common::vault::Vault>> {
     let store_type = &app_cfg.storage.store;
     
-    // Resolve store instance
     let primary = if store_type == "local" {
         create_store_from_url(store_type, app_dir, fingerprint).await?
     } else if store_type == "innerdb" || store_type == "sqlite" {
@@ -143,10 +137,8 @@ pub async fn create_vault(app_cfg: &cowen_common::config::AppConfig, app_dir: &s
         create_store_from_url(url, app_dir, fingerprint).await?
     };
 
-    // sensitive uses db_url if provided, otherwise defaults to primary
     let sensitive = if let Some(url) = &app_cfg.storage.db_url {
         if store_type != "local" {
-             // For all SQL-like stores (including innerdb/sqlite), try to reuse or recreate from URL
              let mut is_same_db = false;
              if store_type == "innerdb" || store_type == "sqlite" {
                   is_same_db = true; 

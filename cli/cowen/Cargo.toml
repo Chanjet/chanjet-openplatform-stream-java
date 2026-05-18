@@ -48,6 +48,12 @@ rustls-pki-types = "1.0"
 cowen-store = { path = "crates/cowen-store", features = ["all-stores"] }
 cowen-auth = { path = "crates/cowen-auth" }
 cowen-server = { path = "crates/cowen-server" }
+cowen-infra = { path = "crates/cowen-infra" }
+cowen-config = { path = "crates/cowen-config" }
+cowen-monitor = { path = "crates/cowen-monitor" }
+cowen-search = { path = "crates/cowen-search" }
+cowen-doctor = { path = "crates/cowen-doctor" }
+cowen-search-embedding = { path = "crates/cowen-search-embedding" }
 
 inventory = "0.3"
 

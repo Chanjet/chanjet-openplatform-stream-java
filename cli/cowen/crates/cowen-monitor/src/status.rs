@@ -1,10 +1,12 @@
-use crate::CowenResult;
+use cowen_common::CowenResult;
 use serde::Serialize;
 use std::sync::Arc;
-use crate::vault::Vault;
-use crate::config::Config;
+use cowen_common::vault::Vault;
+use cowen_common::config::Config;
 use sysinfo::System;
 use std::path::PathBuf;
+use cowen_infra::path::get_app_dir;
+use cowen_infra::process::{get_bin_name, check_port_occupancy, extract_profile_from_cmdline};
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq)]
 pub enum StatusLevel {
@@ -90,7 +92,7 @@ impl AsStatusUI for CommonTemplate {
 pub struct StatusContext<'a> {
     pub profile: String,
     pub config: &'a Config,
-    pub app_config: &'a crate::config::AppConfig,
+    pub app_config: &'a cowen_common::config::AppConfig,
     pub vault: Arc<dyn Vault>,
 }
 
@@ -103,8 +105,8 @@ pub trait StatusCollector: Send + Sync {
 
 // --- Helpers for Providers ---
 
-pub fn get_app_dir() -> PathBuf {
-    crate::config::get_app_dir()
+pub fn get_daemon_app_dir() -> PathBuf {
+    get_app_dir()
 }
 
 pub struct DaemonInfo {
@@ -114,7 +116,7 @@ pub struct DaemonInfo {
 }
 
 pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
-    let app_dir = get_app_dir();
+    let app_dir = get_daemon_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
     if !pid_file.exists() {
         return None;
@@ -147,7 +149,7 @@ pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
                 if let Some(process) = s.process(sys_pid) {
                     let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
                     let name = process.name().to_string_lossy().to_lowercase();
-                    let bin_name = crate::utils::get_bin_name().to_lowercase();
+                    let bin_name = get_bin_name().to_lowercase();
                     
                     if name.contains(&bin_name) || cmdline.contains(&bin_name) {
                         let build_id = lines.next().map(|s| s.trim().to_string());
@@ -204,10 +206,11 @@ pub async fn collect_daemon_status(
         
         // 🚀 DIAGNOSTICS: Check if the configured port is stolen by another process
         if ctx.config.proxy_enabled {
-            if let Some((other_pid, other_name)) = crate::network::check_port_occupancy(ctx.config.proxy_port) {
+            let bin_name = get_bin_name();
+            if let Some((other_pid, other_name)) = check_port_occupancy(ctx.config.proxy_port, &bin_name) {
                 level = StatusLevel::ERROR;
-                if other_name.to_lowercase().contains(&crate::utils::get_bin_name().to_lowercase()) {
-                    let other_profile = crate::network::extract_profile_from_cmdline(other_pid).unwrap_or_else(|| "unknown".to_string());
+                if other_name.to_lowercase().contains(&bin_name.to_lowercase()) {
+                    let other_profile = extract_profile_from_cmdline(other_pid).unwrap_or_else(|| "unknown".to_string());
                     port_conflict = Some(format!("端口冲突: 代理端口 {} 已被 Profile '{}' (PID: {}) 占用。", ctx.config.proxy_port, other_profile, other_pid));
                 } else {
                     port_conflict = Some(format!("端口冲突: 代理端口 {} 已被进程 '{}' (PID: {}) 占用。", ctx.config.proxy_port, other_name, other_pid));
@@ -278,8 +281,6 @@ pub async fn collect_daemon_status(
                 }
             }
         }
-        // COMPATIBILITY: If status file is missing, we don't show Bridge Connection at all 
-        // to match v0.2.1 behavior.
     }
 
     let mut details = vec![];
@@ -298,22 +299,17 @@ pub async fn collect_daemon_status(
         }
 
         // Version Sync Logic:
-        // 1. Compare Build ID (Git Hash) - Definitive version
         if let Some(bid) = &info.build_id {
-            if bid != env!("BUILD_ID") {
+            if bid != cowen_common::BUILD_ID {
                 outdated = true;
             }
         } else {
-            outdated = true; // Missing Build ID is old
+            outdated = true; 
         }
 
-        // 2. Compare Build Time (For "dirty" builds without git changes)
-        // We allow a 5-minute buffer to account for sequential workspace compilation.
         if !outdated {
-                // 🚀 STRICT EQUALITY: No more time drift tolerance.
-                // If Build ID or Build Time don't match exactly, it's outdated.
-                if info.build_id.as_deref() != Some(crate::BUILD_ID) 
-                    || info.build_time.as_deref() != Some(crate::BUILD_TIME) {
+                if info.build_id.as_deref() != Some(cowen_common::BUILD_ID) 
+                    || info.build_time.as_deref() != Some(cowen_common::BUILD_TIME) {
                     outdated = true;
                 }
         }

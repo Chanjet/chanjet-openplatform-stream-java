@@ -1,4 +1,4 @@
-use cowen_common::ConfigManager;
+use cowen_config::ConfigManager;
 use cowen_common::vault::Vault;
 use std::sync::Arc;
 

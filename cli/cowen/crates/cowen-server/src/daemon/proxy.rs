@@ -34,7 +34,7 @@ pub async fn start_proxy(
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    cowen_common::network::validate_loopback_addr(&addr)?;
+    cowen_infra::validate_loopback_addr(&addr).map_err(|e| cowen_common::CowenError::Security(e))?;
     
     // Retry logic for binding to handle port release delay during reloads
     let mut retry_count = 0;
@@ -107,7 +107,7 @@ async fn handle_proxy(
     };
 
     let app_dir = cowen_common::config::get_app_dir();
-    let cfg_mgr: cowen_common::ConfigManager = match cowen_common::ConfigManager::new() {
+    let cfg_mgr: cowen_config::ConfigManager = match cowen_config::ConfigManager::new() {
         Ok(m) => m,
         Err(_) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Config manager failed".to_string())
     };

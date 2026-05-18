@@ -2,7 +2,7 @@ pub(crate) mod core;
 pub(crate) mod cmd;
 
 use clap::Parser;
-use cowen_common::ConfigManager;
+use cowen_config::ConfigManager;
 use cowen_common::security;
 use cowen_common::utils::get_bin_name;
 use anyhow::Result;

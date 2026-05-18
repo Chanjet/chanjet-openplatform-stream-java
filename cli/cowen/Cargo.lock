@@ -778,6 +778,12 @@ dependencies = [
  "cowen-ai",
  "cowen-auth",
  "cowen-common",
+ "cowen-config",
+ "cowen-doctor",
+ "cowen-infra",
+ "cowen-monitor",
+ "cowen-search",
+ "cowen-search-embedding",
  "cowen-server",
  "cowen-store",
  "deadpool-tiberius",
@@ -841,6 +847,9 @@ dependencies = [
  "chrono",
  "colored 2.2.0",
  "cowen-common",
+ "cowen-config",
+ "cowen-infra",
+ "cowen-monitor",
  "cowen-store",
  "fs2",
  "open",
@@ -869,28 +878,83 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
- "directories",
- "fs2",
+ "cowen-infra",
  "hex",
  "hostname",
  "inventory",
- "libc",
  "rand 0.8.6",
  "redis",
- "regex",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
  "sqlx",
- "sysinfo",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "cowen-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cowen-common",
+ "cowen-infra",
+ "fs2",
+ "rand 0.8.6",
+ "serde",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "cowen-doctor"
+version = "0.1.0"
+
+[[package]]
+name = "cowen-infra"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "directories",
+ "libc",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sysinfo",
+]
+
+[[package]]
+name = "cowen-monitor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "cowen-common",
+ "cowen-infra",
+ "fs2",
+ "serde",
+ "serde_json",
+ "sysinfo",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "uuid",
 ]
+
+[[package]]
+name = "cowen-search"
+version = "0.1.0"
+
+[[package]]
+name = "cowen-search-embedding"
+version = "0.1.0"
 
 [[package]]
 name = "cowen-server"
@@ -903,6 +967,9 @@ dependencies = [
  "connector-sdk",
  "cowen-auth",
  "cowen-common",
+ "cowen-config",
+ "cowen-infra",
+ "cowen-monitor",
  "cowen-store",
  "directories",
  "fs2",
@@ -926,6 +993,8 @@ dependencies = [
  "chrono",
  "clap",
  "cowen-common",
+ "cowen-config",
+ "cowen-infra",
  "deadpool-tiberius",
  "fs2",
  "inventory",

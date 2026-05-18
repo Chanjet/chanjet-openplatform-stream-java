@@ -1,5 +1,5 @@
 use cowen_common::{CowenResult, CowenError};
-use cowen_common::obfs;
+use cowen_infra::obfs;
 use cowen_common::config::Config;
 use crate::pool::TokenPool;
 
@@ -122,7 +122,7 @@ pub trait Client: Send + Sync {
     async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()>;
 
     /// 🚀 UI/诊断能力：获取该模式下的专属诊断条目（Auth、Daemon等）
-    async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>>;
+    async fn get_diagnostics(&self, ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>>;
     fn get_provider(&self, mode: &cowen_common::models::AuthMode) -> Option<Arc<dyn crate::provider::AuthProvider>>;
 }
 
@@ -263,7 +263,7 @@ impl Client for AuthClient {
         self.provider(&cfg.app_mode).intercept_exchange(profile, cfg, body_bytes).await
     }
 
-    async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
+    async fn get_diagnostics(&self, ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
         self.provider(&ctx.config.app_mode).get_diagnostics(ctx).await
     }
 

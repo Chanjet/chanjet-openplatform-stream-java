@@ -35,7 +35,7 @@ impl OAuth2CallbackListener {
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
-        cowen_common::network::validate_loopback_addr(&addr)?;
+        cowen_infra::validate_loopback_addr(&addr).map_err(|e| cowen_common::CowenError::Security(e))?;
         
         let shared_result_tx = Arc::new(Mutex::new(Some(result_tx)));
         let shared_shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));
@@ -94,7 +94,7 @@ impl OAuth2CallbackListener {
             .with_state((shared_result_tx, shared_shutdown_tx, shared_profile));
 
         let listener = tokio::net::TcpListener::bind(addr).await
-            .map_err(|e| CowenError::Io(e))?;
+            .map_err(|e| CowenError::Io(e.to_string()))?;
         
         let actual_port = listener.local_addr().unwrap().port();
 

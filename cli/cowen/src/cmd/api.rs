@@ -433,7 +433,8 @@ pub async fn call(
     let token = auth_cli.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await.map_err(|e| anyhow::anyhow!(e))?;
 
     // 3. Build & Execute Request
-    let client = cowen_common::network::create_client(cfg).map_err(|e| anyhow::anyhow!(e))?;
+    let ua = cowen_infra::get_user_agent(env!("CARGO_PKG_VERSION"));
+    let client = cowen_infra::create_client(&ua).map_err(|e| anyhow::anyhow!(e))?;
     let url = if path.starts_with("http") {
         path.to_string()
     } else {

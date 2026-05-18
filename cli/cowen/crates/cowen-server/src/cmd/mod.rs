@@ -2,7 +2,7 @@ mod bridge;
 pub mod service;
 
 use cowen_common::config::Config;
-use cowen_common::ConfigManager;
+use cowen_config::ConfigManager;
 use sysinfo::System;
 use anyhow::Result;
 use std::process::{Command, Stdio};
@@ -110,9 +110,10 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
             let _ = kill_process(ghost_pid);
             std::thread::sleep(std::time::Duration::from_millis(500));
         } else if enable_proxy {
-            if let Some((other_pid, other_name)) = cowen_common::network::check_port_occupancy(proxy_port) {
-                if other_name.to_lowercase().contains(&cowen_common::utils::get_bin_name().to_lowercase()) {
-                    let other_profile = cowen_common::network::extract_profile_from_cmdline(other_pid).unwrap_or_else(|| "unknown".to_string());
+            let bin_name = cowen_infra::get_bin_name();
+            if let Some((other_pid, other_name)) = cowen_infra::check_port_occupancy(proxy_port, &bin_name) {
+                if other_name.to_lowercase().contains(&bin_name.to_lowercase()) {
+                    let other_profile = cowen_infra::extract_profile_from_cmdline(other_pid).unwrap_or_else(|| "unknown".to_string());
                     if other_profile != profile {
                          anyhow::bail!("Proxy port {} is already occupied by another Cowen profile '{}' (PID: {}). Please use --proxy-port to specify a different port or disable proxy.", proxy_port, other_profile, other_pid);
                     }

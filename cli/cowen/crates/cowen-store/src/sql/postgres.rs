@@ -1,5 +1,5 @@
 #![cfg(feature = "postgres")]
-use cowen_common::CowenResult;
+use cowen_common::{CowenResult, CowenError};
 use async_trait::async_trait;
 
 use crate::sql::{SqlBuilder, SqlDriver, SqlBuilderRegistration};
@@ -25,7 +25,10 @@ impl SqlDriver for PostgresDriver {
             .bind(profile)
             .bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(row.0)
     }
 
@@ -34,7 +37,10 @@ impl SqlDriver for PostgresDriver {
             .bind(profile)
             .bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok((row.0 as u64, row.1.timestamp()))
     }
 
@@ -43,7 +49,10 @@ impl SqlDriver for PostgresDriver {
             .bind(profile)
             .bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(Item {
             profile: row.0,
             key: row.1,
@@ -58,7 +67,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(profile, item_key) DO UPDATE SET item_value=EXCLUDED.item_value, version=cowen_config.version+1")
             .bind(profile).bind(key).bind(value)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -66,10 +75,10 @@ impl SqlDriver for PostgresDriver {
         let res = sqlx::query("UPDATE cowen_config SET item_value = $1, version = version + 1 WHERE profile = $2 AND item_key = $3 AND version = $4")
             .bind(value).bind(profile).bind(key).bind(expected_version as i64)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         
         if res.rows_affected() == 0 {
-            return Err(anyhow::anyhow!("CAS failed").into());
+            return Err(CowenError::Store("CAS failed: version mismatch or record not found".to_string()));
         }
         Ok(())
     }
@@ -78,7 +87,7 @@ impl SqlDriver for PostgresDriver {
         let rows: Vec<(String,)> = sqlx::query_as("SELECT item_key FROM cowen_config WHERE profile = $1")
             .bind(profile)
             .fetch_all(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
@@ -86,7 +95,7 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("DELETE FROM cowen_config WHERE profile = $1 AND item_key = $2")
             .bind(profile).bind(key)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -94,7 +103,10 @@ impl SqlDriver for PostgresDriver {
         let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_secret WHERE profile = $1 AND item_key = $2")
             .bind(profile).bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(row.0)
     }
 
@@ -103,7 +115,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(profile, item_key) DO UPDATE SET item_value=EXCLUDED.item_value")
             .bind(profile).bind(key).bind(value)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -111,7 +123,7 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("DELETE FROM cowen_secret WHERE profile = $1 AND item_key = $2")
             .bind(profile).bind(key)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -119,7 +131,7 @@ impl SqlDriver for PostgresDriver {
         let rows: Vec<(String,)> = sqlx::query_as("SELECT item_key FROM cowen_secret WHERE profile = $1")
             .bind(profile)
             .fetch_all(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
@@ -127,7 +139,10 @@ impl SqlDriver for PostgresDriver {
         let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = $1 AND token_type = 'access_token'")
             .bind(profile)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("AccessToken not found for profile '{}'", profile)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
     }
 
@@ -136,7 +151,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(profile, token_type) DO UPDATE SET token_value=EXCLUDED.token_value, expires_at=EXCLUDED.expires_at, created_at=EXCLUDED.created_at")
             .bind(profile).bind(token.value).bind(token.expires_at).bind(token.created_at)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -144,7 +159,7 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("DELETE FROM cowen_tenant_token WHERE profile = $1 AND token_type = 'access_token'")
             .bind(profile)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -152,7 +167,10 @@ impl SqlDriver for PostgresDriver {
         let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = $1 AND token_type = 'refresh_token'")
             .bind(profile)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("RefreshToken not found for profile '{}'", profile)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
     }
 
@@ -161,7 +179,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(profile, token_type) DO UPDATE SET token_value=EXCLUDED.token_value, expires_at=EXCLUDED.expires_at, created_at=EXCLUDED.created_at")
             .bind(profile).bind(token.value).bind(token.expires_at).bind(token.created_at)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -169,7 +187,7 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("DELETE FROM cowen_tenant_token WHERE profile = $1 AND token_type = 'refresh_token'")
             .bind(profile)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -177,7 +195,10 @@ impl SqlDriver for PostgresDriver {
         let row: (String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as("SELECT token_value, expires_at, created_at FROM cowen_app_token WHERE app_key = $1")
             .bind(app_key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("AppToken not found for key '{}'", app_key)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(Token { value: row.0, expires_at: row.1, created_at: row.2 })
     }
 
@@ -186,7 +207,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(app_key) DO UPDATE SET token_value=EXCLUDED.token_value, expires_at=EXCLUDED.expires_at, created_at=EXCLUDED.created_at")
             .bind(app_key).bind(token.value).bind(token.expires_at).bind(token.created_at)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -194,7 +215,7 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("DELETE FROM cowen_app_token WHERE app_key = $1")
             .bind(app_key)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -202,7 +223,10 @@ impl SqlDriver for PostgresDriver {
         let row: (String, DateTime<Utc>) = sqlx::query_as("SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = $1")
             .bind(app_key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("AppTicket not found for key '{}'", app_key)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(Ticket { value: row.0, created_at: row.1 })
     }
 
@@ -211,7 +235,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(app_key) DO UPDATE SET ticket_value=EXCLUDED.ticket_value, created_at=EXCLUDED.created_at")
             .bind(app_key).bind(ticket.value).bind(ticket.created_at)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -219,7 +243,7 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("DELETE FROM cowen_ticket WHERE app_key = $1")
             .bind(app_key)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -227,7 +251,10 @@ impl SqlDriver for PostgresDriver {
         let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = $1 AND org_id = $2 AND code_type = 'org_permanent'")
             .bind(app_key).bind(org_id)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("OrgPermanentCode not found for app '{}' and org '{}'", app_key, org_id)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(row.0)
     }
 
@@ -236,7 +263,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(app_key, org_id, user_id, code_type) DO UPDATE SET code_value=EXCLUDED.code_value")
             .bind(app_key).bind(org_id).bind(code)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -244,7 +271,10 @@ impl SqlDriver for PostgresDriver {
         let row: (String,) = sqlx::query_as("SELECT code_value FROM cowen_permanent_code WHERE app_key = $1 AND org_id = $2 AND user_id = $3 AND code_type = 'user_permanent'")
             .bind(app_key).bind(org_id).bind(user_id)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("UserPermanentCode not found for app '{}', org '{}' and user '{}'", app_key, org_id, user_id)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(row.0)
     }
 
@@ -253,7 +283,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(app_key, org_id, user_id, code_type) DO UPDATE SET code_value=EXCLUDED.code_value")
             .bind(app_key).bind(org_id).bind(user_id).bind(code)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -261,7 +291,10 @@ impl SqlDriver for PostgresDriver {
         let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_token WHERE profile = $1 AND item_key = $2")
             .bind(profile).bind(key)
             .fetch_one(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)),
+                _ => CowenError::Store(e.to_string()),
+            })?;
         Ok(row.0)
     }
 
@@ -271,7 +304,7 @@ impl SqlDriver for PostgresDriver {
                      ON CONFLICT(profile, item_key) DO UPDATE SET item_value=EXCLUDED.item_value, expires_at=EXCLUDED.expires_at")
             .bind(profile).bind(key).bind(value).bind(exp)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -279,7 +312,7 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("DELETE FROM cowen_token WHERE profile = $1 AND item_key = $2")
             .bind(profile).bind(key)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -287,7 +320,7 @@ impl SqlDriver for PostgresDriver {
         let rows: Vec<(String,)> = sqlx::query_as("SELECT item_key FROM cowen_token WHERE profile = $1")
             .bind(profile)
             .fetch_all(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
@@ -296,7 +329,7 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("INSERT INTO cowen_audit (id, profile, timestamp, level, target, message, fields) VALUES ($1, $2, $3, $4, $5, $6, $7)")
             .bind(&entry.id).bind(&entry.profile).bind(entry.timestamp).bind(&entry.level).bind(&entry.target).bind(&entry.message).bind(fields_json)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -305,10 +338,11 @@ impl SqlDriver for PostgresDriver {
             "SELECT id, profile, timestamp, level, target, message, fields FROM cowen_audit WHERE profile = $1 ORDER BY timestamp DESC LIMIT $2"
         ).bind(profile).bind(limit as i64)
         .fetch_all(&self.pool).await
-        .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+        .map_err(|e| CowenError::Store(e.to_string()))?;
         
         Ok(rows.into_iter().map(|r| AuditEntry {
-            id: r.0, profile: r.1, timestamp: r.2, level: r.3, target: r.4, message: r.5, fields: serde_json::from_str(&r.6).unwrap_or_default()
+            id: r.0, profile: r.1, timestamp: r.2, level: r.3, target: r.4, message: r.5, 
+            fields: serde_json::from_str(&r.6).unwrap_or_default(),
         }).collect())
     }
 
@@ -316,74 +350,86 @@ impl SqlDriver for PostgresDriver {
         sqlx::query("INSERT INTO cowen_dlq (profile, topic, payload, retry_count, error, created_at) VALUES ($1, $2, $3, $4, $5, $6)")
             .bind(&msg.profile).bind(&msg.topic).bind(&msg.payload).bind(msg.retry_count).bind(&msg.error).bind(msg.created_at)
             .execute(&self.pool).await
-            .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
     async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>> {
-        let row: Option<(i64, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = $1 AND topic = $2 ORDER BY id ASC LIMIT 1"
+        let row: Option<(i32, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = $1 AND topic = $2 LIMIT 1"
         ).bind(profile).bind(topic)
         .fetch_optional(&self.pool).await
-        .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+        .map_err(|e| CowenError::Store(e.to_string()))?;
 
         if let Some(r) = row {
-            sqlx::query("DELETE FROM cowen_dlq WHERE id = $1").bind(r.0).execute(&self.pool).await?;
-            Ok(Some(DlqMessage { id: Some(r.0), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6 }))
+            sqlx::query("DELETE FROM cowen_dlq WHERE id = $1")
+                .bind(r.0)
+                .execute(&self.pool).await
+                .map_err(|e| CowenError::Store(e.to_string()))?;
+
+            Ok(Some(DlqMessage {
+                id: Some(r.0 as i64),
+                profile: r.1,
+                topic: r.2,
+                payload: r.3,
+                retry_count: r.4,
+                error: r.5,
+                created_at: r.6,
+            }))
         } else {
             Ok(None)
         }
     }
 
     async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>> {
-        let rows: Vec<(i64, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = $1 ORDER BY id DESC LIMIT $2"
+        let rows: Vec<(i32, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = $1 LIMIT $2"
         ).bind(profile).bind(limit as i64)
         .fetch_all(&self.pool).await
-        .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+        .map_err(|e| CowenError::Store(e.to_string()))?;
         
         Ok(rows.into_iter().map(|r| DlqMessage {
-            id: Some(r.0), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
+            id: Some(r.0 as i64), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
         }).collect())
     }
 
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>> {
-        let rows: Vec<(i64, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
-            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = $1 ORDER BY id DESC"
+        let rows: Vec<(i32, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = $1"
         ).bind(profile)
         .fetch_all(&self.pool).await
-        .map_err(|e| anyhow::anyhow!("Postgres error: {}", e))?;
+        .map_err(|e| CowenError::Store(e.to_string()))?;
         
         Ok(rows.into_iter().map(|r| DlqMessage {
-            id: Some(r.0), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
+            id: Some(r.0 as i64), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
         }).collect())
     }
 
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
-        sqlx::query("DELETE FROM cowen_config WHERE profile = $1").bind(profile).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM cowen_secret WHERE profile = $1").bind(profile).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM cowen_tenant_token WHERE profile = $1").bind(profile).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM cowen_audit WHERE profile = $1").bind(profile).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM cowen_dlq WHERE profile = $1").bind(profile).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM cowen_config WHERE profile = $1").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("DELETE FROM cowen_secret WHERE profile = $1").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("DELETE FROM cowen_token WHERE profile = $1").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("DELETE FROM cowen_audit WHERE profile = $1").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("DELETE FROM cowen_dlq WHERE profile = $1").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()> {
-        sqlx::query("UPDATE cowen_config SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await?;
-        sqlx::query("UPDATE cowen_secret SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await?;
-        sqlx::query("UPDATE cowen_tenant_token SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await?;
-        sqlx::query("UPDATE cowen_audit SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await?;
-        sqlx::query("UPDATE cowen_dlq SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await?;
+        sqlx::query("UPDATE cowen_config SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_secret SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_token SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_audit SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_dlq SET profile = $1 WHERE profile = $2").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
     async fn list_all_profiles(&self) -> CowenResult<Vec<String>> {
-        let rows: Vec<(String,)> = sqlx::query_as("SELECT DISTINCT profile FROM cowen_config").fetch_all(&self.pool).await?;
+        let rows: Vec<(String,)> = sqlx::query_as("SELECT DISTINCT profile FROM cowen_config").fetch_all(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
     async fn raw_del(&self, key: &str) -> CowenResult<()> {
-        sqlx::query("DELETE FROM cowen_config WHERE item_key = $1").bind(key).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM cowen_config WHERE item_key = $1").bind(key).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 }
@@ -394,25 +440,28 @@ pub struct PostgresBuilder;
 impl SqlBuilder for PostgresBuilder {
     fn scheme(&self) -> &str { "postgres" }
     async fn build(&self, url: &str) -> CowenResult<Arc<dyn SqlDriver>> {
-        let pool = sqlx::PgPool::connect(url).await.map_err(|e| anyhow::anyhow!("Failed to connect to postgres: {}", e))?;
+        let pool = sqlx::PgPool::connect(url).await.map_err(|e| CowenError::Store(e.to_string()))?;
         
         let ddl = [
-            "CREATE TABLE IF NOT EXISTS cowen_config (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, version BIGINT DEFAULT 0, updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
-            "CREATE TABLE IF NOT EXISTS cowen_secret (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
-            "CREATE TABLE IF NOT EXISTS cowen_token (profile VARCHAR(255) NOT NULL, item_key VARCHAR(255) NOT NULL, item_value TEXT NOT NULL, expires_at TIMESTAMPTZ NULL, PRIMARY KEY (profile, item_key))",
-            "CREATE TABLE IF NOT EXISTS cowen_ticket (app_key VARCHAR(255) PRIMARY KEY, ticket_value TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)",
-            "CREATE TABLE IF NOT EXISTS cowen_app_token (app_key VARCHAR(255) PRIMARY KEY, token_value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS cowen_tenant_token (profile VARCHAR(255) NOT NULL, token_type VARCHAR(255) NOT NULL, token_value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (profile, token_type))",
-            "CREATE TABLE IF NOT EXISTS cowen_permanent_code (app_key VARCHAR(255) NOT NULL, org_id VARCHAR(255) NOT NULL, user_id VARCHAR(255) DEFAULT '', code_type VARCHAR(255) NOT NULL, code_value TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (app_key, org_id, user_id, code_type))",
-            "CREATE TABLE IF NOT EXISTS cowen_vault_secret (profile VARCHAR(255) NOT NULL, secret_key VARCHAR(255) NOT NULL, secret_value TEXT NOT NULL, PRIMARY KEY (profile, secret_key))",
-            "CREATE TABLE IF NOT EXISTS cowen_audit (id VARCHAR(255) PRIMARY KEY, profile VARCHAR(255) NOT NULL, timestamp TIMESTAMPTZ NOT NULL, level VARCHAR(50) NOT NULL, target VARCHAR(255) NOT NULL, message TEXT NOT NULL, fields JSONB)",
-            "CREATE TABLE IF NOT EXISTS cowen_dlq (id SERIAL PRIMARY KEY, profile VARCHAR(255) NOT NULL, topic VARCHAR(255) NOT NULL, payload TEXT NOT NULL, retry_count INT DEFAULT 0, error TEXT, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS cowen_config (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, version BIGINT DEFAULT 0, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
+            "CREATE TABLE IF NOT EXISTS cowen_secret (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",
+            "CREATE TABLE IF NOT EXISTS cowen_token (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NULL, PRIMARY KEY (profile, item_key))",
+            "CREATE TABLE IF NOT EXISTS cowen_ticket (app_key TEXT PRIMARY KEY, ticket_value TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS cowen_app_token (app_key TEXT PRIMARY KEY, token_value TEXT NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS cowen_tenant_token (profile TEXT NOT NULL, token_type TEXT NOT NULL, token_value TEXT NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL, PRIMARY KEY (profile, token_type))",
+            "CREATE TABLE IF NOT EXISTS cowen_permanent_code (app_key TEXT NOT NULL, org_id TEXT NOT NULL, user_id TEXT DEFAULT '', code_type TEXT NOT NULL, code_value TEXT NOT NULL, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (app_key, org_id, user_id, code_type))",
+            "CREATE TABLE IF NOT EXISTS cowen_audit (id TEXT PRIMARY KEY, profile TEXT NOT NULL, timestamp TIMESTAMP WITH TIME ZONE NOT NULL, level TEXT NOT NULL, target TEXT NOT NULL, message TEXT NOT NULL, fields TEXT)",
+            "CREATE TABLE IF NOT EXISTS cowen_dlq (id SERIAL PRIMARY KEY, profile TEXT NOT NULL, topic TEXT NOT NULL, payload TEXT NOT NULL, retry_count INT DEFAULT 0, error TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)",
         ];
 
         for sql in ddl {
-            sqlx::query(sql).execute(&pool).await?;
+            sqlx::query(sql).execute(&pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         }
-        
+
+        // Indices
+        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_profile_ts ON cowen_audit (profile, timestamp)").execute(&pool).await;
+        let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_dlq_profile_topic ON cowen_dlq (profile, topic)").execute(&pool).await;
+
         Ok(Arc::new(PostgresDriver::new(pool)))
     }
 }

@@ -146,7 +146,7 @@ pub trait AuthProvider: Send + Sync {
     async fn find_conflicting_profile(
         &self,
         app_key: &str,
-        cfg_mgr: &cowen_common::ConfigManager,
+        cfg_mgr: &cowen_config::ConfigManager,
     ) -> CowenResult<Option<String>> {
         cfg_mgr.find_profile_by_key(app_key).await
     }
@@ -157,7 +157,7 @@ pub trait AuthProvider: Send + Sync {
         profile: &str,
         config: &mut Config,
         vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
-        cfg_mgr: &cowen_common::ConfigManager,
+        cfg_mgr: &cowen_config::ConfigManager,
         params: InitParams,
         daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
     ) -> CowenResult<()>;
@@ -218,7 +218,7 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 UI/诊断能力：获取该模式下的专属诊断条目（Auth、Daemon等）
-    async fn get_diagnostics(&self, _ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
+    async fn get_diagnostics(&self, _ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
         Ok(vec![])
     }
 

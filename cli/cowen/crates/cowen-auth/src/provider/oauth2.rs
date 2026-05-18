@@ -2,7 +2,7 @@ use cowen_common::{CowenResult, CowenError};
 use async_trait::async_trait;
 use rand::Rng;
 use cowen_common::daemon::DaemonService;
-use cowen_common::obfs;
+use cowen_infra::obfs;
 use crate::client::HttpSender;
 use crate::lifecycle::AuthSessionManager;
 use crate::models::{OAuth2TokenPair, Token};
@@ -253,7 +253,6 @@ impl OAuth2Provider {
 }
 
 #[async_trait]
-#[async_trait]
 impl AuthProvider for OAuth2Provider {
     async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> CowenResult<()> {
         if let Ok(token) = self.pool.as_vault().get_access_token(profile).await {
@@ -334,7 +333,7 @@ impl AuthProvider for OAuth2Provider {
     async fn find_conflicting_profile(
         &self,
         app_key: &str,
-        cfg_mgr: &cowen_common::ConfigManager,
+        cfg_mgr: &cowen_config::ConfigManager,
     ) -> CowenResult<Option<String>> {
         cfg_mgr.find_profile_by_key_and_mode(app_key, &cowen_common::models::AuthMode::Oauth2).await
     }
@@ -371,7 +370,7 @@ impl AuthProvider for OAuth2Provider {
         profile: &str,
         config: &mut Config,
         vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
-        cfg_mgr: &cowen_common::ConfigManager,
+        cfg_mgr: &cowen_config::ConfigManager,
         params: crate::provider::InitParams,
         daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
     ) -> CowenResult<()> {
@@ -501,7 +500,7 @@ impl AuthProvider for OAuth2Provider {
         println!("🚀 Triggering automatic browser-based authorization...");
         
         let mut mutable_config = config.clone();
-        let cfg_mgr = cowen_common::ConfigManager::new()?;
+        let cfg_mgr = cowen_config::ConfigManager::new()?;
         
         let params = crate::provider::InitParams {
             app_key: None,
@@ -519,8 +518,8 @@ impl AuthProvider for OAuth2Provider {
         self.initialize(profile, &mut mutable_config, vault, &cfg_mgr, params, daemon_service).await
     }
 
-    async fn get_diagnostics(&self, ctx: &cowen_common::status::StatusContext<'_>) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
-        use cowen_common::status::{StatusEntry, StatusLevel, CommonTemplate, AsStatusUI, collect_daemon_status};
+    async fn get_diagnostics(&self, ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
+        use cowen_monitor::status::{StatusEntry, StatusLevel, CommonTemplate, AsStatusUI, collect_daemon_status};
         
         enum OAuth2Template {
             SecurityVault,
@@ -616,7 +615,7 @@ impl AuthProvider for OAuth2Provider {
         }
 
         // 2. Daemon Status
-        let daemon_info = cowen_common::status::get_active_daemon_info(profile);
+        let daemon_info = cowen_monitor::status::get_active_daemon_info(profile);
         let (display_name, efficiency_tip) = self.get_daemon_display_info(daemon_info.is_some());
         results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks(), daemon_info).await?);
 

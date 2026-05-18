@@ -1,5 +1,7 @@
 use anyhow::Result;
-use cowen_common::{ConfigManager, AppConfig};
+use cowen_common::AppConfig;
+use cowen_config::ConfigManager;
+use cowen_store::migration::{StoreMigrator, MigrationMode};
 use colored::Colorize;
 
 pub async fn set(
@@ -57,11 +59,11 @@ pub async fn status(app_config: &AppConfig) -> Result<()> {
     println!("\n{}", "Storage Configuration Status".bold().underline());
     println!("  Type:  {}", storage.store.cyan());
     if let Some(url) = &storage.db_url {
-        println!("  URL:   {}", cowen_common::utils::mask_url_query(url));
+        println!("  URL:   {}", cowen_infra::mask_url_query(url));
     }
     println!("  Cache: {}", storage.cache.cyan());
     if let Some(url) = &storage.cache_url {
-        println!("  URL:   {}", cowen_common::utils::mask_url_query(url));
+        println!("  URL:   {}", cowen_infra::mask_url_query(url));
     }
     println!();
 
@@ -95,7 +97,7 @@ async fn check_db_connectivity(store_type: &str, url: Option<&str>) -> Result<()
         return Ok(());
     }
     let url = url.ok_or_else(|| anyhow::anyhow!("Database URL is missing"))?;
-    let _ = cowen_store::create_store_from_url(url, &cowen_common::config::get_app_dir(), &cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?).await
+    let _ = cowen_store::create_store_from_url(url, &cowen_infra::get_app_dir(), &cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?).await
         .map_err(|e| anyhow::anyhow!("Failed to connect to database: {}", e))?;
     Ok(())
 }
@@ -105,7 +107,7 @@ async fn check_cache_connectivity(cache_type: &str, url: Option<&str>) -> Result
         return Ok(());
     }
     let url = url.ok_or_else(|| anyhow::anyhow!("Cache URL is missing"))?;
-    let _ = cowen_store::create_store_from_url(url, &cowen_common::config::get_app_dir(), &cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?).await
+    let _ = cowen_store::create_store_from_url(url, &cowen_infra::get_app_dir(), &cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?).await
         .map_err(|e| anyhow::anyhow!("Failed to connect to cache: {}", e))?;
     Ok(())
 }
@@ -113,21 +115,24 @@ async fn check_cache_connectivity(cache_type: &str, url: Option<&str>) -> Result
 pub async fn migrate(
     cfg_mgr: &ConfigManager,
     to: &str,
-    mode: cowen_store::migration::MigrationMode,
+    mode: MigrationMode,
 ) -> Result<()> {
-    let app_dir = cowen_common::config::get_app_dir();
-    let fingerprint = cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?;
-    let profiles = cowen_store::migration::perform_migration(cfg_mgr, to, mode, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!(e))?;
+    let _app_dir = cowen_infra::get_app_dir();
+    let _fingerprint = cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?;
+    let vault = cfg_mgr.get_vault().ok_or_else(|| anyhow::anyhow!("Vault not initialized"))?;
+    let source = vault.primary_store();
+    let migrator = StoreMigrator::new(source);
+    migrator.migrate(cfg_mgr, to, mode).await.map_err(|e| anyhow::anyhow!(e))?;
+    let profiles = cfg_mgr.list_profiles().await.map_err(|e| anyhow::anyhow!(e))?;
 
     // 🚀 STABILITY: After migration, all active daemons MUST be restarted to pick up the new store.
     // Otherwise, they'll keep talking to the old store while the CLI talks to the new one.
     println!("🔄 Storage switched successfully. Restarting active daemons to apply changes...");
     
-    let vault = cfg_mgr.get_vault().ok_or_else(|| anyhow::anyhow!("Vault not initialized"))?;
     for p in profiles {
         // We only care about standard profiles (not hidden app: ones) for daemon restarts
         if !p.starts_with("app:") {
-            if let Some(_info) = cowen_common::status::get_active_daemon_info(&p) {
+            if let Some(_info) = cowen_monitor::status::get_active_daemon_info(&p) {
                 if let Ok(config) = cfg_mgr.load(&p).await {
                     if !config.app_key.is_empty() {
                          println!("♻️  Restarting daemon for profile: {}", p);
