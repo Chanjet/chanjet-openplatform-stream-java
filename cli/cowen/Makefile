@@ -170,7 +170,7 @@ endif
 # 哨兵文件：记录镜像最后一次成功构建的时间
 .builder_image_built: Dockerfile.builder
 	@echo "🛠️ Building/Updating custom builder image $(BUILDER_IMAGE) (Native/Cross)..."
-	podman build --platform linux/amd64 -t $(BUILDER_IMAGE) -f Dockerfile.builder .
+	podman build -t $(BUILDER_IMAGE) -f Dockerfile.builder .
 	@touch .builder_image_built
 
 # 准备 Podman 编译镜像
@@ -186,7 +186,7 @@ linux-x86_64-with-podman: prepare-podman-image
 	@mkdir -p $(OUTPUT_DIR)/linux-x86_64
 	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
 	@trap '$(MAKE) stop-podman-machine' EXIT; \
-	podman run --rm --platform linux/amd64 \
+	podman run --rm \
 		-v "$$(pwd)/../..:/workspace" \
 		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
 		-v "$(CARGO_CACHE_DIR)/git:/usr/local/cargo/git" \
@@ -208,7 +208,7 @@ linux-x86_64-legacy-with-podman: prepare-podman-image
 	@mkdir -p $(OUTPUT_DIR)/linux-x86_64-legacy
 	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
 	@trap '$(MAKE) stop-podman-machine' EXIT; \
-	podman run --rm --platform linux/amd64 \
+	podman run --rm \
 		-v "$$(pwd)/../..:/workspace" \
 		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
 		-v "$(CARGO_CACHE_DIR)/git:/usr/local/cargo/git" \
