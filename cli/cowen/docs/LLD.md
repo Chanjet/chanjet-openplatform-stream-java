@@ -196,3 +196,143 @@ pub unsafe extern "C" fn cowen_search_provider_v1_free(ptr: *mut c_void) {
 *   🚫 在 `cowen-monitor` 中硬编码读取 `cowen-auth` 的结构体以获取 Token 状态。*(正确做法：在 `cowen-auth` 中主动调用 `cowen_monitor::gauge!()` 汇报状态)*
 *   🚫 在 `cowen-doctor` 中引入 `redis` crate 来检查缓存。*(正确做法：在主程序或 `cowen-store` 中实现 `Diagnostic` Trait 并注入到 Doctor)*
 *   🚫 直接在 `cowen-server` 内部写 `notify` 监听逻辑。*(正确做法：由 `cowen-config` 抽象出订阅通道)*
+
+---
+
+## 7. DLQ 存储异常 Panic 防护 (DLQ Init Panic Protection)
+
+### 7.1 物理模型契约 & 方法签名
+*   **方法签名**:
+```rust
+impl Forwarder {
+    /// 初始化 Forwarder 实例。
+    /// * 输入: `profile: &str`, `vault: &Vault`
+    /// * 输出: `Result<Self, CowenError>`
+    /// * 副作用: 可能会连接 SQLite/Redis 底层存储并初始化 DlqStore 数据库连接池。
+    pub fn new(profile: &str, vault: &Vault) -> Result<Self, CowenError>;
+}
+```
+
+*   **健壮性异常/Action Code 矩阵**:
+| 异常场景 (Exception Scenario) | 错误码 (Error Code) | 动作码 (Action Code) | 应对机制 (Handling Mechanism) |
+|---|---|---|---|
+| 存储连接并发占锁中 | `StorageLockConflict` | `RETRY_BACKOFF` | 记录日志并以指数级退避时间延迟尝试重连 3 次 |
+| 数据库文件写保护/损坏 | `StorageCorrupted` | `FAIL_FAST` | 链式安全向上传播错误，终止进程并打印故障诊断提示 |
+
+### 7.2 确定性逻辑算子
+1.  **初始化流程 (Pseudo-code)**:
+```rust
+fn init_forwarder_flow(profile: &str, vault: &Vault) -> Result<Forwarder, CowenError> {
+    let dlq_store = match DlqStore::new(profile, vault) {
+        Ok(store) => store,
+        Err(err) => {
+            log::error!(target: "cowen::forwarder", "DLQ Database initialization failed: {:?}", err);
+            return Err(CowenError::StorageInitFailed(err));
+        }
+    };
+    Ok(Forwarder { dlq_store, ... })
+}
+```
+2.  **调用层退出机制**:
+    *   在 [bridge.rs](file:///Users/zhangliang/chanjet/dev/workspace/open-streaming-connector/cli/cowen/crates/cowen-server/src/cmd/bridge.rs) 守护进程启动时捕获 `Forwarder::new` 返回的错误，不再使用 `unwrap`，而是将错误打印到终端 stderr 及系统日志，之后通过 `std::process::exit(1)` 平滑安全退出。
+
+### 7.3 TDD 验证契约
+*   **GIVEN**: 一个写保护或文件锁死无法打开的 SQLite 死信队列库文件。
+*   **WHEN**: 调用 `Forwarder::new` 进行初始化。
+*   **THEN**: 返回 `Err(CowenError::StorageInitFailed)`，不产生 Panic 崩溃。
+*   **GIVEN**: 存储初始化失败产生错误。
+*   **WHEN**: `bridge` 进程启动捕获该错误。
+*   **THEN**: 捕获异常，打印错误信息并安全退出（退出码 1），主进程不抛出闪退崩溃。
+
+---
+
+## 8. 智能动态 Token 检查与刷新策略 (Intelligent Dynamic Token Check Strategy)
+
+### 8.1 物理模型契约 & 方法签名
+*   **方法签名**:
+```rust
+/// 计算下一次 Token 检测和刷新的 Sleep 周期（秒数）。
+/// * 输入: `expires_at: i64`, `now: i64`, `rand_jitter_offset: i64`
+/// * 输出: `u64` (下一次自适应休眠延迟)
+/// * 副作用: 无 (纯函数)
+pub fn calculate_next_check_delay(expires_at: i64, now: i64, rand_jitter_offset: i64) -> u64;
+```
+
+*   **Token 生存期数据契约**:
+```rust
+pub struct TokenState {
+    pub access_token: String,
+    pub expires_at: i64, // 绝对生存截止 Unix 时间戳 (秒)
+}
+```
+
+### 8.2 确定性逻辑算子
+1.  **自适应刷新周期数学计算公式**:
+    $$Interval_{raw} = (ExpiresAt - Now) \times 0.8$$
+    $$Interval_{clamped} = \max(\min(Interval_{raw}, 3600), 30)$$
+    $$Interval_{final} = \max(Interval_{clamped} + Jitter, 30)$$
+    其中 $Jitter$ 附加抖动偏置取随机值范围为：`[-60, 60]` 秒。
+
+2.  **算法实现逻辑 (Algorithm Pseudo-code)**:
+```rust
+pub fn calculate_next_check_delay(expires_at: i64, now: i64, rand_jitter_offset: i64) -> u64 {
+    let remaining = expires_at - now;
+    if remaining <= 0 {
+        return 30; // 已过期或状态异常，执行最小保护频次
+    }
+    
+    // 80% 寿命计算
+    let raw = (remaining as f64 * 0.8) as i64;
+    
+    // 夹持上下限 [30s, 3600s]
+    let clamped = raw.clamp(30, 3600);
+    
+    // 随机抖动并最终确保下限保护
+    let final_interval = (clamped + rand_jitter_offset).max(30);
+    final_interval as u64
+}
+```
+
+### 8.3 TDD 验证契约
+*   **GIVEN**: Token 剩余生存周期为 7200 秒（长寿命），抖动偏置随机计算为 +45 秒。
+*   **WHEN**: 计算下一次休眠时长。
+*   **THEN**: 返回 `3600 + 45 = 3645` 秒（上限截断并叠加抖动）。
+*   **GIVEN**: Token 剩余生存周期为 50 秒（临近过期），抖动偏置随机计算为 -20 秒。
+*   **WHEN**: 计算下一次休眠时长。
+*   **THEN**: 返回 `30` 秒（满足下限边界安全夹持）。
+
+---
+
+## 9. 核心依赖去上帝化重构 (Decoupling & Splitting cowen-common)
+
+### 9.1 物理层强隔离契约
+*   **`cowen-common` Cargo 限制**:
+    *   **Cargo.toml 声明限制**: 仅允许引入无 I/O 的高阶基础库（如 `serde`, `serde_json`, `thiserror`, `chrono`）。
+    *   **禁戒依赖**: 严禁在 `cowen-common` 引入 `reqwest`、`tokio`、`redis`、`sqlx`、`libloading`。
+    *   **职责边界**: 仅存放系统通用的事件模型、SPI Trait 定义、以及核心数据契约。
+*   **`cowen-infra` Cargo 声明**:
+    *   作为全局单向底座，存放系统环境相关的底层工具逻辑（加密/加盐 obfs、文件物理路径判定、低级时间戳工具、终端输出着色）。
+
+### 9.2 确定性架构级拓扑依赖图
+```text
+           [cowen] (主程序命令行层)
+              │
+              ├──► [cowen-server] (Daemon 业务核心服务)
+              │       │
+              │       ├──► [cowen-config] (YAML 文件/信号热重载)
+              │       ├──► [cowen-monitor] (Axum Metrics / 监控)
+              │       └──► [cowen-doctor] (自检 Diagnostic 调度)
+              │
+              ├──► [cowen-search] (插件化语义搜索契约与基础匹配)
+              │
+              └──► [cowen-auth] (凭证轮询与刷新管理)
+                      │
+                      └──► [cowen-common] (稳定纯契约模型层)
+                              │
+                              └──► [cowen-infra] (低级基础通用工具)
+```
+
+### 9.3 TDD 验证契约 (编译时阻断测试)
+*   **GIVEN**: 在 `cowen-common` 中引入含复杂底层 I/O 或高层业务模块的代码或 Crate 声明。
+*   **WHEN**: 执行命令行 `cargo build --workspace` 编译。
+*   **THEN**: 产生循环依赖报错或模块隔离编译报错，在编译期被拦截阻断，确保架构物理红线牢固。

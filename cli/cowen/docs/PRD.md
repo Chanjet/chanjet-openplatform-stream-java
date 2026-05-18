@@ -33,6 +33,48 @@ v0.3.1 版本致力于增强 `cowen` 在生产环境中的 **可观测性 (Obser
     *   **按需分发**: 将高级语义搜索实现为动态链接库 (如 `libcowen_search_embedding.so/dylib/dll`)。核心二进制仅包含基础匹配逻辑，减小体积。
     *   **分发优化**: 若配置为 `embedding_search` 但插件库不存在，系统应自动降级到 `string_matching` 并提供安装指引。
 
+### 2.5 DLQ 存储异常 Panic 防护 (DLQ Init Panic Protection)
+*   **需求背景**: 避免因底层存储服务（如 SQLite/Redis）启动连接失败、写保护或死锁导致整个 `cowen` 进程异常 Panic 崩溃。
+*   **功能描述 / 业务规则**:
+    *   在 `Forwarder` 初始化以及 `DlqStore::new` 实例化时，如果发生存储底层故障，系统不应 Panic 崩溃。
+    *   通过 `Result` 链式传递机制，安全地向调用层（Daemon 守护线程、DLQ 重试命令）传递错误，由调用层捕获异常，并在终端及日志中输出清晰的故障提示。
+*   **技术设计**:
+    *   修改 `Forwarder::new` 方法签名，使其返回 `CowenResult<Self>`，并利用 `?` 向上层传播 `DlqStore` 的初始化异常。
+    *   在 `bridge.rs` 的 Webhook 转发器设置处，以及 `dlq.rs` 的 DLQ 重试入口处捕获错误，替换原先的 `unwrap` 导致的 Panic。
+*   **影响范围评估**:
+    *   仅涉及 `cowen-server` 及命令行内部的初始化逻辑（`forwarder.rs`、`bridge.rs`、`cmd/dlq.rs`）。对协议契约、SPI 契约以及与其他微服务的网络通信无任何破坏性或级联影响。
+*   **关键技术选项与方案确认**:
+    *   **方案选择**: 采用 Rust 惯用的 `Result` 链式向上传播机制。此方法相比内部降级机制更易于暴露早期配置故障，且遵循 Rust 错误处理最佳实践。
+
+### 2.6 智能动态 Token 检查与刷新策略 (Intelligent Dynamic Token Check Strategy)
+*   **需求背景**: 目前后台凭证自愈监控和刷新引擎采用硬编码的 10 分钟检测间隔。针对短有效期 Token 容易出现刷新空窗期；针对长有效期 Token（如自建模式 2 小时、OAuth2 模式 7 天）频繁的磁盘/网络检查造成性能和日志冗余，且易触发请求风暴。
+*   **功能描述 / 业务规则**:
+    *   **自适应检测步长**: 检查间隔不应硬编码，应根据当前 AccessToken 的剩余生存周期自适应计算：`next_check = (expires_at - now) * 0.8`。
+    *   **安全区间保护**: 设置检测间隔下限为 `30` 秒（避免短周期或过期状态下的快速自旋），上限为 `3600` 秒（确保状态的最终一致性与故障及时恢复）。
+    *   **引入随机抖动 (Jitter)**: 计算出的下一次延迟增加 `±rand(0..60)` 秒的随机偏移，防止分布式/多实例环境下的惊群效应引发对开放平台网关的突发性网络请求。
+*   **技术设计**:
+    *   重构 `renewer.rs` 中的主动检测逻辑 and `bridge.rs` 中的维护检查逻辑，动态计算下一次 Sleep 周期。
+    *   引入 `rand` 库实现抖动随机偏置。
+*   **影响范围评估**:
+    *   主要涉及 `cowen-server` 内的后台轮询调度策略，不影响 `cowen-auth` 底层凭证服务和外部认证物理模型。
+*   **关键技术选项与方案确认**:
+    *   **比例系数**: 选择 80% 生存期触发（`* 0.8`）能够最大化利用 Token 有效期，并在出现网络抖动时保留 20% 生存期的重试窗口。
+    *   **上限保护与抖动**: 1小时上限与 60s 随机抖动能在高并发微服务场景下天然平滑流量。
+
+### 2.7 核心依赖去上帝化重构 (Decoupling & Splitting cowen-common)
+*   **需求背景**: 现有 `cowen-common` 模块过度臃肿，承载了系统配置、网络 I/O、安全加密、底层工具及核心数据模型，成为“上帝模块”，极易引起后续新 Crate 的跨域源码级循环依赖，阻碍物理隔离架构的实施。
+*   **功能描述 / 业务规则**:
+    *   **职责重定义**: `cowen-common` 仅保留最基础的核心数据模型（Models）与最小化的接口契约/SPI（Traits），退化为完全稳定的契约层。
+    *   **公共工具沉降**: 将原 `cowen-common` 中的系统底层工具、加密组件、辅助网络函数等与具体业务无关的逻辑，剥离并下沉至独立的 `cowen-infra` 或 `cowen-utils` 工具级 Crate 中。
+    *   **独立编译与隔离**: 确保重新划分后的 `cowen-common` 不包含任何可能引起逆向引用的网络或高层模块逻辑，能够独立被各业务 Crate 引用，满足编译层面的完全隔离。
+*   **技术设计**:
+    *   在 Cargo Workspace 中规划底层的工具 Crate，移动通用辅助函数。
+    *   清理 `cowen-common` 依赖树，仅保留基础依赖（如 `serde`, `chrono` 等），移除对复杂网络客户端等高层库的非必要强绑定。
+*   **影响范围评估**:
+    *   作为底层架构级重构，此变动将触及依赖 `cowen-common` 的所有上层 Cargo Crates（如 `cowen-server`, `cowen-auth`, `cowen-store` ）。这需要我们在编译层仔细重构依赖声明和 `use` 导入，但对上层业务功能行为无任何破坏性改变。
+*   **关键技术选项与方案确认**:
+    *   **方案选择**: 采用“公共工具库下沉 + 契约层极简化”策略。此方案是微服务与多 Crate 架构中解耦上帝模块的标准演进路径，能提供最纯净的底层隔离保障。
+
 ## 3. 技术约束 (Technical Constraints)
 *   **物理隔离架构 (Physical Crate Isolation)**: 为防止代码腐化和模块越界调用，v0.3.1 的所有新特性必须封装在独立的 Cargo Crate 中（如 `cowen-config`, `cowen-monitor`, `cowen-doctor`, `cowen-search`）。核心程序通过最小化 Trait SPI 引用这些 Crate，严格禁止跨域的源码级循环依赖。
 *   **稳定性**: 配置热重载严禁引起内存泄漏或进程崩溃。
@@ -43,5 +85,9 @@ v0.3.1 版本致力于增强 `cowen` 在生产环境中的 **可观测性 (Obser
 *   修改日志级别后，Daemon 日志输出立即生效而无需重启。
 *   `curl 127.0.0.1:<port>/metrics` 能返回正确的监控数据。
 *   `cowen system doctor` 能准确识别出错误的数据库配置。
-*   当 `search_engine` 设为 `string_matching` 时，`api list --search` 能够快速返回关键词匹配结果。
+*   当 `search_engine` 设为 `string_matching` 时，`api list --search` 能够快速返回关键词匹配结果.
 *   当安装了高级搜索插件并设为 `embedding_search` 时，`api list --search` 支持自然语言语义理解。
+*   在模拟存储故障（如 SQLite 文件锁死或删除）时启动 `cowen` 系统及 `bridge` 进程，系统不发生 Panic 闪退崩溃，能优雅报错打印存储初始化异常。
+*   在运行 `cowen daemon` 后台服务或 `renewer` 时，凭证定时维护日志间隔符合基于 Token 寿命自适应计算的步长，并附带不规则的秒级抖动差值。
+*   分拆后的 `cowen-common` 仅保留稳定的数据模型和 SPI 契约定义，其 Cargo.toml 中不再依赖复杂的网络或业务级 Crates，且工程各模块可正常编译通过，无依赖循环风险。
+
