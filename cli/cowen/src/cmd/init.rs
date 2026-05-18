@@ -27,6 +27,13 @@ impl InitCleanupGuard {
         if self.active && self.is_new {
             self.active = false; // Prevent double cleanup
             let _ = self.cfg_mgr.delete(&self.profile).await;
+            
+            // 🛡️ SECURITY: Forcefully remove PID file if it exists to allow fresh re-init
+            let app_dir = cowen_common::config::get_app_dir();
+            let pid_file = app_dir.join(format!("{}_daemon.pid", self.profile));
+            if pid_file.exists() {
+                let _ = std::fs::remove_file(pid_file);
+            }
         }
     }
 }
@@ -42,6 +49,12 @@ impl Drop for InitCleanupGuard {
             let yaml_path = app_dir.join(format!("{}.yaml", p));
             if yaml_path.exists() {
                 let _ = std::fs::remove_file(yaml_path);
+            }
+            
+            // 🛡️ SECURITY: Forcefully remove PID file during drop
+            let pid_file = app_dir.join(format!("{}_daemon.pid", p));
+            if pid_file.exists() {
+                let _ = std::fs::remove_file(pid_file);
             }
 
             // Still try to delete from Vault if possible (best effort in drop)

@@ -11,8 +11,10 @@ use std::fs;
 use std::sync::Arc;
 use cowen_common::vault::Vault;
 
+use cowen_monitor::telemetry::TelemetryControl;
+
 /// 启动守护进程 (主分发器)
-pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
+pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, foreground: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>, telemetry: Option<Arc<TelemetryControl>>) -> Result<()> {
     let target_profiles = if all && !foreground {
         cfg_mgr.list_profiles().await?
     } else {
@@ -30,7 +32,7 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
         
         let _pid_file = cowen_common::config::get_app_dir().join(format!("{}_daemon.pid", p));
         
-        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, cfg_mgr, vault.clone()).await {
+        if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, cfg_mgr, vault.clone(), telemetry.clone()).await {
             eprintln!("⚠️ Failed to start daemon for profile '{}': {}", p, e);
         }
     }
@@ -88,7 +90,7 @@ fn kill_process(pid: u32) -> bool {
 
 /// 执行启动的核心逻辑，处理父子进程逻辑
 /// 执行启动的核心逻辑，处理父子进程逻辑
-async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
+async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, foreground: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>, telemetry: Option<Arc<TelemetryControl>>) -> Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
 
@@ -214,28 +216,8 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         tracing::info!(target: "sys", "Daemon core logic starting (PID: {}, Mode: {:?}, Version: {})", pid, current_config.app_mode, current_config.version);
         
         let mut event_rx = cowen_common::events::event_bus().subscribe();
+        let mut config_rx = cfg_mgr.subscribe_profile_config(profile).await;
         let mut reload = false;
-
-        let t_profile = profile.to_string();
-        let t_cfg_mgr = cfg_mgr.clone();
-        let t_current_version = current_config.version;
-        let watcher = async move {
-            let app_cfg: cowen_common::config::AppConfig = t_cfg_mgr.load_app_config().await.unwrap_or_default();
-            if !t_cfg_mgr.is_distributed_storage(&app_cfg) {
-                std::future::pending::<()>().await;
-            }
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                if let Ok(true) = t_cfg_mgr.check_for_updates(&t_profile, t_current_version).await {
-                    tracing::info!(target: "sys", "External config change detected via polling for profile '{}'. Triggering local reload...", t_profile);
-                    cowen_common::events::event_bus().publish(cowen_common::events::GlobalEvent::ConfigChanged { 
-                        profile: t_profile.clone(), 
-                        key: "manifest".to_string() 
-                    });
-                    break;
-                }
-            }
-        };
 
         let engine = async {
             // 🚀 OCP: Unified Engine for all modes. 
@@ -252,10 +234,6 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
                 result = res;
                 break;
             },
-            _res = watcher => {
-                tracing::info!(target: "sys", "Watcher detected config change. Reloading...");
-                reload = true;
-            },
             _ = wait_for_termination() => { 
                 tracing::info!(target: "sys", "Termination signal received"); 
                 result = Ok(());
@@ -269,6 +247,23 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
                             reload = true;
                         }
                         _ => {}
+                    }
+                }
+            },
+            res = config_rx.changed() => {
+                if res.is_ok() {
+                    let new_cfg = config_rx.borrow().clone();
+                    if new_cfg.log.level != current_config.log.level {
+                        if let Some(t) = &telemetry {
+                            tracing::info!(target: "sys", profile = %profile, old_level = %current_config.log.level, new_level = %new_cfg.log.level, "Dynamic log level update triggered via file watch");
+                            let _ = t.update_level(&new_cfg.log.level);
+                        }
+                    }
+                    if new_cfg.version > current_config.version {
+                         tracing::info!(target: "sys", profile = %profile, "Major config version change detected via file watch. Triggering full reload...");
+                         reload = true;
+                    } else {
+                        current_config = new_cfg;
                     }
                 }
             }
@@ -365,7 +360,7 @@ async fn do_stop(profile: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>) -> Result<()> {
+pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_proxy: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>, telemetry: Option<Arc<TelemetryControl>>) -> Result<()> {
     let target_profiles = if all { cfg_mgr.list_profiles().await? } else { vec![profile.to_string()] };
     for p in target_profiles {
         let _ = do_stop(&p).await;
@@ -375,7 +370,7 @@ pub async fn restart(profile: &str, config: &Config, _proxy_port: u16, _enable_p
             if let Ok(cert) = vault.get_secret(&p, "certificate").await { p_cfg.certificate = cert; }
             if let Ok(ek) = vault.get_secret(&p, "encrypt_key").await { p_cfg.encrypt_key = ek; }
         }
-        let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault.clone()).await;
+        let _ = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, false, cfg_mgr, vault.clone(), telemetry.clone()).await;
     }
     Ok(())
 }

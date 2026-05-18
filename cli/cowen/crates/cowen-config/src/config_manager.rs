@@ -20,6 +20,8 @@ pub struct ConfigManager {
     pub app_dir: PathBuf,
     vault: OnceCell<Arc<dyn Vault>>,
     validator: OnceCell<Arc<dyn ConfigValidator>>,
+    app_config_tx: Arc<tokio::sync::watch::Sender<AppConfig>>,
+    profile_txs: Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<Config>>>>,
 }
 
 impl ConfigManager {
@@ -28,11 +30,100 @@ impl ConfigManager {
         if !app_dir.exists() {
             fs::create_dir_all(&app_dir).context("Failed to create app directory")?;
         }
-        Ok(Self { 
+
+        // Initialize with current config
+        let initial_app_cfg = Self::load_app_config_sync(&app_dir).unwrap_or_default();
+        let (app_config_tx, _) = tokio::sync::watch::channel(initial_app_cfg);
+
+        let mgr = Self { 
             app_dir,
             vault: OnceCell::new(),
             validator: OnceCell::new(),
-        })
+            app_config_tx: Arc::new(app_config_tx),
+            profile_txs: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        };
+
+        mgr.start_watcher();
+
+        Ok(mgr)
+    }
+
+    fn load_app_config_sync(app_dir: &std::path::Path) -> CowenResult<AppConfig> {
+        let path = app_dir.join("app.yaml");
+        if !path.exists() {
+            return Ok(AppConfig::default());
+        }
+        let content = fs::read_to_string(path)?;
+        Ok(serde_yaml::from_str(&content)?)
+    }
+
+    pub fn subscribe_app_config(&self) -> tokio::sync::watch::Receiver<AppConfig> {
+        self.app_config_tx.subscribe()
+    }
+
+    pub async fn subscribe_profile_config(&self, profile: &str) -> tokio::sync::watch::Receiver<Config> {
+        let mut txs = self.profile_txs.lock().await;
+        if let Some(tx) = txs.get(profile) {
+            return tx.subscribe();
+        }
+
+        let initial_config = self.load(profile).await.unwrap_or_else(|_| Config::default_with_profile(profile));
+        let (tx, rx) = tokio::sync::watch::channel(initial_config);
+        txs.insert(profile.to_string(), tx);
+        rx
+    }
+
+    fn start_watcher(&self) {
+        use notify::{Watcher, RecursiveMode, EventKind};
+
+        let app_dir = self.app_dir.clone();
+        let mgr = self.clone();
+
+        tokio::spawn(async move {
+            let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+            
+            let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+                if let Ok(event) = res {
+                    let _ = tx.blocking_send(event);
+                }
+            }).expect("Failed to create watcher");
+
+            if let Err(e) = watcher.watch(&app_dir, RecursiveMode::NonRecursive) {
+                tracing::error!(target: "sys", error = %e, "Failed to start file watcher");
+                return;
+            }
+
+            // keep watcher alive
+            let _watcher = watcher;
+
+            while let Some(event) = rx.recv().await {
+                // Debounce / filter events
+                match event.kind {
+                    EventKind::Modify(_) | EventKind::Create(_) => {
+                        for path in event.paths {
+                            if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                                if filename == "app.yaml" {
+                                    if let Ok(new_cfg) = mgr.load_app_config().await {
+                                        let _ = mgr.app_config_tx.send(new_cfg);
+                                        tracing::info!(target: "sys", "AppConfig hot-reloaded");
+                                    }
+                                } else if filename.ends_with(".yaml") {
+                                    let profile = filename.trim_end_matches(".yaml");
+                                    let txs = mgr.profile_txs.lock().await;
+                                    if let Some(tx) = txs.get(profile) {
+                                        if let Ok(new_cfg) = mgr.load(profile).await {
+                                            let _ = tx.send(new_cfg);
+                                            tracing::info!(target: "sys", profile = %profile, "Profile config hot-reloaded");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
     }
 
     pub fn set_vault(&self, vault: Arc<dyn Vault>) -> CowenResult<()> {

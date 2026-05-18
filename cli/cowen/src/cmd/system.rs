@@ -473,7 +473,7 @@ pub async fn enforce_daemon_version_sync(
                 // This prevents "AppKey is empty" warnings for unused default profiles during version sync.
                 if !config.app_key.trim().is_empty() {
                     eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
-                    let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone()).await;
+                    let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None).await;
                     
                     // 🚀 STABILITY: Brief grace period to allow the new daemon to bind ports and write its PID file
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;

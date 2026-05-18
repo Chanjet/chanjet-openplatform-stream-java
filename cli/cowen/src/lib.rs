@@ -403,13 +403,14 @@ pub async fn run(cli: Cli) -> Result<()> {
     if cli.no_ai { config.ai_enabled = false; }
 
     let (vault_tx, vault_rx) = tokio::sync::watch::channel(None);
-    let _guards = match core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {
-        Ok(g) => Some(g),
+    let telemetry_control = match core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {
+        Ok(control) => Some(Arc::new(control)),
         Err(e) => {
             eprintln!("⚠️ Warning: Telemetry system failed to initialize: {}. Continuing without structured logging.", e);
             None
         }
     };
+    let _guards = telemetry_control.as_ref().map(|c| &c.guards);
 
     tracing::info!(target: "sys", "cowen starting (version {})", env!("CARGO_PKG_VERSION"));
 
@@ -530,7 +531,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
                 else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
                 if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
-                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone()).await?;
+                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone(), telemetry_control.clone()).await?;
             }
             DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
             DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {
@@ -540,7 +541,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
                 else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
                 if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
-                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone()).await?;
+                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), telemetry_control.clone()).await?;
             }
             DaemonCommands::Service { action } => match action {
                 ServiceCommands::Install => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Install).await?,
