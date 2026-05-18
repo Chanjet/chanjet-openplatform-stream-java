@@ -9,9 +9,23 @@ use cowen_auth::VaultTokenPool;
 use cowen_common::vault::Vault;
 use tokio::time::{sleep, Duration};
 
+use cowen_monitor::{counter, gauge};
+use once_cell::sync::Lazy;
+
+static DISPATCH_COUNTER: Lazy<prometheus::Counter> = Lazy::new(|| counter!("cowen_dispatch_total", "Total events dispatched"));
+static ACTIVE_CONNECTIONS: Lazy<prometheus::Gauge> = Lazy::new(|| gauge!("cowen_active_connections", "Total active connections"));
+
 /// 自建模式专用流桥执行器
 /// 负责处理 WebSocket 长连接、API 反向代理以及消息转发
 pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_port: u16, enable_proxy: bool, is_distributed: bool) -> Result<()> {
+    // 增加连接数 gauge
+    ACTIVE_CONNECTIONS.inc();
+    
+    // Ensure gauge decrements when future finishes
+    let _conn_guard = scopeguard::guard((), |_| {
+        ACTIVE_CONNECTIONS.dec();
+    });
+
     let exclusive = config.exclusive
         .unwrap_or_else(|| !is_distributed && config.app_mode != cowen_common::models::AuthMode::Oauth2);
 
@@ -36,6 +50,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
 
         let fwd = forwarder.clone();
         dispatcher.set_fallback_handler(Arc::new(move |msg| {
+            DISPATCH_COUNTER.inc();
             let fwd_clone = fwd.clone();
             tokio::spawn(async move {
                 let _ = fwd_clone.forward(msg).await;

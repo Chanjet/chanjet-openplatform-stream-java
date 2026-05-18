@@ -279,6 +279,9 @@ pub enum DaemonCommands {
         /// Override the proxy listening port
         #[arg(long)]
         proxy_port: Option<u16>,
+        /// Override the monitor listening port
+        #[arg(long)]
+        monitor_port: Option<u16>,
         /// Force enable API proxying
         #[arg(long)]
         enable_proxy: bool,
@@ -524,14 +527,20 @@ pub async fn run(cli: Cli) -> Result<()> {
             AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format, *refresh).await?,
         }
         Commands::Daemon { action } => match action {
-            DaemonCommands::Start { proxy_port, enable_proxy, no_proxy, foreground, all } => {
+            DaemonCommands::Start { proxy_port, monitor_port, enable_proxy, no_proxy, foreground, all } => {
                 let mut updated_config = config.clone();
                 let mut changed = false;
                 if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
+                if let Some(m) = monitor_port { if updated_config.monitor_port != *m { updated_config.monitor_port = *m; changed = true; } }
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
                 else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
                 if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
-                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone(), telemetry_control.clone()).await?;
+                
+                if *foreground {
+                    cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, true, *all, &cfg_mgr, vault.clone(), telemetry_control.clone()).await?;
+                } else {
+                    cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), telemetry_control.clone()).await?;
+                }
             }
             DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
             DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {
@@ -558,8 +567,16 @@ pub async fn run(cli: Cli) -> Result<()> {
                     updated_config.log.level = value.to_lowercase();
                     cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?;
                     println!("✅ Successfully updated log.level to '{}'", value);
+                } else if key == "monitor.port" {
+                    if let Ok(p) = value.parse::<u16>() {
+                        updated_config.monitor_port = p;
+                        cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?;
+                        println!("✅ Successfully updated monitor.port to '{}'", value);
+                    } else {
+                        return Err(anyhow::anyhow!("Invalid port number: {}", value));
+                    }
                 } else {
-                    return Err(anyhow::anyhow!("Unsupported configuration key: {}. Currently only 'log.level' is supported.", key));
+                    return Err(anyhow::anyhow!("Unsupported configuration key: {}. Supported: 'log.level', 'monitor.port'.", key));
                 }
             }
             None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?,

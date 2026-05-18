@@ -4,7 +4,6 @@ use async_trait::async_trait;
 
 use crate::{Store, AuditEntry, DlqMessage, Item};
 use cowen_common::models::{Token, Ticket};
-use std::sync::Arc;
 use redis::aio::MultiplexedConnection;
 
 pub struct RedisStore {

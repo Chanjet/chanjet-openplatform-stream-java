@@ -26,6 +26,9 @@ cowen-config = { path = "../cowen-config" }
 cowen-monitor = { path = "../cowen-monitor" }
 cowen-auth = { path = "../cowen-auth" }
 cowen-store = { path = "../cowen-store" }
+prometheus = "0.13"
+once_cell = "1.19"
+scopeguard = "1.2"
 
 [build-dependencies]
 chrono = "0.4"

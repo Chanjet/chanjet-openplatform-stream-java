@@ -59,6 +59,8 @@ pub struct Config {
     pub ai_enabled: bool,
     #[serde(default = "default_zero")]
     pub proxy_port: u16,
+    #[serde(default = "default_zero")]
+    pub monitor_port: u16,
     #[serde(default = "default_true")]
     pub proxy_enabled: bool,
     #[serde(default)]
@@ -132,6 +134,7 @@ impl Config {
             telemetry_enabled: true,
             ai_enabled: true,
             proxy_port: 0,
+            monitor_port: 0,
             proxy_enabled: true,
             app_mode: crate::models::AuthMode::Oauth2,
             app_secret: "".to_string(),
@@ -164,6 +167,11 @@ impl Config {
         if let Ok(port) = std::env::var("COWEN_PROXY_PORT") {
             if let Ok(p) = port.parse::<u16>() {
                 self.proxy_port = p;
+            }
+        }
+        if let Ok(port) = std::env::var("COWEN_MONITOR_PORT") {
+            if let Ok(p) = port.parse::<u16>() {
+                self.monitor_port = p;
             }
         }
         if let Ok(mode) = std::env::var("COWEN_APP_MODE") {

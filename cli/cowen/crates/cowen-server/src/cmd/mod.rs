@@ -154,8 +154,9 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
         let check_interval = std::time::Duration::from_millis(100);
         let mut s = System::new_all();
 
-        // 🚀 STABILITY: Increase timeout to 5s (50 * 100ms) to allow child's internal port-retry (2.5s) to complete.
-        for _ in 0..50 { 
+        // 🚀 STABILITY: Increase timeout to 10s (100 * 100ms) to allow child's internal port-retry to complete
+        // and monitor server initialization under heavy parallel load.
+        for _ in 0..100 { 
             std::thread::sleep(check_interval);
             if pid_file.exists() {
                 if let Ok(content) = fs::read_to_string(&pid_file) {
@@ -214,6 +215,25 @@ async fn do_start(profile: &str, config: &Config, proxy_port: u16, enable_proxy:
 
     loop {
         tracing::info!(target: "sys", "Daemon core logic starting (PID: {}, Mode: {:?}, Version: {})", pid, current_config.app_mode, current_config.version);
+        
+        // 🚀 MONITORING: Initialize monitor server if port configured
+        let m_port = current_config.monitor_port;
+        if m_port > 0 {
+            let (m_tx, m_rx) = tokio::sync::oneshot::channel();
+            let m_server = cowen_monitor::MonitorServer::new(m_port);
+            tokio::spawn(async move {
+                if let Err(e) = m_server.start(Some(m_tx)).await {
+                    tracing::error!(target: "sys", error = %e, "Monitor server failed");
+                }
+            });
+            
+            // Wait for monitor server to bind successfully
+            if let Ok(actual_m_port) = tokio::time::timeout(std::time::Duration::from_secs(5), m_rx).await {
+                tracing::info!(target: "sys", "Monitor server ready on port {}", actual_m_port.unwrap_or(m_port));
+            } else {
+                tracing::warn!(target: "sys", "Monitor server failed to start within timeout, continuing...");
+            }
+        }
         
         let mut event_rx = cowen_common::events::event_bus().subscribe();
         let mut config_rx = cfg_mgr.subscribe_profile_config(profile).await;
