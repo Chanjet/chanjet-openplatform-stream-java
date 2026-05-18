@@ -1,9 +1,10 @@
 pub mod init;
+pub mod system;
 pub mod api;
 pub mod auth;
-pub mod system;
-pub mod completion;
-pub mod dlq;
-pub mod log;
-pub mod store;
 pub mod daemon;
+pub mod completion;
+pub mod store;
+pub mod log;
+pub mod dlq;
+pub mod doctor;

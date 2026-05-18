@@ -131,6 +131,16 @@ pub enum Commands {
         #[command(subcommand)]
         action: StoreCommands,
     },
+    /// 运行环境诊断工具，排查网络、存储与配置问题
+    Doctor {
+        /// 指定要诊断的 Profile (默认为 active profile)
+        #[arg(short, long)]
+        profile: Option<String>,
+        
+        /// 开启详细诊断模式
+        #[arg(short, long)]
+        verbose: bool,
+    },
     /// 管理并检查系统整体状态
     System {
         #[command(subcommand)]
@@ -430,6 +440,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Dlq { .. } => "dlq",
         Commands::Log { .. } => "log",
         Commands::Store { .. } => "store",
+        Commands::Doctor { .. } => "doctor",
         Commands::System { .. } => "system",
     };
     core::telemetry::report_event(&config, "command_run".to_string(), serde_json::json!({ "cmd": cmd_name }));
@@ -557,6 +568,15 @@ pub async fn run(cli: Cli) -> Result<()> {
                 ServiceCommands::Uninstall => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Uninstall).await?,
                 ServiceCommands::Status => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Status).await?,
             }
+        }
+        Commands::Doctor { profile: doctor_profile, verbose } => {
+            let target_profile = doctor_profile.as_ref().unwrap_or(&active_profile);
+            let target_config = if doctor_profile.is_some() {
+                cfg_mgr.load(target_profile).await.unwrap_or_else(|_| cowen_common::config::Config::default_with_profile(target_profile))
+            } else {
+                config.clone()
+            };
+            cmd::doctor::execute(target_profile, &target_config, *verbose, vault.clone(), &cfg_mgr).await?;
         }
         Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?,
         Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? }
