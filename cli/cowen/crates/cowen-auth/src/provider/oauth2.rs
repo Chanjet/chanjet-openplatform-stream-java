@@ -153,6 +153,7 @@ impl OAuth2Provider {
         self.pool.as_vault().save_refresh_token(profile, refresh_token).await?;
         
         let _ = self.pool.as_vault().delete_config(profile, "oauth2_revoked").await;
+        let _ = self.pool.as_vault().delete_config(profile, "last_refresh_error").await;
         
         // 🚀 OCP: Cleanup legacy JSON-blob to prevent inconsistency
         let _ = self.pool.as_vault().delete_config(profile, "oauth2_token_pair").await;
@@ -167,6 +168,33 @@ impl OAuth2Provider {
         );
 
         Ok(token)
+    }
+
+    async fn get_refresh_token_with_fallback(&self, profile: &str) -> CowenResult<cowen_common::models::Token> {
+        let vault = self.pool.as_vault();
+        match vault.get_refresh_token(profile).await {
+            Ok(t) => Ok(t),
+            Err(_) => {
+                // LEGACY FALLBACK: Try to recover from old JSON blob
+                if let Ok(pair_str) = vault.get_config(profile, "oauth2_token_pair").await {
+                    let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
+                    Ok(cowen_common::models::Token {
+                        value: pair.refresh_token,
+                        expires_at: pair.refresh_expires_at,
+                        created_at: pair.created_at,
+                    })
+                } else if let Ok(pair_str) = vault.get_secret(profile, "oauth2_token_pair").await {
+                    let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
+                    Ok(cowen_common::models::Token {
+                        value: pair.refresh_token,
+                        expires_at: pair.refresh_expires_at,
+                        created_at: pair.created_at,
+                    })
+                } else {
+                    Err(CowenError::Auth(format!("OAuth2 session missing or expired for profile '{}'. Please run 'owenc auth login'.", profile)))
+                }
+            }
+        }
     }
 
     async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
@@ -232,7 +260,15 @@ impl AuthProvider for OAuth2Provider {
             if token.is_expired_with_buffer(chrono::Duration::minutes(15)) {
                 let remaining = token.expires_at.signed_duration_since(chrono::Utc::now());
                 tracing::info!(target: "sys", "OAuth2 token expires in {:?}. Proactively refreshing...", remaining);
-                let _ = self.refresh(profile, config, &Default::default()).await;
+                match self.refresh(profile, config, &Default::default()).await {
+                    Ok(_) => {
+                        let _ = self.pool.as_vault().delete_config(profile, "last_refresh_error").await;
+                    }
+                    Err(e) => {
+                        let _ = self.pool.as_vault().set_config(profile, "last_refresh_error", &e.to_string()).await;
+                        return Err(e);
+                    }
+                }
             }
         }
         Ok(())
@@ -271,31 +307,7 @@ impl AuthProvider for OAuth2Provider {
             }
 
             // 4. Fallback to refresh if possible
-            let rt_res = self.pool.as_vault().get_refresh_token(profile).await;
-
-            let rt = match rt_res {
-                Ok(t) => t,
-                Err(_) => {
-                    // LEGACY FALLBACK: Try to recover from old JSON blob
-                    if let Ok(pair_str) = self.pool.as_vault().get_config(profile, "oauth2_token_pair").await {
-                         let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
-                         cowen_common::models::Token {
-                             value: pair.refresh_token,
-                             expires_at: pair.refresh_expires_at,
-                             created_at: pair.created_at,
-                         }
-                    } else if let Ok(pair_str) = self.pool.as_vault().get_secret(profile, "oauth2_token_pair").await {
-                         let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
-                         cowen_common::models::Token {
-                             value: pair.refresh_token,
-                             expires_at: pair.refresh_expires_at,
-                             created_at: pair.created_at,
-                         }
-                    } else {
-                         return Err(CowenError::Auth(format!("OAuth2 session missing or expired for profile '{}'. Please run 'owenc auth login'.", profile)));
-                    }
-                }
-            };
+            let rt = self.get_refresh_token_with_fallback(profile).await?;
 
             if rt.is_expired() {
                 return Err(CowenError::Auth(format!("OAuth2 session expired. Please run 'owenc auth login' to re-authenticate.")));
@@ -309,9 +321,8 @@ impl AuthProvider for OAuth2Provider {
     }
 
     async fn refresh(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token> {
-        let pair_str = self.pool.as_vault().get_config(profile, "oauth2_token_pair").await?;
-        let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
-        self.refresh_token(profile, cfg, &pair.refresh_token).await
+        let rt = self.get_refresh_token_with_fallback(profile).await?;
+        self.refresh_token(profile, cfg, &rt.value).await
     }
 
     fn is_allowed_in_distributed_storage(&self) -> bool {
@@ -465,27 +476,7 @@ impl AuthProvider for OAuth2Provider {
 
         // 2. Regular Login flow: Try refresh if valid pair exists
         let vault = self.pool.as_vault();
-        let rt_opt = match vault.get_refresh_token(profile).await {
-            Ok(t) => Some(t),
-            Err(_) => {
-                // FALLBACK: Try legacy JSON blob
-                if let Ok(pair_str) = vault.get_config(profile, "oauth2_token_pair").await {
-                    serde_json::from_str::<OAuth2TokenPair>(&pair_str).ok().map(|p| cowen_common::models::Token {
-                        value: p.refresh_token,
-                        expires_at: p.refresh_expires_at,
-                        created_at: p.created_at,
-                    })
-                } else if let Ok(pair_str) = vault.get_secret(profile, "oauth2_token_pair").await {
-                    serde_json::from_str::<OAuth2TokenPair>(&pair_str).ok().map(|p| cowen_common::models::Token {
-                        value: p.refresh_token,
-                        expires_at: p.refresh_expires_at,
-                        created_at: p.created_at,
-                    })
-                } else {
-                    None
-                }
-            }
-        };
+        let rt_opt = self.get_refresh_token_with_fallback(profile).await.ok();
 
         if let Some(rt) = rt_opt {
             if !rt.is_expired() {
@@ -563,27 +554,7 @@ impl AuthProvider for OAuth2Provider {
         let ref_revoked = vault.get_config(profile, "oauth2_revoked").await.is_ok();
 
         let at_res: CowenResult<cowen_common::models::Token> = vault.get_access_token(profile).await;
-        let rt_res: CowenResult<cowen_common::models::Token> = match vault.get_refresh_token(profile).await {
-            Ok(t) => Ok(t),
-            Err(e) => {
-                // FALLBACK: Try legacy JSON blob
-                if let Ok(pair_str) = vault.get_config(profile, "oauth2_token_pair").await {
-                    serde_json::from_str::<OAuth2TokenPair>(&pair_str).map(|p| cowen_common::models::Token {
-                        value: p.refresh_token,
-                        expires_at: p.refresh_expires_at,
-                        created_at: p.created_at,
-                    }).map_err(|err| CowenError::from(err))
-                } else if let Ok(pair_str) = vault.get_secret(profile, "oauth2_token_pair").await {
-                    serde_json::from_str::<OAuth2TokenPair>(&pair_str).map(|p| cowen_common::models::Token {
-                        value: p.refresh_token,
-                        expires_at: p.refresh_expires_at,
-                        created_at: p.created_at,
-                    }).map_err(|err| CowenError::from(err))
-                } else {
-                    Err(e)
-                }
-            }
-        };
+        let rt_res: CowenResult<cowen_common::models::Token> = self.get_refresh_token_with_fallback(profile).await;
 
         match (at_res, rt_res) {
             (Ok(at), Ok(rt)) => {
@@ -698,14 +669,7 @@ impl AuthProvider for OAuth2Provider {
         // 🚀 OCP: For OAuth2, only auto-recover if we actually have a token pair.
         // If no token pair exists, it means the profile is not yet authorized,
         // and starting a daemon will just lead to errors or race conditions during 'init'.
-        let vault = self.pool.as_vault();
-        if vault.get_refresh_token(profile).await.is_ok() {
-            return true;
-        }
-
-        // LEGACY FALLBACK
-        if vault.get_config(profile, "oauth2_token_pair").await.is_ok() 
-           || vault.get_secret(profile, "oauth2_token_pair").await.is_ok() {
+        if self.get_refresh_token_with_fallback(profile).await.is_ok() {
             return true;
         }
         
