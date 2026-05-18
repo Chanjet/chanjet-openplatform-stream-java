@@ -58,7 +58,7 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-x86_64-legacy-with-podman linux-aarch64 windows-x86_64 windows-x86_64-legacy test-macos-aarch64 \
         test test-linux test-win test-macos \
-        package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman package-linux-x86_64-legacy-with-podman \
+        package package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman package-linux-x86_64-legacy-with-podman \
         package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-legacy clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # --- 默认构建目标 (Default Build Target) ---
@@ -77,6 +77,24 @@ else
 endif
 else ifeq ($(HOST_OS),windows)
 	@$(MAKE) windows-x86_64
+endif
+
+# --- 默认打包目标 (Default Package Target) ---
+package:
+ifeq ($(HOST_OS),macos)
+ifeq ($(HOST_ARCH),aarch64)
+	@$(MAKE) package-macos-aarch64
+else
+	@$(MAKE) package-macos-x86_64
+endif
+else ifeq ($(HOST_OS),linux)
+ifeq ($(HOST_ARCH),x86_64)
+	@$(MAKE) package-linux-x86_64
+else
+	@$(MAKE) package-linux-aarch64
+endif
+else ifeq ($(HOST_OS),windows)
+	@$(MAKE) package-windows-x86_64
 endif
 
 # 授权配置 (Authentication)
@@ -152,7 +170,7 @@ endif
 # 哨兵文件：记录镜像最后一次成功构建的时间
 .builder_image_built: Dockerfile.builder
 	@echo "🛠️ Building/Updating custom builder image $(BUILDER_IMAGE) (Native/Cross)..."
-	podman build -t $(BUILDER_IMAGE) -f Dockerfile.builder .
+	podman build --platform linux/amd64 -t $(BUILDER_IMAGE) -f Dockerfile.builder .
 	@touch .builder_image_built
 
 # 准备 Podman 编译镜像
