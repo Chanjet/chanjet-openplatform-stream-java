@@ -1,16 +1,16 @@
 # Cowen CLI 待办事项与技术债清单 (TODO & Technical Debt)
 
 ## 🔴 P0: 紧急且关键 (Critical & Urgent)
-- [ ] 🎯 **消除潜在 Panic** (已规划，并入 v0.3.1 PRD 2.5): 修复 `forwarder.rs` 中 `DlqStore::new` 的 `unwrap` 调用。
+- [x] 🎯 **消除潜在 Panic** (已规划，并入 v0.3.1 PRD 2.5): 修复 `forwarder.rs` 中 `DlqStore::new` 的 `unwrap` 调用。
     *   **实现建议**: 将 `Forwarder::new` 修改为返回 `CowenResult<Self>`，并使用 `?` 向上层传播存储初始化错误。在 `bridge.rs` 调用处增加错误捕获与日志记录，确保存储故障时能以非崩溃方式提示用户或执行降级逻辑。
-- [ ] 🎯 **动态 Token 检查策略** (已规划，并入 v0.3.1 PRD 2.6): 替换 `renewer.rs` 和 `bridge.rs` 中硬编码的 10 分钟轮询间隔。
+- [x] 🎯 **动态 Token 检查策略** (已规划，并入 v0.3.1 PRD 2.6): 替换 `renewer.rs` 和 `bridge.rs` 中硬编码的 10 分钟轮询间隔。
     *   **实现建议**: 
         1. **动态间隔计算**: 计算公式 `next_check = (expires_at - now) * 0.8`（或提前 15 分钟），取其与最小检查间隔（如 30s）的较大值。
         2. **引入抖动 (Jitter)**: 在计算结果上增加 `±(rand(0..60))` 秒的随机偏移，防止大量客户端在同一时刻触发刷新请求。
         3. **上限保护**: 设置最大检查间隔（如 1 小时），确保状态最终一致性。
 
 ## 🟠 P1: 高优先级 (High Priority)
-- [ ] 🎯 **分拆 `cowen-common` 模块** (已规划，并入 v0.3.1 PRD 2.7): 该模块目前由于承载了配置、安全、网络及模型，已成为“上帝模块”。应将其底层工具剥离至 `cowen-infra` 或 `cowen-utils`，确保 `cowen-common` 仅包含核心模型和 SPI 契约，以减少不必要的编译依赖。
+- [x] 🎯 **分拆 `cowen-common` 模块** (已规划，并入 v0.3.1 PRD 2.7): 该模块目前由于承载了配置、安全、网络及模型，已成为“上帝模块”。应将其底层工具剥离至 `cowen-infra` 或 `cowen-utils`，确保 `cowen-common`仅包含核心模型和 SPI 契约，以减少不必要的编译依赖。
 - [ ] **重构授权同步机制**: 替换 `orchestrator.rs` 中基于日志轮询的同步方式。考虑使用进程间通信 (IPC) 或更可靠的状态同步机制，解决目前严重影响首次配置成功率的不可靠问题。
 - [ ] **实现优雅关机 (Graceful Shutdown)**: 显式跟踪所有异步任务（如 Token 交换、事件处理），确保守护进程退出时能安全回收资源，防止状态损坏。
 - [ ] **优化 DLQ 重试逻辑**: 改进 `Forwarder::retry_message`，避免加载全量死信消息到内存。实现分页查询或按 ID 精确检索，防止大批量积压时导致的 OOM。

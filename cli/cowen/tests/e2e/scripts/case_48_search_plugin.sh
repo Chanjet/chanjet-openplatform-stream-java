@@ -28,7 +28,7 @@ echo "🧪 Starting case_48_search_plugin..."
 # 1. Use 'init' to properly set up the profile in the Vault
 "$COWEN_BIN" init --profile main --app-mode self-built --app-key "AK_SB" --app-secret "AS_SB" \
     --certificate "test-cert" --openapi-url "$MOCK_URL" --stream-url "$MOCK_URL" --encrypt-key "1234567890123456" \
-    --webhook-target "http://127.0.0.1:8080" --no-telemetry --no-ai >/dev/null
+    --webhook-target "http://127.0.0.1:8080" --no-telemetry >/dev/null
 
 # 2. Test Fallback when plugin missing
 echo "Test 1: Fallback when plugin is missing"
@@ -36,7 +36,7 @@ rm -rf "$PLUGIN_DIR"
 mkdir -p "$PLUGIN_DIR"
 
 # Run search
-"$COWEN_BIN" api list --profile main --no-ai --search "Order"
+"$COWEN_BIN" api list --profile main --search "Order"
 
 # 3. Test Plugin Loading
 echo "Test 2: Loading plugin"

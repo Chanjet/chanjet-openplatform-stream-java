@@ -22,7 +22,7 @@ echo -e "${BLUE}Starting Test Case 46: Metrics and Health API${NC}"
 # 1. Initialize profile with Mock URL
 "$COWEN_BIN" init --profile main --app-mode self-built --app-key "AK_SB" --app-secret "AS_SB" \
     --certificate "CERT_SB" --encrypt-key "1234567890123456" --openapi-url "$MOCK_URL" \
-    --stream-url "$MOCK_WS" --webhook-target "http://127.0.0.1:8080" --no-telemetry --no-ai > /dev/null
+    --stream-url "$MOCK_WS" --webhook-target "http://127.0.0.1:8080" --no-telemetry > /dev/null
 
 # 2. Start daemon
 MONITOR_PORT=$((16000 + RANDOM % 1000))

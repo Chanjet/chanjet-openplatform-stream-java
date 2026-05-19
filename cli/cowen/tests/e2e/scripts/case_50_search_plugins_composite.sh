@@ -26,7 +26,7 @@ echo "🧪 Starting case_50_search_plugins_composite..."
 # 1. Use 'init' to properly set up the profile in the Vault
 "$COWEN_BIN" init --profile main --app-mode self_built --app-key "AK_SB" --app-secret "AS_SB" \
     --certificate "test-cert" --openapi-url "$MOCK_URL" --stream-url "$MOCK_URL" --encrypt-key "1234567890123456" \
-    --webhook-target "http://127.0.0.1:8080" --no-telemetry --no-ai >/dev/null
+    --webhook-target "http://127.0.0.1:8080" --no-telemetry >/dev/null
 
 # 2. Setup multiple plugins
 rm -rf "$PLUGIN_DIR"

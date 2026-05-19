@@ -39,12 +39,12 @@ cowen init ...
 - `--refresh`: 强制从平台同步最新的 OpenAPI 规约。
 
 ### 搜索插件配置 (v0.3.1+)
-Cowen 支持通过动态链接库扩展搜索能力。在 `main.yaml` 中配置：
+Cowen 支持通过动态链接库扩展搜索能力。在 `app.yaml` 中配置：
 ```yaml
 search:
-  enabled: ["embedding"] # 显式启用的插件列表
+  enabled: ["embedding"] # 显式启用的插件列表。若要彻底禁用 AI 搜索，请保持此数组为空 []。
   plugins:
-    embedding: "libcowen_search_embedding.dylib" # 插件名称与物理路径映射
+    embedding: "/usr/local/lib/cowen/libcowen_search_embedding.dylib" # 插件名称与物理路径映射
 ```
 
 ### `api spec` - 规约详情

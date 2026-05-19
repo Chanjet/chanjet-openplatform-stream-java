@@ -227,10 +227,15 @@ services:
 ## 💡 侧车模式下的关键运维建议
 
 1.  **无盘化与共享存储**: 侧车实例通常是易失的（Ephemeral）。**必须使用外置 MySQL/Redis** 存储租户令牌。
-2.  **健康检查 (Liveness/Readiness)**:
+2.  **健康检查与监控 (v0.3.1+)**:
     *   **Liveness**: 检查 `cowen` 进程是否存在。
     *   **Readiness**: 调用 `curl -f http://localhost:8081/health`，确保管理 API 已就绪且能够连通内部存储。
-3.  **资源分配**: 
+    *   **Metrics**: 建议将 `http://localhost:8081/metrics` 接入 Prometheus，重点监控 `cowen_token_ttl_seconds`（租户令牌寿命）以防大面积失效。
+3.  **环境体检 (System Doctor)**:
+    在 Sidecar 容器启动脚本中，建议加入 `cowen doctor` 作为 Pre-flight check。
+4.  **智能自适应刷新 (v0.3.1+)**: 
+    `cowen` 会根据租户 Token 的剩余寿命自动平滑刷新压力，ISV 无需手动触发。
+5.  **资源分配**: 
     *   `cowen` 核心使用 Rust 编写，内存占用极低。
     *   **推荐配额**: `Requests: 64MiB / 0.1 CPU`, `Limits: 128MiB / 0.5 CPU`。
 4.  **优雅停机**: 

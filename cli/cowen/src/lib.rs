@@ -29,9 +29,6 @@ pub struct Cli {
     #[arg(long, global = true, help = "禁用遥测数据上报")]
     pub no_telemetry: bool,
 
-    #[arg(long, global = true, help = "禁用 AI/语义搜索功能")]
-    pub no_ai: bool,
-
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -413,7 +410,6 @@ pub async fn run(cli: Cli) -> Result<()> {
     config.apply_env_overrides();
 
     if cli.no_telemetry { config.telemetry_enabled = false; }
-    if cli.no_ai { config.ai_enabled = false; }
 
     let (vault_tx, vault_rx) = tokio::sync::watch::channel(None);
     let telemetry_control = match core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {

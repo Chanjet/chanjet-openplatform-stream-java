@@ -18,13 +18,12 @@ PROF="oa2_refresh"
 PROXY_PORT=$((MOCK_PORT + 101))
 
 # Initialize OAuth2 in background
-# Use --no-ai and --no-telemetry to speed up and simplify logs
+# Use --no-telemetry to speed up and simplify logs
 "$COWEN_BIN" init --profile "$PROF" \
     --app-mode oauth2 \
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
     --proxy-port $PROXY_PORT \
-    --no-ai \
     --no-telemetry > "$COWEN_HOME/init.log" 2>&1 &
 INIT_PID=$!
 

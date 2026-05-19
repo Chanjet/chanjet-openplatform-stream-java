@@ -4,10 +4,25 @@
 
 ---
 
-## 🛠️ 故障诊断 (Diagnostics)
+## 🛠️ 深度诊断与自检 (Diagnostics & Doctor)
 
-当您发现无法接收推送或 API 调用返回 401 时，请通过以下内置命令检查系统状态：
+当您发现无法接收推送或 API 调用异常时，除了基础状态检查外，建议使用 v0.3.1 引入的深度体检工具：
 
+### 1. 一键深度体检 (System Doctor)
+```bash
+# 运行全面诊断（推荐在配置变更或迁移后运行）
+cowen doctor
+
+# 运行详细模式（包含插件哈希校验与网络延迟测试）
+cowen doctor --verbose
+```
+**诊断内容包括**：
+- **网络探测**：检查 OpenAPI 和 Stream Gateway 的端到端延迟。
+- **存储权限**：验证数据库（SQLite/MySQL/Redis）的读写权限与表结构一致性。
+- **插件校验**：检查 AI 搜索插件 (`cdylib`) 是否加载成功及其版本指纹。
+- **环境隔离**：验证 `COWEN_HOME` 路径下的物理权限。
+
+### 2. 基础状态监控
 ```bash
 # 查看详细的身份认证与长连接状态
 cowen auth status
@@ -16,16 +31,66 @@ cowen auth status
 cowen store status
 ```
 
-**关键检查点**：
-- **Auth Status**: 确认 `App Access Token` 是否有效。
-- **Stream Bridge**: 确认 WebSocket 状态是否为 `ACTIVE`。
-- **Store Status**: 确认数据库或 Redis 是否可连通。
+---
+
+## ⚡ 动态配置与热重载 (Dynamic Config & Hot-Reload)
+
+在 v0.3.1+ 中，`cowen` 支持**零停机时间**的动态配置调整，确保生产环境下连接不断流。
+
+### 1. 动态调整日志级别
+无需重启 Daemon 进程，即可即时改变日志输出深度（用于在线排查）：
+```bash
+# 将日志级别动态提升至 debug
+cowen config set log.level debug
+```
+*注：系统会通过 `SIGHUP` 信号或内部监听器通知 Daemon 进程，变更会在 1 秒内生效。*
+
+### 2. 指标监控端口
+您可以动态修改监控端口，以适配不同的集群安全组：
+```bash
+cowen config set monitor.port 9091
+```
+
+---
+
+## 📊 指标监控与健康度 API (Metrics & Health)
+
+`cowen` 提供符合 Prometheus 标准的监控端点，支持对接 Grafana 等主流观测工具。
+
+- **健康状态**: `GET http://127.0.0.1:8081/health` -> 返回 `UP` 状态。
+- **性能指标**: `GET http://127.0.0.1:8081/metrics` -> 返回 Prometheus 格式的打点数据。
+
+**核心指标清单**：
+- `cowen_api_calls_total`: 代理调用总次数。
+- `cowen_stream_reconnects_total`: 长连接重连次数（用于评估网络稳定性）。
+- `cowen_dlq_size`: 当前死信队列积压数。
+- `cowen_token_ttl_seconds`: 令牌剩余有效期（用于告警）。
+
+---
+
+## 🧩 可插拔搜索插件 (Search Plugins)
+
+v0.3.1 引入了基于动态链接库的搜索增强架构，允许在不增加主程序体积的情况下扩展语义搜索能力。该功能完整支持 macOS, Linux 及 **Windows** 操作系统。
+
+- **内置搜索**：默认提供基础字符串匹配。
+- **AI 增强**：通过插件支持 ONNX 向量检索。
+- **配置与管理**：
+    - **自动发现**: 系统会自动扫描插件目录下的候选文件：
+        - **macOS**: `.dylib` 或 `.so`
+        - **Linux**: `.so`
+        - **Windows**: `.dll`
+    - **扫描路径**: 优先扫描 `/usr/local/lib/cowen/` (Unix) 或 `cowen.exe` 所在目录。
+    - **精细化启闭管理**: 
+        - **推荐做法 (持久化)**: 在配置文件 `app.yaml` 的 `search.enabled` 数组中移除插件名称（如 `cowen-search-embedding`），即可彻底禁用对应的 AI 搜索能力。保持数组为空 `[]` 时，系统将仅使用基础字符串匹配。
+    - **优雅降级**: 如果插件加载失败，系统会自动降级到 `StringMatch` 模式，确保 API 搜索功能依然可用。
 
 ---
 
 ## 📬 死信队列管理 (Dead Letter Queue)
 
 当本地 Webhook 转发失败（如您的业务系统宕机）时，消息会进入 `DLQ`。
+... (rest of content) ...
+
 
 ### 1. 查看待处理消息
 ```bash
