@@ -1,8 +1,13 @@
 #!/bin/bash
+set -e
 # Case 12: Daemon Recovery Verification
 # Checks if the daemon is automatically restarted when a command is executed after a crash.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 # Setup workspace
 setup_workspace "daemon_recovery"

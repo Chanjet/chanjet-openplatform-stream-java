@@ -1,8 +1,13 @@
 #!/bin/bash
+set -e
 # Case 13: Distributed Deployment & Load Balancing Verification
 # Verifies that multiple cowen nodes can coexist and messages are distributed across them.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 # Define nodes
 export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"

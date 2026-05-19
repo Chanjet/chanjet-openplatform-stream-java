@@ -1,7 +1,12 @@
 #!/bin/bash
+set -e
 # Case 10: Profile Management (use, rename, list, current, reset)
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 setup_workspace "profile_mgmt"
 trap cleanup_suite EXIT

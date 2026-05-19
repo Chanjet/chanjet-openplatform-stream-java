@@ -87,62 +87,36 @@ pub struct DiagnosticResult {
 *   **边界约束**: 
     *   `cowen-search` 提供核心 Trait 和轻量级字符串匹配，作为核心依赖。
     *   `cowen-search-embedding` 是完全隔离的动态库 Crate，封装臃肿的 ONNX。
+*   **自动发现规范**:
+    *   在插件加载目录中，根据目标操作系统自动识别插件扩展名：
+        *   macOS: `*.dylib`, `*.so`
+        *   Linux: `*.so`
+        *   Windows: `*.dll`
 
 ### 4.2 ABI 兼容性契约 (FFI Interface)
 为确保跨动态库边界的内存安全，**严禁使用 Rust 原生集合 (`Vec`, `&str`)**，必须使用纯 C ABI 传递指针或 C 字符串：
 
 ```rust
-// 跨界通信结构体 (C ABI)
-#[repr(C)]
-pub struct CSearchResult {
-    pub ptr: *const libc::c_char, // JSON 序列化的结果数组
-    pub len: usize,
-}
-
-// cowen-search/src/provider.rs
-pub trait SearchProvider: Send + Sync {
-    fn name(&self) -> &str;
-    fn search(&self, query: &str, items: &[ApiItem], top_k: usize) -> Result<Vec<SearchResult>>;
-}
-
-// libcowen_search_embedding 导出 (在 cowen-search-embedding 中)
-#[no_mangle]
-pub unsafe extern "C" fn cowen_search_provider_v1_init() -> *mut c_void {
-    let provider = Box::new(EmbeddingSearchProvider::new());
-    Box::into_raw(provider) as *mut c_void
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn cowen_search_provider_v1_search(
-    provider_ptr: *mut c_void,
-    query_ptr: *const libc::c_char,
-    items_json_ptr: *const libc::c_char, // 使用 JSON 字符串传递复杂数组以规避内存布局问题
-    top_k: usize,
-) -> CSearchResult {
-    // 内部实现：反序列化 -> 搜索 -> 序列化为 CSearchResult 返回
-    // ...
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn cowen_search_provider_v1_free_result(res: CSearchResult) {
-    // 由插件分配的内存，必须由插件释放
-    if !res.ptr.is_null() {
-        let _ = std::ffi::CString::from_raw(res.ptr as *mut libc::c_char);
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn cowen_search_provider_v1_free(ptr: *mut c_void) {
-    if !ptr.is_null() {
-        let _ = Box::from_raw(ptr as *mut EmbeddingSearchProvider);
-    }
+// cowen-search/src/loader.rs
+// 自动发现插件实现
+pub fn discover_plugins<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
+    let supported_exts = if cfg!(target_os = "windows") {
+        vec!["dll"]
+    } else if cfg!(target_os = "macos") {
+        vec!["dylib", "so"]
+    } else {
+        vec!["so"]
+    };
+    // ...扫描逻辑
 }
 ```
 
-### 4.3 确定性加载步骤
-1.  若配置为 `embedding_search`，尝试通过 `libloading` 加载 `~/.cowen/lib/libcowen_search_embedding.[so|dylib|dll]`。
-2.  获取符号 `cowen_search_provider_v1_init`。
-3.  若加载失败或库不存在，退退到 `string_matching` 模式并发出警告。
+### 4.3 显式管理与加载步骤
+1.  **自动发现**: 扫描插件目录，将匹配后缀的文件加入候选池。
+2.  **配置映射**: 读取配置文件中的 `search.plugins` 映射表。
+3.  **显式启用**: 仅根据 `search.plugins.enabled` 指定的名称，从候选池中定位物理路径并加载。
+4.  **动态绑定**: 使用 `libloading` 在运行时动态加载符号（ABI 导出 `v1_init`, `v1_free`）。
+5.  **优雅降级**: 若插件未启用或加载失败，自动回退到内置的 `string_matching` 实现。
 
 ---
 

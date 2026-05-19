@@ -1,11 +1,16 @@
 #!/bin/bash
+set -e
 # Case 18: Redis Fault Tolerance & Recovery (Hybrid Architecture)
 # Verifies:
 #   1. System works with Hybrid Store (SQLite Persistence + Redis Cache).
 #   2. When Redis is down, system still has config but token might fail.
 #   3. When Redis is back, system recovers and re-caches token.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 REDIS_PORT=6380
 REDIS_URL="redis://127.0.0.1:$REDIS_PORT/0"

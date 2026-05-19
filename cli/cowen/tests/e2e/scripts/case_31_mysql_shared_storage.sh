@@ -1,10 +1,15 @@
 #!/bin/bash
+set -e
 # Case 32: MySQL Shared Storage & Distributed Token Synchronization
 # Verifies:
 #   1. Node 1 and Node 2 can share tokens via MySQL.
 #   2. Token refresh on Node 1 is immediately visible to Node 2 via MySQL.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 # Configuration
 MYSQL_PORT=3306

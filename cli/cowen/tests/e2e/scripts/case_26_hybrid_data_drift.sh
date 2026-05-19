@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 # Case 27: Hybrid Store Data Drift (Blind Spot Verification)
 # Verifies:
 #   1. When using Hybrid Storage (Redis + SQL).
@@ -6,7 +7,11 @@
 #   3. Does the CLI detect the drift and reconcile, or does it serve stale cache?
 #   Note: This is a known blind spot. The test might fail.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 setup_workspace "case_26"

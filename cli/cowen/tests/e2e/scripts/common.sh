@@ -13,13 +13,21 @@ export NC='\033[0m'
 
 # Detect OS and adjust binary name
 OS_TYPE=$(uname -s)
-if [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
-    export IS_WINDOWS=true
-    export COWEN_BIN="${COWEN_BIN:-./target/debug/cowen.exe}"
-else
-    export IS_WINDOWS=false
-    export COWEN_BIN="${COWEN_BIN:-./target/debug/cowen}"
-fi
+find_bin() {
+    if [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
+        if [ -f "./target/release/cowen-test.exe" ]; then echo "./target/release/cowen-test.exe";
+        elif [ -f "./target/debug/cowen-test.exe" ]; then echo "./target/debug/cowen-test.exe";
+        elif [ -f "./target/release/cowen.exe" ]; then echo "./target/release/cowen.exe";
+        else echo "./target/debug/cowen.exe"; fi
+    else
+        if [ -f "./target/release/cowen-test" ]; then echo "./target/release/cowen-test";
+        elif [ -f "./target/debug/cowen-test" ]; then echo "./target/debug/cowen-test";
+        elif [ -f "./target/release/cowen" ]; then echo "./target/release/cowen";
+        else echo "./target/debug/cowen"; fi
+    fi
+}
+export COWEN_BIN="${COWEN_BIN:-$(find_bin)}"
+export COWEN_BUILD_DIR=$(dirname "$COWEN_BIN")
 
 export MOCK_PORT="${MOCK_PORT:-9299}"
 export MOCK_URL="http://127.0.0.1:$MOCK_PORT"
@@ -149,6 +157,12 @@ cleanup_suite() {
                     sleep 0.5
                 fi
                 rm -f "$pid_file" >/dev/null 2>&1 || true
+            done
+            
+            # Robust Lock File Cleanup: Ensure all db lock/wal/shm files are removed
+            # This prevents SQLite from entering busy/locked states on next run
+            find "$COWEN_HOME" -name "*.db-wal" -o -name "*.db-shm" -o -name "*.db-journal" | while read lock_file; do
+                rm -f "$lock_file" >/dev/null 2>&1 || true
             done
         fi
 

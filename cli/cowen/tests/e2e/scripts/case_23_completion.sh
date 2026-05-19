@@ -1,11 +1,16 @@
 #!/bin/bash
+set -e
 # Case 24: Shell Completion Support
 # Verifies:
 #   1. 'completion <shell>' generates a non-empty script.
 #   2. 'completion --install' modifies the shell rc file.
 #   3. 'completion --uninstall' removes the configuration.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 setup_workspace "case_23"

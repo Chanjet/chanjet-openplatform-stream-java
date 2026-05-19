@@ -1,10 +1,15 @@
 #!/bin/bash
+set -e
 # Case 17: Redis Shared Storage & Distributed Token Sync
 # Verifies:
 #   1. Node 1 and Node 2 can share tokens via Redis.
 #   2. Token retrieved by Node 1 is immediately available to Node 2 without extra API calls.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 REDIS_PORT=$(get_unused_port)
 REDIS_URL="redis://127.0.0.1:$REDIS_PORT/0"

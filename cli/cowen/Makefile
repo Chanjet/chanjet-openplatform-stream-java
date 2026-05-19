@@ -103,7 +103,11 @@ PREVIEW_APP_KEY  ?= RjP3LPoI   # 预览/集成测试环境 AppKey (Preview/INTE)
 
 # --- 核心构建目标 ---
 
-macos-aarch64:
+build-plugins:
+	@echo "🛠️ Building search-embedding plugin (Release)..."
+	cargo build --release -p cowen-search-embedding
+
+macos-aarch64: build-plugins
 	@echo "🍎 Building macOS Apple Silicon v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/macos-aarch64
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release
@@ -123,7 +127,7 @@ test-macos-aarch64:
 	@$(call SHA1,$(OUTPUT_DIR)/test/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/test/$(BINARY))
 
-macos-x86_64:
+macos-x86_64: build-plugins
 	@echo "🍎 Building macOS Intel v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/macos-x86_64
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-apple-darwin --no-default-features
@@ -133,7 +137,7 @@ macos-x86_64:
 	@$(call SHA1,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
 
-linux-x86_64:
+linux-x86_64: build-plugins
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] natively v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
@@ -224,7 +228,7 @@ linux-x86_64-legacy-with-podman: prepare-podman-image
 	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64-legacy/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64-legacy/$(BINARY))
 
-linux-aarch64:
+linux-aarch64: build-plugins
 	@echo "🐧 Building Linux aarch64 v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features

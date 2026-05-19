@@ -85,17 +85,20 @@
 *   **Task 6.1: `cowen-search` SPI 与内置实现**
     *   定义 `SearchProvider` Trait。
     *   实现内置基于字符串匹配的 `StringMatchProvider`。
-*   **Task 6.2: `cowen-search-embedding` 动态库化**
-    *   迁移 ONNX 模型逻辑，配置为 `cdylib` 编译目标。
-    *   建立 C ABI 边界 (`v1_init`, `v1_free`)。
-*   **Task 6.3: 动态加载机制与 Fallback**
-    *   在 `cowen-search` 中引入 `libloading`，实现运行时加载动态库的安全逻辑。
-    *   实现加载失败时的优雅降级 (Fallback) 逻辑。
-    *   修改 `api list --search` 命令路由至 `cowen-search`。
-*   **Task 6.4 (E2E)**: 实现 `tests/e2e/scripts/case_48_search_plugin.sh` 验证降级警告及插件正常加载的行为。
+*   **Task 6.2: `cowen-search-embedding` 动态库化与 C ABI**
+    *   将插件逻辑封装为 `cdylib`，导出符合 C ABI 规范的 `v1_init` 和 `v1_free` 接口。
+*   **Task 6.3: 插件自动发现与动态加载机制**
+    *   引入 `libloading` 实现运行时加载。
+    *   实现插件目录的 `discover_plugins` 扫描逻辑，支持跨平台扩展名（`.dylib`, `.so`, `.dll`）。
+    *   引入插件元数据解析，支持按 `type`/`capability` 分类管理。
+*   **Task 6.4: 配置映射与显式启用机制**
+    *   实现基于 YAML 映射表的显式插件启用机制，支持通过 `enabled: ["name1", "name2"]` 同时组合多种能力插件。
+*   **Task 6.5: 优雅降级与 E2E 验证**
+    *   实现加载失败时的 Fallback 降级。
+    *   编写 `tests/e2e/scripts/case_48_search_plugin.sh` 验证自动发现、显式启用及能力组合效果。
 *   **验收标准 (Acceptance Criteria)**:
-    1. 新增插件加载失败时降级机制的 TDD 单元测试并 100% 通过。
-    2. 自动化 E2E 脚本 `case_48_search_plugin.sh` 运行成功：在移除动态链接库时，`api list --search` 命令能抛出优雅降级警告并成功退回到内置的字符串检索匹配模式；插件存在时能正常调用 C-ABI 动态载入推理。
+    1. 单元测试覆盖自动发现目录、插件 metadata 解析及配置加载逻辑。
+    2. 自动化 E2E 脚本 `case_48_search_plugin.sh` 验证：插件自动发现感知、多种能力插件的显式组合启用、插件不存在时的优雅退化。
 
 ## Phase 7: 健壮性与进程自愈增强 (Robustness & Self-Healing Enhancements)
 *   **Task 7.1: DLQ 存储异常 Panic 防护实现**

@@ -1,10 +1,15 @@
 #!/bin/bash
+set -e
 # Case 25: System Health Check (Status --all)
 # Verifies:
 #   1. 'status --all' scans all profiles.
 #   2. Correctly identifies healthy vs unhealthy profiles.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment with Multiple Profiles${NC}"
 setup_workspace "case_24"

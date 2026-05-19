@@ -1,10 +1,15 @@
 #!/bin/bash
+set -e
 # Case 15: StoreApp Mode - Shared Storage & Distributed Sync
 # Verifies:
 #   1. Node 2 can start in Sidecar (store-app) mode by reading credentials from shared DB.
 #   2. Webhook events (APP_TICKET) received by Node 2 are stored in shared DB and visible to Node 1.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
 

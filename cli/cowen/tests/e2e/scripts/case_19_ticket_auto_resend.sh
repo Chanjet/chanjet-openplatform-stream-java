@@ -1,11 +1,16 @@
 #!/bin/bash
+set -e
 # Case 19: StoreApp Mode - Ticket Auto-Resend
 # Verifies:
 #   1. When AppTicket is missing, 'auth token' triggers /auth/appTicket/resend.
 #   2. Daemon receives the ticket and updates storage.
 #   3. 'auth token' eventually succeeds.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 pkill cowen-test || true

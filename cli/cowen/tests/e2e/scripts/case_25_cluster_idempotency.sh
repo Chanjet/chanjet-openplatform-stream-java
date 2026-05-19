@@ -1,11 +1,16 @@
 #!/bin/bash
+set -e
 # Case 26: Cluster Idempotency (Blind Spot Verification)
 # Verifies:
 #   1. When two instances (sharing the same DB) receive the same Webhook msgId simultaneously,
 #      only ONE of them forwards it to the sink.
 #   Note: This is currently a known architectural blind spot. The test might fail.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 setup_workspace "case_25"

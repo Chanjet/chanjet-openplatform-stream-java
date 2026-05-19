@@ -1,11 +1,16 @@
 #!/bin/bash
+set -e
 # Case 36: StoreApp AppTicket Storage Persistence in PostgreSQL
 # Verifies:
 #   1. When an AppTicket is received from the platform (Mock), it is saved in PostgreSQL.
 #   2. The ticket is persisted and survives daemon restarts.
 #   3. Multiple nodes can access the same AppTicket from shared storage.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 # Configuration
 PG_PORT=5432

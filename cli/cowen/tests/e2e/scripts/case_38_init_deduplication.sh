@@ -1,9 +1,14 @@
 #!/bin/bash
+set -e
 # Case 41: Init Deduplication
 # Ensures that initializing with the same parameters (app_key, app_mode) 
 # doesn't create a new profile even if a new name is provided.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 setup_workspace "init_dedup"
 trap cleanup_suite EXIT

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 # Case 03: OAuth2 Full-Lifecycle E2E Test
 #
 # Architecture:
@@ -14,7 +15,11 @@
 #   6. Verify token was acquired correctly
 #   7. Test daemon auto-refresh with expired token injection
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 setup_workspace "oauth2"
 trap cleanup_suite EXIT

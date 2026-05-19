@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 # Case 44: Auth Logout and Re-Login Flow (OAuth2)
 #
 # Verifies:
@@ -6,7 +7,11 @@
 #   2. 'status' reports WARN / "Not logged in" after logout.
 #   3. 'auth login' automatically falls back to browser flow when tokens are missing.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 setup_workspace "auth_logout_login"
 trap cleanup_suite EXIT

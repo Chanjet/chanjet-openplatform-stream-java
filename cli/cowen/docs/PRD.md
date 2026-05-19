@@ -26,12 +26,27 @@ v0.3.1 版本致力于增强 `cowen` 在生产环境中的 **可观测性 (Obser
     *   输出格式化的诊断报告，给出修复建议。
 
 ### 2.4 API 搜索插件化 (Pluggable Search Engine)
-*   **需求背景**: 目前的语义搜索依赖较重（ONNX 运行时），且搜索算法可能持续演进。希望将搜索能力抽象为插件，支持基础字符串匹配与高级语义搜索的动态切换。
-*   **功能描述**: 
     *   **架构解耦**: 抽象 `SearchProvider` 接口，支持多种搜索策略。
-    *   **策略切换**: 配置文件中 `search_engine` 可选值为 `string_matching` (内置) 或 `embedding_search` (动态加载)。
-    *   **按需分发**: 将高级语义搜索实现为动态链接库 (如 `libcowen_search_embedding.so/dylib/dll`)。核心二进制仅包含基础匹配逻辑，减小体积。
-    *   **分发优化**: 若配置为 `embedding_search` 但插件库不存在，系统应自动降级到 `string_matching` 并提供安装指引。
+    *   **插件自动发现机制**: 系统支持在指定的插件目录下自动扫描符合操作系统规范（macOS: `.dylib/.so`, Linux: `.so`, Windows: `.dll`）的二进制插件，并支持自动识别与分类多种不同类型、不同能力的插件（例如：多种检索算法、多种语义 Embedding 模型）。
+    *   **显式插件管理与映射**: 用户必须在配置文件 `search.plugins` 部分通过映射表明确指定启用的插件及其路径。插件定义必须包含 `type` 或 `capability` 元数据以支持多插件分类管理。
+        *   配置结构示例：
+            ```yaml
+            search:
+              plugins:
+                - name: "embedding_model_a"
+                  type: "embedding"
+                  path: "./dist_assets/libmodel_a.dll"
+                - name: "keyword_ranker_b"
+                  type: "ranking"
+                  path: "./dist_assets/libranker_b.dll"
+              enabled: ["embedding_model_a", "keyword_ranker_b"] # 支持显式启用多种能力插件
+            ```
+        *   系统根据 `enabled` 列表中的插件名称进行精确加载，实现多插件共存与能力组合。
+    *   **索引按需触发**: 当且仅当指定的搜索插件被显式生效时，系统才会触发对应的本地 API 文档向量化索引构建。
+    *   **按需分发**: 将搜索实现打包为独立的动态链接库，由用户显式管理其物理分发与存放路径。
+    *   **分发优化**: 若 `enabled` 插件无法定位或加载失败，系统自动降级到内置的 `string_matching` 搜索策略并记录详细的错误日志。
+
+
 
 ### 2.5 DLQ 存储异常 Panic 防护 (DLQ Init Panic Protection)
 *   **需求背景**: 避免因底层存储服务（如 SQLite/Redis）启动连接失败、写保护或死锁导致整个 `cowen` 进程异常 Panic 崩溃。

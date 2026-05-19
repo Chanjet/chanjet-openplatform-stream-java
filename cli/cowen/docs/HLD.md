@@ -79,9 +79,11 @@ graph TD
     *   彻底拆分，新建极简的 `cowen-search` crate，定义 `SearchProvider` Trait 及其内部实现的字符串匹配。
     *   新建重量级的 `cowen-search-embedding` crate，包含所有的 ONNX 模型及深度学习依赖。
 *   **加载逻辑**: 
-    1. 根据 `search_engine` 配置项，若为 `string_matching`，则直接调用 `cowen-search` 中的内置实现。
-    2. 若为 `embedding_search`，`cowen-search` 使用 `libloading` 在运行时动态加载 `libcowen_search_embedding`（编译为动态库）。
-    3. 发生错误时，优雅降级。
+    1.  **自动发现**: 启动时，`cowen-search` 会扫描配置目录，识别符合当前平台规范（macOS: `.dylib/.so`, Linux: `.so`, Windows: `.dll`）的动态库。
+    2.  **显式生效**: 根据配置 `search.plugins.enabled`，系统加载对应的库（编译为动态库）。
+    3.  **动态绑定**: 使用 `libloading` 在运行时动态加载符号（ABI 导出 `v1_init`, `v1_free`）。
+    4.  **按需触发**: 当且仅当插件被显式生效时，触发索引构建。
+    5.  **优雅降级**: 若插件库不存在、无法加载或索引为空，系统自动降级到内置的 `string_matching` 实现。
 
 ### 3.5 DLQ 存储异常 Panic 防护 (cowen-server)
 *   **架构变更**:

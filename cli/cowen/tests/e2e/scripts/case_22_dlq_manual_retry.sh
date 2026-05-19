@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 # Case 22: Manual DLQ Intervention (Dead Letter Queue)
 # Verifies:
 #   1. Failing webhooks are stored in DLQ.
@@ -6,7 +7,11 @@
 #   3. 'cowen dlq retry <ID>' successfully forwards the message after sink recovery.
 #   4. Retried messages are removed from DLQ.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 setup_workspace "case_22"

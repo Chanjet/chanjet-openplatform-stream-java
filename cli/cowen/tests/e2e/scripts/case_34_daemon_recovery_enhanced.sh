@@ -1,11 +1,16 @@
 #!/bin/bash
+set -e
 # Case 35: Enhanced Daemon Recovery Verification (Self-Built & OAuth2)
 # Checks:
 # 1. Daemon auto-restarts on next command if missing (External Kill).
 # 2. Daemon auto-restarts on next command if hanging (Unresponsive Port).
 # 3. No unexpected crash logs generated for external kills.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 setup_workspace "daemon_recovery_enhanced"
 # trap cleanup_suite EXIT
 start_mock

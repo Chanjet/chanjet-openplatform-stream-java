@@ -1,8 +1,13 @@
 #!/bin/bash
+set -e
 # Case 43: Dynamic Log Level Configuration Verification
 # Verifies that log levels can be set via config command and effectively control log output.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 # Setup workspace
 setup_workspace "log_level_dynamic"

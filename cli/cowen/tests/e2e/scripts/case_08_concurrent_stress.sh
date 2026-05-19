@@ -1,5 +1,10 @@
 #!/bin/bash
-source tests/e2e/scripts/common.sh
+set -e
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 setup_workspace "concurrency"
 trap cleanup_suite EXIT

@@ -1,9 +1,14 @@
 #!/bin/bash
+set -e
 # Case 34: Exclusive Connection Mode Verification
 # Verifies that when a new connection is established for the same AppKey in exclusive mode, 
 # the previous connection is evicted.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 setup_workspace "exclusive_test"

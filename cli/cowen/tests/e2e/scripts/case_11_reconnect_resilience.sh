@@ -1,8 +1,13 @@
 #!/bin/bash
+set -e
 # Case 11: WebSocket Reconnection Resilience
 # Simulates network drop or service rolling restart by force-closing WS connections on the mock server.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 setup_workspace "reconnect_test"
 trap cleanup_suite EXIT

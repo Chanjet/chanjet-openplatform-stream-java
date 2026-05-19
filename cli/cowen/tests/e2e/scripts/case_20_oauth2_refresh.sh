@@ -1,7 +1,12 @@
 #!/bin/bash
+set -e
 # Case 20: OAuth2 Refresh Token Renewal (Log-Driven Recovery)
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 setup_workspace "case_20"
@@ -75,7 +80,7 @@ echo -e "${BOLD}2. Get Initial Token${NC}"
 TOKEN_1=$(extract_token "$PROF")
 echo "     Initial Token: $TOKEN_1"
 
-if [[ "$TOKEN_1" == *"authorization_code"* ]]; then
+if [[ -n "$TOKEN_1" ]] && [[ "$TOKEN_1" == mock_at_oa2_* ]]; then
     echo -e "   ${GREEN}✓${NC} Initial token obtained"
 else
     echo -e "   ${RED}[FAILED]${NC} Token retrieval failed"
@@ -89,10 +94,10 @@ sleep 8
 TOKEN_2=$(extract_token "$PROF")
 echo "     New Token: $TOKEN_2"
 
-if [[ "$TOKEN_2" == *"refresh_token"* ]]; then
-    echo -e "   ${GREEN}✓${NC} Token successfully renewed via refresh_token"
+if [[ -n "$TOKEN_2" ]] && [[ "$TOKEN_2" == mock_at_oa2_* ]] && [[ "$TOKEN_2" != "$TOKEN_1" ]]; then
+    echo -e "   ${GREEN}✓${NC} Token successfully renewed"
 else
-    echo -e "   ${RED}[FAILED]${NC} Token refresh failed. Got: $TOKEN_2"
+    echo -e "   ${RED}[FAILED]${NC} Token refresh failed or token did not change. Got: $TOKEN_2"
     exit 1
 fi
 

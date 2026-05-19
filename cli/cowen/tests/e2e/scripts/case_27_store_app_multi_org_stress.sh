@@ -4,7 +4,11 @@
 #   1. A single StoreApp profile can handle organizations.
 #   2. Token retrieval is org-specific and correctly isolated.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 setup_workspace "case_27"

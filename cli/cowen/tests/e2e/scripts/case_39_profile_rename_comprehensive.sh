@@ -1,7 +1,12 @@
 #!/bin/bash
+set -e
 # Case 42: Comprehensive Profile Rename Test across all storage modes
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 test_rename_for_storage() {
     local mode=$1

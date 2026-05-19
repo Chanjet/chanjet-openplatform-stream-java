@@ -1,11 +1,16 @@
 #!/bin/bash
+set -e
 # Case 21: OpenAPI Whitelist (Active Interception)
 # Verifies:
 #   1. 'cowen api' fetches the whitelist from the platform.
 #   2. Requests to paths NOT in the whitelist are blocked locally.
 #   3. Requests to whitelisted paths are forwarded.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
 setup_workspace "case_21"

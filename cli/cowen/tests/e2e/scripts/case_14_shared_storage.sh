@@ -1,10 +1,15 @@
 #!/bin/bash
+set -e
 # Case 14: Shared Storage & Distributed Token Synchronization
 # Verifies:
 #   1. Node 2 can start without 'init' by reading config from a shared DB initialized by Node 1.
 #   2. Token refresh on Node 1 is immediately visible to Node 2 via shared storage.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 # Force cleanup before starting
 # pkill -9 cowen-test || true

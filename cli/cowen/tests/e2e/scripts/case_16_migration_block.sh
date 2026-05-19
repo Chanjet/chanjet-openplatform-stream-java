@@ -2,7 +2,11 @@
 # Case 16: Migration Security Check
 # Verifies that an existing OAuth2 profile migrated to a shared DB is BLOCKED from loading.
 
-source tests/e2e/scripts/common.sh
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
 # Force cleanup
 # sleep 1
