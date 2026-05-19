@@ -57,6 +57,8 @@ pub struct Config {
     pub telemetry_enabled: bool,
     #[serde(default = "default_true")]
     pub ai_enabled: bool,
+    #[serde(default)]
+    pub search: SearchConfig,
     #[serde(default = "default_zero")]
     pub proxy_port: u16,
     #[serde(default = "default_zero")]
@@ -75,6 +77,21 @@ pub struct Config {
     pub version: u64,
     #[serde(default)]
     pub exclusive: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SearchConfig {
+    #[serde(default)]
+    pub plugins: Vec<PluginEntry>,
+    #[serde(default)]
+    pub enabled: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginEntry {
+    pub name: String,
+    pub path: String,
+    pub r#type: String,
 }
 
 fn default_true() -> bool {
@@ -133,6 +150,7 @@ impl Config {
             },
             telemetry_enabled: true,
             ai_enabled: true,
+            search: SearchConfig::default(),
             proxy_port: 0,
             monitor_port: 0,
             proxy_enabled: true,

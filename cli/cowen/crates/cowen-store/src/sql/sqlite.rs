@@ -415,11 +415,15 @@ impl SqlDriver for SqliteDriver {
     }
 
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()> {
-        sqlx::query("UPDATE cowen_config SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        sqlx::query("UPDATE cowen_secret SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        sqlx::query("UPDATE cowen_token SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        sqlx::query("UPDATE cowen_audit SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        sqlx::query("UPDATE cowen_dlq SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut tx = self.pool.begin().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        
+        sqlx::query("UPDATE cowen_config SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&mut *tx).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_secret SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&mut *tx).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_token SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&mut *tx).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_audit SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&mut *tx).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_dlq SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&mut *tx).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        
+        tx.commit().await.map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }
 
@@ -465,10 +469,14 @@ impl SqlBuilder for SqliteBuilder {
 
         let options = SqliteConnectOptions::from_str(&normalized_url).map_err(|e| CowenError::Store(e.to_string()))?
             .create_if_missing(true)
-            .busy_timeout(std::time::Duration::from_secs(30))
+            .busy_timeout(std::time::Duration::from_secs(60))
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
-        let pool = sqlx::SqlitePool::connect_with(options).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await.map_err(|e| CowenError::Store(e.to_string()))?;
         
         let ddl = [
             "CREATE TABLE IF NOT EXISTS cowen_config (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, version INTEGER DEFAULT 0, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (profile, item_key))",

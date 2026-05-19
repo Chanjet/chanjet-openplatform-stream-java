@@ -4,20 +4,21 @@ use std::ffi::c_char;
 use tracing::warn;
 
 pub struct DynamicSearchProvider {
+    name: String,
     loader: PluginLoader,
     _init_fn: libloading::Symbol<'static, unsafe extern "C" fn(*const c_char, *const c_char) -> i32>,
     _free_fn: libloading::Symbol<'static, unsafe extern "C" fn()>,
 }
 
 impl DynamicSearchProvider {
-    pub unsafe fn new<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Self> {
+    pub unsafe fn new<P: AsRef<std::path::Path>>(name: &str, path: P) -> anyhow::Result<Self> {
         let loader = PluginLoader::new(path.as_ref())?;
         let init_fn: libloading::Symbol<'static, unsafe extern "C" fn(*const c_char, *const c_char) -> i32> = 
             std::mem::transmute(loader.get_symbol::<unsafe extern "C" fn(*const c_char, *const c_char) -> i32>(b"v1_init")?);
         let free_fn: libloading::Symbol<'static, unsafe extern "C" fn()> = 
             std::mem::transmute(loader.get_symbol::<unsafe extern "C" fn()>(b"v1_free")?);
         
-        Ok(Self { loader, _init_fn: init_fn, _free_fn: free_fn })
+        Ok(Self { name: name.to_string(), loader, _init_fn: init_fn, _free_fn: free_fn })
     }
 }
 
@@ -29,7 +30,7 @@ impl Drop for DynamicSearchProvider {
 
 impl SearchProvider for DynamicSearchProvider {
     fn name(&self) -> &str {
-        "dynamic_embedding"
+        &self.name
     }
 
     fn search(&self, _query: &str, _top: usize) -> Vec<(f32, &SearchDocument)> {

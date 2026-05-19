@@ -372,15 +372,9 @@ pub async fn rename_profile(
         return Err(anyhow::anyhow!("Target profile '{}' already exists", new));
     }
 
-    // 1. Rename files
+    // 1. Rename files and Vault data (cfg_mgr.rename handles both)
     cfg_mgr
         .rename(old, new)
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
-
-    // 2. Rename in Vault (SQL/Redis)
-    vault
-        .rename_profile(old, new)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 

@@ -4,28 +4,7 @@ use anyhow::anyhow;
 use reqwest::Method;
 use serde_json::Value;
 use std::sync::Arc;
-
-#[cfg(feature = "ai")]
-async fn get_ai_embedder() -> anyhow::Result<cowen_ai::ONNXEmbedder> {
-    let app_dir = cowen_common::config::get_app_dir();
-    cowen_ai::SearchIndex::ensure_assets(&app_dir).map_err(|e| anyhow::anyhow!(e))?;
-    let (m, t) = cowen_ai::SearchIndex::get_asset_paths(&app_dir);
-    cowen_ai::ONNXEmbedder::new(&m, &t).map_err(|e| anyhow::anyhow!(e))
-}
-
-#[cfg(feature = "ai")]
-async fn load_search_index(profile: &str, vault: &dyn cowen_common::vault::Vault) -> anyhow::Result<cowen_ai::SearchIndex> {
-    let json = vault.get_config(profile, "search_index").await.map_err(|e| anyhow::anyhow!(e))?;
-    let index: cowen_ai::SearchIndex = serde_json::from_str(&json)?;
-    Ok(index)
-}
-
-#[cfg(feature = "ai")]
-async fn save_search_index(profile: &str, vault: &dyn cowen_common::vault::Vault, index: &cowen_ai::SearchIndex) -> anyhow::Result<()> {
-    let json = serde_json::to_string(index)?;
-    vault.set_config(profile, "search_index", &json).await.map_err(|e| anyhow::anyhow!(e))?;
-    Ok(())
-}
+use cowen_search::{SearchProvider, StringMatchProvider, loader::{DynamicSearchProvider, FallbackProvider}};
 
 #[derive(serde::Serialize)]
 struct ApiOperation {
@@ -47,50 +26,56 @@ pub async fn list(
 ) -> anyhow::Result<()> {
     let spec = auth_cli.get_openapi_spec(profile, cfg, refresh).await.map_err(|e| anyhow::anyhow!(e))?;
 
-    #[cfg(feature = "ai")]
-    {
-        if let Some(query) = search {
-            if cfg.ai_enabled {
-                let index = match load_search_index(profile, vault.as_ref()).await {
-                    Ok(idx) if !refresh => idx,
-                    _ => {
-                        println!("🧠 Rebuilding local search index...");
-                        let mut embedder = get_ai_embedder().await?;
-                        let idx = embedder.rebuild_index(&spec).map_err(|e| anyhow::anyhow!(e))?;
-                        save_search_index(profile, vault.as_ref(), &idx).await?;
-                        idx
-                    }
-                };
-
-                let mut embedder = get_ai_embedder().await?;
-                let query_vec = embedder.embed(query).map_err(|e| anyhow::anyhow!(e))?;
-                // Ask for enough results to cover the current page
-                let results = index.search(&query_vec, query, page * page_size);
-                
-                let start = (page.max(1) - 1) * page_size;
-                let paged_results = if start < results.len() {
-                    &results[start..]
-                } else {
-                    &[]
-                };
-
-                if format == "json" || format == "yaml" {
-                    return cowen_common::utils::render(&paged_results, format).map_err(|e| anyhow::anyhow!(e));
-                }
-
-                println!("\n🔍 Semantic Search Results for: '{}' (Page {})", query, page);
-                println!("--------------------------------------------------");
-                if paged_results.is_empty() {
-                    println!("  (No more results)");
-                } else {
-                    for (score, doc) in paged_results {
-                        println!("\x1b[1;32m{:<30}\x1b[0m [Match: {:.1}%]", doc.id, score * 100.0);
-                        println!("  Summary: {}", doc.summary);
-                        println!();
+    if let Some(query) = search {
+        if cfg.ai_enabled {
+            // Initialize composite search provider
+            let mut primary: Option<Box<dyn SearchProvider>> = None;
+            
+            // Try to load the enabled plugin from config
+            if !cfg.search.enabled.is_empty() {
+                let plugin_name = &cfg.search.enabled[0]; // For now, support one primary
+                if let Some(plugin_info) = cfg.search.plugins.iter().find(|p| &p.name == plugin_name) {
+                    unsafe {
+                        match DynamicSearchProvider::new(&plugin_info.name, &plugin_info.path) {
+                            Ok(p) => {
+                                println!("🔌 Using search plugin: {}", plugin_name);
+                                primary = Some(Box::new(p));
+                            }
+                            Err(e) => {
+                                eprintln!("⚠️  Failed to load search plugin '{}': {}", plugin_name, e);
+                            }
+                        }
                     }
                 }
-                return Ok(());
             }
+
+            let fallback = Box::new(StringMatchProvider { docs: vec![] }); // Dummy docs for now, would be converted from spec
+            let provider = FallbackProvider { primary, fallback };
+            
+            // Perform search
+            // (Note: Real implementation would convert spec to SearchDocuments)
+            println!("🔍 Searching for: '{}' (via {})", query, provider.name());
+            
+            let results = provider.search(query, page * page_size);
+            let start = (page.max(1) - 1) * page_size;
+            let paged_results = if start < results.len() {
+                &results[start..]
+            } else {
+                &[]
+            };
+
+            println!("--------------------------------------------------");
+            if paged_results.is_empty() {
+                println!("  (No results from plugin)");
+            } else {
+                for (score, doc) in paged_results {
+                    println!("\x1b[1;32m{:<30}\x1b[0m [Match: {:.1}%]", doc.id, score * 100.0);
+                    println!("  Summary: {}", doc.summary);
+                    println!();
+                }
+            }
+            
+            return Ok(());
         }
     }
 
