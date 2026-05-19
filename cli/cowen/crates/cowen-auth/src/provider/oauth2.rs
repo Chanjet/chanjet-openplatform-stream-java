@@ -281,14 +281,25 @@ impl AuthProvider for OAuth2Provider {
             }
         }
 
-        // 2. Slow path: Acquire Cross-Process File Lock
+        // 2. Slow path: Acquire Cross-Process File Lock (Async-friendly)
         let lock_dir = cowen_common::config::get_app_dir().join("locks");
-        std::fs::create_dir_all(&lock_dir)?;
+        let _ = std::fs::create_dir_all(&lock_dir);
         let lock_file_path = lock_dir.join(format!("{}.lock", profile));
-        let lock_file = File::create(&lock_file_path)?;
+        let lock_file = File::create(&lock_file_path).map_err(|e| CowenError::Internal(format!("Failed to create lock file: {}", e)))?;
 
-        // Blocking lock (wait for other processes)
-        lock_file.lock_exclusive()?;
+        // 🚀 STABILITY: Use try_lock in a loop with async sleep to avoid blocking Tokio threads
+        let mut acquired = false;
+        for _ in 0..300 { // Max 30s
+            if lock_file.try_lock_exclusive().is_ok() {
+                acquired = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        if !acquired {
+            return Err(CowenError::Auth(format!("Timeout waiting for cross-process lock for profile '{}'.", profile)));
+        }
 
         let result = (|| async {
             // 3. Double-Check: Reload from Vault after acquiring lock

@@ -1,5 +1,6 @@
 mod bridge;
 pub mod service;
+pub mod renewer;
 
 use cowen_common::config::Config;
 use cowen_config::ConfigManager;
@@ -34,6 +35,7 @@ pub async fn start(profile: &str, config: &Config, _proxy_port: u16, _enable_pro
         
         if let Err(e) = do_start(&p, &p_cfg, p_cfg.proxy_port, p_cfg.proxy_enabled, foreground, cfg_mgr, vault.clone(), telemetry.clone()).await {
             eprintln!("⚠️ Failed to start daemon for profile '{}': {}", p, e);
+            return Err(e);
         }
     }
     Ok(())

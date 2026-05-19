@@ -474,7 +474,7 @@ impl SqlBuilder for SqliteBuilder {
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
         
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
+            .max_connections(5)
             .connect_with(options)
             .await.map_err(|e| CowenError::Store(e.to_string()))?;
         

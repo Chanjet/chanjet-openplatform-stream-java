@@ -7,6 +7,7 @@ use crate::daemon::proxy::start_proxy;
 use cowen_auth::client::Client;
 use cowen_auth::VaultTokenPool;
 use cowen_common::vault::Vault;
+use chrono::Utc;
 use tokio::time::{sleep, Duration};
 
 use cowen_monitor::{counter, gauge};
@@ -44,7 +45,8 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
 
     // 2. Setup Dispatchers (Conditional)
     if supports_webhooks {
-        let forwarder = Forwarder::new(profile, config.clone(), vault.clone());
+        let forwarder = Forwarder::new(profile, config.clone(), vault.clone())
+            .context("Failed to initialize event forwarder/DLQ")?;
         let d = client.dispatcher();
         let mut dispatcher = d.lock().unwrap();
 
@@ -206,11 +208,23 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
 
         loop {
             tracing::info!(target: "sys", "Running bridge credential maintenance check...");
+            let mut next_delay = Duration::from_secs(600);
+
             // 🚀 OCP: Generic Maintenance Tick
             if let Err(e) = auth.on_maintenance_tick(&p_profile_m, &p_config_m).await {
                 tracing::warn!(target: "sys", error = %e, "Maintenance tick failed");
+                next_delay = Duration::from_secs(60); // Retry faster on failure
+            } else {
+                // On success, calculate adaptive delay if possible
+                if let Ok(token) = auth.get_app_access_token(&p_profile_m, &p_config_m).await {
+                    next_delay = crate::cmd::renewer::calculate_next_check_delay(token.expires_at, Utc::now());
+                } else {
+                    tracing::info!(target: "sys", "App token not found, using default maintenance delay.");
+                }
             }
-            sleep(Duration::from_secs(600)).await;
+
+            tracing::info!(target: "sys", "Bridge maintenance sleeping for {:?}...", next_delay);
+            sleep(next_delay).await;
         }
     };
 

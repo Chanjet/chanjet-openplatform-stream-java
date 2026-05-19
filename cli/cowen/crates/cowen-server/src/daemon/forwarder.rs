@@ -13,19 +13,19 @@ pub struct Forwarder {
 }
 
 impl Forwarder {
-    pub fn new(profile: &str, config: cowen_common::config::Config, vault: Arc<dyn cowen_common::vault::Vault>) -> Self {
+    pub fn new(profile: &str, config: cowen_common::config::Config, vault: Arc<dyn cowen_common::vault::Vault>) -> CowenResult<Self> {
         let client = Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
-            .unwrap_or_else(|_| Client::new());
+            .map_err(|e| CowenError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
-        let dlq = Arc::new(DlqStore::new(profile, vault).unwrap()); // Safe unwrap as it only creates struct
+        let dlq = Arc::new(DlqStore::new(profile, vault)?);
 
-        Self {
+        Ok(Self {
             client,
             dlq,
             target_url: config.webhook_target.clone(),
-        }
+        })
     }
 
     pub async fn retry_message(&self, id: i64) -> CowenResult<()> {
