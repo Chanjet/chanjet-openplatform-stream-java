@@ -112,6 +112,7 @@ macos-aarch64: build-plugins
 	mkdir -p $(OUTPUT_DIR)/macos-aarch64
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/macos-aarch64/$(BINARY)
+	cp target/release/libcowen_search_embedding.dylib $(OUTPUT_DIR)/macos-aarch64/ || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
@@ -132,6 +133,7 @@ macos-x86_64: build-plugins
 	mkdir -p $(OUTPUT_DIR)/macos-x86_64
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-apple-darwin --no-default-features
 	cp target/x86_64-apple-darwin/release/$(BINARY) $(OUTPUT_DIR)/macos-x86_64/$(BINARY)
+	cp target/release/libcowen_search_embedding.dylib $(OUTPUT_DIR)/macos-x86_64/ || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/$(BINARY) 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
@@ -143,6 +145,7 @@ linux-x86_64: build-plugins
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-unknown-linux-gnu
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
+	cp target/release/libcowen_search_embedding.so $(OUTPUT_DIR)/linux-x86_64/ || true
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -237,19 +240,21 @@ linux-aarch64: build-plugins
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 
-windows-x86_64:
+windows-x86_64: build-plugins
 	@echo "🪟 Building Windows x86_64 v$(VERSION)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
 	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
+	powershell -NoProfile -Command "if (Test-Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll) { Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force }"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 
-windows-x86_64-legacy:
+windows-x86_64-legacy: build-plugins
 	@echo "🪟 Building Windows x86_64 (Legacy/No-AVX) v$(VERSION)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64-legacy"
 	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc --no-default-features"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64-legacy/$(BINARY).exe -Force"
+	powershell -NoProfile -Command "if (Test-Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll) { Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64-legacy/cowen_search_embedding.dll -Force }"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-legacy/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64-legacy/$(BINARY).exe)
 
@@ -257,8 +262,9 @@ windows-x86_64-legacy:
 
 package-macos-aarch64: clean macos-aarch64
 	@echo "📦 Packaging macOS Apple Silicon..."
-	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-aarch64/release
+	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/lib/cowen pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-aarch64/release
 	cp $(OUTPUT_DIR)/macos-aarch64/$(BINARY) pkg_root/usr/local/bin/$(BINARY)
+	cp target/release/libcowen_search_embedding.dylib pkg_root/usr/local/lib/cowen/ || true
 	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
 	@chmod +x dist_assets/macos/scripts/postinstall
 	pkgbuild --identifier com.chanjet.$(BINARY).aarch64 --version $(VERSION) --root pkg_root --install-location / --scripts dist_assets/macos/scripts $(OUTPUT_DIR)/macos-aarch64/release/$(BINARY)-v$(VERSION)-macos-aarch64.pkg
@@ -268,8 +274,9 @@ package-macos-aarch64: clean macos-aarch64
 
 package-macos-x86_64: clean macos-x86_64
 	@echo "📦 Packaging macOS Intel..."
-	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-x86_64/release
+	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/lib/cowen pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-x86_64/release
 	cp $(OUTPUT_DIR)/macos-x86_64/$(BINARY) pkg_root/usr/local/bin/$(BINARY)
+	cp target/release/libcowen_search_embedding.dylib pkg_root/usr/local/lib/cowen/ || true
 	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
 	@chmod +x dist_assets/macos/scripts/postinstall
 	pkgbuild --identifier com.chanjet.$(BINARY).x86_64 --version $(VERSION) --root pkg_root --install-location / --scripts dist_assets/macos/scripts $(OUTPUT_DIR)/macos-x86_64/release/$(BINARY)-v$(VERSION)-macos-x86_64.pkg
@@ -330,13 +337,15 @@ package-windows-x86_64-legacy: clean windows-x86_64-legacy
 
 # 内部复用的 Linux 打包逻辑
 impl-package-linux-x86_64:
-	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release
+	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
 	cp $(OUTPUT_DIR)/linux-x86_64/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64
+	cp target/release/libcowen_search_embedding.so pkg_root/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64/
-	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64 install.sh README.txt CHANGELOG.md
+	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64 install.sh README.txt CHANGELOG.md -C ../../../cli/cowen/pkg_root lib
 	rm -f $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64
+	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 

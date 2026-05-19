@@ -4,6 +4,31 @@
 
 ---
 
+## [0.3.1] - 2026-05-19
+
+### 🏗️ 架构重构 (Architectural Refactoring)
+- **物理 Crate 隔离实现**: 完成了全工程的物理解耦，将核心逻辑拆分为 `cowen-common`, `cowen-store`, `cowen-auth`, `cowen-search`, `cowen-server`, `cowen-infra` 等 6 个独立 Crate。通过严格的 `Cargo.toml` 依赖管理，确保了核心引擎（Server/Auth）与外围驱动（Store/Plugin）的物理层防腐。
+- **插件加载基础设施 (Plugin Infrastructure)**:
+    - 在 `cowen-infra` 中实现了跨平台 `PluginLoader`，基于 `libloading` 封装了 C ABI 动态链接过程。
+    - 引入了“显式激活”机制，插件必须在配置文件中注册并启用才会被加载，增强了系统的确定性。
+- **自适应令牌维护算法 (Adaptive Renewer)**:
+    - 交付了 `calculate_next_check_delay` 核心函数，实现了 `(剩余寿命 * 0.8)` 的自适应计算逻辑。
+    - 引入了 `±60s` 的随机抖动 (Jitter) 机制，并同步集成至 `renewer.rs` 与 `bridge.rs` 的循环中。
+
+### 🔧 稳定性与性能加固
+- **企业级并发死锁修复**: 
+    - **SQLite 吞吐优化**: 针对 Daemon 内部多任务高并发场景，将 SQLite 连接池最大连接数从 1 放开至 5，彻底消除了异步任务在获取数据库连接时的物理排队死锁。
+    - **异步 IO 锁架构**: 在 OAuth2 场景下，将同步阻塞的文件锁 `lock_exclusive()` 重构为基于 `tokio::time::sleep` 的异步轮询 `try_lock` 模式。这一变更彻底释放了在高并发换票时被占用的 Tokio 线程资源，保障了系统在高频令牌交换下的响应度。
+- **存储异常防护**: 重构了 `Forwarder` 与 `DlqStore` 的初始化链路，移除所有 `unwrap()` 调用，确保在底层数据库不可达或损坏时，进程能通过 Result 链条向上反馈并实现非零退出（Exit Code 1）。
+
+### 🤖 构建与 DevOps
+- **Makefile 插件自动化**: 将 `build-plugins` 集成为全架构构建目标的预置依赖。
+- **测试套件隔离性增强**: 
+    - 修复了并行 E2E 测试环境下的 Shell Sourcing 逻辑，支持 40+ 脚本在原生隔离环境下的并发运行。
+    - 引入了实时日志轮询探测技术，将鲁棒性测试用例的耗时从 30s+ 压缩至 **2s 以内**。
+
+---
+
 ## [0.3.0] - 2026-04-30
 
 ### 🏗️ 架构重构 (Architectural Refactoring)

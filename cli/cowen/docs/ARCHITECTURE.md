@@ -1,4 +1,4 @@
-# cowen 架构设计 (Architecture v0.3.0)
+# cowen 架构设计 (Architecture v0.3.1)
 
 本文档详细介绍了 `cowen` CLI 的核心设计理念、模块划分以及实现细节。本项目遵循 **TDD (测试驱动开发)** 与 **OCP (开闭原则)**。
 
@@ -8,7 +8,7 @@
 
 ## 🏛️ 总体架构
 
-`cowen` 采用模块化分层架构，核心逻辑通过 Trait 进行抽象，确保了良好的可扩展性。
+`cowen` 采用物理隔离的模块化（Physical Crate Isolation）分层架构，确保核心引擎的极简与外围能力的插件化。
 
 ```mermaid
 graph TD
@@ -19,24 +19,23 @@ graph TD
     subgraph "Service Layer"
         Cmd --> AuthCli[AuthClient]
         Cmd --> Daemon[Daemon Engine]
-        Cmd --> Search[Neural Search Engine]
+        Cmd --> Search[Neural Search Hub]
     end
 
     subgraph "Core & Infrastructure"
-        AuthCli --> SPI[AuthProvider SPI]
-        SPI --> SelfBuilt[SelfBuiltProvider]
-        SPI --> StoreApp[StoreAppProvider]
-        SPI --> OAuth2[OAuth2Provider]
+        AuthCli --> AuthSPI[AuthProvider SPI]
+        AuthSPI --> SelfBuilt[SelfBuilt]
+        AuthSPI --> OAuth2[OAuth2]
+        
+        Search --> SearchSPI[SearchProvider SPI]
+        SearchSPI --> EmbedPlugin[Embedding Plugin .so/.dylib]
         
         AuthCli --> Vault[Vault Storage]
-        Vault --> InnerDB[InnerDB / SQLite]
-        Vault --> Redis[Redis / Shared]
+        Vault --> InnerDB[SQLite WAL]
+        Vault --> Redis[Redis]
         
         Daemon --> Forwarder[Stream Forwarder]
-        Daemon --> Proxy[Local Proxy]
-        Daemon --> DLQ[Dead Letter Queue]
-        
-        Main --> Config[ConfigManager]
+        Daemon --> Renewer[Adaptive Token Renewer]
     end
 ```
 
@@ -50,106 +49,46 @@ graph TD
 
 ## 🔌 SPI 与 插件化设计 (OCP Implementation)
 
-`cowen` 核心设计的灵魂在于 **SPI (Service Provider Interface)** 机制。通过将具体实现与核心引擎解耦，系统能够以“零修改”方式扩展鉴权模式和存储后端。
-
 ### 1. AuthProvider SPI: 鉴权插件体系
-
-`AuthProvider` Trait 定义了一套完整的生命周期钩子，允许不同的认证模式注入自定义逻辑：
-
-- **令牌治理**:
-    - `get_token()`: 核心入口，负责从 `TokenPool` 检查有效性或触发换票。
-    - `on_maintenance_tick()`: 后台保鲜逻辑，由 Daemon 定时调用，确保持久化存储中的令牌永不过期。
-- **流量拦截与注入**:
-    - `intercept_request()`: 在 Proxy 模式下，负责将 `openToken` 或其他安全头动态注入上游请求。
-    - `decorate_openapi_request()`: 针对标准 OpenAPI 调用的协议修饰。
-- **异步事件响应**:
-    - `handle_platform_event()`: 处理来自 WebSocket 的异步信号（如 `AppTicket` 更新、临时码兑换）。
-- **初始化与配置**:
-    - `initialize()`: 统一起步钩子，负责环境探测与 `Vault` 种子注入。
-    - `hydrate_config()`: 启动前从安全存储中恢复敏感信息到内存。
-
-**注册机制**:
-`auth/mod.rs` 作为统一注册点，通过 `AuthClient::builder().register(...)` 将不同的 Provider（如 `SelfBuiltProvider`, `StoreAppProvider`）映射到对应的 `AuthMode` 枚举上。
+允许不同的认证模式注入自定义逻辑。在 v0.3.1 中，通过 `Vault` 与 `ConfigManager` 的物理隔离，确保了鉴权上下文的纯净。
 
 ### 2. Store SPI: 多维持久化体系
+支持五大领域（Config, Secret, Token, Audit, DLQ）的异构后端存储。通过 `inventory` 宏实现 Schema 驱动的自动发现。
 
-`Store` Trait 将工具的状态持久化抽象为五个独立领域，每个领域支持不同的后端实现：
-
-- **Config Domain**: 存放 Profile 的静态配置项（URL, AppKey 等）。
-- **Secret Domain**: 与 `Vault` 配合，存放加密后的 AppSecret 或私钥。
-- **Token Domain**: 存放具有 TTL（生存时间）特性的动态令牌，支持分布式同步。
-- **Audit Domain**: 结构化日志序列化存储，支持按级别和时间检索。
-- **DLQ Domain**: 异步任务失败后的死信队列，用于 Daemon 自动重试。
-
-**动态加载机制**:
-项目使用了 `inventory` crate 实现了 **StoreBuilder 自动收集**：
-- 任何新的存储后端只需实现 `StoreBuilder` 并使用 `inventory::submit!` 注册。
-- `create_store_from_url()` 会根据 URL Schema（如 `sqlite://`, `redis://`）自动匹配并实例化对应的后端，实现了真正的插件化。
-
----
+### 3. SearchProvider SPI: 可插拔搜索 (v0.3.1+)
+为了保持主二进制文件的轻量，复杂的语义搜索（向量化、ONNX 推理）已被剥离为动态插件：
+- **枢纽 (Hub)**: `cowen-search` crate 提供基础 Trait 与插件加载逻辑。
+- **插件 (Plugin)**: 导出 C ABI 接口的动态链接库（`.dylib`, `.so`）。
+- **加载机制**: 使用 `cowen-infra` 中的 `PluginLoader` 实现跨平台动态链接，支持在运行时根据配置文件显式启用或禁用特定搜索算法。
 
 ---
 
 ## 🔄 核心业务流程
 
-### 1. 鉴权与令牌维护流程
-`cowen` 并不简单地在每次请求时换票，而是通过 `TokenPool` 进行精细化管理。针对不同的认证模式，其交互链路有所差异：
+### 1. 智能 Token 维护 (Adaptive Refresh)
+不再采用硬编码的定时检查，v0.3.1 引入了**自适应刷新算法**：
+- **80% 规则**: 下次检查时间 = `(Token 剩余寿命 * 0.8)`。
+- **动态阈值**: 锁定在 `[30s, 3600s]` 之间，既保证了实时性，又避免了对服务端的无效轮询。
+- **抖动 (Jitter)**: 注入 `±60s` 的随机偏移，防止集群规模下的请求波峰。
 
-- **[SelfBuilt (自建模式)](auth/SELF_BUILT.md)**: 传统的自建应用模式，通过 AppTicket 推送机制实现令牌自动维护。
-- **[StoreApp (商店应用模式)](auth/STORE_APP.md)**: 开放平台入驻模式（ISV 模式），支持租户级令牌隔离与自动交换。
-- **[OAuth2 (三方授权模式)](auth/OAUTH2.md)**: 纯 OAuth2 客户端模式，集成 PKCE 安全验证与本地回调监听，适用于三方授权场景。
-
-核心共性流程：
-1. **Cache Hit**: 首先检查 `Store` (如 Redis/SQLite) 中是否存在未过期的有效令牌。
-2. **Conflict Protection**: 在并发请求场景下，通过版本号或文件锁确保只有一个线程发起网络换票。
-3. **Proactive Renewal**: 令牌快过期前（由 `on_maintenance_tick` 逻辑判定），Daemon 会提前发起异步刷新。
-
-### 2. Daemon 生命周期管理
-Daemon 启动后会运行多个并行的 Tokio Task：
-- **Proxy Server**: 监听本地端口，劫持请求并自动注入最新的鉴权头。
-- **Token Renewer**: 轮询所有 Profile，确保持久化存储中的令牌永不过期。
-- **Stream Forwarder**: 维护与云端的长连接，将流式数据转发至本地，处理断线重连。
-
-### 3. 自愈与指数退避 (Backoff)
-当遇到云端限流（HTTP 429/409）或网络抖动时：
-- 系统会自动记录错误状态。
-- 下次尝试将遵循 $2^n$ 的指数级退避时间。
-- 状态持久化在 `Store` 中，即使 CLI 进程重启，退避计数也不会重置，有效保护账号信誉。
+### 2. 守护进程自愈与死锁防护
+- **并发优化**: SQLite 连接池通过 WAL 模式与 `max_connections(5)` 实现读写分离。
+- **异步锁**: 跨进程 Token 刷新使用 `try_lock` + 异步等待，彻底避免了 Tokio 线程池被物理文件锁阻塞导致的死锁。
 
 ---
 
-## 🛡️ 安全性保障 (Security Model)
+## 💾 物理模块隔离 (Crate Isolation)
 
-### 1. Vault 凭据保险库
-所有敏感数据（AppSecret, Password）在进入 `Store` 前必须经过 `Vault` 处理：
-- **算法**: AES-256-GCM 高强度对称加密。
-- **密钥派生**: 使用机器指纹 (`machine-id`) 作为 KDF 因子。这意味着加密文件无法在另一台物理机器上解密，防范配置文件外泄。
-
-### 2. 自动化脱敏 (Obfuscation)
-`obfs` 模块通过包装器类型，确保在：
-- `println!` / `fmt::Debug`
-- JSON 序列化
-- 结构化日志输出
-时，敏感字段（如 `access_token`）会被自动替换为 `<MASKED>`，防止开发/调试期间的泄露。
+v0.3.1 实现了严格的物理目录隔离，每个领域拥有独立的 `Cargo.toml`：
+- `cowen-common`: 核心模型与脱敏类型。
+- `cowen-store`: 存储 SPI 与 SQL/Redis 驱动。
+- `cowen-auth`: 鉴权 SPI 与 OAuth2/SelfBuilt 实现。
+- `cowen-search`: 搜索枢纽。
+- `cowen-infra`: 插件加载器、混淆器等基础设施。
 
 ---
 
-## 💾 存储演进与一致性
-
-`cowen` 支持从单机开发到分布式部署的平滑切换：
-
-| 存储类型 | 适用场景 | 核心技术 |
-| :--- | :--- | :--- |
-| **InnerDB** | 默认推荐，单机 Daemon | SQLite + WAL Mode |
-| **Redis** | 集群/容器化部署，共享令牌 | Redis Multiplexing |
-| **Hybrid** | 高性能分布式，读写分离 | SQLite (Persistence) + Redis (Cache) |
-| **File** | 简单调试，可读性优先 | YAML + Atomic Write |
-
-**Migration 系统**: 系统启动时会自动检测数据库版本。对于 SQL 后端，会自动应用增量脚本，确保 Schema 始终符合代码预期。
-
----
-
-## 🔍 语义搜索 (Neural Search Engine)
+## 🔍 语义搜索 (Neural Search Hub)
 
 `cowen api list -s "关键词"` 的实现细节：
 - **模型**: BGE-small-zh-v1.5 (量化版 ONNX)。
