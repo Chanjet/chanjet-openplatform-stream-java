@@ -4,6 +4,8 @@ use async_trait::async_trait;
 
 use sqlx::{Sqlite, Pool};
 use std::sync::Arc;
+use fs2::FileExt;
+use std::fs::OpenOptions;
 use crate::sql::{SqlDriver, SqlBuilder, SqlBuilderRegistration};
 use cowen_common::models::{Token, Ticket, Item, AuditEntry, DlqMessage};
 use chrono::{DateTime, Utc};
@@ -446,30 +448,26 @@ impl SqlBuilder for SqliteBuilder {
         use sqlx::sqlite::SqliteConnectOptions;
         use std::str::FromStr;
 
-        let mut normalized_url = url.to_string();
-        if normalized_url == "sqlite" {
-            return Err(CowenError::api("Invalid SQLite URL."));
-        }
-        if normalized_url.starts_with("sqlite://") {
-            let path = &normalized_url[9..];
-            if !path.starts_with('/') { normalized_url = format!("sqlite:{}", path); }
-        }
+        let normalized_url = url.to_string();
+        
+        // 🚀 SYNC: Extract db_path from normalized URL to create parent dirs
+        // URL is guaranteed to be sqlite:<path> from lib.rs
+        let db_path = if normalized_url.starts_with("sqlite:") {
+            let pure_path = normalized_url[7..].split('?').next().unwrap();
+            std::path::PathBuf::from(pure_path)
+        } else {
+            std::path::PathBuf::from("cowen.db")
+        };
 
-        // Create directory if missing (SQLx won't do it)
-        if normalized_url.starts_with("sqlite:") {
-            let path_part = &normalized_url[7..];
-            let pure_path = path_part.split('?').next().unwrap();
-            let db_path = std::path::Path::new(pure_path);
-            if let Some(parent) = db_path.parent() {
-                if !parent.as_os_str().is_empty() && !parent.exists() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
+        if let Some(parent) = db_path.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                let _ = std::fs::create_dir_all(parent);
             }
         }
 
         let options = SqliteConnectOptions::from_str(&normalized_url).map_err(|e| CowenError::Store(e.to_string()))?
             .create_if_missing(true)
-            .busy_timeout(std::time::Duration::from_secs(60))
+            .busy_timeout(std::time::Duration::from_secs(5))
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
         
@@ -491,10 +489,15 @@ impl SqlBuilder for SqliteBuilder {
             "CREATE TABLE IF NOT EXISTS cowen_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, topic TEXT NOT NULL, payload TEXT NOT NULL, retry_count INTEGER DEFAULT 0, error TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
         ];
 
-        // 10-retry loop with exponential backoff for DDL during parallel setup
+        // 🚀 CRITICAL: Use a file lock to ensure ONLY ONE process runs DDL at a time
+        let lock_path = db_path.with_extension("ddl.lock");
+        let lock_file = OpenOptions::new().read(true).write(true).create(true).open(&lock_path).map_err(|e| CowenError::Store(e.to_string()))?;
+        let _ = lock_file.lock_exclusive();
+
         let mut last_err = None;
-        for i in 0..10 {
-            let mut success = true;
+        for i in 0..30 {
+            
+        let mut success = true;
             for sql in ddl {
                 if let Err(e) = sqlx::query(sql).execute(&pool).await {
                     last_err = Some(e);
@@ -503,15 +506,19 @@ impl SqlBuilder for SqliteBuilder {
                 }
             }
             if success {
-                // Indices
-                let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_profile_ts ON cowen_audit (profile, timestamp)").execute(&pool).await;
-                let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_dlq_profile_topic ON cowen_dlq (profile, topic)").execute(&pool).await;
-                return Ok(Arc::new(SqliteDriver::new(pool)));
+                // Verify important tables exist before returning
+                let verify_res = sqlx::query("SELECT name FROM sqlite_master WHERE type='table' AND name='cowen_secret'").fetch_one(&pool).await;
+                if verify_res.is_ok() {
+                    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_audit_profile_ts ON cowen_audit (profile, timestamp)").execute(&pool).await;
+                    let _ = sqlx::query("CREATE INDEX IF NOT EXISTS idx_dlq_profile_topic ON cowen_dlq (profile, topic)").execute(&pool).await;
+                    let _ = lock_file.unlock();
+                    return Ok(Arc::new(SqliteDriver::new(pool)));
+                }
             }
-            tokio::time::sleep(std::time::Duration::from_millis(50 * (i + 1))).await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-
-        Err(CowenError::Store(format!("Failed to initialize SQLite DDL after 10 retries: {:?}", last_err)))
+        let _ = lock_file.unlock();
+        Err(CowenError::Store(format!("Failed to initialize SQLite DDL after retries: {:?}", last_err)))
     }
 }
 

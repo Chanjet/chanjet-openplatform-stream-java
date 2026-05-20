@@ -8,6 +8,8 @@ use cowen_common::utils::get_bin_name;
 use anyhow::Result;
 use std::io::Write;
 use std::sync::Arc;
+use cowen_auth::client::Client;
+use cowen_common::daemon::DaemonService;
 
 #[derive(Parser)]
 #[command(name = option_env!("CARGO_BIN_NAME_OVERRIDE").unwrap_or("cowen"))]
@@ -149,10 +151,20 @@ pub enum Commands {
 pub enum ConfigCommands {
     /// 设置配置项的值 (e.g., cowen config set log.level debug)
     Set {
-        #[arg(help = "配置项名称 (目前支持: log.level)")]
+        #[arg(help = "配置项路径 (e.g., log.level, storage.db_url)")]
         key: String,
         #[arg(help = "配置项的新值")]
         value: String,
+    },
+    /// 获取配置项的值
+    Get {
+        #[arg(help = "配置项路径")]
+        key: String,
+    },
+    /// 列出所有配置项
+    List {
+        #[arg(short, long, default_value = "table", help = "输出格式 (table, json)")]
+        format: String,
     },
 }
 
@@ -277,6 +289,8 @@ pub enum AuthCommands {
         #[arg(short, long)]
         refresh: bool,
     },
+    /// Reload token from shared storage (Force memory sync)
+    Reload,
 }
 
 #[derive(clap::Subcommand)]
@@ -320,6 +334,12 @@ pub enum DaemonCommands {
         #[arg(long)]
         no_proxy: bool,
         /// Restart daemons for all configured profiles
+        #[arg(short, long)]
+        all: bool,
+    },
+    /// Reload specific or all workers without stopping the master daemon
+    Reload {
+        /// Reload ALL workers
         #[arg(short, long)]
         all: bool,
     },
@@ -377,6 +397,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     // 2. Load Config to get Log Settings
     let cfg_mgr = ConfigManager::new().map_err(|e| anyhow::anyhow!(e))?;
+    let _ = cfg_mgr.auto_migrate().await;
     let mut app_config = cfg_mgr.load_app_config().await.map_err(|e| anyhow::anyhow!(e))?;
 
     let fingerprint = security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?;
@@ -387,6 +408,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     let _ = cfg_mgr.set_validator(std::sync::Arc::new(cowen_auth::AuthProviderValidator::new(auth_cli.clone())));
 
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
+    let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
 
     if matches!(&cli.command, Commands::Init { .. }) {
         if cli.profile.is_none() {
@@ -458,7 +480,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     let _ = vault_tx.send(Some(vault.clone()));
 
     if let Commands::Store { action: StoreCommands::Migrate { to, mode } } = &cli.command {
-        cmd::store::migrate(&cfg_mgr, to, *mode).await?;
+        cmd::store::migrate(&cfg_mgr, to, *mode, daemon_svc.clone()).await?;
         return Ok(());
     }
 
@@ -478,7 +500,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     
     if !skip_version_sync {
-        let _ = cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr, vault.clone()).await;
+        let _ = cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr, vault.clone(), daemon_svc.clone()).await;
     }
 
     // 2. Auto-recovery: "确保必要的后台进程正在运行"
@@ -507,7 +529,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 stream_url: stream_url.clone(),
                 app_mode: app_mode.clone(),
                 proxy_port: proxy_port.clone(),
-                auto_start: true,
+                auto_start: false,
             };
             cmd::init::execute(&active_profile, &cfg_mgr, &mut app_config, vault.clone(), ctx, Some(daemon_svc.clone())).await?;
         }
@@ -532,21 +554,42 @@ pub async fn run(cli: Cli) -> Result<()> {
             AuthCommands::Reset | AuthCommands::Logout => cmd::auth::logout(&active_profile, &config, &auth_cli).await?,
             AuthCommands::Login { force, finalize } => cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref(), Some(daemon_svc.clone())).await?,
             AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format, *refresh).await?,
+            AuthCommands::Reload => {
+                let _ = auth_cli.get_token(&active_profile, &config, &reqwest::header::HeaderMap::new()).await.map_err(|e: cowen_common::CowenError| anyhow::anyhow!(e))?;
+                
+                // Signal running daemon to reload if active
+                if let Some(_info) = cowen_monitor::status::get_active_daemon_info(&active_profile) {
+                    let app_cfg = cfg_mgr.load_app_config().await?;
+                    let client = cowen_monitor::client::MonitorClient::new(app_cfg.monitor_port);
+                    let _ = client.reload_worker(&active_profile).await;
+                } else {
+                    let _ = daemon_svc.reload_daemon(&active_profile).await;
+                }
+                println!("✅ Token reloaded and synchronized from shared storage.");
+            }
         }
         Commands::Daemon { action } => match action {
             DaemonCommands::Start { proxy_port, monitor_port, enable_proxy, no_proxy, foreground, all } => {
                 let mut updated_config = config.clone();
                 let mut changed = false;
                 if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
-                if let Some(m) = monitor_port { if updated_config.monitor_port != *m { updated_config.monitor_port = *m; changed = true; } }
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
                 else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
+                
+                if let Some(m) = monitor_port {
+                    let mut app_cfg = cfg_mgr.load_app_config().await?;
+                    if app_cfg.monitor_port != *m {
+                        app_cfg.monitor_port = *m;
+                        cfg_mgr.save_app_config(&app_cfg).await?;
+                    }
+                }
+
                 if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
                 
                 if *foreground {
-                    cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, true, *all, &cfg_mgr, vault.clone(), telemetry_control.clone()).await?;
+                    cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, true, *all, &cfg_mgr, vault.clone(), telemetry_control.clone(), daemon_svc.clone()).await?;
                 } else {
-                    cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), telemetry_control.clone()).await?;
+                    cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), telemetry_control.clone(), daemon_svc.clone()).await?;
                 }
             }
             DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
@@ -557,7 +600,23 @@ pub async fn run(cli: Cli) -> Result<()> {
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
                 else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
                 if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
-                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), telemetry_control.clone()).await?;
+                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), telemetry_control.clone(), daemon_svc.clone()).await?;
+            }
+            DaemonCommands::Reload { all } => {
+                let profiles = if *all { cfg_mgr.list_profiles().await? } else { vec![active_profile.clone()] };
+                
+                if let Some(_info) = cowen_monitor::status::get_active_daemon_info(&active_profile) {
+                    let app_cfg = cfg_mgr.load_app_config().await?;
+                    let client = cowen_monitor::client::MonitorClient::new(app_cfg.monitor_port);
+                    for p in profiles {
+                        let _ = client.reload_worker(&p).await;
+                    }
+                } else {
+                    for p in profiles {
+                        let _ = daemon_svc.reload_daemon(&p).await;
+                    }
+                }
+                println!("✅ Daemon workers reloaded successfully.");
             }
             DaemonCommands::Service { action } => match action {
                 ServiceCommands::Install => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Install).await?,
@@ -578,21 +637,19 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? }
         Commands::Config { action } => match action {
             Some(ConfigCommands::Set { key, value }) => {
-                let mut updated_config = config.clone();
-                if key == "log.level" {
-                    updated_config.log.level = value.to_lowercase();
-                    cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?;
-                    println!("✅ Successfully updated log.level to '{}'", value);
-                } else if key == "monitor.port" {
-                    if let Ok(p) = value.parse::<u16>() {
-                        updated_config.monitor_port = p;
-                        cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?;
-                        println!("✅ Successfully updated monitor.port to '{}'", value);
-                    } else {
-                        return Err(anyhow::anyhow!("Invalid port number: {}", value));
-                    }
+                cfg_mgr.set_value(&active_profile, key, value).await.map_err(|e| anyhow::anyhow!(e))?;
+                println!("✅ Successfully updated '{}' to '{}'", key, value);
+            }
+            Some(ConfigCommands::Get { key }) => {
+                let val = cfg_mgr.get_value(&active_profile, key).await.map_err(|e| anyhow::anyhow!(e))?;
+                println!("{}", val);
+            }
+            Some(ConfigCommands::List { format }) => {
+                let val = cfg_mgr.list_values(&active_profile).await.map_err(|e| anyhow::anyhow!(e))?;
+                if format == "json" {
+                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
                 } else {
-                    return Err(anyhow::anyhow!("Unsupported configuration key: {}. Supported: 'log.level', 'monitor.port'.", key));
+                    println!("{}", serde_yaml::to_string(&val).unwrap());
                 }
             }
             None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?,

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use cowen_common::daemon::DaemonService;
 use cowen_common::vault::Vault;
 use cowen_common::CowenResult;
 use cowen_config::ConfigManager;
@@ -169,7 +168,6 @@ pub async fn config(profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Res
         println!("Webhook:       {}", report.profile.webhook_target);
         println!("Proxy Port:    {}", report.profile.proxy_port);
         println!("Log Level:     {}", report.profile.log.level);
-        println!("AI Enabled:    {}", report.profile.ai_enabled);
         println!();
     }
 
@@ -362,7 +360,7 @@ pub async fn rename_profile(
     old: &str,
     new: &str,
     cfg_mgr: &ConfigManager,
-    vault: Arc<dyn Vault>,
+    _vault: Arc<dyn Vault>,
     event_bus: &cowen_common::events::EventBus,
 ) -> Result<()> {
     if !cfg_mgr.exists(old).await {
@@ -433,8 +431,8 @@ pub async fn ensure_daemon_running(
     {
         tracing::info!(target: "sys", profile = %profile, "Daemon not running, triggering auto-recovery...");
 
-        let daemon_svc = cowen_server::ServerDaemonService::new(_cfg_mgr.clone());
-        let _ = daemon_svc.start_daemon(profile, config, vault).await;
+        let daemon_svc = std::sync::Arc::new(cowen_server::ServerDaemonService::new(_cfg_mgr.clone()));
+        let _ = crate::cmd::daemon::start(profile, config, config.proxy_port, config.proxy_enabled, false, false, _cfg_mgr, vault, None, daemon_svc).await;
     }
 
     Ok(())
@@ -444,22 +442,27 @@ pub async fn enforce_daemon_version_sync(
     _active_profile: &str,
     cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
+    daemon_svc: Arc<cowen_server::ServerDaemonService>,
 ) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
     for p in profiles {
         if let Some(info) = cowen_monitor::status::get_active_daemon_info(&p) {
             let mut outdated = false;
-            let daemon_bid = info.build_id.as_deref().unwrap_or("N/A");
-            let daemon_bt = info.build_time.as_deref().unwrap_or("N/A");
+            let daemon_bid = info.build_id.as_deref().unwrap_or("N/A").trim();
+            let daemon_bt = info.build_time.as_deref().unwrap_or("N/A").trim();
+            let cli_bid = cowen_common::BUILD_ID.trim();
+            let cli_bt = cowen_common::BUILD_TIME.trim();
+
+            // 🚀 ROBUST COMPARISON: Strip common labels if they accidentally leaked in
+            let clean_daemon_bid = daemon_bid.strip_prefix("BUILD_ID=").unwrap_or(daemon_bid);
+            let clean_daemon_bt = daemon_bt.strip_prefix("BUILD_TIME=").unwrap_or(daemon_bt);
             
-            // 🚀 STRICT EQUALITY: Use unified constants for absolute matching.
-            if daemon_bid != cowen_common::BUILD_ID || daemon_bt != cowen_common::BUILD_TIME {
+            if clean_daemon_bid != cli_bid || clean_daemon_bt != cli_bt {
                 outdated = true;
             }
 
             if outdated {
-                let daemon_bt = info.build_time.as_deref().unwrap_or("N/A");
-                tracing::info!(target: "sys", profile = %p, "Daemon version mismatch (CLI: {} / {}, Daemon: {} / {}). Restarting...", cowen_common::BUILD_ID, cowen_common::BUILD_TIME, daemon_bid, daemon_bt);
+                tracing::info!(target: "sys", profile = %p, "Daemon version mismatch (CLI: {} / {}, Daemon: {} / {}). Restarting...", cli_bid, cli_bt, clean_daemon_bid, clean_daemon_bt);
 
                 let config = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::Config::default_with_profile(&p));
 
@@ -467,7 +470,7 @@ pub async fn enforce_daemon_version_sync(
                 // This prevents "AppKey is empty" warnings for unused default profiles during version sync.
                 if !config.app_key.trim().is_empty() {
                     eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
-                    let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None).await;
+                    let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None, daemon_svc.clone()).await;
                     
                     // 🚀 STABILITY: Brief grace period to allow the new daemon to bind ports and write its PID file
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;

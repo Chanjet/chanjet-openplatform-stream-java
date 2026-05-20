@@ -1,3 +1,4 @@
+use crate::sql::SqlBuilder;
 use cowen_common::{CowenResult, CowenError};
 use std::sync::Arc;
 pub use cowen_common::models::{Item, AuditEntry, DlqMessage};
@@ -66,32 +67,46 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
     }
 
     // 3. Normalize SQLite paths and create parent directories
+    // 3. Normalize SQLite paths and create parent directories
     if actual_url.starts_with("sqlite:") {
         let path_part = if actual_url.starts_with("sqlite://") {
-            &actual_url[9..]
+            actual_url[9..].to_string()
+        } else if actual_url.starts_with("sqlite:") {
+            actual_url[7..].to_string()
         } else {
-            &actual_url[7..]
+            actual_url.clone()
         };
         
         let pure_path = path_part.split('?').next().unwrap();
-        let db_path = std::path::Path::new(pure_path);
+        
+        let db_path = if pure_path.is_empty() {
+            app_dir.join("cowen.db")
+        } else if std::path::Path::new(pure_path).is_absolute() {
+            std::path::PathBuf::from(pure_path)
+        } else {
+            // 🚀 SYNC: For relative paths, we MUST decide if it is relative to app_dir
+            // In E2E tests, it might be relative to the test root.
+            // If it starts with './' or '../' or just 'file.db', we join with app_dir
+            app_dir.join(pure_path)
+        };
+
         if let Some(parent) = db_path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
                 let _ = std::fs::create_dir_all(parent);
             }
         }
-        
-        if actual_url.starts_with("sqlite://") {
-            let path = &actual_url[9..];
-            if !path.starts_with('/') {
-                 actual_url = format!("sqlite:{}", path);
-            }
-        }
+        // Ensure format is always sqlite:<path> for SQLx
+        actual_url = format!("sqlite:{}", db_path.to_string_lossy());
     } else if (actual_url.starts_with("mysql:") || actual_url.starts_with("postgres:")) && !actual_url.contains("://") {
         actual_url = actual_url.replace("mysql:", "mysql://").replace("postgres:", "postgres://");
     }
 
-    let scheme = actual_url.split(':').next().ok_or_else(|| CowenError::api("Invalid database URL"))?.to_string();
+    
+    let scheme = if actual_url.starts_with("sqlite:") {
+        "sqlite".to_string()
+    } else {
+        actual_url.split(':').next().ok_or_else(|| CowenError::api("Invalid database URL"))?.to_string()
+    };
 
     if scheme == "redis" {
         #[cfg(feature = "redis")]
@@ -109,6 +124,11 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
         {
              return Err(CowenError::Store("Redis feature not enabled".to_string()));
         }
+    }
+
+    if scheme == "sqlite" {
+        let driver = crate::sql::sqlite::SqliteBuilder.build(&actual_url).await?;
+        return Ok(Arc::new(SqlStore::new(driver, "sqlite", &actual_url)) as Arc<dyn Store>);
     }
 
     if SqlStore::is_supported(&scheme) {

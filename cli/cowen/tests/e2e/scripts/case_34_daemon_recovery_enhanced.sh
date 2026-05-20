@@ -89,11 +89,10 @@ PROXY_PORT_SB=$(get_unused_port)
     --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port $PROXY_PORT_SB >/dev/null
 assert_pass "Self-built profile initialized"
 
-# Poll until daemon is running instead of fixed sleep
+# Trigger start via a command (auto-recovery)
+"$COWEN_BIN" status --profile sb >/dev/null
 wait_for_daemon_running "sb" 15
 
-# Trigger start via a command (daemon should already be running)
-"$COWEN_BIN" status --profile sb >/dev/null
 PID_SB1=$(get_daemon_pid "sb")
 if [ -n "$PID_SB1" ]; then 
     echo -e "   ✓ Daemon SB running (PID: $PID_SB1)"
@@ -179,7 +178,8 @@ done
 curl -s -o /dev/null "http://127.0.0.1:${REDIRECT_PORT}/callback?code=mock_auth_code_12345&state=${STATE}"
 wait $INIT_PID 2>/dev/null || true
 
-echo "   Waiting for init to automatically start daemon..."
+echo "   Running 'cowen status' to trigger initial daemon start..."
+"$COWEN_BIN" status --profile oa2 >/dev/null
 # Poll until daemon is running instead of fixed sleep
 wait_for_daemon_running "oa2" 15
 

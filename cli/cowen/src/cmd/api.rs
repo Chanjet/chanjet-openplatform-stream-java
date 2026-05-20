@@ -22,62 +22,9 @@ pub async fn list(
     page_size: usize,
     format: &str,
     refresh: bool,
-    vault: Arc<dyn cowen_common::vault::Vault>,
+    _vault: Arc<dyn cowen_common::vault::Vault>,
 ) -> anyhow::Result<()> {
     let spec = auth_cli.get_openapi_spec(profile, cfg, refresh).await.map_err(|e| anyhow::anyhow!(e))?;
-
-    if let Some(query) = search {
-        if cfg.ai_enabled {
-            // Initialize composite search provider
-            let mut primary: Option<Box<dyn SearchProvider>> = None;
-            
-            // Try to load the enabled plugin from config
-            if !cfg.search.enabled.is_empty() {
-                let plugin_name = &cfg.search.enabled[0]; // For now, support one primary
-                if let Some(plugin_info) = cfg.search.plugins.iter().find(|p| &p.name == plugin_name) {
-                    unsafe {
-                        match DynamicSearchProvider::new(&plugin_info.name, &plugin_info.path) {
-                            Ok(p) => {
-                                println!("🔌 Using search plugin: {}", plugin_name);
-                                primary = Some(Box::new(p));
-                            }
-                            Err(e) => {
-                                eprintln!("⚠️  Failed to load search plugin '{}': {}", plugin_name, e);
-                            }
-                        }
-                    }
-                }
-            }
-
-            let fallback = Box::new(StringMatchProvider { docs: vec![] }); // Dummy docs for now, would be converted from spec
-            let provider = FallbackProvider { primary, fallback };
-            
-            // Perform search
-            // (Note: Real implementation would convert spec to SearchDocuments)
-            println!("🔍 Searching for: '{}' (via {})", query, provider.name());
-            
-            let results = provider.search(query, page * page_size);
-            let start = (page.max(1) - 1) * page_size;
-            let paged_results = if start < results.len() {
-                &results[start..]
-            } else {
-                &[]
-            };
-
-            println!("--------------------------------------------------");
-            if paged_results.is_empty() {
-                println!("  (No results from plugin)");
-            } else {
-                for (score, doc) in paged_results {
-                    println!("\x1b[1;32m{:<30}\x1b[0m [Match: {:.1}%]", doc.id, score * 100.0);
-                    println!("  Summary: {}", doc.summary);
-                    println!();
-                }
-            }
-            
-            return Ok(());
-        }
-    }
 
     // 1. Flatten operations
     let mut all_ops = Vec::new();
@@ -99,12 +46,67 @@ pub async fn list(
     // 2. Sort by path then method
     all_ops.sort_by(|a, b| a.path.cmp(&b.path).then(a.method.cmp(&b.method)));
 
-    // 3. Filter if non-AI search is used
     if let Some(query) = search {
-        all_ops.retain(|op| op.path.contains(query) || op.summary.to_lowercase().contains(&query.to_lowercase()));
+        // Initialize composite search provider
+        let mut primary: Option<Box<dyn SearchProvider>> = None;
+        
+        // Try to load the enabled plugin from config
+        if !cfg.search.enabled.is_empty() {
+            let plugin_name = &cfg.search.enabled[0]; // For now, support one primary
+            if let Some(plugin_info) = cfg.search.plugins.iter().find(|p| &p.name == plugin_name) {
+                unsafe {
+                    match DynamicSearchProvider::new(&plugin_info.name, &plugin_info.path) {
+                        Ok(p) => {
+                            println!("🔌 Using search plugin: {}", plugin_name);
+                            primary = Some(Box::new(p));
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️  Failed to load search plugin '{}': {}", plugin_name, e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Convert spec to SearchDocuments for fallback provider
+        let search_docs: Vec<cowen_search::SearchDocument> = all_ops.iter().map(|op| {
+            cowen_search::SearchDocument {
+                id: format!("{} {}", op.method, op.path),
+                summary: op.summary.clone(),
+                description: String::new(),
+                vector: vec![],
+            }
+        }).collect();
+
+        let fallback = Box::new(StringMatchProvider { docs: search_docs });
+        let provider = FallbackProvider { primary, fallback };
+        
+        // Perform search
+        println!("🔍 Searching for: '{}' (via {})", query, provider.name());
+        
+        let results = provider.search(query, page * page_size);
+        let start = (page.max(1) - 1) * page_size;
+        let paged_results = if start < results.len() {
+            &results[start..]
+        } else {
+            &[]
+        };
+
+        println!("--------------------------------------------------");
+        if paged_results.is_empty() {
+            println!("  (No results from plugin)");
+        } else {
+            for (score, doc) in paged_results {
+                println!("\x1b[1;32m{:<30}\x1b[0m [Match: {:.1}%]", doc.id, score * 100.0);
+                println!("  Summary: {}", doc.summary);
+                println!();
+            }
+        }
+        
+        return Ok(());
     }
 
-    // 4. Paginate
+    // 3. Paginate
     let total = all_ops.len();
     let start = (page.max(1) - 1) * page_size;
     let end = (start + page_size).min(total);

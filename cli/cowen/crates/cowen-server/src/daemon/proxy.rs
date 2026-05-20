@@ -39,10 +39,25 @@ pub async fn start_proxy(
     // Retry logic for binding to handle port release delay during reloads
     let mut retry_count = 0;
     let listener = loop {
-        match tokio::net::TcpListener::bind(addr).await {
-            Ok(l) => break l,
-            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && retry_count < 5 => {
-                tracing::warn!(target: "sys", "Proxy port {} in use, retrying in 500ms... ({} / 5)", port, retry_count + 1);
+        let socket = match addr {
+            SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4().map_err(|e| CowenError::Store(format!("Failed to create socket: {}", e)))?,
+            SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6().map_err(|e| CowenError::Store(format!("Failed to create socket: {}", e)))?,
+        };
+        let _ = socket.set_reuseaddr(true);
+        #[cfg(unix)]
+        {
+            let _ = socket.set_reuseport(true);
+        }
+
+        match socket.bind(addr) {
+            Ok(_) => {
+                match socket.listen(1024) {
+                    Ok(l) => break l,
+                    Err(e) => return Err(CowenError::Store(format!("Failed to listen on proxy port {}: {}", port, e))),
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && retry_count < 10 => {
+                tracing::warn!(target: "sys", "Proxy port {} in use, retrying in 500ms... ({} / 10)", port, retry_count + 1);
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 retry_count += 1;
             }

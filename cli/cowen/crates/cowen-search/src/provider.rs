@@ -12,11 +12,11 @@ impl SearchProvider for StringMatchProvider {
     fn search(&self, query: &str, top: usize) -> Vec<(f32, &SearchDocument)> {
         let query_lower = query.to_lowercase();
         let mut results: Vec<(f32, &SearchDocument)> = self.docs.iter()
-            .map(|doc| {
+            .filter_map(|doc| {
                 let mut score = 0.0;
                 let content = format!("{} {}", doc.summary, doc.description).to_lowercase();
                 
-                if content.contains(&query_lower) {
+                if content.contains(&query_lower) || doc.id.to_lowercase().contains(&query_lower) {
                     score += 1.0;
                 }
                 
@@ -26,7 +26,11 @@ impl SearchProvider for StringMatchProvider {
                     .count();
                 score += match_count as f32 * 0.01;
                 
-                (score, doc)
+                if score >= 1.0 {
+                    Some((score, doc))
+                } else {
+                    None
+                }
             })
             .collect();
 

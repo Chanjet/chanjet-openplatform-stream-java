@@ -26,7 +26,7 @@ echo -e "${BLUE}Starting Test Case 46: Metrics and Health API${NC}"
 
 # 2. Start daemon
 MONITOR_PORT=$((16000 + RANDOM % 1000))
-"$COWEN_BIN" config set --profile main monitor.port $MONITOR_PORT
+"$COWEN_BIN" config set monitor_port $MONITOR_PORT
 "$COWEN_BIN" daemon start --profile main
 
 echo "Waiting for monitor server on port $MONITOR_PORT..."

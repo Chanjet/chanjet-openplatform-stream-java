@@ -12,7 +12,7 @@ setup_workspace "self_built_stress"
 REDIS_PORT=6382
 echo -e "  Starting isolated test Redis on port $REDIS_PORT..."
 redis-server --port $REDIS_PORT --dir "$COWEN_HOME" --save "" --daemonize yes
-trap "redis-cli -p $REDIS_PORT shutdown >/dev/null 2>&1; cleanup_suite" EXIT
+
 
 start_mock
 

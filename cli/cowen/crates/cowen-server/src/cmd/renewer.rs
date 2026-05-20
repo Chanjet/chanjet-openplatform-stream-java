@@ -1,7 +1,7 @@
 use cowen_common::config::Config;
 use anyhow::Result;
 use cowen_auth::client::Client;
-use cowen_auth::{VaultTokenPool, AuthClient};
+use cowen_auth::VaultTokenPool;
 use cowen_common::vault::Vault;
 use std::sync::Arc;
 use chrono::Utc;
@@ -41,7 +41,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>) -> Resul
 
     loop {
         tracing::info!(target: "sys", "Running token health check...");
-        let mut next_delay = Duration::from_secs(600); // Default
+        let next_delay; // Default
         
         match auth.get_app_access_token(profile, config).await {
             Ok(token) => {

@@ -60,29 +60,9 @@ impl SelfBuiltProvider {
 
         let mut retry_count = 0;
         loop {
-            // 0. Proactive Ticket Check (for the first attempt if missing)
-            if retry_count == 0 && self.pool.as_vault().get_app_ticket(&cfg.app_key).await.is_err() {
-                tracing::warn!(target: "sys", profile = %profile, "AppTicket missing in Vault. Triggering proactive recovery push...");
-                if let Err(e) = self.trigger_push_internal(profile, cfg, true).await {
-                    return Err(CowenError::Auth(format!("Critical: AppTicket missing and failed to trigger push: {}", e)));
-                }
-                
-                tracing::info!(target: "sys", profile = %profile, "Waiting for initial AppTicket dispatch (up to 20s)...");
-                let mut waited = 0;
-                let mut found = false;
-                while waited < 20 {
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    if self.pool.as_vault().get_app_ticket(cfg.app_key.trim()).await.is_ok() {
-                        tracing::info!(target: "sys", profile = %profile, "Successfully recovered initial AppTicket.");
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                        found = true;
-                        break;
-                    }
-                    waited += 1;
-                }
-                if !found {
-                    return Err(CowenError::Auth("Authentication failed: AppTicket is missing and did not arrive after 20s. Please ensure 'cowen daemon' is running and connected to the platform.".to_string()));
-                }
+            // 0. AppTicket validation
+            if self.pool.as_vault().get_app_ticket(&cfg.app_key).await.is_err() {
+                return Err(CowenError::Auth("AppTicket missing in Vault. Please ensure 'cowen daemon' is running and connected to the platform.".to_string()));
             }
 
             // 1. Build Request
@@ -133,7 +113,7 @@ impl SelfBuiltProvider {
                     
                     tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 20s)...");
                     let mut waited = 0;
-                    while waited < 20 {
+                    while waited < 35 {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         if self.pool.as_vault().get_app_ticket(cfg.app_key.trim()).await.is_ok() {
                             tracing::info!(target: "sys", profile = %profile, "Received new AppTicket.");
@@ -178,6 +158,28 @@ impl SelfBuiltProvider {
             return Err(CowenError::Config(format!("Missing AppKey or AppSecret for profile '{}'. Please run 'cowen init' first.", profile)));
         }
 
+        // 1. Process-level mutex to avoid local concurrent race condition
+        static RESEND_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+        let mutex = RESEND_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
+        let _lock = mutex.lock().await;
+
+        // 2. Distributed de-duplication lock (using primary_store set_token)
+        let store = self.pool.as_vault().primary_store();
+        let lock_key = format!("lock:resend:{}", cfg.app_key);
+        
+        if let Ok(expire_val) = store.get_token(profile, &lock_key).await {
+            if let Ok(expire_ts) = expire_val.parse::<i64>() {
+                if Utc::now().timestamp() < expire_ts {
+                    tracing::info!(target: "sys", profile = %profile, app_key = %cfg.app_key, "Resend push is locked by a concurrent task. Skipping resend request.");
+                    return Ok(());
+                }
+            }
+        }
+
+        // Acquire distributed lock for 15 seconds
+        let new_expire_ts = Utc::now().timestamp() + 15;
+        let _ = store.set_token(profile, &lock_key, &new_expire_ts.to_string(), 15).await;
+
         let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/auth/appTicket/resend"));
         let mut headers = HeaderMap::new();
         headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
@@ -188,15 +190,31 @@ impl SelfBuiltProvider {
              body_map.insert("force".to_string(), serde_json::Value::Bool(true));
         }
 
-        let resp = self.http_sender.post(&url, headers, serde_json::Value::Object(body_map)).await?;
+        let resp = match self.http_sender.post(&url, headers, serde_json::Value::Object(body_map)).await {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = store.delete_token(profile, &lock_key).await;
+                return Err(e);
+            }
+        };
+
         if !resp.is_success() {
+            let _ = store.delete_token(profile, &lock_key).await;
             let status = resp.status;
             let err_text = cowen_common::utils::mask_sensitive_json(&resp.body);
             return Err(CowenError::Auth(format!("Failed to trigger push (HTTP {}): {}", status, err_text)));
         }
 
-        let resend_resp: PlatformResendResponse = resp.json().await?;
+        let resend_resp: PlatformResendResponse = match resp.json().await {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = store.delete_token(profile, &lock_key).await;
+                return Err(CowenError::Auth(format!("Failed to parse resend response: {}", e)));
+            }
+        };
+
         if resend_resp.code != "200" {
+            let _ = store.delete_token(profile, &lock_key).await;
             let err_msg = match resend_resp.message {
                 Some(serde_json::Value::String(s)) => s,
                 Some(v) => v.to_string(),
@@ -229,12 +247,19 @@ impl AuthProvider for SelfBuiltProvider {
     }
 
     async fn get_token(&self, profile: &str, config: &Config, _headers: &HeaderMap) -> CowenResult<cowen_common::models::Token> {
+        tracing::info!(target: "sys", profile = %profile, app_key = %config.app_key, "Attempting to retrieve token");
         // 1. Try Cache
-        if let Ok(token) = self.pool.get_app_access_token(&config.app_key).await {
-            if !token.is_expired() {
-                return Ok(token);
+        match self.pool.get_app_access_token(&config.app_key).await {
+            Ok(token) => {
+                if !token.is_expired() {
+                    tracing::info!(target: "sys", profile = %profile, app_key = %config.app_key, token = %token.value, "Found valid cached token");
+                    return Ok(token);
+                }
+                tracing::info!(target: "sys", profile = %profile, "Cached token expired");
             }
-            tracing::debug!(target: "sys", profile = %profile, "Cached token expired, attempting refresh");
+            Err(e) => {
+                tracing::info!(target: "sys", profile = %profile, error = %e, app_key = %config.app_key, "Cache miss or error");
+            }
         }
 
         // 2. Lock & Refresh
@@ -243,6 +268,7 @@ impl AuthProvider for SelfBuiltProvider {
         // Re-check after lock
         if let Ok(token) = self.pool.get_app_access_token(&config.app_key).await {
             if !token.is_expired() {
+                tracing::info!(target: "sys", profile = %profile, token = %token.value, "Found valid cached token after lock");
                 return Ok(token);
             }
         }

@@ -73,8 +73,7 @@ EOF
     --webhook-target "$MOCK_URL/webhook_sink" \
     --proxy-port 9097
 
-# Stop the daemon on Node 1 to prevent background token rotation during the test
-"$COWEN_BIN" daemon stop --profile main > /dev/null
+"$COWEN_BIN" daemon start --profile main
 
 assert_pass "Node 1 initialized with Redis storage"
 
@@ -110,6 +109,9 @@ log:
 telemetry_enabled: false
 ai_enabled: false
 EOF
+
+echo "Node 2 Config List:"
+"$COWEN_BIN" config list --profile main
 
 # Node 2 doesn't need to 'init' because it shares the same Redis DB
 # But it needs the local app.yaml to know where Redis is.

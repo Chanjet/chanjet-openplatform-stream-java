@@ -116,6 +116,7 @@ pub async fn migrate(
     cfg_mgr: &ConfigManager,
     to: &str,
     mode: MigrationMode,
+    daemon_svc: std::sync::Arc<cowen_server::ServerDaemonService>,
 ) -> Result<()> {
     let _app_dir = cowen_infra::get_app_dir();
     let _fingerprint = cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?;
@@ -136,7 +137,7 @@ pub async fn migrate(
                 if let Ok(config) = cfg_mgr.load(&p).await {
                     if !config.app_key.is_empty() {
                          println!("♻️  Restarting daemon for profile: {}", p);
-                         let _ = cowen_server::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None).await;
+                         let _ = cowen_server::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None, daemon_svc.clone()).await;
                     }
                 }
             }

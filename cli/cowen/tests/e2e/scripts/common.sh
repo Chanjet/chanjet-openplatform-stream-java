@@ -14,20 +14,42 @@ export NC='\033[0m'
 # Detect OS and adjust binary name
 OS_TYPE=$(uname -s)
 find_bin() {
+    local bins=()
     if [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
-        if [ -f "./target/release/cowen-test.exe" ]; then echo "./target/release/cowen-test.exe";
-        elif [ -f "./target/debug/cowen-test.exe" ]; then echo "./target/debug/cowen-test.exe";
-        elif [ -f "./target/release/cowen.exe" ]; then echo "./target/release/cowen.exe";
-        else echo "./target/debug/cowen.exe"; fi
+        bins=("./target/release/cowen-test.exe" "./target/debug/cowen-test.exe" "./target/release/cowen.exe" "./target/debug/cowen.exe")
     else
-        if [ -f "./target/release/cowen-test" ]; then echo "./target/release/cowen-test";
-        elif [ -f "./target/debug/cowen-test" ]; then echo "./target/debug/cowen-test";
-        elif [ -f "./target/release/cowen" ]; then echo "./target/release/cowen";
-        else echo "./target/debug/cowen"; fi
+        bins=("./target/release/cowen-test" "./target/debug/cowen-test" "./target/release/cowen" "./target/debug/cowen")
     fi
+
+    # Find the newest existing binary
+    local newest=""
+    local newest_time=0
+    for b in "${bins[@]}"; do
+        if [ -f "$b" ]; then
+            local t=0
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                t=$(stat -f %m "$b")
+            else
+                t=$(stat -c %Y "$b")
+            fi
+            if [ "$t" -gt "$newest_time" ]; then
+                newest_time=$t
+                newest=$b
+            fi
+        fi
+    done
+    echo "$newest"
 }
-export COWEN_BIN="${COWEN_BIN:-$(find_bin)}"
-export COWEN_BUILD_DIR=$(dirname "$COWEN_BIN")
+export SOURCE_BIN="${COWEN_BIN:-$(find_bin)}"
+if [ -z "$SOURCE_BIN" ]; then
+    echo -e "${RED}FATAL: No cowen binary found in target/!${NC}"
+    exit 1
+fi
+echo -e "DEBUG: SOURCE_BIN=$SOURCE_BIN"
+echo -e "DEBUG: SOURCE_BIN Modification Time: $(ls -l $SOURCE_BIN | awk '{print $6, $7, $8}')"
+$SOURCE_BIN --version
+
+export COWEN_BUILD_DIR=$(dirname "$SOURCE_BIN")
 
 export MOCK_PORT="${MOCK_PORT:-9299}"
 export MOCK_URL="http://127.0.0.1:$MOCK_PORT"
@@ -116,10 +138,31 @@ setup_workspace() {
                 sleep 0.5
             fi
         done
+        # Also kill by unified master daemon PID if present
+        if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
+            PID=$(cat "$COWEN_HOME/master_daemon.pid" | head -n 1 2>/dev/null)
+            if [ -n "$PID" ]; then
+                kill -9 "$PID" >/dev/null 2>&1 || true
+                sleep 0.5
+            fi
+        fi
     fi
 
     rm -rf "$COWEN_HOME"
     mkdir -p "$COWEN_HOME"
+
+    # 🚀 PROCESS ISOLATION: Create a symbolic link with a unique name
+    local unique_name="cowen_$suite"
+    # Filter out dots and dashes from name
+    unique_name=$(echo $unique_name | tr '.-' '_')
+    
+    # Use symbolic link instead of cp to save I/O and disk space
+    # 🚀 FIX: Use absolute path for SOURCE_BIN to avoid broken links
+    local abs_source=$(python3 -c "import os; print(os.path.abspath('$SOURCE_BIN'))")
+    ln -sf "$abs_source" "$COWEN_HOME/$unique_name"
+    export COWEN_BIN="$COWEN_HOME/$unique_name"
+    # Ensure it is executable (usually links follow permissions, but let's be safe)
+    chmod +x "$COWEN_BIN"
     
     # Create isolated app.yaml with absolute DB path
     cat > "$COWEN_HOME/app.yaml" <<EOF
@@ -245,18 +288,24 @@ extract_token() {
     local prof=$1
     shift
     local extra_args="$@"
-    "$COWEN_BIN" auth token --profile "$prof" $extra_args --format json 2>/dev/null | python3 -c "
-import sys, json
-raw = sys.stdin.read()
+    RUST_LOG=info "$COWEN_BIN" auth token --profile "$prof" $extra_args --format json 2>&1 | python3 -c "
+import sys, json, re
+raw_input = sys.stdin.read()
+# Remove log lines (timestamps or DEBUG: prefixes)
+lines = [l for l in raw_input.splitlines() if not re.match(r'^\d{4}-\d{2}-\d{2}|DEBUG:', l)]
+clean_text = '\n'.join(lines)
 try:
-    # Try to find the JSON part if there is noise
-    start = raw.find('{')
-    end = raw.rfind('}') + 1
+    start = clean_text.find('{')
+    end = clean_text.rfind('}') + 1
     if start >= 0 and end > start:
-        d = json.loads(raw[start:end])
+        d = json.loads(clean_text[start:end])
         print(d.get('access_token') or d.get('value') or '')
     else:
-        print('')
+        # If no JSON found, print the first non-empty line
+        for l in lines:
+            if l.strip():
+                print(l.strip())
+                break
 except:
     print('')
 "
@@ -266,12 +315,10 @@ except:
 cleanup_all_workspaces() {
     # 1. Kill all cowen related processes
     if [ "$IS_WINDOWS" = true ]; then
-        taskkill //F //IM cowen-test.exe >/dev/null 2>&1 || true
+        taskkill //F //IM cowen_*.exe >/dev/null 2>&1 || true
     else
-        # Kill ONLY the test binary name
-        pkill -9 cowen-test >/dev/null 2>&1 || true
-        # Also kill by path if it contains cowen-test
-        pkill -9 -f "cowen-test" >/dev/null 2>&1 || true
+        # Kill by pattern since each test has a unique binary name
+        pkill -9 -f "cowen_" >/dev/null 2>&1 || true
     fi
 
     # 2. Kill all mock servers
@@ -407,10 +454,17 @@ get_unused_port() {
 # Helper to get daemon PID from lock file
 get_daemon_pid() {
     local prof=$1
-    local pid_file="$COWEN_HOME/${prof}_daemon.pid"
-    if [ -f "$pid_file" ]; then
-        cat "$pid_file" | head -n 1
+    # Check for unified master daemon first
+    local master_pid_file="$COWEN_HOME/master_daemon.pid"
+    if [ -f "$master_pid_file" ]; then
+        cat "$master_pid_file" | head -n 1
     else
-        echo ""
+        # Fallback to legacy profile-specific pid file
+        local pid_file="$COWEN_HOME/${prof}_daemon.pid"
+        if [ -f "$pid_file" ]; then
+            cat "$pid_file" | head -n 1
+        else
+            echo ""
+        fi
     fi
 }

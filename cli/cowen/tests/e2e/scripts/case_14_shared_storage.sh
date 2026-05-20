@@ -47,8 +47,8 @@ start_mock
 export COWEN_HOME="$HOME_1"
 cat > "$HOME_1/app.yaml" <<EOF
 storage:
-  store: innerdb
-  db_url: "sqlite://$SHARED_DB"
+  store: sqlite
+  db_url: "sqlite://$(pwd)/$SHARED_DB"
 log:
   level: debug
 telemetry_enabled: false
@@ -59,21 +59,23 @@ EOF
     --app-mode self-built \
     --app-key AK_SYNC \
     --app-secret AS_SYNC \
-    --encrypt-key 1234567890123456 \
     --certificate CERT_SYNC \
-    --openapi-url $MOCK_URL \
-    --stream-url $MOCK_WS \
-    --webhook-target "http://127.0.0.1:9299/webhook_sink" \
-    --proxy-port $PROXY_PORT_1
-assert_pass "Node 1 initialized and linked to shared DB ($SHARED_DB_NAME)"
+    --encrypt-key ENCRYPT_SYNC \
+    --openapi-url http://127.0.0.1:9299 \
+    --stream-url ws://127.0.0.1:9299 \
+    --webhook-target http://127.0.0.1:9299/webhook_sink \
+    
+
+# Manually start daemon
+"$COWEN_BIN" daemon start --profile main
 
 # --- Node 2: Follower (No Init) ---
 echo -e "${BOLD}2. Setup Node 2 (No Init)${NC}"
 export COWEN_HOME="$HOME_2"
 cat > "$HOME_2/app.yaml" <<EOF
 storage:
-  store: innerdb
-  db_url: "sqlite://$SHARED_DB"
+  store: sqlite
+  db_url: "sqlite://$(pwd)/$SHARED_DB"
 log:
   level: debug
 telemetry_enabled: false
@@ -114,7 +116,9 @@ for i in {1..10}; do
         break
     fi
     echo -n "."
-    sleep 1
+    # Force Node 2 daemon to reload token from shared storage
+    "$COWEN_BIN" daemon reload --profile main > /dev/null
+    sleep 5
 done
 
 if [ "$TOKEN_1" != "$TOKEN_2" ]; then

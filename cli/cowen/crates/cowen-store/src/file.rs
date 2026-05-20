@@ -476,21 +476,19 @@ impl cowen_common::store::Store for MonolithicSealStore {
     }
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token> {
         let p = format!("app:{}", app_key);
-        match self.get_config(&p, "app_access_token_v2").await {
+        match self.get_config(&p, "tok_v2:app_access").await {
             Ok(j) => serde_json::from_str(&j).map_err(|e| CowenError::Store(e.to_string())),
             Err(_) => {
+                // Try legacy key
+                if let Ok(j) = self.get_config(&p, "app_access_token_v2").await {
+                    return serde_json::from_str(&j).map_err(|e| CowenError::Store(e.to_string()));
+                }
                 if let Ok(token) = self.get_config(&p, "access_token").await {
                     let expires = self.get_config(&p, "access_token_expires").await.unwrap_or_default();
                     let created = self.get_config(&p, "access_token_created").await.unwrap_or_default();
-                    
                     let expires_at = DateTime::parse_from_rfc3339(&expires).map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
                     let created_at = DateTime::parse_from_rfc3339(&created).map(|d| d.with_timezone(&Utc)).unwrap_or_else(|_| Utc::now());
-                    
-                    return Ok(cowen_common::models::Token {
-                        value: token,
-                        expires_at,
-                        created_at,
-                    });
+                    return Ok(cowen_common::models::Token { value: token, expires_at, created_at });
                 }
                 Err(CowenError::Store("AppAccessToken not found".to_string()))
             }
@@ -498,10 +496,10 @@ impl cowen_common::store::Store for MonolithicSealStore {
     }
     async fn save_app_access_token(&self, app_key: &str, t: cowen_common::models::Token) -> CowenResult<()> {
         let json = serde_json::to_string(&t).map_err(|e| CowenError::Store(e.to_string()))?;
-        self.set_config(&format!("app:{}", app_key), "app_access_token_v2", &json).await
+        self.set_config(&format!("app:{}", app_key), "tok_v2:app_access", &json).await
     }
     async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
-        self.delete_config(&format!("app:{}", app_key), "app_access_token_v2").await
+        self.delete_config(&format!("app:{}", app_key), "tok_v2:app_access").await
     }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<cowen_common::models::Ticket> {

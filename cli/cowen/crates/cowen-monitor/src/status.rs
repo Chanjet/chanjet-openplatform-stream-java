@@ -117,25 +117,30 @@ pub struct DaemonInfo {
 
 pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
     let app_dir = get_daemon_app_dir();
-    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
-    if !pid_file.exists() {
-        return None;
+    
+    // 🚀 NEW: Check for unified master daemon first
+    let master_pid_file = app_dir.join("master_daemon.pid");
+    if master_pid_file.exists() {
+        if let Some(info) = read_daemon_info(&master_pid_file) {
+            return Some(info);
+        }
     }
 
-    let _is_alive_hint = if let Ok(f) = std::fs::File::open(&pid_file) {
-        use fs2::FileExt;
-        let lock_res = f.try_lock_exclusive();
-        lock_res.is_err() // If lock fails, someone (daemon) has it.
-    } else {
-        false
-    };
+    // FALLBACK: Check for legacy profile-specific pid file
+    let pid_file = app_dir.join(format!("{}_daemon.pid", profile));
+    if pid_file.exists() {
+        return read_daemon_info(&pid_file);
+    }
 
-    if let Ok(pid_content) = std::fs::read_to_string(&pid_file) {
+    None
+}
+
+fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
+    if let Ok(pid_content) = std::fs::read_to_string(pid_file) {
         let mut lines = pid_content.lines();
         if let Some(pid_str) = lines.next() {
             if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
                 // Secondary check: verify the process actually exists and looks like us.
-                // 🚀 PERFORMANCE FIX: Avoid full system scan with System::new_all()
                 let mut s = System::new_with_specifics(
                     sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing())
                 );
@@ -152,13 +157,20 @@ pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
                     let bin_name = get_bin_name().to_lowercase();
                     
                     if name.contains(&bin_name) || cmdline.contains(&bin_name) {
-                        let build_id = lines.next().map(|s| s.trim().to_string());
-                        let build_time = lines.next().map(|s| s.trim().to_string());
-                        return Some(DaemonInfo {
+                        let mut info = DaemonInfo {
                             pid: pid_val,
-                            build_id,
-                            build_time,
-                        });
+                            build_id: None,
+                            build_time: None,
+                        };
+                        
+                        for line in lines {
+                            if let Some(bid) = line.strip_prefix("BUILD_ID=") {
+                                info.build_id = Some(bid.trim().to_string());
+                            } else if let Some(bt) = line.strip_prefix("BUILD_TIME=") {
+                                info.build_time = Some(bt.trim().to_string());
+                            }
+                        }
+                        return Some(info);
                     }
                 }
             }

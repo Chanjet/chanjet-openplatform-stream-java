@@ -1,58 +1,33 @@
 use cowen_common::config::Config;
 use anyhow::{Result, Context};
-use connector_sdk::{GatewayClient, ClientOptions};
 use std::sync::Arc;
-use crate::daemon::forwarder::Forwarder;
-use crate::daemon::proxy::start_proxy;
 use cowen_auth::client::Client;
 use cowen_auth::VaultTokenPool;
 use cowen_common::vault::Vault;
 use chrono::Utc;
 use tokio::time::{sleep, Duration};
 
-use cowen_monitor::{counter, gauge};
-use once_cell::sync::Lazy;
-
-static DISPATCH_COUNTER: Lazy<prometheus::Counter> = Lazy::new(|| counter!("cowen_dispatch_total", "Total events dispatched"));
-static ACTIVE_CONNECTIONS: Lazy<prometheus::Gauge> = Lazy::new(|| gauge!("cowen_active_connections", "Total active connections"));
-
 /// 自建模式专用流桥执行器
 /// 负责处理 WebSocket 长连接、API 反向代理以及消息转发
-pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_port: u16, enable_proxy: bool, is_distributed: bool) -> Result<()> {
-    // 增加连接数 gauge
-    ACTIVE_CONNECTIONS.inc();
-    
-    // Ensure gauge decrements when future finishes
-    let _conn_guard = scopeguard::guard((), |_| {
-        ACTIVE_CONNECTIONS.dec();
-    });
-
-    let exclusive = config.exclusive
-        .unwrap_or_else(|| !is_distributed && config.app_mode != cowen_common::models::AuthMode::Oauth2);
-
-    let options = ClientOptions {
+pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_port: u16, enable_proxy: bool, _is_distributed: bool) -> Result<()> {
+    let opts = connector_sdk::ClientOptions {
         app_key: config.app_key.clone(),
         app_secret: config.app_secret.clone(),
-        encrypt_key: Some(config.encrypt_key.clone()),
-        gateway_url: config.stream_url.clone(),
-        exclusive,
+        gateway_url: config.openapi_url.clone(),
         ..Default::default()
     };
-    let client = Arc::new(GatewayClient::new(options));
+    let client = connector_sdk::GatewayClient::new(opts);
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
-    let auth = cowen_auth::create_auth_client(pool.clone());
-    let supports_webhooks = auth.supports_webhooks(config);
+    let forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), vault.clone())?);
 
-    // 2. Setup Dispatchers (Conditional)
+    let supports_webhooks = !config.webhook_target.is_empty();
+
     if supports_webhooks {
-        let forwarder = Forwarder::new(profile, config.clone(), vault.clone())
-            .context("Failed to initialize event forwarder/DLQ")?;
         let d = client.dispatcher();
         let mut dispatcher = d.lock().unwrap();
 
         let fwd = forwarder.clone();
         dispatcher.set_fallback_handler(Arc::new(move |msg| {
-            DISPATCH_COUNTER.inc();
             let fwd_clone = fwd.clone();
             tokio::spawn(async move {
                 let _ = fwd_clone.forward(msg).await;
@@ -60,25 +35,18 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
             true
         }));
 
-        // 🚀 OCP: Generic Platform Event Handlers
         let t_pool = pool.clone();
         let t_profile = profile.to_string();
         let t_config = config.clone();
-        
         dispatcher.on_ent_auth_code(move |msg| {
             let temp_code = msg.biz_content.temp_auth_code.trim().to_string();
             let state = Some(msg.biz_content.state.clone());
-            
             let t_pool_inner = t_pool.clone();
             let t_profile_inner = t_profile.clone();
             let t_config_inner = t_config.clone();
-            
             tokio::spawn(async move {
-                let auth = cowen_auth::create_auth_client(t_pool_inner.clone());
-                let event = cowen_auth::provider::PlatformEvent::TempAuthCode {
-                    code: temp_code,
-                    state,
-                };
+                let auth = cowen_auth::create_auth_client(t_pool_inner);
+                let event = cowen_auth::provider::PlatformEvent::TempAuthCode { code: temp_code, state };
                 let _ = auth.handle_platform_event(&t_profile_inner, &t_config_inner, event).await;
             });
             true
@@ -89,163 +57,94 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         let pk_config = config.clone();
         dispatcher.on_app_ticket(move |msg| {
             let ticket_val = msg.biz_content.app_ticket.trim().to_string();
-            let masked = if ticket_val.len() > 5 { &ticket_val[..5] } else { "***" };
-            tracing::info!(target: "stream", "CALLBACK: AppTicket received in dispatcher (masked: {}...)", masked);
-            
             let pk_pool_inner = pk_pool.clone();
             let pk_profile_inner = pk_profile.clone();
             let pk_config_inner = pk_config.clone();
-            
             tokio::spawn(async move {
-                let auth = cowen_auth::create_auth_client(pk_pool_inner.clone());
+                let auth = cowen_auth::create_auth_client(pk_pool_inner);
                 let _ = auth.handle_platform_event(&pk_profile_inner, &pk_config_inner, cowen_auth::provider::PlatformEvent::AppTicket(ticket_val)).await;
             });
             true
         });
     }
 
-    tracing::info!(target: "sys", "All bridge tasks initialized. Entering watchdog mode.");
-
     let status_file = cowen_common::config::get_app_dir().join(format!("{}_status.json", profile));
-    let client_id = client.client_id().to_string();
-    let now = chrono::Utc::now().to_rfc3339();
-    let mut status_json = serde_json::json!({
-        "state": if supports_webhooks { "Starting" } else { "Active" },
-        "client_id": client_id,
-        "updated_at": now,
-    });
-    if proxy_port != 0 {
-        status_json["proxy_port"] = proxy_port.into();
-    }
-    let _ = std::fs::write(&status_file, serde_json::to_string(&status_json).unwrap());
-
-    // Define futures directly for select! (NO tokio::spawn here for core tasks)
-    // This ensures that when the run() future is dropped (e.g. during reload),
-    // all component tasks are also cancelled.
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
     
-    let (port_tx, mut port_rx) = tokio::sync::oneshot::channel();
-    let p_profile_proxy = profile.to_string();
-    let p_config_proxy = config.clone();
+    let p_profile = profile.to_string();
+    let p_config = config.clone();
     let proxy_fut = async move {
         if enable_proxy {
-            if let Err(e) = start_proxy(&p_profile_proxy, &p_config_proxy, proxy_port, Some(port_tx)).await {
-                tracing::error!(target: "sys", error = %e, "Local Proxy Server crashed");
+            if let Err(e) = crate::daemon::proxy::start_proxy(&p_profile, &p_config, proxy_port, Some(port_tx)).await {
                 return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
             }
-        } else {
-            tracing::info!(target: "sys", "Local Proxy Server is disabled.");
         }
         std::future::pending::<Result<()>>().await
     };
 
-    let p_profile_s = profile.to_string();
-    let client_inner = client.clone();
-    let status_file_s = status_file.clone();
-    
+    let connected_notify = Arc::new(tokio::sync::Notify::new());
+
+    let client_ptr = Arc::new(client);
+    let client_for_stream = client_ptr.clone();
+    let stream_notify = connected_notify.clone();
     let stream_fut = async move {
         if supports_webhooks {
-            let res = client_inner.start_with_callback(move |state| {
-                let state_str = match state {
-                    connector_sdk::ConnectionState::Connecting => "Connecting",
-                    connector_sdk::ConnectionState::Connected => "Connected",
-                    connector_sdk::ConnectionState::Disconnected => "Disconnected",
-                };
-                tracing::info!(target: "stream", profile = %p_profile_s, state = %state_str, client_id = %client_id, "Bridge connection state changed");
-                
-                // Try to read existing to preserve proxy_port if we don't have it yet in this closure
-                let mut current_status = if let Ok(c) = std::fs::read_to_string(&status_file_s) {
-                    serde_json::from_str::<serde_json::Value>(&c).unwrap_or_default()
-                } else {
-                    serde_json::json!({})
-                };
-
-                current_status["state"] = state_str.into();
-                current_status["client_id"] = client_id.clone().into();
-                current_status["updated_at"] = chrono::Utc::now().to_rfc3339().into();
-
-                let _ = std::fs::write(&status_file_s, serde_json::to_string(&current_status).unwrap());
-            }).await;
-
-            if let Err(e) = res {
-                tracing::error!(target: "sys", error = %e, "Stream client loop terminated");
-                return Err(e);
-            }
-            Ok(())
+            client_for_stream.start_with_callback(move |state| {
+                if state == connector_sdk::ConnectionState::Connected {
+                    stream_notify.notify_waiters();
+                }
+            }).await.map_err(|e| anyhow::anyhow!("{:?}", e)).context("Stream client crashed during connection")
         } else {
-            let mode = config.app_mode;
-            tracing::info!(target: "sys", "Streaming bridge is disabled for mode {:?}.", mode);
             std::future::pending::<Result<()>>().await
         }
     };
 
-    let p_profile_m = profile.to_string();
-    let p_config_m = config.clone();
-    let p_pool_m = pool.clone();
-    let status_file_m = status_file.clone();
+    let m_profile = profile.to_string();
+    let m_config = config.clone();
+    let m_pool = pool.clone();
+    let maintenance_notify = connected_notify.clone();
     let maintenance_fut = async move {
-        tokio::select! {
-            _ = sleep(Duration::from_secs(2)) => {},
-            port_res = &mut port_rx => {
-                if let Ok(p) = port_res {
-                    // Update status file with the actual port
-                    if let Ok(c) = std::fs::read_to_string(&status_file_m) {
-                        if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&c) {
-                            json["proxy_port"] = p.into();
-                            let _ = std::fs::write(&status_file_m, serde_json::to_string(&json).unwrap());
-                        }
+        let auth = cowen_auth::create_auth_client(m_pool);
+        if auth.requires_initial_push(&m_config).await && supports_webhooks {
+            maintenance_notify.notified().await;
+            let _ = auth.trigger_push(&m_profile, &m_config, true).await;
+        }
+        loop {
+            let mut next_delay = Duration::from_secs(600);
+            if let Err(_e) = auth.on_maintenance_tick(&m_profile, &m_config).await {
+                next_delay = Duration::from_secs(60);
+            } else {
+                if let Ok(token) = auth.get_app_access_token(&m_profile, &m_config).await {
+                    next_delay = crate::cmd::renewer::calculate_next_check_delay(token.expires_at, Utc::now());
+                }
+                if m_config.app_mode != cowen_common::models::AuthMode::Oauth2 {
+                    match auth.get_token(&m_profile, &m_config, &reqwest::header::HeaderMap::new()).await {
+                        Ok(t) => tracing::info!(target: "sys", profile = %m_profile, token = %t.value, "Bridge synced token successfully"),
+                        Err(e) => tracing::warn!(target: "sys", profile = %m_profile, error = %e, "Bridge token sync failed"),
                     }
                 }
             }
-        }
-
-        let auth = cowen_auth::create_auth_client(p_pool_m.clone());
-
-        // 🚀 OCP: Generic Initial Push Check
-        if auth.requires_initial_push(&p_config_m).await && supports_webhooks {
-            tracing::info!(target: "sys", "Initial credential missing. Requesting platform push...");
-            let _ = auth.trigger_push(&p_profile_m, &p_config_m, true).await;
-        }
-
-        loop {
-            tracing::info!(target: "sys", "Running bridge credential maintenance check...");
-            let mut next_delay = Duration::from_secs(600);
-
-            // 🚀 OCP: Generic Maintenance Tick
-            if let Err(e) = auth.on_maintenance_tick(&p_profile_m, &p_config_m).await {
-                tracing::warn!(target: "sys", error = %e, "Maintenance tick failed");
-                next_delay = Duration::from_secs(60); // Retry faster on failure
-            } else {
-                // On success, calculate adaptive delay if possible
-                if let Ok(token) = auth.get_app_access_token(&p_profile_m, &p_config_m).await {
-                    next_delay = crate::cmd::renewer::calculate_next_check_delay(token.expires_at, Utc::now());
-                } else {
-                    tracing::info!(target: "sys", "App token not found, using default maintenance delay.");
-                }
-            }
-
-            tracing::info!(target: "sys", "Bridge maintenance sleeping for {:?}...", next_delay);
             sleep(next_delay).await;
         }
     };
 
+    let client_ptr_clone = client_ptr.clone();
+    tokio::spawn(async move {
+        if let Ok(p) = port_rx.await {
+            let now = chrono::Utc::now().to_rfc3339();
+            let status_json = serde_json::json!({
+                "state": "Active",
+                "client_id": client_ptr_clone.client_id(),
+                "updated_at": now,
+                "proxy_port": p,
+            });
+            let _ = std::fs::write(&status_file, serde_json::to_string(&status_json).unwrap());
+        }
+    });
+
     tokio::select! {
-        res = proxy_fut => { 
-            tracing::error!(target: "sys", "Proxy task exited unexpectedly"); 
-            let r: Result<()> = res;
-            r.context("Proxy task stopped")
-        },
-        res = stream_fut => { 
-            if supports_webhooks {
-                tracing::error!(target: "sys", "Stream task exited unexpectedly"); 
-                let r: Result<()> = res;
-                r.context("Stream client crashed")
-            } else {
-                Ok(())
-            }
-        },
-        _ = maintenance_fut => { 
-            tracing::error!(target: "sys", "Maintenance task exited unexpectedly"); 
-            Err(anyhow::anyhow!("Maintenance task stopped"))
-        },
+        res = proxy_fut => res,
+        res = stream_fut => res,
+        _ = maintenance_fut => Ok(()),
     }
 }

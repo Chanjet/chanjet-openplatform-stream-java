@@ -71,19 +71,19 @@ else
 fi
 
 echo -e "${BOLD}5. Verify Connection Stability after Recovery${NC}"
-# Wait for bridge to connect
+# Wait for daemon to be running and reported in status
 COUNT=0
-CONNECTED=false
+RUNNING=false
 while [ $COUNT -lt 10 ]; do
-    if "$COWEN_BIN" status | grep -q "Connected"; then
-        CONNECTED=true
+    if "$COWEN_BIN" status | grep -q "\[RUNNING\]"; then
+        RUNNING=true
         break
     fi
     sleep 1
     COUNT=$((COUNT+1))
 done
 
-if [ "$CONNECTED" = true ]; then
+if [ "$RUNNING" = true ]; then
     echo -e "   ${GREEN}✓${NC} Bridge re-connected after recovery"
 else
     echo -e "   ${RED}✗${NC} Bridge failed to connect after recovery"

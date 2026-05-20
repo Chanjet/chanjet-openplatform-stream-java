@@ -3,6 +3,7 @@ use predicates::prelude::PredicateBooleanExt;
 use tempfile::tempdir;
 use std::fs;
 use serde_json::json;
+use cowen_common::store::Store;
 
 fn setup_test_env(ai_enabled: bool) -> (tempfile::TempDir, String) {
     let dir = tempdir().unwrap();
@@ -31,7 +32,19 @@ fn setup_test_env(ai_enabled: bool) -> (tempfile::TempDir, String) {
     });
     fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
     
-    // 3. Setup mock OpenAPI spec
+    // 3. Setup mock token so API calls don't require network refresh
+    let vault_dir = dir.path().join("test_api").join("tok_v2");
+    fs::create_dir_all(&vault_dir).unwrap();
+    let token_path = vault_dir.join("access");
+    let token = cowen_common::models::Token {
+        value: "mock_token".to_string(),
+        expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+        created_at: chrono::Utc::now(),
+    };
+    // Save to the file directly as the Store would
+    fs::write(token_path, serde_json::to_string(&token).unwrap()).unwrap();
+
+    // 4. Setup mock OpenAPI spec
     let spec_path = dir.path().join(format!("{}_openapi.yaml", profile));
     let spec = json!({
         "openapi": "3.0.0",
@@ -151,8 +164,12 @@ fn test_api_list_search() {
     cmd.arg("--profile").arg("test_api");
     cmd.arg("api").arg("list").arg("--search").arg("items");
     
-    let output = cmd.assert().success().get_output().stdout.clone();
-    let stdout = String::from_utf8_lossy(&output);
+    let output = cmd.assert().success().get_output().clone();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    println!("STDOUT:\n{}", stdout);
+    println!("STDERR:\n{}", stderr);
 
     assert!(stdout.contains("/v2/items"));
     assert!(stdout.contains("/v2/items/{id}"));
