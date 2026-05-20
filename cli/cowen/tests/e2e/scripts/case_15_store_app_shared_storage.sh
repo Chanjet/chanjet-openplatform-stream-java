@@ -20,6 +20,11 @@ HOME_2="$TEST_BASE/.cowen_test_store_app_node_2"
 SHARED_DB="$TEST_BASE/.cowen_test_store_app_shared.db"
 mkdir -p "$TEST_BASE"
 
+# 🚀 Isolate binary for process manager visibility
+cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_15"
+export COWEN_BIN="$TEST_BASE/cowen_case_15"
+chmod +x "$COWEN_BIN"
+
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 15 environment...${NC}"
     cleanup_suite

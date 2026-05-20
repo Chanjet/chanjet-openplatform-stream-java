@@ -16,6 +16,12 @@ export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
 HOME_MIGRATE="$TEST_BASE/.cowen_test_migration_block"
 SHARED_DB="$TEST_BASE/.cowen_test_migrated_target.db"
 mkdir -p "$TEST_BASE"
+
+# 🚀 Isolate binary for process manager visibility
+cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_16"
+export COWEN_BIN="$TEST_BASE/cowen_case_16"
+chmod +x "$COWEN_BIN"
+
 rm -f "$SHARED_DB"*
 mkdir -p "$HOME_MIGRATE"
 

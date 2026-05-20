@@ -20,7 +20,7 @@ export COWEN_ENCRYPT_KEY="1234567890123456"
 export COWEN_WEBHOOK_TARGET="http://127.0.0.1:8080/cb"
 export COWEN_OPENAPI_URL="$MOCK_URL"
 export COWEN_STREAM_URL="$MOCK_WS"
-export COWEN_PROXY_PORT=$(get_unused_port)
+export COWEN_PROXY_PORT="9093"
 
 # Use a specific profile to ensure no collision
 PROFILE="env-auto-init"

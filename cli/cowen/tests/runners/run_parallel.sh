@@ -33,6 +33,9 @@ echo -e "${BLUE}${BOLD}========================================================$
 # Configuration
 MAX_PARALLEL="${MAX_PARALLEL:-16}"
 TEST_BASE="${TEST_BASE:-target/cowen_tests}"
+if [[ "$TEST_BASE" != /* ]]; then
+    TEST_BASE="$(pwd)/$TEST_BASE"
+fi
 RESULTS_DIR="$TEST_BASE/results"
 BASE_PORT_START="${BASE_PORT_START:-16000}"
 

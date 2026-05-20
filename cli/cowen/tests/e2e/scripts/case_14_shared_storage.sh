@@ -27,6 +27,11 @@ SHARED_DB_NAME="shared_storage_case_14.db"
 SHARED_DB="$TEST_BASE/$SHARED_DB_NAME"
 mkdir -p "$TEST_BASE"
 
+# 🚀 Isolate binary for process manager visibility
+cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_14"
+export COWEN_BIN="$TEST_BASE/cowen_case_14"
+chmod +x "$COWEN_BIN"
+
 # 🚀 Dynamic Ports
 PROXY_PORT_1=$(get_unused_port)
 PROXY_PORT_2=$(get_unused_port)

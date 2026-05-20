@@ -15,6 +15,11 @@ HOME_A="$TEST_BASE/.cowen_test_dist_lb_node_a"
 HOME_B="$TEST_BASE/.cowen_test_dist_lb_node_b"
 mkdir -p "$TEST_BASE"
 
+# 🚀 Isolate binary for process manager visibility
+cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_13"
+export COWEN_BIN="$TEST_BASE/cowen_case_13"
+chmod +x "$COWEN_BIN"
+
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 13 environment...${NC}"
     cleanup_suite "case_13"
