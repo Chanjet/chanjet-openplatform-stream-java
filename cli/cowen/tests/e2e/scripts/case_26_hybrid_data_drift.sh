@@ -80,6 +80,9 @@ EOF
     --webhook-target "$MOCK_URL/webhook_sink" \
     --proxy-port 9127 >/dev/null
 
+# Start daemon to open websocket connection
+"$COWEN_BIN" daemon start --profile "$PROF" > /dev/null
+
 echo "   Waiting for daemon to connect..."
 sleep 3
 curl -s -X POST -H "appKey: AK_HYBRID" "$MOCK_URL/auth/appTicket/resend" >/dev/null

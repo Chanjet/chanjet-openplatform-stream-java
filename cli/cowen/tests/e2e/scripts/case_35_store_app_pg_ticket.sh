@@ -27,7 +27,7 @@ if PGPASSWORD=password psql -h "$DB_HOST" -U postgres -d postgres -c "select 1" 
     PG_BASE_URL="postgres://postgres:password@$DB_HOST:$PG_PORT"
     export PGPASSWORD=password
 elif psql -h "$DB_HOST" -d postgres -c "select 1" &> /dev/null; then
-    PG_BASE_URL="postgres://$DB_HOST:$PG_PORT"
+    PG_BASE_URL="postgres://$USER@$DB_HOST:$PG_PORT"
 else
     # Fallback to default postgres/password if unsure
     PG_BASE_URL="postgres://postgres:password@$DB_HOST:$PG_PORT"

@@ -144,7 +144,7 @@ fi
 
 echo -e "${BOLD}4. Refresh Token on Node 1${NC}"
 export COWEN_HOME="$HOME_1"
-TOKEN_V2=$("$COWEN_BIN" auth token --profile main --refresh --format json | python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token'))")
+TOKEN_V2=$(extract_token "main" --refresh)
 echo -e "   Node 1 New Token:     ${BLUE}${TOKEN_V2:0:15}...${NC}"
 
 echo -e "${BOLD}5. Verify Node 2 Sync${NC}"

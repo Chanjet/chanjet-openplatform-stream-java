@@ -57,9 +57,6 @@ sleep 1
 echo -e "\n${BOLD}2. Global Store Override via Env Var${NC}"
 # Create a fresh workspace for store test
 setup_workspace "sidecar_store_override"
-# Ensure we have a clean slate
-rm -rf "$COWEN_HOME"
-mkdir -p "$COWEN_HOME"
 
 # Override Store Type and DB URL
 export COWEN_STORE_TYPE="innerdb"

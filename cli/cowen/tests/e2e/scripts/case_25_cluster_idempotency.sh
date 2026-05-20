@@ -36,11 +36,23 @@ EOF
 # Start Node A (Foreground in background task)
 "$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/node_a.log" 2>&1 &
 NODE_A_PID=$!
+sleep 2
+
+# Perform force login to fetch AppTicket into the shared SQLite DB
+"$COWEN_BIN" auth login --profile "$PROF" --force >/dev/null
+sleep 2
 
 # Start Node B (Foreground in background task)
 # It will fail to bind the proxy port, but the WS client will still connect
+HOME_NODE_A=$COWEN_HOME
+HOME_NODE_B="${COWEN_HOME}_node_b"
+mkdir -p "$HOME_NODE_B"
+cp "$COWEN_HOME/app.yaml" "$HOME_NODE_B/app.yaml"
+
+export COWEN_HOME="$HOME_NODE_B"
 "$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/node_b.log" 2>&1 &
 NODE_B_PID=$!
+export COWEN_HOME="$HOME_NODE_A"
 
 echo -n "   Waiting for both nodes to connect to WebSocket..."
 CONNECTED=false

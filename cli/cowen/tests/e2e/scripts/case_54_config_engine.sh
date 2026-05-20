@@ -54,4 +54,5 @@ echo "----------"
 echo "$list_out" | grep -Fq "db_url: '******'" || fail "db_url not masked"
 
 echo "--- ALL CONFIG ENGINE TESTS PASSED ---"
+echo "Passed!"
 cleanup_suite

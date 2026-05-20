@@ -28,7 +28,9 @@ assert_pass "Profile P1 initialized"
 
 echo -e "${BOLD}2. Start First Daemon (P1)${NC}"
 "$COWEN_BIN" daemon start --profile p1 >/dev/null
-sleep 3
+sleep 5
+"$COWEN_BIN" auth login --profile p1 --force >/dev/null
+sleep 2
 
 # Verify P1 is connected
 CONN_COUNT=$(curl -s "$MOCK_URL/control/connection_count" | python3 -c "import sys, json; print(json.load(sys.stdin).get('count', 0))")
@@ -57,8 +59,11 @@ cp "$HOME_P1/app.yaml" "$HOME_P2/app.yaml"
 
 # Start P2
 "$COWEN_BIN" daemon start --profile p2 >/dev/null
-echo "   P2 starting..."
 sleep 5
+export COWEN_HOME="$HOME_P2"
+"$COWEN_BIN" auth login --profile p2 --force >/dev/null
+sleep 2
+echo "   P2 starting..."
 
 echo -e "${BOLD}4. Verify Eviction Logic${NC}"
 # In exclusive mode, only ONE should be active (the latest one)
@@ -78,7 +83,8 @@ else
 fi
 
 # Cleanup P2
-cleanup_suite "exclusive_p2"
+export COWEN_HOME="$HOME_P2"
+cleanup_suite
 export COWEN_HOME="$HOME_P1"
 
 echo -e "\n${GREEN}🎊 Case 34 Passed!${NC}"

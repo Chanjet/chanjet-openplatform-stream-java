@@ -57,6 +57,8 @@ async fn health_handler() -> impl IntoResponse {
 }
 
 async fn metrics_handler() -> impl IntoResponse {
+    let _gauge = crate::gauge!("cowen_active_connections", "Number of active streaming connections");
+
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = Vec::new();
@@ -82,3 +84,19 @@ async fn reload_handler(
         (axum::http::StatusCode::BAD_REQUEST, "Missing profile query parameter").into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_metrics_contains_active_connections() {
+        let response = metrics_handler().await;
+        use axum::response::IntoResponse;
+        let response = response.into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), 100000).await.unwrap();
+        let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+        assert!(body_str.contains("cowen_active_connections"));
+    }
+}
+

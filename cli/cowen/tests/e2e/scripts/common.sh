@@ -110,9 +110,17 @@ exit(0 if found else 1)\""
 
 # Call detection at the start of any suite
 detect_db_host
-# Force PG_CMD to include host
-export PG_CMD="psql -h $DB_HOST -U postgres"
-export PGPASSWORD="${PGPASSWORD:-password}"
+# Auto-detect PostgreSQL credentials and set PG_CMD
+if PGPASSWORD=password psql -h "$DB_HOST" -U postgres -d postgres -c "select 1" &> /dev/null; then
+    export PG_CMD="psql -h $DB_HOST -U postgres"
+    export PGPASSWORD=password
+elif psql -h "$DB_HOST" -d postgres -c "select 1" &> /dev/null; then
+    export PG_CMD="psql -h $DB_HOST"
+    unset PGPASSWORD
+else
+    export PG_CMD="psql -h $DB_HOST -U postgres"
+    export PGPASSWORD=password
+fi
 
 # Database Isolation
 get_case_db_name() {
@@ -269,7 +277,7 @@ start_mock() {
     fi
     sleep 1
     # Bind to 0.0.0.0 for container accessibility
-    MOCK_PORT=$MOCK_PORT python3 tests/infra/mock_server.py > "$TEST_BASE/mock_server_$MOCK_PORT.log" 2>&1 &
+    PYTHONUNBUFFERED=1 MOCK_PORT=$MOCK_PORT python3 -u tests/infra/mock_server.py > "$TEST_BASE/mock_server_$MOCK_PORT.log" 2>&1 &
     MOCK_PID=$!
     for i in {1..10}; do
         if curl -s $MOCK_URL/v1/mock/ping > /dev/null; then

@@ -411,6 +411,19 @@ impl ConfigManager {
     }
 
     pub async fn set_value(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
+        let mut final_value = value.to_string();
+        if key == "log.level" {
+            final_value = final_value.to_lowercase();
+            let valid_levels = ["trace", "debug", "info", "warn", "error"];
+            if !valid_levels.contains(&final_value.as_str()) {
+                return Err(CowenError::Config(format!(
+                    "Invalid log level: {}. Allowed levels: trace, debug, info, warn, error",
+                    value
+                )));
+            }
+        }
+        let value = final_value.as_str();
+
         for interceptor in self.interceptors.lock().await.iter() {
             interceptor.validate(key, value)?;
         }

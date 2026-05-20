@@ -63,6 +63,12 @@ EOF
     --stream-url $MOCK_WS \
     --proxy-port 9098 > /dev/null
 
+# Start daemon to establish WebSocket and get AppTicket
+"$COWEN_BIN" daemon start --profile "$PROF" > /dev/null
+sleep 5
+"$COWEN_BIN" auth login --profile "$PROF" --force >/dev/null
+sleep 2
+
 # 2. Verify Normal Operation
 echo -e "${BOLD}2. Verify Normal Operation${NC}"
 TOKEN_1=$(extract_token "$PROF")

@@ -14,6 +14,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
         app_key: config.app_key.clone(),
         app_secret: config.app_secret.clone(),
         gateway_url: config.openapi_url.clone(),
+        exclusive: config.exclusive.unwrap_or(false),
         ..Default::default()
     };
     let client = connector_sdk::GatewayClient::new(opts);

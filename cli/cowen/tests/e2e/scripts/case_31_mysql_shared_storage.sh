@@ -82,6 +82,12 @@ EOF
     --webhook-target "$MOCK_URL/webhook_sink" \
     --proxy-port 9193 > /dev/null
 
+# Start daemon and log in to populate the shared MySQL database with AppTicket
+"$COWEN_BIN" daemon start --profile main > /dev/null
+sleep 5
+"$COWEN_BIN" auth login --profile main --force >/dev/null
+sleep 2
+
 assert_pass "Node 1 initialized and linked to MySQL"
 
 # --- Node 2: Follower ---
@@ -150,7 +156,16 @@ if [ "$TOKEN_V2" == "$TOKEN_2_V2" ]; then
     echo -e "   ✓ Node 2 picked up refreshed token from Node 1 via MySQL"
 else
     echo -e "   ${RED}[FAILED]${NC} Node 2 token not synchronized after refresh"
+    export COWEN_HOME="$HOME_1"
+    cleanup_suite
+    export COWEN_HOME="$HOME_2"
+    cleanup_suite
     exit 1
 fi
+
+export COWEN_HOME="$HOME_1"
+cleanup_suite
+export COWEN_HOME="$HOME_2"
+cleanup_suite
 
 echo -e "\n${GREEN}🎊 Case 32 Passed!${NC}"
