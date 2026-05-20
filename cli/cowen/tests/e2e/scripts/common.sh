@@ -210,8 +210,8 @@ cleanup_suite() {
         fi
 
         # 1.5 Global pkill as fallback (Robustness)
-        if [ "$COWEN_MOCK_MANAGED" == "true" ]; then
-             pkill -9 -f "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
+        if [ -n "$COWEN_BIN" ]; then
+            pkill -9 "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
         fi
         
         # 2. Cleanup mock server state for next case (Only if shared)
