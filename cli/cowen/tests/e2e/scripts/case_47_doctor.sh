@@ -12,7 +12,17 @@ echo -e "${BLUE}Starting Test Case 47: Cowen Doctor${NC}"
 
 # 1. Setup environment
 TEST_ID=$RANDOM
-export COWEN_HOME="$(pwd)/target/cowen_tests/case_47_$TEST_ID"
+export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
+mkdir -p "$TEST_BASE"
+
+# 🚀 Isolate binary for process manager visibility
+# Use SOURCE_BIN if set (from run_parallel), otherwise default
+BASE_BIN="${SOURCE_BIN:-$(pwd)/target/release/cowen}"
+cp "$BASE_BIN" "$TEST_BASE/cowen_case_47"
+export COWEN_BIN="$TEST_BASE/cowen_case_47"
+chmod +x "$COWEN_BIN"
+
+export COWEN_HOME="$TEST_BASE/case_47_$TEST_ID"
 mkdir -p "$COWEN_HOME"
 TEST_PROFILE="doctor_test_$TEST_ID"
 

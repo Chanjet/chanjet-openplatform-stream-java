@@ -15,6 +15,13 @@ echo -e "${BLUE}Starting Test Case 45: Config Hot-Reload${NC}"
 if [ -z "$COWEN_BIN" ]; then
     export COWEN_BIN="$(pwd)/target/release/cowen"
 fi
+export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
+mkdir -p "$TEST_BASE"
+
+# 🚀 Isolate binary for process manager visibility
+cp "$COWEN_BIN" "$TEST_BASE/cowen_case_45"
+export COWEN_BIN="$TEST_BASE/cowen_case_45"
+chmod +x "$COWEN_BIN"
 TEST_ID=$RANDOM
 export COWEN_HOME="$(pwd)/target/cowen_tests/case_45_$TEST_ID"
 mkdir -p "$COWEN_HOME"
