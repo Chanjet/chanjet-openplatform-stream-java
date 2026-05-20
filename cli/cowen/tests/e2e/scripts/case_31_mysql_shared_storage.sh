@@ -82,11 +82,30 @@ EOF
     --webhook-target "$MOCK_URL/webhook_sink" \
     --proxy-port 9193 > /dev/null
 
-# Start daemon and log in to populate the shared MySQL database with AppTicket
+# Start daemon
 "$COWEN_BIN" daemon start --profile main > /dev/null
-sleep 5
-"$COWEN_BIN" auth login --profile main --force >/dev/null
-sleep 2
+
+# Proactively login with retries to handle WebSocket connection latency
+echo "  Logging in and waiting for AppTicket sync..."
+SUCCESS=false
+INITIAL_TOKEN=""
+for attempt in {1..5}; do
+    "$COWEN_BIN" auth login --profile main --force >/dev/null 2>&1 || true
+    sleep 2
+    
+    INITIAL_TOKEN=$(extract_token "main")
+    if [[ -n "$INITIAL_TOKEN" && "$INITIAL_TOKEN" != *"Authentication failed"* ]]; then
+        SUCCESS=true
+        break
+    fi
+    echo "  [WAIT] WebSocket sync not yet completed, retrying login (Attempt $attempt/5)..."
+    sleep 2
+done
+
+if [ "$SUCCESS" != "true" ]; then
+    echo -e "  ${RED}[FAILED]${NC} Node 1 daemon failed to sync AppTicket after multiple attempts"
+    exit 1
+fi
 
 assert_pass "Node 1 initialized and linked to MySQL"
 
@@ -117,14 +136,16 @@ echo -e "${BOLD}3. Verify Token Synchronization${NC}"
 
 # 1. Get initial token from Node 1
 export COWEN_HOME="$HOME_1"
-TOKEN_1=""
-for i in {1..10}; do
-    TOKEN_1=$(extract_token "main")
-    if [[ -n "$TOKEN_1" && "$TOKEN_1" != *"Authentication failed"* ]]; then
-        break
-    fi
-    sleep 1
-done
+TOKEN_1="$INITIAL_TOKEN"
+if [[ -z "$TOKEN_1" || "$TOKEN_1" == *"Authentication failed"* ]]; then
+    for i in {1..10}; do
+        TOKEN_1=$(extract_token "main")
+        if [[ -n "$TOKEN_1" && "$TOKEN_1" != *"Authentication failed"* ]]; then
+            break
+        fi
+        sleep 1
+    done
+fi
 echo -e "   Node 1 Initial Token: ${BLUE}${TOKEN_1:0:15}...${NC}"
 
 # 2. Get token from Node 2 (should read from DB)
