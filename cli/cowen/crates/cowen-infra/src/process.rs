@@ -1,6 +1,10 @@
 pub fn get_bin_name() -> String {
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(name) = exe.file_name() {
+        if let Ok(real_exe) = std::fs::canonicalize(exe.clone()) {
+            if let Some(name) = real_exe.file_name() {
+                return name.to_string_lossy().to_string();
+            }
+        } else if let Some(name) = exe.file_name() {
             return name.to_string_lossy().to_string();
         }
     }
@@ -74,9 +78,10 @@ pub fn check_port_occupancy(port: u16, bin_name: &str) -> Option<(u32, String)> 
 /// 从进程命令行中提取 Profile 名称
 pub fn extract_profile_from_cmdline(pid: u32) -> Option<String> {
     use sysinfo::{System, ProcessesToUpdate, Pid};
-    let mut s = System::new_all();
-    s.refresh_processes(ProcessesToUpdate::All, true);
-    if let Some(process) = s.process(Pid::from_u32(pid)) {
+    let mut s = System::new();
+    let sys_pid = Pid::from_u32(pid);
+    s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
+    if let Some(process) = s.process(sys_pid) {
         let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>();
         return cmdline.windows(2)
             .find(|w| w[0] == "--profile")

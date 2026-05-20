@@ -185,8 +185,9 @@ pub async fn perform_failure_cleanup(
 ) {
     // 1. Kill the finalizer background process
     let mut sys = sysinfo::System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    if let Some(process) = sys.process(sysinfo::Pid::from_u32(finalizer_pid)) {
+    let sys_pid = sysinfo::Pid::from_u32(finalizer_pid);
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
+    if let Some(process) = sys.process(sys_pid) {
         process.kill_with(sysinfo::Signal::Kill);
         tracing::info!(target: "sys", pid = %finalizer_pid, "Background finalizer killed due to initialization failure");
     }

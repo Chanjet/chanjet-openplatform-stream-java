@@ -39,9 +39,10 @@ pub async fn start(
              if let Ok(content) = fs::read_to_string(&pid_file) {
                  if let Some(pid_str) = content.lines().next() {
                      if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                         let mut s = System::new_all();
-                         s.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-                         if s.process(sysinfo::Pid::from_u32(pid)).is_some() {
+                          let mut s = System::new();
+                          let sys_pid = sysinfo::Pid::from_u32(pid);
+                          s.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
+                          if s.process(sys_pid).is_some() {
                              eprintln!("ℹ️ Master daemon is already running (PID: {}).", pid);
                              return Ok(());
                          }

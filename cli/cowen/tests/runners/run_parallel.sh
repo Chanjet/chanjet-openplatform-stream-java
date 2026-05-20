@@ -117,6 +117,10 @@ EOF
     else
         echo -e "  [JOB $job_id] ${RED}❌ $(basename "$suite") FAILED${NC}"
     fi
+
+    # Bulletproof process teardown: kill all daemons belonging to this job's isolated workspace
+    pkill -9 -f "cowen_job_${job_id}_" >/dev/null 2>&1 || true
+
     return $exit_code
 }
 

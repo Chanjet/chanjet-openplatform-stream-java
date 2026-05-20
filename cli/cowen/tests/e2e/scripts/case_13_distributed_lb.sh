@@ -22,7 +22,21 @@ chmod +x "$COWEN_BIN"
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 13 environment...${NC}"
-    cleanup_suite "case_13"
+    for h in "$HOME_A" "$HOME_B"; do
+        if [ -d "$h" ]; then
+            # Find both legacy and master daemon pid files
+            for pattern in "*_daemon.pid" "master_daemon.pid"; do
+                find "$h" -name "$pattern" 2>/dev/null | while read pid_file; do
+                    PID=$(cat "$pid_file" 2>/dev/null)
+                    if [ -n "$PID" ]; then
+                        echo "     Killing daemon PID $PID in $h..."
+                        kill -9 "$PID" >/dev/null 2>&1 || true
+                    fi
+                done
+            done
+        fi
+    done
+    cleanup_suite
     rm -rf "$HOME_A" "$HOME_B"
 }
 trap final_cleanup EXIT

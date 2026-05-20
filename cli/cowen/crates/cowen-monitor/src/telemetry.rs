@@ -132,6 +132,33 @@ pub fn init_telemetry(
     Ok(TelemetryControl { guards, handle })
 }
 
+/// 发送遥测请求 (添加 500ms 超时控制)
+pub async fn send_telemetry_request(config: &cowen_common::Config, event_name: String, payload: serde_json::Value) -> Result<()> {
+    let ua = cowen_infra::get_user_agent(env!("CARGO_PKG_VERSION"));
+    let client = cowen_infra::create_client(&ua).map_err(|e| anyhow::anyhow!(e))?;
+    let fingerprint = cowen_common::security::get_machine_fingerprint()?;
+    
+    let url = format!("{}{}", config.stream_url.trim_end_matches('/'), obfs!("/v1/telemetry/events"));
+    
+    let event = TelemetryEvent {
+        event: event_name,
+        fingerprint,
+        app_key: if config.app_key.is_empty() { "uninitialized".to_string() } else { config.app_key.clone() },
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        timestamp: Utc::now(),
+        payload,
+    };
+
+    tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        client.post(&url).json(&event).send()
+    ).await.map_err(|_| anyhow::anyhow!("Telemetry report timed out"))??;
+    
+    Ok(())
+}
+
 /// 异步上报遥测事件 (静默失败，非阻塞)
 pub fn report_event(config: &cowen_common::Config, event_name: String, payload: serde_json::Value) {
     if !config.telemetry_enabled {
@@ -140,33 +167,7 @@ pub fn report_event(config: &cowen_common::Config, event_name: String, payload: 
     let config = config.clone();
     
     tokio::spawn(async move {
-        let result: Result<()> = async {
-            let ua = cowen_infra::get_user_agent(env!("CARGO_PKG_VERSION"));
-            let client = cowen_infra::create_client(&ua).map_err(|e| anyhow::anyhow!(e))?;
-            let fingerprint = cowen_common::security::get_machine_fingerprint()?;
-            
-            let url = format!("{}{}", config.stream_url.trim_end_matches('/'), obfs!("/v1/telemetry/events"));
-            
-            let event = TelemetryEvent {
-                event: event_name,
-                fingerprint,
-                app_key: if config.app_key.is_empty() { "uninitialized".to_string() } else { config.app_key.clone() },
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                os: std::env::consts::OS.to_string(),
-                arch: std::env::consts::ARCH.to_string(),
-                timestamp: Utc::now(),
-                payload,
-            };
-
-            client.post(&url)
-                .json(&event)
-                .send()
-                .await?;
-            
-            Ok(())
-        }.await;
-
-        if let Err(e) = result {
+        if let Err(e) = send_telemetry_request(&config, event_name, payload).await {
             tracing::debug!(target: "sys", "Telemetry report failed (silently ignored): {}", e);
         }
     });
@@ -213,5 +214,27 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("\"event\":\"test_event\""));
         assert!(json.contains("\"fingerprint\":\"abc\""));
+    }
+
+    #[tokio::test]
+    async fn test_report_event_timeout_and_spin_prevention() {
+        let mut config = cowen_common::Config::default_with_profile("testprof");
+        config.telemetry_enabled = true;
+        // Use an unroutable IP to simulate a network blackhole / connection block
+        config.stream_url = "http://10.255.255.1:9999".to_string();
+
+        let start = std::time::Instant::now();
+        
+        // This will block or fail, and we want to verify it does not take too long
+        let res = send_telemetry_request(&config, "test_timeout".to_string(), json!({})).await;
+        
+        let duration = start.elapsed();
+        
+        assert!(res.is_err());
+        assert!(
+            duration < std::time::Duration::from_millis(1500),
+            "Telemetry request took too long without timeout mechanism: {:?}",
+            duration
+        );
     }
 }

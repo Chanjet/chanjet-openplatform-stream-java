@@ -13,7 +13,7 @@ else
 fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
-pkill cowen-test || true
+pkill -f "cowen_case_19" || true
 sleep 2
 setup_workspace "case_19"
 start_mock

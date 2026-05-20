@@ -6,7 +6,9 @@ use axum::{
 };
 use reqwest::Client;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use cowen_common::config::Config;
+use cowen_common::vault::Vault;
 use cowen_common::{CowenResult, CowenError};
 
 #[derive(Clone)]
@@ -14,11 +16,13 @@ pub struct ProxyState {
     pub client: Client,
     pub config: Config,
     pub profile: String,
+    pub vault: Arc<dyn Vault>,
 }
 
 pub async fn start_proxy(
     profile: &str,
     config: &Config,
+    vault: Arc<dyn Vault>,
     port: u16,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
 ) -> CowenResult<()> {
@@ -26,6 +30,7 @@ pub async fn start_proxy(
         client: Client::new(),
         config: config.clone(),
         profile: profile.to_string(),
+        vault,
     };
 
     let app = Router::new()
@@ -116,27 +121,8 @@ async fn handle_proxy(
             .unwrap()
     };
 
-    // 1. Resolve Auth
-    let fingerprint = match cowen_common::security::get_machine_fingerprint() {
-        Ok(f) => f,
-        Err(_) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Fingerprint failed".to_string())
-    };
-
-    let app_dir = cowen_common::config::get_app_dir();
-    let cfg_mgr: cowen_config::ConfigManager = match cowen_config::ConfigManager::new() {
-        Ok(m) => m,
-        Err(_) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Config manager failed".to_string())
-    };
-    let app_config = match cfg_mgr.load_app_config().await {
-        Ok(c) => c,
-        Err(_) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Config load failed".to_string())
-    };
-    let vault: std::sync::Arc<dyn cowen_common::vault::Vault> = match cowen_store::create_vault(&app_config, &app_dir, &fingerprint).await {
-        Ok(v) => v,
-        Err(_) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Vault unlock failed".to_string())
-    };
-
-    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+    // 1. Resolve Auth directly reusing the shared Vault O(1)
+    let auth_cli = cowen_auth::create_auth_client_with_vault(state.vault.clone());
 
     // 1.1. Read body early
     let bytes = match axum::body::to_bytes(body, usize::MAX).await {
@@ -228,5 +214,86 @@ async fn handle_proxy(
             tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, error = %e, "Proxy upstream request failed");
             cors_error(axum::http::StatusCode::BAD_GATEWAY, format!("Proxy upstream error: {}", e))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cowen_common::config::AppConfig;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_proxy_concurrency_no_deadlock() {
+        // 1. Setup mock upstream server
+        let mock_app = Router::new().route("/hello", any(|| async {
+            axum::response::Response::builder()
+                .status(axum::http::StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .body(axum::body::Body::from(r#"{"status":"ok"}"#))
+                .unwrap()
+        }));
+        let mock_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mock_addr = mock_listener.local_addr().unwrap();
+        let mock_server_handle = tokio::spawn(async move {
+            axum::serve(mock_listener, mock_app).await.unwrap();
+        });
+
+        // 2. Setup temp directory for local Vault using UUID to avoid dependency on tempfile
+        let temp_dir = std::env::temp_dir().join(format!("cowen_proxy_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let app_cfg = AppConfig::default();
+        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint").await.unwrap();
+
+        // Seed some configs
+        vault.set_config("test_profile", "app_key", "test_key").await.unwrap();
+        vault.set_secret("test_profile", "app_secret", "test_secret").await.unwrap();
+        vault.save_app_access_token("test_key", cowen_common::models::Token {
+            value: "mock_at_sb_12345".to_string(),
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+            created_at: chrono::Utc::now(),
+        }).await.unwrap();
+
+        // 3. Start proxy
+        let mut config = Config::default_with_profile("test_profile");
+        config.app_key = "test_key".to_string();
+        config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
+        config.openapi_url = format!("http://{}", mock_addr);
+        config.stream_url = format!("http://{}", mock_addr);
+        config.webhook_target = "http://localhost:8080".to_string();
+
+        let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+        let p_vault = vault.clone();
+        let p_config = config.clone();
+
+        let proxy_task = tokio::spawn(async move {
+            start_proxy("test_profile", &p_config, p_vault, 0, Some(port_tx)).await.unwrap();
+        });
+
+        let proxy_port = port_rx.await.unwrap();
+        let client = reqwest::Client::new();
+
+        // 4. Send concurrent requests to the proxy
+        let mut futures = vec![];
+        for _ in 0..10 {
+            let client_clone = client.clone();
+            let url = format!("http://127.0.0.1:{}/hello", proxy_port);
+            futures.push(tokio::spawn(async move {
+                let resp = client_clone.get(&url).send().await.unwrap();
+                assert_eq!(resp.status(), axum::http::StatusCode::OK);
+                let text = resp.text().await.unwrap();
+                assert!(text.contains("ok"));
+            }));
+        }
+
+        // Wait for all requests to complete
+        for fut in futures {
+            fut.await.unwrap();
+        }
+
+        // Cleanup and shutdown mock server/proxy
+        mock_server_handle.abort();
+        proxy_task.abort();
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

@@ -141,15 +141,9 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
         if let Some(pid_str) = lines.next() {
             if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
                 // Secondary check: verify the process actually exists and looks like us.
-                let mut s = System::new_with_specifics(
-                    sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing())
-                );
+                let mut s = System::new();
                 let sys_pid = sysinfo::Pid::from_u32(pid_val);
-                s.refresh_processes_specifics(
-                    sysinfo::ProcessesToUpdate::Some(&[sys_pid]),
-                    true,
-                    sysinfo::ProcessRefreshKind::nothing().with_cmd(sysinfo::UpdateKind::Always)
-                );
+                s.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
 
                 if let Some(process) = s.process(sys_pid) {
                     let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
@@ -346,3 +340,45 @@ pub async fn collect_daemon_status(
 
     Ok(res)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_read_daemon_info_current_process() {
+        let dir = tempdir().unwrap();
+        let pid_file = dir.path().join("test_daemon.pid");
+        let current_pid = std::process::id();
+        
+        fs::write(
+            &pid_file,
+            format!("{}\nBUILD_ID=test_id_123\nBUILD_TIME=test_time_456", current_pid),
+        ).unwrap();
+
+        let info = read_daemon_info(&pid_file);
+        assert!(info.is_some(), "Should extract info from current running test process");
+        let info = info.unwrap();
+        assert_eq!(info.pid, current_pid);
+        assert_eq!(info.build_id.as_deref(), Some("test_id_123"));
+        assert_eq!(info.build_time.as_deref(), Some("test_time_456"));
+    }
+
+    #[test]
+    fn test_read_daemon_info_non_existent_pid() {
+        let dir = tempdir().unwrap();
+        let pid_file = dir.path().join("non_existent_daemon.pid");
+        
+        // 999999 is highly unlikely to be a valid running pid
+        fs::write(
+            &pid_file,
+            "999999\nBUILD_ID=junk\nBUILD_TIME=junk",
+        ).unwrap();
+
+        let info = read_daemon_info(&pid_file);
+        assert!(info.is_none(), "Non-existent PID should return None");
+    }
+}
+

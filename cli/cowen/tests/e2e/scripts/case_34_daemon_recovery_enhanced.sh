@@ -12,7 +12,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 setup_workspace "daemon_recovery_enhanced"
-# trap cleanup_suite EXIT
+trap cleanup_suite EXIT
 start_mock
 
 # --- Helpers ---

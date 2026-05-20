@@ -73,9 +73,10 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     
     let p_profile = profile.to_string();
     let p_config = config.clone();
+    let p_vault = vault.clone();
     let proxy_fut = async move {
         if enable_proxy {
-            if let Err(e) = crate::daemon::proxy::start_proxy(&p_profile, &p_config, proxy_port, Some(port_tx)).await {
+            if let Err(e) = crate::daemon::proxy::start_proxy(&p_profile, &p_config, p_vault, proxy_port, Some(port_tx)).await {
                 return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
             }
         }
@@ -83,16 +84,33 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     };
 
     let connected_notify = Arc::new(tokio::sync::Notify::new());
-
     let client_ptr = Arc::new(client);
     let client_for_stream = client_ptr.clone();
     let stream_notify = connected_notify.clone();
+    let status_file_for_stream = status_file.clone();
     let stream_fut = async move {
         if supports_webhooks {
             client_for_stream.start_with_callback(move |state| {
                 if state == connector_sdk::ConnectionState::Connected {
                     stream_notify.notify_waiters();
                 }
+                
+                let state_str = match state {
+                    connector_sdk::ConnectionState::Connected => "Connected",
+                    connector_sdk::ConnectionState::Connecting => "Connecting",
+                    connector_sdk::ConnectionState::Disconnected => "Disconnected",
+                };
+                
+                let mut json = if let Ok(content) = std::fs::read_to_string(&status_file_for_stream) {
+                    serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+                } else {
+                    serde_json::json!({})
+                };
+                
+                json["state"] = serde_json::json!(state_str);
+                json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+                let _ = std::fs::write(&status_file_for_stream, serde_json::to_string(&json).unwrap_or_default());
+                
             }).await.map_err(|e| anyhow::anyhow!("{:?}", e)).context("Stream client crashed during connection")
         } else {
             std::future::pending::<Result<()>>().await
@@ -129,16 +147,27 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>, proxy_po
     };
 
     let client_ptr_clone = client_ptr.clone();
+    let status_file_for_port = status_file.clone();
+    let supports_webhooks_for_port = supports_webhooks;
     tokio::spawn(async move {
         if let Ok(p) = port_rx.await {
-            let now = chrono::Utc::now().to_rfc3339();
-            let status_json = serde_json::json!({
-                "state": "Active",
-                "client_id": client_ptr_clone.client_id(),
-                "updated_at": now,
-                "proxy_port": p,
-            });
-            let _ = std::fs::write(&status_file, serde_json::to_string(&status_json).unwrap());
+            let mut json = if let Ok(content) = std::fs::read_to_string(&status_file_for_port) {
+                serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+            } else {
+                serde_json::json!({})
+            };
+            
+            if !supports_webhooks_for_port {
+                json["state"] = serde_json::json!("Active");
+            } else if json.get("state").is_none() {
+                json["state"] = serde_json::json!("Connecting");
+            }
+            
+            json["client_id"] = serde_json::json!(client_ptr_clone.client_id());
+            json["proxy_port"] = serde_json::json!(p);
+            json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+            
+            let _ = std::fs::write(&status_file_for_port, serde_json::to_string(&json).unwrap_or_default());
         }
     });
 

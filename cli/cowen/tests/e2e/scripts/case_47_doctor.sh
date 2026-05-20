@@ -2,29 +2,16 @@
 # Test Case 47: Cowen Doctor
 # Purpose: Verify that the cowen doctor command correctly diagnoses the environment.
 
-set -e
-NC='\033[0m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
 
-echo -e "${BLUE}Starting Test Case 47: Cowen Doctor${NC}"
+setup_workspace "doctor_test"
+trap cleanup_suite EXIT
 
-# 1. Setup environment
-TEST_ID=$RANDOM
-export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
-mkdir -p "$TEST_BASE"
-
-# 🚀 Isolate binary for process manager visibility
-# Use SOURCE_BIN if set (from run_parallel), otherwise default
-BASE_BIN="${SOURCE_BIN:-$(pwd)/target/release/cowen}"
-cp "$BASE_BIN" "$TEST_BASE/cowen_case_47"
-export COWEN_BIN="$TEST_BASE/cowen_case_47"
-chmod +x "$COWEN_BIN"
-
-export COWEN_HOME="$TEST_BASE/case_47_$TEST_ID"
-mkdir -p "$COWEN_HOME"
-TEST_PROFILE="doctor_test_$TEST_ID"
+TEST_PROFILE="doctor_test_prof"
 
 # 2. Run doctor on uninitialized profile (should show some failures or warnings)
 echo "Running doctor on uninitialized profile..."
@@ -59,4 +46,4 @@ else
 fi
 
 echo -e "${GREEN}Test Case 47 PASSED!${NC}"
-rm -rf "$COWEN_HOME" doctor_output.log doctor_output_init.log
+rm -f doctor_output.log doctor_output_init.log

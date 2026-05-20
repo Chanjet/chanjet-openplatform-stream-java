@@ -34,4 +34,7 @@ async fn main() {
         eprintln!("❌ Error: {}", err_msg);
         std::process::exit(1);
     }
+
+    // Explicitly exit to ensure background spawns (like telemetry) do not block process teardown
+    std::process::exit(0);
 }
