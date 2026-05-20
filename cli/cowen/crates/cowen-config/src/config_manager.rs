@@ -456,10 +456,18 @@ impl ConfigManager {
                     // Extract storage from profile if present
                     if let Some(storage) = val.get_mut("storage") {
                         if app_cfg.storage.db_url.is_none() || app_cfg.storage.store == "innerdb" {
-                             if let Ok(s) = serde_json::from_value::<StorageConfig>(storage.take()) {
-                                 app_cfg.storage = s;
-                                 changed = true;
-                                 info!(target: "sys", profile = %profile, "Migrated storage config to app.yaml");
+                             if let Ok(s) = serde_json::from_value::<StorageConfig>(storage.clone()) {
+                                 let is_valid = match s.store.as_str() {
+                                     "local" | "innerdb" | "sqlite" => true,
+                                     "mysql" | "postgres" | "redis" => s.db_url.as_ref().map(|url| !url.is_empty()).unwrap_or(false),
+                                     _ => false,
+                                 };
+                                 if is_valid {
+                                     storage.take();
+                                     app_cfg.storage = s;
+                                     changed = true;
+                                     info!(target: "sys", profile = %profile, "Migrated storage config to app.yaml");
+                                 }
                              }
                         }
                     }
