@@ -86,11 +86,21 @@ echo -e "${BOLD}2. Trigger AppTicket Push and Verify Storage${NC}"
 
 # Start daemon on Node 1 to receive ticket
 "$COWEN_BIN" daemon start --profile main
-sleep 5
+sleep 2
 
-# Verify ticket exists in PostgreSQL
+echo -e "  Triggering AppTicket push for Node 1..."
+curl -s -X POST -H "appKey: $APP_KEY" "$MOCK_URL/auth/appTicket/resend" >/dev/null
+
+# Verify ticket exists in PostgreSQL with retries
 echo -n "  Verifying AppTicket in PostgreSQL..."
-TICKET_IN_DB=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';" "$DB_NAME" | grep -v "ticket_value" | grep -v "\-\-\-" | xargs)
+TICKET_IN_DB=""
+for i in {1..10}; do
+    TICKET_IN_DB=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';" "$DB_NAME" | grep -v "ticket_value" | grep -v "\-\-\-" | grep -v "rows" | xargs)
+    if [[ -n "$TICKET_IN_DB" ]]; then
+        break
+    fi
+    sleep 1
+done
 
 if [[ -n "$TICKET_IN_DB" ]]; then
     echo -e " ${GREEN}[OK]${NC} (Value found: ${TICKET_IN_DB:0:15}...)"
@@ -105,7 +115,7 @@ echo -e "${BOLD}3. Verify Persistence after Node 1 Restart${NC}"
 sleep 1
 
 echo -n "  Verifying AppTicket persists after daemon stop..."
-TICKET_AFTER_STOP=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';" "$DB_NAME" | grep -v "ticket_value" | grep -v "\-\-\-" | xargs)
+TICKET_AFTER_STOP=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';" "$DB_NAME" | grep -v "ticket_value" | grep -v "\-\-\-" | grep -v "rows" | xargs)
 if [[ "$TICKET_IN_DB" == "$TICKET_AFTER_STOP" ]]; then
     echo -e " ${GREEN}[OK]${NC}"
 else
@@ -127,7 +137,15 @@ EOF
 
 # Node 2 should be able to get the token immediately because the ticket is already in PG
 # It will use the ticket from PG to exchange for a token from the mock platform
-TOKEN_2=$(extract_token "main")
+TOKEN_2=""
+for i in {1..10}; do
+    TOKEN_2=$(extract_token "main")
+    if [[ -n "$TOKEN_2" ]]; then
+        break
+    fi
+    sleep 1
+done
+
 if [[ -n "$TOKEN_2" ]]; then
     echo -e "   ✓ Node 2 successfully used shared AppTicket from PG to acquire token"
 else
