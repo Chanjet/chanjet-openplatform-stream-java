@@ -70,7 +70,7 @@ fi
 echo "   Killing daemon $DAEMON_PID..."
 kill -9 $DAEMON_PID 2>/dev/null || true
 # Use a more specific pattern to avoid killing the test script itself
-pkill -9 -f "cowen-test daemon.*--profile $PROF" 2>/dev/null || true
+pkill -9 -f "$(basename "$COWEN_BIN") daemon.*--profile $PROF" 2>/dev/null || true
 sleep 5
 
 if [ ! -f "$DB_FILE" ]; then

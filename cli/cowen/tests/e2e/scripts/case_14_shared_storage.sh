@@ -12,7 +12,7 @@ else
 fi
 
 # Force cleanup before starting
-# pkill -9 cowen-test || true
+# pkill -9 -f "$(basename "$COWEN_BIN")" || true
 sleep 1
 
 echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"

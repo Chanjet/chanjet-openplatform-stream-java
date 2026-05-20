@@ -38,7 +38,7 @@ echo -e "${BOLD}1. OAuth2 Init (PKCE Flow)${NC}"
     --app-mode oauth2 \
     --openapi-url "$MOCK_URL" \
     --stream-url "$MOCK_WS" \
-    --proxy-port 9093 \
+    --proxy-port $(get_unused_port) \
     --webhook-target "http://127.0.0.1:8080/cb" > /dev/null 2>&1 &
 INIT_PID=$!
 

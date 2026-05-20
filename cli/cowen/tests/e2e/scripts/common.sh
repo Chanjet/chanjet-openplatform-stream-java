@@ -211,7 +211,7 @@ cleanup_suite() {
 
         # 1.5 Global pkill as fallback (Robustness)
         if [ "$COWEN_MOCK_MANAGED" == "true" ]; then
-             pkill -9 cowen-test >/dev/null 2>&1 || true
+             pkill -9 -f "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
         fi
         
         # 2. Cleanup mock server state for next case (Only if shared)
@@ -318,7 +318,7 @@ cleanup_all_workspaces() {
         taskkill //F //IM cowen_*.exe >/dev/null 2>&1 || true
     else
         # Kill by pattern since each test has a unique binary name
-        pkill -9 -f "cowen_" >/dev/null 2>&1 || true
+        pkill -9 "^cowen_" >/dev/null 2>&1 || true
     fi
 
     # 2. Kill all mock servers

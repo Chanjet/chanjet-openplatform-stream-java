@@ -7,7 +7,7 @@ else
 fi
 
 # Aggressive cleanup of any leftover cowen processes from previous failed runs
-pkill -9 cowen-test || true
+pkill -9 -f "cowen_store_app_activation" || true
 sleep 1
 
 setup_workspace "store_app_activation"
