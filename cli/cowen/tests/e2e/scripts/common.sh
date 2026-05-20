@@ -156,10 +156,10 @@ setup_workspace() {
     # Filter out dots and dashes from name
     unique_name=$(echo $unique_name | tr '.-' '_')
     
-    # Use symbolic link instead of cp to save I/O and disk space
-    # 🚀 FIX: Use absolute path for SOURCE_BIN to avoid broken links
+    # Use cp instead of symbolic link so the OS process manager shows the unique name
+    # On modern filesystems, cp is fast. This ensures 'pkill' and process isolation works flawlessly.
     local abs_source=$(python3 -c "import os; print(os.path.abspath('$SOURCE_BIN'))")
-    ln -sf "$abs_source" "$COWEN_HOME/$unique_name"
+    cp "$abs_source" "$COWEN_HOME/$unique_name"
     export COWEN_BIN="$COWEN_HOME/$unique_name"
     # Ensure it is executable (usually links follow permissions, but let's be safe)
     chmod +x "$COWEN_BIN"
