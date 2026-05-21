@@ -462,45 +462,50 @@ impl ConfigManager {
     }
 
     pub async fn auto_migrate(&self) -> CowenResult<()> {
+        let local_profiles = self.list_local_profiles()?;
         let mut app_cfg = self.load_app_config().await?;
-        let profiles = self.list_local_profiles()?;
-        let mut changed = false;
+        let mut migrated = false;
 
-        for profile in profiles {
-            let path = self.get_profile_path(&profile);
+        for profile in local_profiles {
+            let path = self.app_dir.join(format!("{}.yaml", profile));
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(mut val) = serde_yaml::from_str::<serde_json::Value>(&content) {
-                    // Extract storage from profile if present
-                    if let Some(storage) = val.get_mut("storage") {
-                        if app_cfg.storage.db_url.is_none() || app_cfg.storage.store == "innerdb" {
-                             if let Ok(s) = serde_json::from_value::<StorageConfig>(storage.clone()) {
-                                 let is_valid = match s.store.as_str() {
-                                     "local" | "innerdb" | "sqlite" => true,
-                                     "mysql" | "postgres" | "redis" => s.db_url.as_ref().map(|url| !url.is_empty()).unwrap_or(false),
-                                     _ => false,
-                                 };
-                                 if is_valid {
-                                     storage.take();
-                                     app_cfg.storage = s;
-                                     changed = true;
-                                     info!(target: "sys", profile = %profile, "Migrated storage config to app.yaml");
-                                 }
-                             }
+                if let Ok(mut yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    // Extract 'storage' from profile if present
+                    if let Some(storage) = yaml.get_mut("storage") {
+                        println!("📦 Migrating storage config from profile: {}", profile);
+                        
+                        // Merge into app_cfg if app_cfg is default/empty
+                        if app_cfg.storage.store == "local" || app_cfg.storage.store == "innerdb" {
+                            if let Ok(new_storage) = serde_yaml::from_value::<StorageConfig>(storage.clone()) {
+                                app_cfg.storage = new_storage;
+                                migrated = true;
+                            }
                         }
-                    }
-                    
-                    // Rewrite profile without storage if changed
-                    if changed {
-                         let updated = serde_yaml::to_string(&val)?;
-                         fs::write(path, updated)?;
+
+                        // Remove storage from profile yaml
+                        if let Some(mapping) = yaml.as_mapping_mut() {
+                            mapping.remove(&serde_yaml::Value::String("storage".to_string()));
+                        }
+
+                        // Backup and Save updated profile
+                        let backup_path = path.with_extension("yaml.bak");
+                        if !backup_path.exists() {
+                            let _ = fs::copy(&path, &backup_path);
+                        }
+                        if let Ok(updated) = serde_yaml::to_string(&yaml) {
+                             let _ = fs::write(&path, updated);
+                             println!("  ✓ Removed storage config from {}.yaml (backup created: {}.yaml.bak)", profile, profile);
+                        }
                     }
                 }
             }
         }
 
-        if changed {
+        if migrated {
             self.save_app_config(&app_cfg).await?;
+            println!("✨ Global app.yaml updated with migrated storage settings.");
         }
+
         Ok(())
     }
 

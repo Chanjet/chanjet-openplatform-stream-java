@@ -64,6 +64,7 @@ tokio-util = { version = "0.7", features = ["compat"] }
 # AI & Search
 cowen-ai = { path = "crates/cowen-ai", optional = true }
 cowen-common = { path = "crates/cowen-common" }
+indicatif = "0.17"
 
 
 

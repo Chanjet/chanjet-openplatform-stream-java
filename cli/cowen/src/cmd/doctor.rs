@@ -65,6 +65,11 @@ fn check_system_info(config: &Config, verbose: bool) -> bool {
 async fn check_storage(cfg_mgr: &ConfigManager, profile: &str, _verbose: bool, fix: bool) -> bool {
     println!("\n{} {}", "[2/5]".dimmed(), "存储后端与 Schema 检查...".bold());
     
+    if fix {
+        println!("  🛠️  正在检查并执行配置文件物理迁移...");
+        let _ = cfg_mgr.auto_migrate().await;
+    }
+
     let app_cfg = match cfg_mgr.load_app_config().await {
         Ok(c) => c,
         Err(e) => {
