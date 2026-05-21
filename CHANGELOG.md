@@ -4,6 +4,23 @@
 
 ---
 
+## [0.3.3] - 2026-05-21
+
+### 🚀 内部治理与交互革命 (Internal Governance Milestone)
+- **ProfileWorker 状态机**: 引入确定性状态机模型（7 状态），支持**指数退避 (Backoff)** 与**熔断机制 (Circuit Breaker)**，彻底消除 `WorkerManager` 中的死锁隐患。
+- **配置自治 (Identifier Locator)**: 增强配置路径解析，支持 `key:val` 寻址（如 `plugins.name:p1.path`），实现数组下标对用户的完全透明。
+- **数组物理坍缩 (Collapsing)**: 实现配置项删除后的物理重排，保持索引连续且自治，支持 `+` 追加模式。
+- **存储层归一化 (FileStore v3)**: 
+    - 物理布局标准化为分级目录树 `vault/{profile}/{prefix}/{id}.json`，显著提升大规模数据下的 I/O 确定性。
+    - 引入 `StoreItem` 泛型 Trait，消除 40% 以上的重复序列化代码。
+- **自动布局迁移**: 实现 `v2_to_v3` 迁移器，系统启动时静默完成从 v0.3.2 单文件布局到 v0.3.3 目录树布局的平滑升级。
+
+### 🔧 CLI 增强
+- **配置删除指令**: 新增 `cowen config unset <PATH>` 命令。
+- **可观测性升级**: `cowen status` 现在支持显示重试倒计时、重试次数及熔断原因。
+
+---
+
 ## [0.3.2] - 2026-05-21
 
 ### 🚀 架构与稳定性重构 (v0.3.2 Milestone)
