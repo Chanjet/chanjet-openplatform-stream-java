@@ -6,9 +6,87 @@ use sqlx::{Sqlite, Pool};
 use std::sync::Arc;
 use fs2::FileExt;
 use std::fs::OpenOptions;
-use crate::sql::{SqlDriver, SqlBuilder, SqlBuilderRegistration};
+use crate::sql::{SqlDriver, SqlBuilder, SqlBuilderRegistration, migration_trait::SchemaMigration};
 use cowen_common::models::{Token, Ticket, Item, AuditEntry, DlqMessage};
 use chrono::{DateTime, Utc};
+
+#[async_trait]
+impl SchemaMigration for SqliteDriver {
+    async fn get_current_version(&self) -> CowenResult<u32> {
+        // Create schema_migrations table if not exists
+        sqlx::query("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)")
+            .execute(&self.pool).await
+            .map_err(|e| CowenError::Store(e.to_string()))?;
+            
+        let row: Option<(i32,)> = sqlx::query_as("SELECT MAX(version) FROM schema_migrations")
+            .fetch_optional(&self.pool).await
+            .map_err(|e| CowenError::Store(e.to_string()))?;
+            
+        Ok(row.map_or(0, |r| r.0 as u32))
+    }
+    
+    async fn apply_sql(&self, sql: &str) -> CowenResult<()> {
+        sqlx::query(sql).execute(&self.pool).await.map_err(|e| CowenError::Store(format!("SQL apply error: {} ({})", e, sql)))?;
+        Ok(())
+    }
+    
+    async fn set_version(&self, version: u32) -> CowenResult<()> {
+        sqlx::query("INSERT INTO schema_migrations (version) VALUES (?)")
+            .bind(version as i32)
+            .execute(&self.pool).await
+            .map_err(|e| CowenError::Store(e.to_string()))?;
+        Ok(())
+    }
+    
+    fn get_migrations(&self) -> Vec<(u32, &'static str)> {
+        vec![
+            (1, "
+                CREATE TABLE IF NOT EXISTS cowen_config (
+                    profile TEXT NOT NULL,
+                    item_key TEXT NOT NULL,
+                    item_value TEXT NOT NULL,
+                    version INTEGER DEFAULT 1,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (profile, item_key)
+                );
+                CREATE TABLE IF NOT EXISTS cowen_secrets (
+                    profile TEXT NOT NULL,
+                    item_key TEXT NOT NULL,
+                    item_value TEXT NOT NULL,
+                    version INTEGER DEFAULT 1,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (profile, item_key)
+                );
+                CREATE TABLE IF NOT EXISTS cowen_tokens (
+                    profile TEXT NOT NULL,
+                    item_key TEXT NOT NULL,
+                    item_value TEXT NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    PRIMARY KEY (profile, item_key)
+                );
+                CREATE TABLE IF NOT EXISTS cowen_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile TEXT NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    action TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    details TEXT
+                );
+                CREATE TABLE IF NOT EXISTS cowen_dlq (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile TEXT NOT NULL,
+                    topic TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    retry_count INTEGER DEFAULT 0,
+                    error TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS idx_dlq_profile_topic ON cowen_dlq (profile, topic);
+                CREATE INDEX IF NOT EXISTS idx_audit_profile ON cowen_audit (profile);
+            "),
+        ]
+    }
+}
 
 pub struct SqliteDriver {
     pool: Pool<Sqlite>,
@@ -445,29 +523,7 @@ impl SqlDriver for SqliteDriver {
     }
 
     async fn migrate(&self) -> CowenResult<()> {
-        // 1. Check if cowen_dlq has 'id' column
-        let rows: Vec<(i64, String, String, i64, Option<String>, Option<String>)> = sqlx::query_as("PRAGMA table_info(cowen_dlq)")
-            .fetch_all(&self.pool).await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        
-        let has_id = rows.iter().any(|r| r.1 == "id");
-        if !has_id {
-            println!("🛠️  Migrating SQLite cowen_dlq schema (adding 'id' column)...");
-            
-            let migration_steps = [
-                "ALTER TABLE cowen_dlq RENAME TO cowen_dlq_old",
-                "CREATE TABLE cowen_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, topic TEXT NOT NULL, payload TEXT NOT NULL, retry_count INTEGER DEFAULT 0, error TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
-                "INSERT INTO cowen_dlq (profile, topic, payload, retry_count, error, created_at) SELECT profile, topic, payload, retry_count, error, created_at FROM cowen_dlq_old",
-                "DROP TABLE cowen_dlq_old",
-                "CREATE INDEX IF NOT EXISTS idx_dlq_profile_topic ON cowen_dlq (profile, topic)",
-            ];
-
-            for sql in migration_steps {
-                sqlx::query(sql).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-            }
-            println!("✅ SQLite DLQ migration completed.");
-        }
-        Ok(())
+        self.run_migration().await
     }
 
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {

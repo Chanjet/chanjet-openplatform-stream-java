@@ -8,18 +8,21 @@ use cowen_config::ConfigManager;
 use crate::daemon::state::{ProfileWorker, WorkerStatus};
 use tokio::time::{Duration, Instant};
 use cowen_auth::client::Client;
+use cowen_monitor::telemetry_db::TelemetryDb;
 
 pub struct WorkerManager {
     cfg_mgr: ConfigManager,
     workers: Arc<Mutex<HashMap<String, ProfileWorker>>>,
+    telemetry_db: Option<Arc<TelemetryDb>>,
 }
 
 impl WorkerManager {
-    pub fn new(cfg_mgr: ConfigManager) -> Arc<Self> {
+    pub fn new(cfg_mgr: ConfigManager, telemetry_db: Option<Arc<TelemetryDb>>) -> Arc<Self> {
         let workers = Arc::new(Mutex::new(HashMap::new()));
         let manager = Arc::new(Self {
             cfg_mgr,
             workers,
+            telemetry_db,
         });
 
         // Start Watchdog
@@ -29,6 +32,12 @@ impl WorkerManager {
         });
 
         manager
+    }
+
+    async fn record_event(&self, profile: &str, event: &str, old: Option<&str>, new: Option<&str>, details: Option<&str>) {
+        if let Some(db) = &self.telemetry_db {
+            let _ = db.insert_event(profile, event, old, new, details).await;
+        }
     }
 
     pub fn config_manager(&self) -> &ConfigManager {
@@ -55,6 +64,7 @@ impl WorkerManager {
                 if let Some(w) = workers.get_mut(profile) {
                     w.status = WorkerStatus::Running;
                 }
+                self.record_event(profile, "status_change", Some("Starting"), Some("Running"), None).await;
                 Ok(())
             }
             _ => {
@@ -72,6 +82,7 @@ impl WorkerManager {
         let cfg_mgr = self.cfg_mgr.clone();
         let cancel_token = worker.cancel_token.clone();
         let workers_clone = self.workers.clone();
+        let telemetry_db = self.telemetry_db.clone();
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
         let join_handle = tokio::spawn(async move {
@@ -83,6 +94,9 @@ impl WorkerManager {
                     Ok(_) => {
                         info!(target: "sys", profile = %profile_name, "Worker stopped gracefully");
                         w.status = WorkerStatus::Stopped;
+                        if let Some(db) = &telemetry_db {
+                            let _ = db.insert_event(&profile_name, "status_change", Some("Draining"), Some("Stopped"), None).await;
+                        }
                     }
                     Err(e) => {
                         error!(target: "sys", profile = %profile_name, error = %e, "Worker failed");
@@ -95,14 +109,26 @@ impl WorkerManager {
 
                         if next_retry > 5 {
                             w.status = WorkerStatus::Failed { reason: format!("Circuit breaker triggered: {}", e) };
+                            if let Some(db) = &telemetry_db {
+                                let _ = db.insert_event(&profile_name, "circuit_break", None, Some("Failed"), Some(&e.to_string())).await;
+                            }
                         } else {
-                            let delay = Duration::from_secs(2u64.pow(next_retry as u32).min(60));
+                            // Exponential backoff with 10% jitter logic
+                            let base_delay = 2u64.pow(next_retry as u32).min(60) as f64;
+                            use rand::Rng;
+                            let jitter = rand::thread_rng().gen_range(0.0..=0.2);
+                            let delay_secs = base_delay * (0.9 + jitter);
+                            let delay = Duration::from_secs_f64(delay_secs);
+                            
                             w.status = WorkerStatus::Backoff { 
                                 retry_count: next_retry, 
                                 next_retry_at: Instant::now() + delay,
                                 last_error: e.to_string()
                             };
                             info!(target: "sys", profile = %profile_name, "Entering backoff state, will retry in {:?}", delay);
+                            if let Some(db) = &telemetry_db {
+                                let _ = db.insert_event(&profile_name, "backoff", None, Some("Backoff"), Some(&format!("Retry: {}, Error: {}", next_retry, e))).await;
+                            }
                         }
                     }
                 }

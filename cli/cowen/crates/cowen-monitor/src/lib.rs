@@ -1,6 +1,7 @@
 pub mod status;
 pub mod audit;
 pub mod telemetry;
+pub mod telemetry_db;
 pub mod server;
 pub mod metrics;
 pub mod mgmt;

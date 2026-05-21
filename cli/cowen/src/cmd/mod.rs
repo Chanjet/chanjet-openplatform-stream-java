@@ -8,3 +8,4 @@ pub mod store;
 pub mod log;
 pub mod dlq;
 pub mod doctor;
+pub mod events;

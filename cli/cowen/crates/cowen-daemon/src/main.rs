@@ -46,7 +46,14 @@ async fn main() -> Result<()> {
         std::fs::set_permissions(&args.uds, perms)?;
 
         let cfg_mgr = ConfigManager::new().expect("Failed to init ConfigManager");
-        let daemon_svc = Arc::new(ServerDaemonService::new(cfg_mgr));
+        let app_dir = cowen_common::config::get_app_dir();
+        let telemetry_db = cowen_monitor::telemetry_db::TelemetryDb::new(&app_dir.join("telemetry.db"))
+            .await
+            .expect("Failed to init telemetry db");
+        
+        let _ = telemetry_db.run_gc().await;
+        
+        let daemon_svc = Arc::new(ServerDaemonService::new(cfg_mgr, Some(Arc::new(telemetry_db))));
 
         loop {
             match listener.accept().await {

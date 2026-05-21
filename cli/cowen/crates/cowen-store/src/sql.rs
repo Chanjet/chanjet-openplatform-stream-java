@@ -10,6 +10,8 @@ pub mod sqlite;
 #[cfg(feature = "mssql")]
 mod mssql;
 
+pub mod migration_trait;
+
 use crate::Store;
 use cowen_common::models::{Token, Ticket, Item, AuditEntry, DlqMessage};
 use std::sync::Arc;

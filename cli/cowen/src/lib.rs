@@ -144,6 +144,8 @@ pub enum Commands {
         #[arg(long)]
         fix: bool,
     },
+    /// 查看过去的系统事件流与故障轨迹 (诊断回溯)
+    Events(cmd::events::EventsArgs),
     /// 管理并检查系统整体状态
     System {
         #[command(subcommand)]
@@ -428,7 +430,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
     };
     #[cfg(not(unix))]
-    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
+    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None));
 
     if matches!(&cli.command, Commands::Init { .. }) {
         if cli.profile.is_none() {
@@ -479,6 +481,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Log { .. } => "log",
         Commands::Store { .. } => "store",
         Commands::Doctor { .. } => "doctor",
+        Commands::Events(..) => "events",
         Commands::System { .. } => "system",
     };
     core::telemetry::report_event(&config, "command_run".to_string(), serde_json::json!({ "cmd": cmd_name }));
@@ -514,7 +517,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
     };
     #[cfg(not(unix))]
-    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
+    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None));
 
     // --- Daemon Lifecycle Enforcement ---
     // 1. Version Sync: Ensure all CURRENTLY RUNNING daemons match the CLI version.
@@ -659,6 +662,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             };
             cmd::doctor::execute(target_profile, &target_config, *verbose, *fix, vault.clone(), &cfg_mgr).await?;
         }
+        Commands::Events(args) => cmd::events::execute(args).await?,
         Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?,
         Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? }
         Commands::Config { action } => match action {

@@ -434,7 +434,7 @@ pub async fn ensure_daemon_running(
         #[cfg(unix)]
         let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_common::ipc::client::IpcDaemonService::new(cowen_infra::get_app_dir().join("uds.sock")));
         #[cfg(not(unix))]
-        let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_server::ServerDaemonService::new(_cfg_mgr.clone()));
+        let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_server::ServerDaemonService::new(_cfg_mgr.clone(), None));
         let _ = crate::cmd::daemon::start(profile, config, config.proxy_port, config.proxy_enabled, false, false, _cfg_mgr, vault, None, daemon_svc).await;
     }
 
