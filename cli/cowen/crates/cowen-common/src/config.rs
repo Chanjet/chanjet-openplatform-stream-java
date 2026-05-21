@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 pub const BUILTIN_CLIENT_ID: &str = "3x45dOtt";
 pub const DEF_MARKET_URL: &str = "https://market.chanjet.com";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppConfig {
     #[serde(default)]
     pub storage: StorageConfig,
@@ -20,7 +20,7 @@ impl Default for AppConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StorageConfig {
     #[serde(default = "default_store")]
     pub store: String,
@@ -48,7 +48,7 @@ impl Default for StorageConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     pub app_key: String,
     pub openapi_url: String,
@@ -78,7 +78,7 @@ pub struct Config {
     pub exclusive: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct SearchConfig {
     #[serde(default)]
     pub plugins: Vec<PluginEntry>,
@@ -86,7 +86,7 @@ pub struct SearchConfig {
     pub enabled: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PluginEntry {
     pub name: String,
     pub path: String,
@@ -109,7 +109,7 @@ fn default_log() -> LogConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LogConfig {
     #[serde(default = "default_log_level")]
     pub level: String,

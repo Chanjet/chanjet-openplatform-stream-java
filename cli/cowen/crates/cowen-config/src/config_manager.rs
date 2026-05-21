@@ -472,29 +472,45 @@ impl ConfigManager {
                 if let Ok(mut yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
                     // Extract 'storage' from profile if present
                     if let Some(storage) = yaml.get_mut("storage") {
-                        println!("📦 Migrating storage config from profile: {}", profile);
+                        let mut should_remove = false;
                         
-                        // Merge into app_cfg if app_cfg is default/empty
-                        if app_cfg.storage.store == "local" || app_cfg.storage.store == "innerdb" {
-                            if let Ok(new_storage) = serde_yaml::from_value::<StorageConfig>(storage.clone()) {
-                                app_cfg.storage = new_storage;
-                                migrated = true;
+                        if let Ok(new_storage) = serde_yaml::from_value::<StorageConfig>(storage.clone()) {
+                            // 🛡️ VALIDATION: Only migrate if it's a known valid store and has URL if needed
+                            let is_valid = match new_storage.store.as_str() {
+                                "local" | "innerdb" | "sqlite" => true,
+                                "mysql" | "postgres" | "redis" | "mssql" => new_storage.db_url.as_ref().map(|u| !u.trim().is_empty()).unwrap_or(false),
+                                _ => false,
+                            };
+
+                            if is_valid {
+                                // Merge into app_cfg if app_cfg is default/empty
+                                if app_cfg.storage.store == "local" || app_cfg.storage.store == "innerdb" {
+                                    println!("📦 Migrating storage config from profile: {}", profile);
+                                    app_cfg.storage = new_storage;
+                                    migrated = true;
+                                    should_remove = true;
+                                } else if app_cfg.storage == new_storage {
+                                    // Already matches global, safe to remove from profile
+                                    should_remove = true;
+                                }
                             }
                         }
 
-                        // Remove storage from profile yaml
-                        if let Some(mapping) = yaml.as_mapping_mut() {
-                            mapping.remove(&serde_yaml::Value::String("storage".to_string()));
-                        }
+                        if should_remove {
+                            // Remove storage from profile yaml
+                            if let Some(mapping) = yaml.as_mapping_mut() {
+                                mapping.remove(&serde_yaml::Value::String("storage".to_string()));
+                            }
 
-                        // Backup and Save updated profile
-                        let backup_path = path.with_extension("yaml.bak");
-                        if !backup_path.exists() {
-                            let _ = fs::copy(&path, &backup_path);
-                        }
-                        if let Ok(updated) = serde_yaml::to_string(&yaml) {
-                             let _ = fs::write(&path, updated);
-                             println!("  ✓ Removed storage config from {}.yaml (backup created: {}.yaml.bak)", profile, profile);
+                            // Backup and Save updated profile
+                            let backup_path = path.with_extension("yaml.bak");
+                            if !backup_path.exists() {
+                                let _ = fs::copy(&path, &backup_path);
+                            }
+                            if let Ok(updated) = serde_yaml::to_string(&yaml) {
+                                 let _ = fs::write(&path, updated);
+                                 println!("  ✓ Removed storage config from {}.yaml (backup created: {}.yaml.bak)", profile, profile);
+                            }
                         }
                     }
                 }
