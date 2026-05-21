@@ -10,6 +10,8 @@ use cowen_common::events::event_bus;
 use serde_yaml;
 use cowen_infra::path::get_app_dir;
 
+use crate::strategy::{ConfigStrategy, GlobalStorageStrategy, ProfileLockedStrategy, ProfileDefaultStrategy};
+
 pub trait ConfigValidator: Send + Sync {
     fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool, exists: bool) -> CowenResult<()>;
     fn validate_save(&self, profile: &str, config: &Config, is_distributed: bool) -> CowenResult<()>;
@@ -25,6 +27,7 @@ pub struct ConfigManager {
     vault: OnceCell<Arc<dyn Vault>>,
     validator: OnceCell<Arc<dyn ConfigValidator>>,
     interceptors: Arc<tokio::sync::Mutex<Vec<Arc<dyn ConfigInterceptor>>>>,
+    strategies: Arc<Vec<Box<dyn ConfigStrategy>>>,
     app_config_tx: Arc<tokio::sync::watch::Sender<AppConfig>>,
     profile_txs: Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<Config>>>>,
 }
@@ -42,12 +45,18 @@ impl ConfigManager {
         let mut default_interceptors: Vec<Arc<dyn ConfigInterceptor>> = Vec::new();
         default_interceptors.push(Arc::new(crate::interceptors::PortInterceptor));
         default_interceptors.push(Arc::new(crate::interceptors::UrlInterceptor));
+        
+        let mut strategies: Vec<Box<dyn ConfigStrategy>> = Vec::new();
+        strategies.push(Box::new(GlobalStorageStrategy));
+        strategies.push(Box::new(ProfileLockedStrategy));
+        strategies.push(Box::new(ProfileDefaultStrategy));
 
         let mgr = Self { 
             app_dir,
             vault: OnceCell::new(),
             validator: OnceCell::new(),
             interceptors: Arc::new(tokio::sync::Mutex::new(default_interceptors)),
+            strategies: Arc::new(strategies),
             app_config_tx: Arc::new(app_config_tx),
             profile_txs: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         };
@@ -396,20 +405,26 @@ impl ConfigManager {
         Ok(false)
     }
 
-    pub async fn get_value(&self, profile: &str, key: &str) -> CowenResult<serde_json::Value> {
-        let global_fields = ["storage.store", "storage.db_url", "storage.cache", "storage.cache_url", "monitor_port"];
-        let is_global = global_fields.contains(&key) || key.starts_with("storage.");
+    fn get_strategy(&self, key: &str) -> &dyn ConfigStrategy {
+        for strategy in self.strategies.iter() {
+            if strategy.matches(key) {
+                return strategy.as_ref();
+            }
+        }
+        // Fallback should ideally never be reached because ProfileDefaultStrategy matches everything
+        self.strategies.last().unwrap().as_ref()
+    }
 
-        if is_global {
+    pub async fn get_value(&self, profile: &str, key: &str) -> CowenResult<serde_json::Value> {
+        let strategy = self.get_strategy(key);
+        if strategy.is_global() {
             let app_cfg = self.load_app_config().await?;
             let val = serde_json::to_value(app_cfg)?;
-            crate::path_parser::get_by_path(&val, key)
-                .ok_or_else(|| CowenError::Config(format!("Key not found: {}", key)))
+            strategy.handle_get(key, &val)
         } else {
             let config = self.load(profile).await?;
             let val = serde_json::to_value(config)?;
-            crate::path_parser::get_by_path(&val, key)
-                .ok_or_else(|| CowenError::Config(format!("Key not found: {}", key)))
+            strategy.handle_get(key, &val)
         }
     }
 
@@ -431,23 +446,18 @@ impl ConfigManager {
             interceptor.validate(key, value)?;
         }
 
-        let locked_fields = ["openapi_url", "stream_url", "app_key"];
-        if locked_fields.contains(&key) {
-             return Err(CowenError::Config(format!("Field '{}' is locked for safety", key)));
-        }
-
-        let global_fields = ["storage.store", "storage.db_url", "storage.cache", "storage.cache_url", "monitor_port"];
+        let strategy = self.get_strategy(key);
         
-        let is_global = global_fields.contains(&key) || key.starts_with("storage."); if is_global {
+        if strategy.is_global() {
             let mut app_cfg = self.load_app_config().await?;
             let mut val = serde_json::to_value(&app_cfg)?;
-            crate::path_parser::set_by_path(&mut val, key, value)?;
+            strategy.handle_set(key, value, &mut val)?;
             app_cfg = serde_json::from_value(val)?;
             self.save_app_config(&app_cfg).await?;
         } else {
             let config = self.load(profile).await?;
             let mut val = serde_json::to_value(&config)?;
-            crate::path_parser::set_by_path(&mut val, key, value)?;
+            strategy.handle_set(key, value, &mut val)?;
             let mut new_config: Config = serde_json::from_value(val)?;
             
             new_config.app_secret = config.app_secret;
@@ -461,24 +471,18 @@ impl ConfigManager {
     }
 
     pub async fn unset_value(&self, profile: &str, key: &str) -> CowenResult<()> {
-        let locked_fields = ["openapi_url", "stream_url", "app_key", "app_mode"];
-        if locked_fields.contains(&key) {
-             return Err(CowenError::Config(format!("Field '{}' is mandatory and cannot be unset", key)));
-        }
+        let strategy = self.get_strategy(key);
 
-        let global_fields = ["storage.store", "monitor_port"];
-        let is_global = global_fields.contains(&key) || key.starts_with("storage."); 
-        
-        if is_global {
+        if strategy.is_global() {
             let mut app_cfg = self.load_app_config().await?;
             let mut val = serde_json::to_value(&app_cfg)?;
-            crate::path_parser::unset_by_path(&mut val, key)?;
+            strategy.handle_unset(key, &mut val)?;
             app_cfg = serde_json::from_value(val)?;
             self.save_app_config(&app_cfg).await?;
         } else {
             let config = self.load(profile).await?;
             let mut val = serde_json::to_value(&config)?;
-            crate::path_parser::unset_by_path(&mut val, key)?;
+            strategy.handle_unset(key, &mut val)?;
             let mut new_config: Config = serde_json::from_value(val)?;
             
             new_config.app_secret = config.app_secret;

@@ -1,6 +1,13 @@
 [package]
 name = "cowen-doctor"
 version = "0.3.3"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+async-trait = "0.1"
+anyhow = "1.0"
+inventory = "0.3"
+tokio = { version = "1.0", features = ["rt", "macros"] }
+cowen-common = { path = "../cowen-common" }
+cowen-config = { path = "../cowen-config" }
+tracing = "0.1"

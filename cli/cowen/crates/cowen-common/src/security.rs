@@ -71,3 +71,68 @@ pub fn unseal_config<P: AsRef<Path>>(path: P, fingerprint: &str) -> CowenResult<
     let encrypted = std::fs::read(path)?;
     decrypt(&encrypted, &key)
 }
+
+pub mod ssrf {
+    use crate::{CowenError, CowenResult};
+    use crate::config::SecurityLevel;
+    use std::net::IpAddr;
+    use ipnet::IpNet;
+    
+    pub fn validate_ssrf(url_str: &str, level: &SecurityLevel, whitelist: &[String]) -> CowenResult<()> {
+        if matches!(level, SecurityLevel::Disabled) {
+            return Ok(());
+        }
+
+        let url = url::Url::parse(url_str).map_err(|e| CowenError::api(format!("Invalid webhook URL: {}", e)))?;
+        let host = url.host_str().unwrap_or("");
+        
+        let ip: IpAddr = match host.parse() {
+            Ok(addr) => addr,
+            Err(_) => {
+                if host == "localhost" {
+                    std::net::Ipv4Addr::new(127, 0, 0, 1).into()
+                } else {
+                    // Simple DNS resolution (blocking but fine for validation)
+                    use std::net::ToSocketAddrs;
+                    if let Ok(mut addrs) = format!("{}:80", host).to_socket_addrs() {
+                        if let Some(addr) = addrs.next() {
+                            addr.ip()
+                        } else {
+                            return Err(CowenError::api(format!("SSRF Violation: Unable to resolve host {}", host)));
+                        }
+                    } else {
+                        return Err(CowenError::api(format!("SSRF Violation: Unable to resolve host {}", host)));
+                    }
+                }
+            }
+        };
+
+        if matches!(level, SecurityLevel::Strict) {
+            if !ip.is_loopback() {
+                return Err(CowenError::api("SSRF Violation: Only loopback addresses allowed in Strict mode."));
+            }
+            return Ok(());
+        }
+
+        if matches!(level, SecurityLevel::Flexible) {
+            if ip.is_loopback() {
+                return Ok(());
+            }
+            
+            for cidr_str in whitelist {
+                if let Ok(net) = cidr_str.parse::<IpNet>() {
+                    if net.contains(&ip) {
+                        return Ok(());
+                    }
+                } else if let Ok(whitelist_ip) = cidr_str.parse::<IpAddr>() {
+                    if whitelist_ip == ip {
+                        return Ok(());
+                    }
+                }
+            }
+            return Err(CowenError::api(format!("SSRF Violation: IP {} is not in the whitelist.", ip)));
+        }
+
+        Ok(())
+    }
+}

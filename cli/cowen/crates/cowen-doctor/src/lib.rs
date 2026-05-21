@@ -1,14 +1,28 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod task;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub use task::*;
+use anyhow::Result;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+pub async fn run_all_diagnostics(ctx: &DoctorContext) -> Result<Vec<DiagnosticResult>> {
+    let mut set = tokio::task::JoinSet::new();
+    
+    for reg in inventory::iter::<DiagnosticRegistration> {
+        let task = (reg.builder)();
+        let ctx_clone = ctx.clone();
+        set.spawn(async move {
+            task.run(&ctx_clone).await
+        });
     }
+
+    let mut results = Vec::new();
+    while let Some(res) = set.join_next().await {
+        if let Ok(Ok(diagnostic_res)) = res {
+            results.push(diagnostic_res);
+        } else if let Ok(Err(e)) = res {
+            // Task failed internally, could wrap it or ignore
+            tracing::error!("Diagnostic task failed: {}", e);
+        }
+    }
+
+    Ok(results)
 }

@@ -48,12 +48,33 @@ impl Default for StorageConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub enum SecurityLevel {
+    #[serde(rename = "strict")]
+    #[default]
+    Strict,
+    #[serde(rename = "flexible")]
+    Flexible,
+    #[serde(rename = "disabled")]
+    Disabled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct SecurityConfig {
+    #[serde(default)]
+    pub level: SecurityLevel,
+    #[serde(default)]
+    pub allow_cidr: Vec<String>,
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     pub app_key: String,
     pub openapi_url: String,
     pub stream_url: String,
     pub webhook_target: String,
+    #[serde(default)]
+    pub security: SecurityConfig,
     #[serde(default = "default_log")]
     pub log: LogConfig,
     #[serde(default = "default_true")]
@@ -141,6 +162,7 @@ impl Config {
             openapi_url: "https://openapi.chanjet.com".to_string(),
             stream_url: "https://stream-open.chanapp.chanjet.com".to_string(),
             webhook_target: "http://localhost:8080".to_string(),
+            security: SecurityConfig::default(),
             log: LogConfig {
                 level: "info".to_string(),
                 rotation: default_rotation(),

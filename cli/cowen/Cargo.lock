@@ -906,6 +906,7 @@ dependencies = [
  "hex",
  "hostname",
  "inventory",
+ "ipnet",
  "rand 0.8.6",
  "redis",
  "reqwest 0.12.28",
@@ -917,6 +918,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -963,6 +965,15 @@ dependencies = [
 [[package]]
 name = "cowen-doctor"
 version = "0.3.3"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "cowen-common",
+ "cowen-config",
+ "inventory",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "cowen-infra"
