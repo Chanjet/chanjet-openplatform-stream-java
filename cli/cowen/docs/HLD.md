@@ -48,7 +48,7 @@ graph TD
 ## 4. 非功能性需求设计 (NFRs)
 
 ### 4.1 可观测性 (Observability)
-*   **故障轨迹**: 支持通过 `cowen status --history` 查看过去 15 天的 Worker 异常记录。
+*   **故障轨迹**: 支持通过 `cowen events` 查看过去 15 天的 Worker 状态机变迁与异常记录。
 *   **日志系统**: CLI 与 Daemon 拥有独立的日志文件，分别记录在 `logs/cli.log` 和 `logs/daemon.log`。
 
 ### 4.2 高可用与稳定性 (HA & Performance)

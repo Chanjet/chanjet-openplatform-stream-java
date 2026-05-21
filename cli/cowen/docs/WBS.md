@@ -7,7 +7,7 @@
 | :--- | :--- | :--- | :---: | :--- | :---: | :--- |
 | **2.1** | **独立守护进程构建** | **方法**: 提取编排逻辑，构建独立的 `cowen-daemon` 二进制产物。 | 是 | `cowen-daemon` binary | 2.0 | [验证] CLI 成功通过子进程调用新 daemon。 |
 | **2.2** | **SSRF 安全等级实现** | **方法**: 实现 `Strict/Flexible` 等级校验，支持 CIDR 格式匹配。 | 是 | `security/ssrf.rs` | 1.0 | [安全] 成功拦截 Flexible 模式外的非法转发。 |
-| **2.3** | **诊断数据持久化** | **方法**: 提取 `cowen-telemetry` 模块，集成 SQLite 存储历史状态。 | 是 | `telemetry.db`, 历史查看命令 | 1.5 | [验证] 重启后仍可查看历史 Backoff 记录。 |
+| **2.3** | **诊断数据持久化** | **方法**: 提取 `cowen-telemetry` 模块，集成 SQLite 存储历史状态。 | 是 | `telemetry.db`, `events` 命令 | 1.5 | [验证] 重启后仍可查看历史 Backoff 记录。 |
 | **2.4** | **ConfigManager 策略化** | **方法**: 引入 `ConfigStrategy` SPI，解耦后端元数据逻辑。 | 是 | `strategy.rs`, 重构版 `config_manager.rs` | 1.0 | [重构] 核心模块行数减少 30% 以上。 |
 | **2.5** | **SQL 迁移抽象 (DSL)** | **方法**: 提取 `SchemaMigration` Trait，统一多数据库变更逻辑。 | 是 | `migration_trait.rs` | 0.5 | [验证] 成功适配 SQLite/MySQL 变更。 |
 | **2.6** | **Doctor 插件化重构** | **方法**: 重构为基于 `inventory` 静态注册的并发插件模型。 | 是 | `doctor/task.rs` | 1.0 | [架构] 新增检测项无需修改核心调度逻辑。 |
