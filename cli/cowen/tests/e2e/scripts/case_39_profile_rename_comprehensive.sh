@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 42: Comprehensive Profile Rename Test across all storage modes
+# Case 39: Comprehensive Profile Rename Test across all storage modes
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
@@ -170,5 +170,5 @@ else
     echo -e "${YELLOW}  [SKIP] Postgres not found, skipping Postgres rename test${NC}"
 fi
 
-echo -e "\n${GREEN}${BOLD}🎊 Case 42 Comprehensive Rename Passed!${NC}"
+echo -e "\n${GREEN}${BOLD}🎊 Case 39 Comprehensive Rename Passed!${NC}"
 exit 0

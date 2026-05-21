@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 26: Cluster Idempotency (Blind Spot Verification)
+# Case 25: Cluster Idempotency (Blind Spot Verification)
 # Verifies:
 #   1. When two instances (sharing the same DB) receive the same Webhook msgId simultaneously,
 #      only ONE of them forwards it to the sink.
@@ -107,4 +107,4 @@ else
     echo "   (This is a known blind spot. The cluster lacks a distributed lock for msgId deduplication.)"
 fi
 
-echo -e "\n${GREEN}🎊 Case 26 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 25 Passed!${NC}"

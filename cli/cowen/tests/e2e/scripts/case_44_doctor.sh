@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test Case 47: Cowen Doctor
+# Test Case 44: Cowen Doctor
 # Purpose: Verify that the cowen doctor command correctly diagnoses the environment.
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
@@ -45,5 +45,5 @@ else
     exit 1
 fi
 
-echo -e "${GREEN}Test Case 47 PASSED!${NC}"
+echo -e "${GREEN}Test Case 44 PASSED!${NC}"
 rm -f doctor_output.log doctor_output_init.log

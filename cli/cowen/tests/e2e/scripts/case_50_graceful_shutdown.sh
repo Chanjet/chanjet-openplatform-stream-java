@@ -1,5 +1,5 @@
 #!/bin/bash
-# E2E Test: Phase 3 Graceful Shutdown (Case 55)
+# E2E Test: Phase 3 Graceful Shutdown (Case 50)
 # Reference: cli/cowen/docs/WBS.md
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
@@ -95,6 +95,6 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 55 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 50 Passed!${NC}"
 cleanup_suite
 exit 0

@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 36: StoreApp AppTicket Storage Persistence in PostgreSQL
+# Case 35: StoreApp AppTicket Storage Persistence in PostgreSQL
 # Verifies:
 #   1. When an AppTicket is received from the platform (Mock), it is saved in PostgreSQL.
 #   2. The ticket is persisted and survives daemon restarts.
@@ -153,5 +153,5 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 36 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 35 Passed!${NC}"
 cleanup_suite

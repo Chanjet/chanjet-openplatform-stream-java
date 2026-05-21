@@ -115,4 +115,4 @@ for pid in "${PIDS[@]}"; do
     kill -9 $pid 2>/dev/null || true
 done
 
-echo -e "\n${GREEN}🎊 Case 31 Passed! (Self-Built Sidecar Scaling Resilience Verified)${NC}"
+echo -e "\n${GREEN}🎊 Case 30 Passed! (Self-Built Sidecar Scaling Resilience Verified)${NC}"

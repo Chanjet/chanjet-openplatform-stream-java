@@ -1,5 +1,5 @@
 #!/bin/bash
-# E2E Test: Phase 5 DLQ Paging & Precise Retry (Case 57)
+# E2E Test: Phase 5 DLQ Paging & Precise Retry (Case 52)
 # Reference: cli/cowen/docs/WBS.md
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
@@ -91,6 +91,6 @@ if echo "$LIST_OUTPUT_P2_AFTER" | grep -q "ID: $FIRST_ID_P2"; then
 fi
 echo "   ✓ Precise retry and deletion successful"
 
-echo -e "\n${GREEN}🎊 Case 57 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 52 Passed!${NC}"
 cleanup_suite
 exit 0

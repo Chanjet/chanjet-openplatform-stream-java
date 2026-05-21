@@ -88,4 +88,4 @@ RESP=$(curl -s -H "x-org-id: $TEST_ORG_ID" "http://127.0.0.1:9092/v1/mock/secure
 assert_match "$RESP" "mock_at_oa2_permanent_code_" "Proxy used Org Access Token"
 assert_match "$RESP" "verified" "API call successful"
 
-echo -e "\n${GREEN}🎊 Case 37 Passed! (StoreApp Activation & Org Token Usage)${NC}"
+echo -e "\n${GREEN}🎊 Case 36 Passed! (StoreApp Activation & Org Token Usage)${NC}"

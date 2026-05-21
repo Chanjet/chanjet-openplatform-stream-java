@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 27: Hybrid Store Data Drift (Blind Spot Verification)
+# Case 26: Hybrid Store Data Drift (Blind Spot Verification)
 # Verifies:
 #   1. When using Hybrid Storage (Redis + SQL).
 #   2. If SQL data is manually modified (data drift) while Redis is warm.
@@ -117,4 +117,4 @@ else
     echo "   (This is a known blind spot. Hybrid Store relies purely on cache expiration and lacks active reconciliation.)"
 fi
 
-echo -e "\n${GREEN}🎊 Case 27 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 26 Passed!${NC}"

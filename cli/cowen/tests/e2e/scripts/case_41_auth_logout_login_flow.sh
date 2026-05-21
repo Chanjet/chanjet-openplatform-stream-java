@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 44: Auth Logout and Re-Login Flow (OAuth2)
+# Case 41: Auth Logout and Re-Login Flow (OAuth2)
 #
 # Verifies:
 #   1. 'auth logout' clears all tokens.
@@ -108,4 +108,4 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 44 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 41 Passed!${NC}"

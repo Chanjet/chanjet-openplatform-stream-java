@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 32: MySQL Shared Storage & Distributed Token Synchronization
+# Case 31: MySQL Shared Storage & Distributed Token Synchronization
 # Verifies:
 #   1. Node 1 and Node 2 can share tokens via MySQL.
 #   2. Token refresh on Node 1 is immediately visible to Node 2 via MySQL.
@@ -196,4 +196,4 @@ cleanup_suite
 export COWEN_HOME="$HOME_2"
 cleanup_suite
 
-echo -e "\n${GREEN}🎊 Case 32 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 31 Passed!${NC}"

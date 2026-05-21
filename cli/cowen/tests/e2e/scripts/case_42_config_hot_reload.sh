@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test Case 45: Configuration Hot-Reload
+# Test Case 42: Configuration Hot-Reload
 # Purpose: Verify that the daemon hot-reloads configurations without restarting the process.
 # Validates dynamic log level updates and non-interruptive configuration refreshes.
 
@@ -9,7 +9,7 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
 
-echo -e "${BLUE}Starting Test Case 45: Config Hot-Reload${NC}"
+echo -e "${BLUE}Starting Test Case 42: Config Hot-Reload${NC}"
 
 # 1. Setup environment
 if [ -z "$COWEN_BIN" ]; then
@@ -61,5 +61,5 @@ echo "Config updated to info."
 
 # 8. Cleanup
 $COWEN_BIN daemon stop --profile "$TEST_PROFILE"
-echo -e "${GREEN}Test Case 45 PASSED!${NC}"
+echo -e "${GREEN}Test Case 42 PASSED!${NC}"
 rm -rf "$COWEN_HOME"

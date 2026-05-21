@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 24: Shell Completion Support
+# Case 23: Shell Completion Support
 # Verifies:
 #   1. 'completion <shell>' generates a non-empty script.
 #   2. 'completion --install' modifies the shell rc file.
@@ -59,4 +59,4 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 24 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 23 Passed!${NC}"

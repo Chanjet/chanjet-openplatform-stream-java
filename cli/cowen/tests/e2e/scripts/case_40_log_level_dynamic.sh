@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 43: Dynamic Log Level Configuration Verification
+# Case 40: Dynamic Log Level Configuration Verification
 # Verifies that log levels can be set via config command and effectively control log output.
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
@@ -71,5 +71,5 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 43 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 40 Passed!${NC}"
 cleanup_suite

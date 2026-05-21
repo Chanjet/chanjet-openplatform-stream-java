@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 33: PostgreSQL Shared Storage & Distributed Token Synchronization
+# Case 32: PostgreSQL Shared Storage & Distributed Token Synchronization
 # Verifies:
 #   1. Node 1 and Node 2 can share tokens via PostgreSQL.
 #   2. Token refresh on Node 1 is immediately visible to Node 2 via PostgreSQL.
@@ -159,4 +159,4 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 33 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 32 Passed!${NC}"

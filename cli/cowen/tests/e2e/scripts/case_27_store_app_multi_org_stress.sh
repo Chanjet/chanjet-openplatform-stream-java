@@ -1,5 +1,5 @@
 #!/bin/bash
-# Case 28: StoreApp Multi-Org Tenant Isolation & Scaling
+# Case 27: StoreApp Multi-Org Tenant Isolation & Scaling
 # Verifies:
 #   1. A single StoreApp profile can handle organizations.
 #   2. Token retrieval is org-specific and correctly isolated.
@@ -144,4 +144,4 @@ done
 
 # Cleanup
 kill -9 $DAEMON_PID 2>/dev/null || true
-echo -e "\n${GREEN}🎊 Case 28 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 27 Passed!${NC}"

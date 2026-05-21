@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 25: System Health Check (Status --all)
+# Case 24: System Health Check (Status --all)
 # Verifies:
 #   1. 'status --all' scans all profiles.
 #   2. Correctly identifies healthy vs unhealthy profiles.
@@ -67,4 +67,4 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 25 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 24 Passed!${NC}"

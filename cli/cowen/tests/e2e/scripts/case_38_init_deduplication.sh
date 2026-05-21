@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 41: Init Deduplication
+# Case 38: Init Deduplication
 # Ensures that initializing with the same parameters (app_key, app_mode) 
 # doesn't create a new profile even if a new name is provided.
 
@@ -57,5 +57,5 @@ assert_match "$CURRENT" "prof_a" "Current profile should be 'prof_a'"
 # 5. Verify the output mentions duplication
 assert_match "$OUTPUT" "already exists" "Output should mention existing profile"
 
-echo -e "\n${GREEN}🎊 Case 41 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 38 Passed!${NC}"
 exit 0

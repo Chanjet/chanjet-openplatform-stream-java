@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 34: Exclusive Connection Mode Verification
+# Case 33: Exclusive Connection Mode Verification
 # Verifies that when a new connection is established for the same AppKey in exclusive mode, 
 # the previous connection is evicted.
 
@@ -87,4 +87,4 @@ export COWEN_HOME="$HOME_P2"
 cleanup_suite
 export COWEN_HOME="$HOME_P1"
 
-echo -e "\n${GREEN}🎊 Case 34 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 33 Passed!${NC}"

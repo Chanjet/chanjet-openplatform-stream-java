@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test Case 40: Initialization Failure Cleanup
+# Test Case 37: Initialization Failure Cleanup
 # Verify that temporary profiles are removed when init fails or is cancelled across all modes.
 
 set -e
@@ -10,7 +10,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-echo -e "${BLUE}Starting Test Case 40: Initialization Failure Cleanup${NC}"
+echo -e "${BLUE}Starting Test Case 37: Initialization Failure Cleanup${NC}"
 
 # 1. Setup clean environment for this test
 setup_workspace "37"
@@ -86,4 +86,4 @@ else
     exit 1
 fi
 
-echo -e "${GREEN}Test Case 40 PASSED!${NC}"
+echo -e "${GREEN}Test Case 37 PASSED!${NC}"

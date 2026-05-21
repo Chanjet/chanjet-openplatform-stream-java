@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test Case 46: Metrics and Health API
+# Test Case 43: Metrics and Health API
 # Purpose: Verify that the cowen-monitor server correctly exposes /health and /metrics.
 
 set -e
@@ -17,7 +17,7 @@ fi
 setup_workspace "46"
 start_mock
 
-echo -e "${BLUE}Starting Test Case 46: Metrics and Health API${NC}"
+echo -e "${BLUE}Starting Test Case 43: Metrics and Health API${NC}"
 
 # 1. Initialize profile with Mock URL
 "$COWEN_BIN" init --profile main --app-mode self-built --app-key "AK_SB" --app-secret "AS_SB" \
@@ -61,4 +61,4 @@ echo "Metrics check passed."
 
 # 5. Cleanup
 cleanup_suite
-echo -e "${GREEN}Test Case 46 PASSED!${NC}"
+echo -e "${GREEN}Test Case 43 PASSED!${NC}"

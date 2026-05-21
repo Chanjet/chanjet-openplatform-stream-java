@@ -1,5 +1,5 @@
 #!/bin/bash
-# Case 49: Robustness & Self-Healing (Friendly & Fast Version)
+# Case 46: Robustness & Self-Healing (Friendly & Fast Version)
 
 set -e
 if [ -f "tests/e2e/scripts/common.sh" ]; then
@@ -63,5 +63,5 @@ echo "2. Testing Initialization Robustness..."
 echo "  Verified: Forwarder::new now returns Result and is handled via '?' in bridge.rs."
 echo "  Verified: Unit tests for calculate_next_check_delay passed."
 
-echo -e "\n🎊 Case 49 Passed!"
+echo -e "\n🎊 Case 46 Passed!"
 exit 0

@@ -73,4 +73,4 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 29 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 28 Passed!${NC}"

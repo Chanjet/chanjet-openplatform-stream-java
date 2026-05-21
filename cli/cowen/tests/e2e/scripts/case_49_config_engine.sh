@@ -1,5 +1,5 @@
 #!/bin/bash
-# E2E Test: Phase 1 Configuration Engine (Case 54)
+# E2E Test: Phase 1 Configuration Engine (Case 49)
 # Reference: cli/cowen/docs/WBS.md
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then

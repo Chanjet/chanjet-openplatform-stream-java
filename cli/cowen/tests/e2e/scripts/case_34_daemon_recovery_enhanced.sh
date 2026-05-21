@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-# Case 35: Enhanced Daemon Recovery Verification (Self-Built & OAuth2)
+# Case 34: Enhanced Daemon Recovery Verification (Self-Built & OAuth2)
 # Checks:
 # 1. Daemon auto-restarts on next command if missing (External Kill).
 # 2. Daemon auto-restarts on next command if hanging (Unresponsive Port).
@@ -213,4 +213,4 @@ else
 fi
 check_crash_log_clean "oa2" "after_recovery"
 
-echo -e "\n${GREEN}🎊 Case 35 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 34 Passed!${NC}"

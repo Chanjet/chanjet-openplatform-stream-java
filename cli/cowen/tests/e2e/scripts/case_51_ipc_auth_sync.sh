@@ -1,5 +1,5 @@
 #!/bin/bash
-# E2E Test: Phase 4 IPC Auth Sync (Case 56)
+# E2E Test: Phase 4 IPC Auth Sync (Case 51)
 # Reference: cli/cowen/docs/WBS.md
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
@@ -112,6 +112,6 @@ else
     exit 1
 fi
 
-echo -e "\n${GREEN}🎊 Case 56 Passed!${NC}"
+echo -e "\n${GREEN}🎊 Case 51 Passed!${NC}"
 cleanup_suite
 exit 0
