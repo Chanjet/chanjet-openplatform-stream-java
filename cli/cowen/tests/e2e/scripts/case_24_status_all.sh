@@ -7,6 +7,9 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
+PROXY_PORT_2=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -24,7 +27,7 @@ start_mock
     --encrypt-key 1234567890123456 \
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
-    --proxy-port 9111
+    --proxy-port $PROXY_PORT
 assert_pass "Profile 'healthy' initialized"
 
 # Profile 2: Expired
@@ -36,7 +39,7 @@ assert_pass "Profile 'healthy' initialized"
     --encrypt-key 1234567890123456 \
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
-    --proxy-port 9112
+    --proxy-port $PROXY_PORT_2
 assert_pass "Profile 'expired' initialized"
 
 # Profile 3: Broken

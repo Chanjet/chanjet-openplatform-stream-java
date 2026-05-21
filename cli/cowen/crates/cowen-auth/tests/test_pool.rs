@@ -1,11 +1,11 @@
-use cowen_auth::VaultTokenPool;
+use chrono::{Duration, SubsecRound, Utc};
 use cowen_auth::pool::TokenPool;
+use cowen_auth::VaultTokenPool;
+use cowen_common::models::{Ticket, Token};
 use cowen_store::file::FileStore;
 use cowen_store::StoreVault;
-use cowen_common::models::{Token, Ticket};
-use chrono::{Duration, SubsecRound, Utc};
-use tempfile::tempdir;
 use std::sync::Arc;
+use tempfile::tempdir;
 
 #[tokio::test]
 async fn test_vault_token_pool_lifecycle() {

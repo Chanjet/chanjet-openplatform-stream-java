@@ -1,12 +1,12 @@
-use cowen_common::{CowenResult, CowenError};
 use super::models::StoreAppTokenResponse;
 use super::storage;
 use crate::client::HttpSender;
 use crate::models::{OAuth2TokenPair, Token};
 use crate::pool::TokenPool;
-use cowen_common::config::Config;
 use anyhow::anyhow;
 use chrono::{Duration, Utc};
+use cowen_common::config::Config;
+use cowen_common::{CowenError, CowenResult};
 
 pub(crate) async fn refresh_token(
     pool: &(dyn TokenPool + Send + Sync),
@@ -60,14 +60,22 @@ pub(crate) async fn intercept_exchange(
 
     // Forward to platform
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+    headers.insert(
+        "appKey",
+        cfg.app_key
+            .trim()
+            .parse()
+            .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+    );
     let resp = http_sender.post_form(&url, headers, body_json).await?;
 
     if !resp.is_success() {
         let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
         tracing::error!(target: "sys", status = %resp.status, body = %masked_body, "Platform rejected token exchange");
-        return Err(CowenError::Api(format!("Proxy token exchange failed (HTTP {}): {}", resp.status, masked_body)));
-
+        return Err(CowenError::Api(format!(
+            "Proxy token exchange failed (HTTP {}): {}",
+            resp.status, masked_body
+        )));
     }
 
     tracing::info!(target: "sys", "Platform token exchange successful: {}", cowen_common::utils::mask_sensitive_json(&resp.body));
@@ -103,24 +111,40 @@ pub(crate) async fn intercept_exchange(
         } else {
             storage::get_org_token_key(app_key, &identity.org_id)
         };
-        vault.set_secret(profile, &key_pair, &serde_json::to_string(&pair)?).await?;
+        vault
+            .set_secret(profile, &key_pair, &serde_json::to_string(&pair)?)
+            .await?;
 
         if !identity.user_id.is_empty() && identity.user_id != "0" {
             // User-level token path
-            let custom_profile = storage::get_custom_profile(profile, app_key, &identity.org_id, Some(&identity.user_id));
-            vault.save_access_token(&custom_profile, token.clone()).await?;
+            let custom_profile = storage::get_custom_profile(
+                profile,
+                app_key,
+                &identity.org_id,
+                Some(&identity.user_id),
+            );
+            vault
+                .save_access_token(&custom_profile, token.clone())
+                .await?;
 
             // 🚀 持久化维护“火种”：用户级永久码
             if let Some(upc) = &token_resp.user_permanent_code {
-                vault.save_user_permanent_code(app_key, &identity.org_id, &identity.user_id, upc).await?;
+                vault
+                    .save_user_permanent_code(app_key, &identity.org_id, &identity.user_id, upc)
+                    .await?;
             }
         } else {
             // Org-level token path
             if let Some(opc) = &token_resp.org_permanent_code {
-                vault.save_org_permanent_code(app_key, &identity.org_id, opc).await?;
+                vault
+                    .save_org_permanent_code(app_key, &identity.org_id, opc)
+                    .await?;
             }
-            let custom_profile = storage::get_custom_profile(profile, app_key, &identity.org_id, None);
-            vault.save_access_token(&custom_profile, token.clone()).await?;
+            let custom_profile =
+                storage::get_custom_profile(profile, app_key, &identity.org_id, None);
+            vault
+                .save_access_token(&custom_profile, token.clone())
+                .await?;
         }
     } else {
         return Err(CowenError::Auth(format!("Failed to extract identity from token during proxy exchange. Multi-tenant arbitration requires a valid JWT.")));
@@ -201,7 +225,10 @@ pub(crate) async fn get_app_access_token(
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 continue;
             }
-            return Err(CowenError::Auth(format!("Failed to get appAccessToken: {}", cowen_common::utils::mask_sensitive_json(&body_str))));
+            return Err(CowenError::Auth(format!(
+                "Failed to get appAccessToken: {}",
+                cowen_common::utils::mask_sensitive_json(&body_str)
+            )));
         }
 
         let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -230,7 +257,9 @@ pub(crate) async fn get_app_access_token(
         break (token, val);
     };
 
-    pool.as_vault().save_app_access_token(cfg.app_key.trim(), token.clone()).await?;
+    pool.as_vault()
+        .save_app_access_token(cfg.app_key.trim(), token.clone())
+        .await?;
     Ok(token)
 }
 
@@ -260,7 +289,10 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
 
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
-        return Err(CowenError::Auth(format!("getPermanentAuthCode failed: {}", cowen_common::utils::mask_sensitive_json(&resp.body))));
+        return Err(CowenError::Auth(format!(
+            "getPermanentAuthCode failed: {}",
+            cowen_common::utils::mask_sensitive_json(&resp.body)
+        )));
     }
 
     let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -286,7 +318,9 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
         })?;
 
     // 自动归档到 Vault
-    pool.as_vault().save_org_permanent_code(cfg.app_key.trim(), &final_org_id, opc).await?;
+    pool.as_vault()
+        .save_org_permanent_code(cfg.app_key.trim(), &final_org_id, opc)
+        .await?;
 
     tracing::info!(target: "audit", profile = %profile, orgId = %final_org_id, "Enterprise permanent code successfully archived");
     Ok(opc.to_string())
@@ -320,8 +354,10 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
         let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
-        return Err(CowenError::Api(format!("getOrgAccessToken failed (HTTP {}): {}", resp.status, masked_body)));
-
+        return Err(CowenError::Api(format!(
+            "getOrgAccessToken failed (HTTP {}): {}",
+            resp.status, masked_body
+        )));
     }
 
     let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -333,7 +369,12 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
         .get("accessToken")
         .or_else(|| result.get("orgAccessToken"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("accessToken/orgAccessToken not found in result: {}", resp.body))?;
+        .ok_or_else(|| {
+            anyhow!(
+                "accessToken/orgAccessToken not found in result: {}",
+                resp.body
+            )
+        })?;
 
     let expire_time = result
         .get("expireTime")
@@ -347,7 +388,9 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
     };
 
     let custom_profile = storage::get_custom_profile(profile, cfg.app_key.trim(), org_id, None);
-    pool.as_vault().save_access_token(&custom_profile, token.clone()).await?;
+    pool.as_vault()
+        .save_access_token(&custom_profile, token.clone())
+        .await?;
 
     Ok(token)
 }
@@ -381,8 +424,10 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
     let resp = http_sender.post(&url, headers, body).await?;
     if !resp.is_success() {
         let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
-        return Err(CowenError::Api(format!("getUserAccessToken failed (HTTP {}): {}", resp.status, masked_body)));
-
+        return Err(CowenError::Api(format!(
+            "getUserAccessToken failed (HTTP {}): {}",
+            resp.status, masked_body
+        )));
     }
 
     let val: serde_json::Value = serde_json::from_str(&resp.body)?;
@@ -394,7 +439,12 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
         .get("accessToken")
         .or_else(|| result.get("userAccessToken"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("accessToken/userAccessToken not found in result: {}", resp.body))?;
+        .ok_or_else(|| {
+            anyhow!(
+                "accessToken/userAccessToken not found in result: {}",
+                resp.body
+            )
+        })?;
 
     let expire_time = result
         .get("expireTime")
@@ -407,8 +457,11 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
         created_at: Utc::now(),
     };
 
-    let custom_profile = storage::get_custom_profile(profile, cfg.app_key.trim(), org_id, Some(user_id));
-    pool.as_vault().save_access_token(&custom_profile, token.clone()).await?;
+    let custom_profile =
+        storage::get_custom_profile(profile, cfg.app_key.trim(), org_id, Some(user_id));
+    pool.as_vault()
+        .save_access_token(&custom_profile, token.clone())
+        .await?;
 
     Ok(token)
 }
@@ -422,8 +475,13 @@ pub(crate) async fn request_token(
     cfg: &Config,
 ) -> CowenResult<cowen_common::models::Token> {
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-    
+    headers.insert(
+        "appKey",
+        cfg.app_key
+            .parse()
+            .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+    );
+
     let resp = http_sender.post_form(url, headers, body).await?;
 
     if !resp.is_success() {
@@ -441,20 +499,38 @@ pub(crate) async fn request_token(
 
         // Handle specific platform error codes
         if err_text.contains("4029") {
-            return Err(CowenError::Auth(format!("登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})", status)));
+            return Err(CowenError::Auth(format!(
+                "登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})",
+                status
+            )));
         }
         if err_text.contains("4007") || err_text.contains("invalid_grant") {
-            let _ = pool.as_vault().set_config(profile, "oauth2_revoked", "true").await;
-            return Err(CowenError::Auth(format!("令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})", status)));
+            let _ = pool
+                .as_vault()
+                .set_config(profile, "oauth2_revoked", "true")
+                .await;
+            return Err(CowenError::Auth(format!(
+                "令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})",
+                status
+            )));
         }
         if err_text.contains("4006") {
-            return Err(CowenError::Auth(format!("ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})", status)));
+            return Err(CowenError::Auth(format!(
+                "ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})",
+                status
+            )));
         }
         if err_text.contains("4001") {
-            return Err(CowenError::Auth(format!("授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})", status)));
+            return Err(CowenError::Auth(format!(
+                "授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})",
+                status
+            )));
         }
 
-        return Err(CowenError::Auth(format!("StoreApp token request failed (HTTP {}): {}", status, err_text)));
+        return Err(CowenError::Auth(format!(
+            "StoreApp token request failed (HTTP {}): {}",
+            status, err_text
+        )));
     }
 
     let token_resp: StoreAppTokenResponse = resp.json().await?;
@@ -479,10 +555,14 @@ pub(crate) async fn request_token(
     if let Some(identity) = token.extract_identity() {
         let app_key = cfg.app_key.trim();
         if let Some(upc) = token_resp.user_permanent_code {
-            pool.as_vault().save_user_permanent_code(app_key, &identity.org_id, &identity.user_id, &upc).await?;
+            pool.as_vault()
+                .save_user_permanent_code(app_key, &identity.org_id, &identity.user_id, &upc)
+                .await?;
         }
         if let Some(opc) = token_resp.org_permanent_code {
-            pool.as_vault().save_org_permanent_code(app_key, &identity.org_id, &opc).await?;
+            pool.as_vault()
+                .save_org_permanent_code(app_key, &identity.org_id, &opc)
+                .await?;
         }
 
         // Save to vault via pool using multi-tenant keys
@@ -496,7 +576,10 @@ pub(crate) async fn request_token(
             .set_secret(profile, &key_pair, &serde_json::to_string(&pair)?)
             .await?;
 
-        let _ = pool.as_vault().delete_config(profile, "oauth2_revoked").await;
+        let _ = pool
+            .as_vault()
+            .delete_config(profile, "oauth2_revoked")
+            .await;
 
         let custom_profile = if !identity.user_id.is_empty() && identity.user_id != "0" {
             storage::get_custom_profile(profile, app_key, &identity.org_id, Some(&identity.user_id))

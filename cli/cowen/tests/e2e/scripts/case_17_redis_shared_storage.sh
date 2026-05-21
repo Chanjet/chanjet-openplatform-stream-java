@@ -7,6 +7,8 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -71,7 +73,7 @@ EOF
     --openapi-url "$MOCK_URL" \
     --stream-url "$MOCK_WS" \
     --webhook-target "$MOCK_URL/webhook_sink" \
-    --proxy-port 9097
+    --proxy-port $PROXY_PORT
 
 "$COWEN_BIN" daemon start --profile main
 
@@ -118,6 +120,7 @@ echo "Node 2 Config List:"
 
 # Verify Node 2 can see the same token
 TOKEN_2=$(extract_token "main")
+RUST_LOG=info "$COWEN_BIN" auth token --profile "main" --format json > node2_token.log 2>&1
 
 if [[ "$TOKEN_1" == "$TOKEN_2" ]]; then
     echo -e "   ${GREEN}✓${NC} Node 2 successfully retrieved the SAME token from Redis"

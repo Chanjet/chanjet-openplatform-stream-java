@@ -122,9 +122,20 @@ impl DiagnosticTask for NetworkCheck {
             .build()?;
 
         let mut status = DiagnosticStatus::Ok;
+        let mut errs = vec![];
+
         match client.get(&ctx.config.stream_url).send().await {
             Ok(_) => {},
-            Err(e) => status = DiagnosticStatus::Error(format!("Stream URL 连接失败: {}", e)),
+            Err(e) => errs.push(format!("Stream URL 连接失败: {}", e)),
+        }
+
+        match client.get(&ctx.config.openapi_url).send().await {
+            Ok(_) => {},
+            Err(e) => errs.push(format!("OpenAPI 连接失败: {}", e)),
+        }
+
+        if !errs.is_empty() {
+            status = DiagnosticStatus::Error(errs.join(" | "));
         }
 
         Ok(DiagnosticResult {

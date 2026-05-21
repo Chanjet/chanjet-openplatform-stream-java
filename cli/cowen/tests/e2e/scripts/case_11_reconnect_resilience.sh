@@ -5,6 +5,8 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -24,7 +26,7 @@ SINK_URL="http://127.0.0.1:9299/webhook_sink"
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
     --webhook-target "$SINK_URL" \
-    --proxy-port 9091 >/dev/null
+    --proxy-port $PROXY_PORT >/dev/null
 assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Start Daemon & Establish Connection${NC}"

@@ -426,7 +426,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
     #[cfg(unix)]
     let daemon_svc: Arc<dyn DaemonService> = {
-        let uds_path = app_dir.join("uds.sock");
+        let uds_path = cowen_common::ipc::get_uds_path();
         Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
     };
     #[cfg(not(unix))]
@@ -513,7 +513,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     #[cfg(unix)]
     let daemon_svc: Arc<dyn DaemonService> = {
-        let uds_path = app_dir.join("uds.sock");
+        let uds_path = cowen_common::ipc::get_uds_path();
         Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
     };
     #[cfg(not(unix))]

@@ -23,12 +23,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
-
+    // We'll initialize tracing shortly after setting up the DB
     let args = Args::parse();
-    info!("Starting cowen-daemon...");
 
     #[cfg(unix)]
     {
@@ -37,7 +33,11 @@ async fn main() -> Result<()> {
         }
 
         let listener = UnixListener::bind(&args.uds)?;
-        info!("Listening on UDS: {}", args.uds.display());
+
+        let app_dir = cowen_common::config::get_app_dir();
+        let pid_file = app_dir.join("master_daemon.pid");
+        let current_pid = std::process::id();
+        let _ = std::fs::write(&pid_file, format!("{}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
 
         // Set permissions to 0600 (owner only)
         use std::os::unix::fs::PermissionsExt;
@@ -47,35 +47,103 @@ async fn main() -> Result<()> {
 
         let cfg_mgr = ConfigManager::new().expect("Failed to init ConfigManager");
         let app_dir = cowen_common::config::get_app_dir();
-        let telemetry_db = cowen_monitor::telemetry_db::TelemetryDb::new(&app_dir.join("telemetry.db"))
-            .await
-            .expect("Failed to init telemetry db");
+        let telemetry_db = Arc::new(
+            cowen_monitor::telemetry_db::TelemetryDb::new(&app_dir.join("telemetry.db"))
+                .await
+                .expect("Failed to init telemetry db")
+        );
         
         let _ = telemetry_db.run_gc().await;
-        
-        let daemon_svc = Arc::new(ServerDaemonService::new(cfg_mgr, Some(Arc::new(telemetry_db))));
 
+        let mut app_cfg = if let Ok(content) = std::fs::read_to_string(app_dir.join("app.yaml")) {
+            serde_yaml::from_str::<cowen_common::config::AppConfig>(&content).unwrap_or_default()
+        } else {
+            cowen_common::config::AppConfig::default()
+        };
+
+        if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
+            app_cfg.storage.store = st;
+            app_cfg.storage.db_url = Some(url);
+        }
+
+        let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
+        let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await.expect("Failed to init Vault");
+
+        use tracing_subscriber::prelude::*;
+        let console_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")));
+        
+        let (_vault_tx, vault_rx) = tokio::sync::watch::channel(Some(vault.clone()));
+        let vault_audit_layer = cowen_monitor::audit::VaultAuditLayer::new(vault_rx);
+
+        tracing_subscriber::registry()
+            .with(console_layer)
+            .with(vault_audit_layer)
+            .init();
+            
+        info!("Starting cowen-daemon...");
+        info!("Listening on UDS: {}", args.uds.display());
+        
+        let daemon_svc = Arc::new(ServerDaemonService::new(cfg_mgr.clone(), Some(telemetry_db.clone())));
+
+        let m_port = cfg_mgr.find_free_port().await;
+        let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone());
+        tokio::spawn(async move {
+            if let Err(e) = m_server.start(None).await {
+                tracing::error!("Monitor server error: {}", e);
+            }
+        });
+        let _ = std::fs::write(&pid_file, format!("{}\nMONITOR_PORT={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, m_port, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+
+        // Signal-aware accept loop
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        
         loop {
-            match listener.accept().await {
-                Ok((stream, _)) => {
-                    let svc = daemon_svc.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, svc).await {
-                            error!("Connection error: {}", e);
+            tokio::select! {
+                result = listener.accept() => {
+                    match result {
+                        Ok((stream, _)) => {
+                            let svc = daemon_svc.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = handle_connection(stream, svc).await {
+                                    error!("Connection error: {}", e);
+                                }
+                            });
                         }
-                    });
+                        Err(e) => {
+                            error!("Accept error: {}", e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!("Accept error: {}", e);
+                _ = sigterm.recv() => {
+                    info!("SIGTERM received, initiating graceful shutdown...");
+                    break;
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    info!("Ctrl+C received, initiating graceful shutdown...");
+                    break;
                 }
             }
         }
+
+        // Graceful shutdown: stop all workers and wait for drain
+        use cowen_common::daemon::DaemonService;
+        let _ = daemon_svc.stop_all().await;
+        
+        // Clean up PID file and UDS socket
+        let _ = std::fs::remove_file(&pid_file);
+        let _ = std::fs::remove_file(&args.uds);
+        info!("cowen-daemon shutdown complete.");
     }
     
     #[cfg(not(unix))]
     {
         anyhow::bail!("Non-Unix platforms are not yet supported for UDS IPC");
     }
+
+    #[cfg(unix)]
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -103,7 +171,18 @@ async fn handle_connection(mut stream: UnixStream, svc: Arc<ServerDaemonService>
             // Wait, ServerDaemonService::start_daemon requires `Arc<dyn Vault>`.
             // We can create the vault here.
             let app_dir = cowen_common::config::get_app_dir();
-            let app_cfg = cowen_common::config::AppConfig::default(); // Simplified
+            
+            let mut app_cfg = if let Ok(content) = std::fs::read_to_string(app_dir.join("app.yaml")) {
+                serde_yaml::from_str::<cowen_common::config::AppConfig>(&content).unwrap_or_default()
+            } else {
+                cowen_common::config::AppConfig::default()
+            };
+
+            if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
+                app_cfg.storage.store = st;
+                app_cfg.storage.db_url = Some(url);
+            }
+
             let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
             match cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await {
                 Ok(vault) => {

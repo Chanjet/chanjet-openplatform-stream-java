@@ -195,5 +195,9 @@ pub async fn create_vault(app_cfg: &cowen_common::config::AppConfig, app_dir: &s
     } else {
         primary.clone()
     };
-    Ok(Arc::new(StoreVault::new(primary, sensitive)))
+    let vault = Arc::new(StoreVault::new(primary, sensitive));
+    if let Err(e) = cowen_common::vault::Vault::migrate(vault.as_ref()).await {
+        tracing::error!(target: "sys", "Failed to run store migrations: {}", e);
+    }
+    Ok(vault)
 }

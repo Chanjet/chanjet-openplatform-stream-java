@@ -24,7 +24,7 @@ impl RequestDecorator {
                 for param in params.iter() {
                     let name = param.get("name").and_then(|n| n.as_str()).unwrap_or("");
                     let p_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
-                    
+
                     if p_in == "header" {
                         match name {
                             "appKey" => {

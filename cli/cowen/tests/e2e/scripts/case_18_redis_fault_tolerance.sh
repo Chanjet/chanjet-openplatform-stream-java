@@ -8,6 +8,8 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -61,7 +63,7 @@ EOF
     --encrypt-key 1234567890123456 \
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
-    --proxy-port 9098 > /dev/null
+    --proxy-port $PROXY_PORT > /dev/null
 
 # Start daemon to establish WebSocket and get AppTicket
 "$COWEN_BIN" daemon start --profile "$PROF" > /dev/null

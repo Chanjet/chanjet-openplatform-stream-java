@@ -2,6 +2,8 @@
 set -e
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -16,7 +18,7 @@ BAD_SINK="http://127.0.0.1:9999/broken"
 "$COWEN_BIN" init --profile dlq_prof --app-mode self-built \
     --app-key AK_DLQ --app-secret AS_DLQ --encrypt-key 1234567890123456 --certificate CERT_DLQ \
     --webhook-target "$BAD_SINK" \
-    --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port 9909 >/dev/null
+    --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port $PROXY_PORT >/dev/null
 assert_pass "Profile initialized"
 
 "$COWEN_BIN" auth login --profile dlq_prof --force >/dev/null

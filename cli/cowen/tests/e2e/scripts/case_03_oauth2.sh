@@ -17,6 +17,8 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -38,7 +40,7 @@ echo -e "${BOLD}1. OAuth2 Init (PKCE Flow)${NC}"
     --app-mode oauth2 \
     --openapi-url "$MOCK_URL" \
     --stream-url "$MOCK_WS" \
-    --proxy-port 9093 \
+    --proxy-port $PROXY_PORT \
     --webhook-target "http://127.0.0.1:8080/cb" > "$COWEN_HOME/init.log" 2>&1 &
 INIT_PID=$!
 

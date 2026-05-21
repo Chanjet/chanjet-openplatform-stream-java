@@ -1,6 +1,5 @@
-
-pub use cowen_common::models::{Token, Ticket, AuthMode, TokenIdentity, AuthSession};
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
+pub use cowen_common::models::{AuthMode, AuthSession, Ticket, Token, TokenIdentity};
 use serde::{Deserialize, Serialize};
 
 pub use cowen_common::config::BUILTIN_CLIENT_ID;
@@ -19,7 +18,7 @@ impl OAuth2TokenPair {
     pub fn is_expired_with_buffer(&self, min_buffer: Duration) -> bool {
         let now = Utc::now();
         let total_lifetime = self.expires_at.signed_duration_since(self.created_at);
-        
+
         if total_lifetime < Duration::minutes(10) {
             return now >= self.expires_at;
         }

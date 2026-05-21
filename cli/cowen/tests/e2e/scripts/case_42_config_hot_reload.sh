@@ -19,9 +19,17 @@ export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
 mkdir -p "$TEST_BASE"
 
 # 🚀 Isolate binary for process manager visibility
+ORIG_BUILD_DIR=$(dirname "$COWEN_BIN")
 cp "$COWEN_BIN" "$TEST_BASE/cowen_case_45"
-export COWEN_BIN="$TEST_BASE/cowen_case_45"
+export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_45"
 chmod +x "$COWEN_BIN"
+
+# 🚀 Isolate daemon binary as well
+if [ -f "$ORIG_BUILD_DIR/cowen-daemon" ]; then
+    cp "$ORIG_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_45"
+    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_45"
+    chmod +x "$COWEN_DAEMON_BIN"
+fi
 TEST_ID=$RANDOM
 export COWEN_HOME="$(pwd)/target/cowen_tests/case_45_$TEST_ID"
 mkdir -p "$COWEN_HOME"

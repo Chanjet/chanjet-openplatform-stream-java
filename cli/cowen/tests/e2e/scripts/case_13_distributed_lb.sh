@@ -17,8 +17,15 @@ mkdir -p "$TEST_BASE"
 
 # 🚀 Isolate binary for process manager visibility
 cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_13"
-export COWEN_BIN="$TEST_BASE/cowen_case_13"
+export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_13"
 chmod +x "$COWEN_BIN"
+
+# 🚀 Isolate daemon binary as well
+if [ -f "$COWEN_BUILD_DIR/cowen-daemon" ]; then
+    cp "$COWEN_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_13"
+    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_13"
+    chmod +x "$COWEN_DAEMON_BIN"
+fi
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 13 environment...${NC}"
@@ -37,11 +44,11 @@ function final_cleanup {
         fi
     done
     cleanup_suite
-    rm -rf "$HOME_A" "$HOME_B"
+    # rm -rf "$HOME_A" "$HOME_B"
 }
 trap final_cleanup EXIT
 
-rm -rf "$HOME_A" "$HOME_B"
+# rm -rf "$HOME_A" "$HOME_B"
 mkdir -p "$HOME_A" "$HOME_B"
 export COWEN_EXCLUSIVE=false
 
@@ -134,8 +141,8 @@ if [ "$RECV_COUNT" -ne 10 ]; then
 fi
 
 echo -e "${BOLD}5. Distribution Analysis${NC}"
-COUNT_A=$(grep -c "DIST_TEST" "$HOME_A/logs/main_stream.log" 2>/dev/null || echo 0)
-COUNT_B=$(grep -c "DIST_TEST" "$HOME_B/logs/main_stream.log" 2>/dev/null || echo 0)
+COUNT_A=$(cat "$HOME_A/logs/"*.log 2>/dev/null | grep -c "DIST_TEST" || true)
+COUNT_B=$(cat "$HOME_B/logs/"*.log 2>/dev/null | grep -c "DIST_TEST" || true)
 echo -e "     Node A handled: $COUNT_A messages"
 echo -e "     Node B handled: $COUNT_B messages"
 

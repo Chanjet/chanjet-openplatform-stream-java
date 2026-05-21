@@ -59,6 +59,7 @@ final_parallel_cleanup() {
 }
 trap "final_parallel_cleanup" EXIT
 pkill -9 cowen-test >/dev/null 2>&1 || true
+pkill -9 cowen-daemon >/dev/null 2>&1 || true
 
 # --- Initialization ---
 echo -e "${BLUE}🧹 Cleaning up previous test artifacts in $TEST_BASE...${NC}"
@@ -73,8 +74,11 @@ if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
     BINARY_PATH="target/x86_64-unknown-linux-gnu/release/cowen"
 fi
 
-if cargo build --quiet $BUILD_ARGS 2>/dev/null; then
+if cargo build --quiet $BUILD_ARGS -p cowen -p cowen-daemon 2>/dev/null; then
     echo -e " ${GREEN}[OK]${NC}"
+    export COWEN_BIN="$(pwd)/$BINARY_PATH"
+    # Force common.sh to refresh its SOURCE_BIN
+    [ -f tests/e2e/scripts/common.sh ] && update_source_bin
 else
     echo -e " ${RED}[FAILED]${NC}"
     exit 1
@@ -128,6 +132,7 @@ EOF
 
     # Bulletproof process teardown: kill all daemons belonging to this job's isolated workspace
     pkill -9 -f "cowen_job_${job_id}_" >/dev/null 2>&1 || true
+    pkill -9 cowen-daemon >/dev/null 2>&1 || true
 
     return $exit_code
 }

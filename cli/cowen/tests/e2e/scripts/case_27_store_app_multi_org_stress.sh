@@ -6,6 +6,8 @@
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -38,7 +40,7 @@ EOF
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
     --webhook-target "$MOCK_URL/webhook_sink" \
-    --proxy-port 9128
+    --proxy-port $PROXY_PORT
 
 # Start Daemon
 "$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/daemon.log" 2>&1 &
@@ -116,7 +118,7 @@ for i in 1 10 $ORG_COUNT; do
     echo -n "   Testing Org: $ORG_ID..."
 
     set +e
-    RECEIVED_RESP=$(curl -s --connect-timeout 5 -x "http://127.0.0.1:9128" -H "x-org-id: $ORG_ID" -X POST "$MOCK_URL/v1/app/data/get")
+    RECEIVED_RESP=$(curl -s --connect-timeout 5 -x "http://127.0.0.1:$PROXY_PORT" -H "x-org-id: $ORG_ID" -X POST "$MOCK_URL/v1/app/data/get")
     CURL_EXIT=$?
     
     # Safe JSON parsing

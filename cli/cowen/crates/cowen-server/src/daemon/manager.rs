@@ -175,6 +175,26 @@ impl WorkerManager {
         workers.iter().map(|(k, v)| (k.clone(), v.status.clone())).collect()
     }
 
+    /// Wait for all workers to reach a non-active state (Stopped/Failed/Created),
+    /// with a maximum timeout. Used during graceful shutdown to ensure drain completes.
+    pub async fn wait_all_stopped(&self, timeout: std::time::Duration) {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let has_active = {
+                let workers = self.workers.lock().await;
+                workers.values().any(|w| w.is_active())
+            };
+            if !has_active {
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                tracing::warn!(target: "sys", "Timeout waiting for all workers to stop. Forcing exit.");
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
     async fn watchdog_loop(&self) {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
         loop {
@@ -230,7 +250,7 @@ mod state_tests;
 
 async fn run_profile_worker(
     profile: &str, 
-    config: Config, 
+    mut config: Config, 
     cfg_mgr: ConfigManager, 
     ready_tx: tokio::sync::oneshot::Sender<()>,
     cancel_token: tokio_util::sync::CancellationToken,
@@ -238,6 +258,9 @@ async fn run_profile_worker(
     let app_dir = cowen_common::config::get_app_dir();
     let app_cfg = cfg_mgr.load_app_config().await?;
     let vault = cowen_store::create_vault(&app_cfg, &app_dir, &config.app_key).await?;
+
+    let auth = cowen_auth::create_auth_client(Arc::new(cowen_auth::VaultTokenPool::new(vault.clone())));
+    let _ = auth.provider(&config.app_mode).hydrate_config(profile, &mut config, vault.clone()).await;
 
     let _forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), vault.clone())?);
     
@@ -247,7 +270,6 @@ async fn run_profile_worker(
     let _ = ready_tx.send(());
 
     // Proactive Sync
-    let auth = cowen_auth::create_auth_client(Arc::new(cowen_auth::VaultTokenPool::new(vault.clone())));
     let sync_profile = profile.to_string();
     let sync_config = config.clone();
     let sync_gate = shutdown_gate.clone();

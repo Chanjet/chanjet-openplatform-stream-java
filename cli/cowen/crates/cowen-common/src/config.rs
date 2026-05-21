@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+//TODO 这里有一个bug BUILTIN_CLIENT_ID没有从构建时传入 BUILTIN_CLIENT_ID，DEF_MARKET_URL
+//TODO 需要检查代码里是否还有其他在代码中写死的默认值，这是不允许的必须通过构建脚本传递 build.rs 或 MAKEFILE
 pub const BUILTIN_CLIENT_ID: &str = "3x45dOtt";
 pub const DEF_MARKET_URL: &str = "https://market.chanjet.com";
 

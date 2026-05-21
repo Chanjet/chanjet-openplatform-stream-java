@@ -1,11 +1,11 @@
-use cowen_common::{CowenResult, CowenError};
-use cowen_infra::obfs;
-use cowen_common::config::Config;
 use crate::pool::TokenPool;
+use cowen_common::config::Config;
+use cowen_common::{CowenError, CowenResult};
+use cowen_infra::obfs;
 
+use async_trait::async_trait;
 use reqwest::Client as HttpClient;
 use std::sync::Arc;
-use async_trait::async_trait;
 
 #[derive(Debug)]
 pub struct SimpleResponse {
@@ -19,7 +19,8 @@ impl SimpleResponse {
     }
 
     pub async fn json<T: serde::de::DeserializeOwned>(self) -> CowenResult<T> {
-        serde_json::from_str(&self.body).map_err(|e| CowenError::Serialization(format!("Failed to parse response JSON: {}", e)))
+        serde_json::from_str(&self.body)
+            .map_err(|e| CowenError::Serialization(format!("Failed to parse response JSON: {}", e)))
     }
 
     pub fn text(self) -> String {
@@ -29,9 +30,23 @@ impl SimpleResponse {
 
 #[async_trait]
 pub trait HttpSender: Send + Sync {
-    async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> CowenResult<SimpleResponse>;
-    async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> CowenResult<SimpleResponse>;
-    async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> CowenResult<SimpleResponse>;
+    async fn post(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+        body: serde_json::Value,
+    ) -> CowenResult<SimpleResponse>;
+    async fn post_form(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+        body: serde_json::Value,
+    ) -> CowenResult<SimpleResponse>;
+    async fn get(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+    ) -> CowenResult<SimpleResponse>;
 }
 
 pub struct ReqwestSender {
@@ -40,7 +55,9 @@ pub struct ReqwestSender {
 
 impl ReqwestSender {
     pub fn new() -> Self {
-        Self { client: HttpClient::new() }
+        Self {
+            client: HttpClient::new(),
+        }
     }
 }
 
@@ -52,37 +69,77 @@ pub struct MockHttpSender {
 #[cfg(feature = "inte")]
 #[async_trait]
 impl HttpSender for MockHttpSender {
-    async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> CowenResult<SimpleResponse> {
+    async fn post(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+        body: serde_json::Value,
+    ) -> CowenResult<SimpleResponse> {
         // 🚀 OCP: Integration tests can intercept or log platform calls here
         self.real_sender.post(url, headers, body).await
     }
 
-    async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> CowenResult<SimpleResponse> {
+    async fn post_form(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+        body: serde_json::Value,
+    ) -> CowenResult<SimpleResponse> {
         self.real_sender.post_form(url, headers, body).await
     }
 
-    async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> CowenResult<SimpleResponse> {
+    async fn get(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+    ) -> CowenResult<SimpleResponse> {
         self.real_sender.get(url, headers).await
     }
 }
 
 #[async_trait]
 impl HttpSender for ReqwestSender {
-    async fn post(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> CowenResult<SimpleResponse> {
-        let resp = self.client.post(url).headers(headers).json(&body).send().await?;
+    async fn post(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+        body: serde_json::Value,
+    ) -> CowenResult<SimpleResponse> {
+        let resp = self
+            .client
+            .post(url)
+            .headers(headers)
+            .json(&body)
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
         Ok(SimpleResponse { status, body })
     }
 
-    async fn post_form(&self, url: &str, headers: reqwest::header::HeaderMap, body: serde_json::Value) -> CowenResult<SimpleResponse> {
-        let resp = self.client.post(url).headers(headers).form(&body).send().await?;
+    async fn post_form(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+        body: serde_json::Value,
+    ) -> CowenResult<SimpleResponse> {
+        let resp = self
+            .client
+            .post(url)
+            .headers(headers)
+            .form(&body)
+            .send()
+            .await?;
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
         Ok(SimpleResponse { status, body })
     }
 
-    async fn get(&self, url: &str, headers: reqwest::header::HeaderMap) -> CowenResult<SimpleResponse> {
+    async fn get(
+        &self,
+        url: &str,
+        headers: reqwest::header::HeaderMap,
+    ) -> CowenResult<SimpleResponse> {
         let resp = self.client.get(url).headers(headers).send().await?;
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
@@ -92,38 +149,100 @@ impl HttpSender for ReqwestSender {
 
 #[async_trait]
 pub trait Client: Send + Sync {
-    async fn get_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token>;
+    async fn get_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        headers: &reqwest::header::HeaderMap,
+    ) -> CowenResult<cowen_common::models::Token>;
     #[allow(dead_code)]
-    async fn refresh_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token>;
+    async fn refresh_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        headers: &reqwest::header::HeaderMap,
+    ) -> CowenResult<cowen_common::models::Token>;
     async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> CowenResult<()>;
-    async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> CowenResult<serde_json::Value>;
-    async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> CowenResult<serde_json::Value>;
+    async fn get_openapi_spec(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        force_refresh: bool,
+    ) -> CowenResult<serde_json::Value>;
+    async fn get_dynamic_interface_list(
+        &self,
+        profile: &str,
+        cfg: &Config,
+    ) -> CowenResult<serde_json::Value>;
     async fn clear_token(&self, profile: &str, cfg: &Config) -> CowenResult<()>;
-    
+
     // 🚀 Store App (OAuth2) Extension Methods
-    async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> CowenResult<cowen_common::models::Token>;
+    async fn get_app_access_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+    ) -> CowenResult<cowen_common::models::Token>;
     #[allow(dead_code)]
-    async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> CowenResult<cowen_common::models::Token>;
+    async fn refresh_app_access_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+    ) -> CowenResult<cowen_common::models::Token>;
     #[allow(dead_code)]
-    async fn exchange_temp_code(&self, profile: &str, cfg: &Config, org_id: &str, temp_code: &str) -> CowenResult<cowen_common::models::Token>;
+    async fn exchange_temp_code(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        org_id: &str,
+        temp_code: &str,
+    ) -> CowenResult<cowen_common::models::Token>;
     #[allow(dead_code)]
-    async fn get_user_access_token(&self, profile: &str, cfg: &Config, org_id: &str, user_id: &str) -> CowenResult<cowen_common::models::Token>;
+    async fn get_user_access_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        org_id: &str,
+        user_id: &str,
+    ) -> CowenResult<cowen_common::models::Token>;
     #[allow(dead_code)]
-    async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> CowenResult<serde_json::Value>;
+    async fn intercept_exchange(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        body_bytes: &[u8],
+    ) -> CowenResult<serde_json::Value>;
 
     // 🚀 OCP Lifecycle Hooks
     async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> CowenResult<()>;
     async fn requires_initial_push(&self, cfg: &Config) -> bool;
-    async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::provider::PlatformEvent) -> CowenResult<()>;
+    async fn handle_platform_event(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        event: crate::provider::PlatformEvent,
+    ) -> CowenResult<()>;
     #[allow(dead_code)]
     fn requires_ticket(&self, cfg: &Config) -> bool;
     fn supports_webhooks(&self, cfg: &Config) -> bool;
     fn supports_api_call(&self, cfg: &Config) -> bool;
-    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()>;
+    async fn perform_login(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        force: bool,
+        finalize: Option<&str>,
+        daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
+    ) -> CowenResult<()>;
 
     /// 🚀 UI/诊断能力：获取该模式下的专属诊断条目（Auth、Daemon等）
-    async fn get_diagnostics(&self, ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>>;
-    fn get_provider(&self, mode: &cowen_common::models::AuthMode) -> Option<Arc<dyn crate::provider::AuthProvider>>;
+    async fn get_diagnostics(
+        &self,
+        ctx: &cowen_monitor::status::StatusContext<'_>,
+    ) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>>;
+    fn get_provider(
+        &self,
+        mode: &cowen_common::models::AuthMode,
+    ) -> Option<Arc<dyn crate::provider::AuthProvider>>;
 }
 
 use crate::provider::AuthProvider;
@@ -166,11 +285,14 @@ impl AuthClient {
         let http_sender: Arc<dyn HttpSender> = Arc::new(ReqwestSender::new());
 
         #[cfg(feature = "inte")]
-        let http_sender: Arc<dyn HttpSender> = if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
-            Arc::new(MockHttpSender { real_sender: ReqwestSender::new() })
-        } else {
-            Arc::new(ReqwestSender::new())
-        };
+        let http_sender: Arc<dyn HttpSender> =
+            if std::env::var("OWENC_ENV").unwrap_or_default() == "inte" {
+                Arc::new(MockHttpSender {
+                    real_sender: ReqwestSender::new(),
+                })
+            } else {
+                Arc::new(ReqwestSender::new())
+            };
 
         AuthClientBuilder {
             pool,
@@ -180,7 +302,8 @@ impl AuthClient {
     }
 
     pub fn provider(&self, mode: &AuthMode) -> &dyn AuthProvider {
-        self.providers.get(mode)
+        self.providers
+            .get(mode)
             .map(|p| p.as_ref())
             .unwrap_or_else(|| {
                 panic!("No provider registered for mode: {:?}", mode);
@@ -190,28 +313,62 @@ impl AuthClient {
 
 #[async_trait]
 impl Client for AuthClient {
-    async fn get_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token> {
-        self.provider(&cfg.app_mode).get_token(profile, cfg, headers).await
+    async fn get_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        headers: &reqwest::header::HeaderMap,
+    ) -> CowenResult<cowen_common::models::Token> {
+        self.provider(&cfg.app_mode)
+            .get_token(profile, cfg, headers)
+            .await
     }
 
-    async fn refresh_token(&self, profile: &str, cfg: &Config, headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token> {
-        self.provider(&cfg.app_mode).refresh(profile, cfg, headers).await
+    async fn refresh_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        headers: &reqwest::header::HeaderMap,
+    ) -> CowenResult<cowen_common::models::Token> {
+        self.provider(&cfg.app_mode)
+            .refresh(profile, cfg, headers)
+            .await
     }
 
-    async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::provider::PlatformEvent) -> CowenResult<()> {
-        self.provider(&cfg.app_mode).handle_platform_event(profile, cfg, event).await
+    async fn handle_platform_event(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        event: crate::provider::PlatformEvent,
+    ) -> CowenResult<()> {
+        self.provider(&cfg.app_mode)
+            .handle_platform_event(profile, cfg, event)
+            .await
     }
 
-    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, finalize: Option<&str>, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
-        self.provider(&cfg.app_mode).perform_login(profile, cfg, force, finalize, daemon_service).await
+    async fn perform_login(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        force: bool,
+        finalize: Option<&str>,
+        daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
+    ) -> CowenResult<()> {
+        self.provider(&cfg.app_mode)
+            .perform_login(profile, cfg, force, finalize, daemon_service)
+            .await
     }
 
     async fn on_maintenance_tick(&self, profile: &str, cfg: &Config) -> CowenResult<()> {
-        self.provider(&cfg.app_mode).on_maintenance_tick(profile, cfg).await
+        self.provider(&cfg.app_mode)
+            .on_maintenance_tick(profile, cfg)
+            .await
     }
 
     async fn requires_initial_push(&self, cfg: &Config) -> bool {
-        self.provider(&cfg.app_mode).requires_initial_push(cfg).await
+        self.provider(&cfg.app_mode)
+            .requires_initial_push(cfg)
+            .await
     }
 
     fn requires_ticket(&self, cfg: &Config) -> bool {
@@ -229,49 +386,101 @@ impl Client for AuthClient {
     async fn clear_token(&self, profile: &str, cfg: &Config) -> CowenResult<()> {
         // 1. Generic cleanup (Access token pool)
         self.pool.delete_access_token(profile).await?;
-        
+
         // 2. Mode-specific cleanup
         self.provider(&cfg.app_mode).on_logout(profile, cfg).await
     }
 
     async fn trigger_push(&self, profile: &str, cfg: &Config, force: bool) -> CowenResult<()> {
-        self.provider(&cfg.app_mode).trigger_push(profile, cfg, force).await
+        self.provider(&cfg.app_mode)
+            .trigger_push(profile, cfg, force)
+            .await
     }
 
-    async fn get_app_access_token(&self, profile: &str, cfg: &Config) -> CowenResult<cowen_common::models::Token> {
-        let token = self.provider(&cfg.app_mode).get_app_access_token(profile, cfg).await?;
+    async fn get_app_access_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+    ) -> CowenResult<cowen_common::models::Token> {
+        let token = self
+            .provider(&cfg.app_mode)
+            .get_app_access_token(profile, cfg)
+            .await?;
         // 🚀 归档到持久化池
         let _ = self.pool.set_app_access_token(&cfg.app_key, &token).await;
         Ok(token)
     }
 
-    async fn refresh_app_access_token(&self, profile: &str, cfg: &Config) -> CowenResult<cowen_common::models::Token> {
-        let token = self.provider(&cfg.app_mode).refresh(profile, cfg, &reqwest::header::HeaderMap::new()).await?;
+    async fn refresh_app_access_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+    ) -> CowenResult<cowen_common::models::Token> {
+        let token = self
+            .provider(&cfg.app_mode)
+            .refresh(profile, cfg, &reqwest::header::HeaderMap::new())
+            .await?;
         let _ = self.pool.set_app_access_token(&cfg.app_key, &token).await;
         Ok(token)
     }
 
-    async fn exchange_temp_code(&self, profile: &str, cfg: &Config, org_id: &str, temp_code: &str) -> CowenResult<cowen_common::models::Token> {
-        self.provider(&cfg.app_mode).exchange_temp_code(profile, cfg, org_id, temp_code).await
+    async fn exchange_temp_code(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        org_id: &str,
+        temp_code: &str,
+    ) -> CowenResult<cowen_common::models::Token> {
+        self.provider(&cfg.app_mode)
+            .exchange_temp_code(profile, cfg, org_id, temp_code)
+            .await
     }
 
-    async fn get_user_access_token(&self, profile: &str, cfg: &Config, org_id: &str, user_id: &str) -> CowenResult<cowen_common::models::Token> {
-        self.provider(&cfg.app_mode).get_user_token(profile, cfg, org_id, user_id).await
+    async fn get_user_access_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        org_id: &str,
+        user_id: &str,
+    ) -> CowenResult<cowen_common::models::Token> {
+        self.provider(&cfg.app_mode)
+            .get_user_token(profile, cfg, org_id, user_id)
+            .await
     }
 
-    async fn intercept_exchange(&self, profile: &str, cfg: &Config, body_bytes: &[u8]) -> CowenResult<serde_json::Value> {
-        self.provider(&cfg.app_mode).intercept_exchange(profile, cfg, body_bytes).await
+    async fn intercept_exchange(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        body_bytes: &[u8],
+    ) -> CowenResult<serde_json::Value> {
+        self.provider(&cfg.app_mode)
+            .intercept_exchange(profile, cfg, body_bytes)
+            .await
     }
 
-    async fn get_diagnostics(&self, ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
-        self.provider(&ctx.config.app_mode).get_diagnostics(ctx).await
+    async fn get_diagnostics(
+        &self,
+        ctx: &cowen_monitor::status::StatusContext<'_>,
+    ) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
+        self.provider(&ctx.config.app_mode)
+            .get_diagnostics(ctx)
+            .await
     }
 
-    fn get_provider(&self, mode: &cowen_common::models::AuthMode) -> Option<Arc<dyn crate::provider::AuthProvider>> {
+    fn get_provider(
+        &self,
+        mode: &cowen_common::models::AuthMode,
+    ) -> Option<Arc<dyn crate::provider::AuthProvider>> {
         self.providers.get(mode).cloned()
     }
 
-    async fn get_openapi_spec(&self, profile: &str, cfg: &Config, force_refresh: bool) -> CowenResult<serde_json::Value> {
+    async fn get_openapi_spec(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        force_refresh: bool,
+    ) -> CowenResult<serde_json::Value> {
         let app_dir = cowen_common::config::get_app_dir();
         let cache_path = app_dir.join(format!("{}_openapi.yaml", profile));
 
@@ -280,13 +489,18 @@ impl Client for AuthClient {
             if let Ok(data) = std::fs::read_to_string(&cache_path) {
                 if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
                     let metadata = std::fs::metadata(&cache_path).map_err(CowenError::from)?;
-                    let elapsed = metadata.modified().map_err(CowenError::from)?.elapsed().map_err(|e| CowenError::Internal(e.to_string()))?.as_secs();
-                    
+                    let elapsed = metadata
+                        .modified()
+                        .map_err(CowenError::from)?
+                        .elapsed()
+                        .map_err(|e| CowenError::Internal(e.to_string()))?
+                        .as_secs();
+
                     // Cache is fresh (less than 1 hour)
                     if elapsed < 3600 {
                         return Ok(spec);
                     }
-                    
+
                     // Cache expired but we have it as fallback if network fails
                     tracing::info!(target: "sys", "Local spec cache expired ({}s), attempting refresh...", elapsed);
                 }
@@ -299,12 +513,24 @@ impl Client for AuthClient {
 
         // 2. Fetch fresh spec from Platform
         if !cfg.openapi_url.is_empty() {
-            let mut spec_url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/openapi/spec"));
-            if let Ok(token) = self.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await {
+            let mut spec_url = format!(
+                "{}{}",
+                cfg.openapi_url.trim_end_matches('/'),
+                obfs!("/v1/common/openapi/spec")
+            );
+            if let Ok(token) = self
+                .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
+                .await
+            {
                 let mut headers = reqwest::header::HeaderMap::new();
-                
+
                 // OCP: Delegate URL and Header decoration to provider
-                self.provider(&cfg.app_mode).decorate_openapi_request(&mut spec_url, &mut headers, &token, cfg);
+                self.provider(&cfg.app_mode).decorate_openapi_request(
+                    &mut spec_url,
+                    &mut headers,
+                    &token,
+                    cfg,
+                );
 
                 match self.http_sender.get(&spec_url, headers).await {
                     Ok(resp) if resp.is_success() => {
@@ -341,15 +567,28 @@ impl Client for AuthClient {
                     }
                 }
                 tracing::error!(target: "sys", "API list refresh failed: {}", e);
-                Err(CowenError::Api(format!("Could not refresh API list: {}", e)))
+                Err(CowenError::Api(format!(
+                    "Could not refresh API list: {}",
+                    e
+                )))
             }
         }
     }
 
-    async fn get_dynamic_interface_list(&self, profile: &str, cfg: &Config) -> CowenResult<serde_json::Value> {
-        let token = self.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await?;
-        let base_url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/developer/api/apiPermissions/isv/open/getInterfaceList"));
-        
+    async fn get_dynamic_interface_list(
+        &self,
+        profile: &str,
+        cfg: &Config,
+    ) -> CowenResult<serde_json::Value> {
+        let token = self
+            .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
+            .await?;
+        let base_url = format!(
+            "{}{}",
+            cfg.openapi_url.trim_end_matches('/'),
+            obfs!("/developer/api/apiPermissions/isv/open/getInterfaceList")
+        );
+
         let mut current_page = 1;
         let mut total_pages = 1;
         let mut combined_paths = serde_json::Map::new();
@@ -357,32 +596,45 @@ impl Client for AuthClient {
         while current_page <= total_pages {
             let mut url = base_url.clone();
             let mut headers = reqwest::header::HeaderMap::new();
-            
+
             // OCP: Delegate URL and Header decoration to provider
-            self.provider(&cfg.app_mode).decorate_openapi_request(&mut url, &mut headers, &token, cfg);
-            
+            self.provider(&cfg.app_mode).decorate_openapi_request(
+                &mut url,
+                &mut headers,
+                &token,
+                cfg,
+            );
+
             // Append standard pagination params
             if url.contains('?') {
                 url.push_str(&format!("&page={}&size=100", current_page - 1));
             } else {
                 url.push_str(&format!("?page={}&size=100", current_page - 1));
             }
-            
+
             tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page, total_pages);
             let resp = self.http_sender.get(&url, headers).await?;
 
             if !resp.is_success() {
-                return Err(CowenError::Api(format!("Failed to fetch interface list page {}: HTTP {}", current_page, resp.status)));
+                return Err(CowenError::Api(format!(
+                    "Failed to fetch interface list page {}: HTTP {}",
+                    current_page, resp.status
+                )));
             }
 
             let body: serde_json::Value = resp.json().await?;
-            let value = body.get("value").ok_or_else(|| CowenError::Api("Invalid response structure".to_string()))?;
-            
+            let value = body
+                .get("value")
+                .ok_or_else(|| CowenError::Api("Invalid response structure".to_string()))?;
+
             tracing::debug!(target: "sys", "Server reported currentPage: {:?}, totalPages: {:?}", value.get("currentPage"), value.get("totalPages"));
 
             // Update pagination info
-            total_pages = value.get("totalPages").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
-            
+            total_pages = value
+                .get("totalPages")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1) as usize;
+
             if let Some(list) = value.get("resultList").and_then(|l| l.as_array()) {
                 tracing::debug!(target: "sys", "Page {} resultList contains {} items", current_page, list.len());
                 for item in list {
@@ -398,7 +650,9 @@ impl Client for AuthClient {
                             };
 
                             Self::clean_non_standard_fields(&mut item_spec);
-                            if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
+                            if let Some(item_paths) =
+                                item_spec.get("paths").and_then(|p| p.as_object())
+                            {
                                 parsed_paths = Some(item_paths.clone());
                             }
                         }
@@ -408,7 +662,9 @@ impl Client for AuthClient {
                     if let Some(item_paths) = parsed_paths {
                         for (path, methods) in item_paths {
                             if let Some(existing) = combined_paths.get_mut(&path) {
-                                if let (Some(e_obj), Some(m_obj)) = (existing.as_object_mut(), methods.as_object()) {
+                                if let (Some(e_obj), Some(m_obj)) =
+                                    (existing.as_object_mut(), methods.as_object())
+                                {
                                     for (k, v) in m_obj {
                                         e_obj.insert(k.clone(), v.clone());
                                     }
@@ -419,24 +675,43 @@ impl Client for AuthClient {
                         }
                     } else {
                         // Fallback: manually construct from requestPath and requestHttpMethod
-                        let path = item.get("requestPath").and_then(|v| v.as_str()).unwrap_or("");
-                        let name = item.get("interfaceName").and_then(|v| v.as_str()).unwrap_or("No Name");
-                        let method = item.get("requestHttpMethod").and_then(|v| v.as_str()).unwrap_or("GET").to_lowercase();
-                        
+                        let path = item
+                            .get("requestPath")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let name = item
+                            .get("interfaceName")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("No Name");
+                        let method = item
+                            .get("requestHttpMethod")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("GET")
+                            .to_lowercase();
+
                         if !path.is_empty() {
                             let mut methods_obj = serde_json::Map::new();
-                            methods_obj.insert(method.clone(), serde_json::json!({
-                                "summary": name,
-                                "description": format!("Authorized Interface: {}", name),
-                                "responses": { "200": { "description": "OK" } }
-                            }));
+                            methods_obj.insert(
+                                method.clone(),
+                                serde_json::json!({
+                                    "summary": name,
+                                    "description": format!("Authorized Interface: {}", name),
+                                    "responses": { "200": { "description": "OK" } }
+                                }),
+                            );
 
                             if let Some(existing) = combined_paths.get_mut(path) {
                                 if let Some(e_obj) = existing.as_object_mut() {
-                                    e_obj.insert(method.clone(), methods_obj.get(&method).unwrap().clone());
+                                    e_obj.insert(
+                                        method.clone(),
+                                        methods_obj.get(&method).unwrap().clone(),
+                                    );
                                 }
                             } else {
-                                combined_paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
+                                combined_paths.insert(
+                                    path.to_string(),
+                                    serde_json::Value::Object(methods_obj),
+                                );
                             }
                         }
                     }
@@ -458,7 +733,11 @@ impl Client for AuthClient {
 }
 
 impl AuthClient {
-    fn save_spec_to_cache(&self, path: &std::path::PathBuf, spec: &serde_json::Value) -> CowenResult<()> {
+    fn save_spec_to_cache(
+        &self,
+        path: &std::path::PathBuf,
+        spec: &serde_json::Value,
+    ) -> CowenResult<()> {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -480,7 +759,9 @@ impl AuthClient {
                     if let Some(obj) = val.as_object() {
                         let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
                         let in_location = obj.get("in").and_then(|v| v.as_str()).unwrap_or("");
-                        if name.eq_ignore_ascii_case("content-type") && in_location.eq_ignore_ascii_case("header") {
+                        if name.eq_ignore_ascii_case("content-type")
+                            && in_location.eq_ignore_ascii_case("header")
+                        {
                             return false;
                         }
                     }
@@ -496,4 +777,3 @@ impl AuthClient {
 }
 
 pub use cowen_common::openapi::{find_matching_spec_path, get_operation, is_path_in_whitelist};
-

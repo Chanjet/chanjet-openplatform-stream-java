@@ -39,6 +39,22 @@ pub enum DaemonResponse {
     Error { code: i32, message: String },
 }
 
+pub fn get_uds_path() -> std::path::PathBuf {
+    use sha2::{Sha256, Digest};
+    let app_dir = crate::config::get_app_dir();
+    let mut uds_path = app_dir.join("uds.sock");
+    
+    // SUN_LEN is usually 104-108. If path is too long (e.g. in deep parallel tests),
+    // we use a hashed name in /tmp to ensure socket binding succeeds.
+    if uds_path.to_string_lossy().len() >= 100 {
+        let mut hasher = Sha256::new();
+        hasher.update(uds_path.to_string_lossy().as_bytes());
+        let hash = hex::encode(hasher.finalize());
+        uds_path = std::path::PathBuf::from(format!("/tmp/cowen_{}.sock", &hash[..16]));
+    }
+    uds_path
+}
+
 #[cfg(unix)]
 pub mod client {
     use super::*;
@@ -55,18 +71,32 @@ pub mod client {
         }
 
         // Daemon is not running, spawn it
-        let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
-        let daemon_path = exe_dir.join("cowen-daemon");
+        let daemon_path = if let Ok(env_path) = std::env::var("COWEN_DAEMON_BIN") {
+            PathBuf::from(env_path)
+        } else {
+            let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
+            exe_dir.join("cowen-daemon")
+        };
         
         if !daemon_path.exists() {
             bail!("cowen-daemon executable not found at {}", daemon_path.display());
         }
 
+        // Redirect stdout/stderr to files
+        let app_dir = crate::config::get_app_dir();
+        let log_dir = app_dir.join("logs");
+        if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
+        let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))?;
+        let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
+
         let _child = Command::new(&daemon_path)
             .arg("--uds")
             .arg(uds_path)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::from(stdout_file))
+            .stderr(std::process::Stdio::from(stderr_file))
             .spawn()
-            .context("Failed to spawn cowen-daemon")?;
+            .context(format!("Failed to spawn cowen-daemon at {}", daemon_path.display()))?;
 
         // Retry logic: MAX 5 times, 200ms delay, total 1s (LLD says RETRY_FAST 5 times/200ms)
         for _ in 0..5 {

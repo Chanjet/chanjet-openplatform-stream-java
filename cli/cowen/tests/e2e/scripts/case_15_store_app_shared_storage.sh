@@ -7,6 +7,9 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
+PROXY_PORT_2=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -22,8 +25,15 @@ mkdir -p "$TEST_BASE"
 
 # 🚀 Isolate binary for process manager visibility
 cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_15"
-export COWEN_BIN="$TEST_BASE/cowen_case_15"
+export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_15"
 chmod +x "$COWEN_BIN"
+
+# 🚀 Isolate daemon binary as well
+if [ -f "$COWEN_BUILD_DIR/cowen-daemon" ]; then
+    cp "$COWEN_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_15"
+    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_15"
+    chmod +x "$COWEN_DAEMON_BIN"
+fi
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 15 environment...${NC}"
@@ -71,7 +81,7 @@ EOF
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
     --webhook-target "http://127.0.0.1:9299/webhook_sink" \
-    --proxy-port 9095
+    --proxy-port $PROXY_PORT
 
 assert_pass "Node 1 initialized with StoreApp mode in shared DB"
 
@@ -89,7 +99,7 @@ ai_enabled: false
 EOF
 
 # Node 2 starts daemon
-"$COWEN_BIN" daemon start --profile main --proxy-port 9096 --foreground > "$HOME_2/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 &
 DAEMON_PID=$!
 sleep 2
 
@@ -107,7 +117,7 @@ echo -e "${BOLD}3. Simulate Platform Webhook to Node 2${NC}"
 TICKET_VAL="mock_ticket_$(date +%s)"
 curl -s -X POST -H "Content-Type: application/json" \
      -d "{\"type\":\"APP_TICKET\", \"app_ticket\":\"$TICKET_VAL\"}" \
-     "http://127.0.0.1:9096/webhook" > /dev/null
+     "http://127.0.0.1:$PROXY_PORT_2/webhook" > /dev/null
 
 echo -e "   ✓ Sent APP_TICKET to Node 2 Proxy"
 sleep 5

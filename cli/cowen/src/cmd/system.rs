@@ -432,7 +432,7 @@ pub async fn ensure_daemon_running(
         tracing::info!(target: "sys", profile = %profile, "Daemon not running, triggering auto-recovery...");
 
         #[cfg(unix)]
-        let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_common::ipc::client::IpcDaemonService::new(cowen_infra::get_app_dir().join("uds.sock")));
+        let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_common::ipc::client::IpcDaemonService::new(cowen_common::ipc::get_uds_path()));
         #[cfg(not(unix))]
         let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_server::ServerDaemonService::new(_cfg_mgr.clone(), None));
         let _ = crate::cmd::daemon::start(profile, config, config.proxy_port, config.proxy_enabled, false, false, _cfg_mgr, vault, None, daemon_svc).await;

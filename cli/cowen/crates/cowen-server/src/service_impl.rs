@@ -41,8 +41,8 @@ impl DaemonService for ServerDaemonService {
         for (profile, _) in workers {
             let _ = self.worker_mgr.stop_worker(&profile).await;
         }
-        // Give workers a moment to finish shutting down before exiting
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // Wait for all workers to actually finish draining (up to 15s)
+        self.worker_mgr.wait_all_stopped(std::time::Duration::from_secs(15)).await;
         Ok(())
     }
 

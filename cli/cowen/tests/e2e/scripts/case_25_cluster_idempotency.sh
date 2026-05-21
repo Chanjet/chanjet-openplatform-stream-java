@@ -8,6 +8,8 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -31,7 +33,7 @@ EOF
     --app-key AK_CLUSTER --app-secret AS_CLUSTER --certificate CERT_CLUSTER --encrypt-key 1234567890123456 \
     --webhook-target "$MOCK_URL/webhook_sink" \
     --openapi-url $MOCK_URL --stream-url $MOCK_WS \
-    --proxy-port 9126 >/dev/null
+    --proxy-port $PROXY_PORT >/dev/null
 
 # Start Node A (Foreground in background task)
 "$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/node_a.log" 2>&1 &

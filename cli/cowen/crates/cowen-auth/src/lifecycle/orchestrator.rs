@@ -1,24 +1,23 @@
-use cowen_common::{CowenResult, CowenError};
-use cowen_config::ConfigManager;
 use cowen_common::vault::Vault;
+use cowen_common::{CowenError, CowenResult};
+use cowen_config::ConfigManager;
+use cowen_monitor::MonitorClient;
+use indicatif::{ProgressBar, ProgressStyle};
+use std::io::{BufRead, Seek, Write};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::io::{BufRead, Write, Seek};
 use tokio::time::sleep;
-use indicatif::{ProgressBar, ProgressStyle};
-use cowen_monitor::MonitorClient;
 
-pub async fn wait_for_token_exchange_ipc(
-    profile: &str,
-    monitor_port: u16,
-) -> CowenResult<()> {
+pub async fn wait_for_token_exchange_ipc(profile: &str, monitor_port: u16) -> CowenResult<()> {
     let client = MonitorClient::new(monitor_port);
     let pb = ProgressBar::new(100);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}% {msg}")
-        .map_err(|e| CowenError::api(e.to_string()))?
-        .progress_chars("#>-"));
-    
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}% {msg}")
+            .map_err(|e| CowenError::api(e.to_string()))?
+            .progress_chars("#>-"),
+    );
+
     pb.set_message("Waiting for browser authorization...");
     pb.set_position(5);
 
@@ -60,8 +59,8 @@ pub async fn wait_for_token_exchange_ipc(
 }
 
 pub async fn wait_for_token_exchange(
-    profile: &str, 
-    vault: Arc<dyn Vault>, 
+    profile: &str,
+    vault: Arc<dyn Vault>,
     finalizer_pid: u32,
     is_new: bool,
     _cfg_mgr: &ConfigManager,
@@ -82,7 +81,7 @@ pub async fn wait_for_token_exchange(
                 let vault = self.vault.clone();
                 let pid = self.pid;
                 let is_new = self.is_new;
-                
+
                 tokio::spawn(async move {
                     if let Ok(cfg_mgr) = cowen_config::ConfigManager::new() {
                         perform_failure_cleanup(&profile, vault, pid, is_new, &cfg_mgr).await;
@@ -91,7 +90,7 @@ pub async fn wait_for_token_exchange(
             }
         }
     }
-    
+
     let mut guard = CleanupGuard {
         profile: profile.to_string(),
         vault: vault.clone(),
@@ -102,13 +101,17 @@ pub async fn wait_for_token_exchange(
 
     let start_time = Instant::now();
     let timeout = Duration::from_secs(300); // 5 minutes
-    let log_file = cowen_common::config::get_app_dir().join("logs").join(format!("{}_auth.log", profile));
+    let log_file = cowen_common::config::get_app_dir()
+        .join("logs")
+        .join(format!("{}_auth.log", profile));
     let mut last_log_size = if log_file.exists() {
-        std::fs::metadata(&log_file).map_err(CowenError::from)?.len()
+        std::fs::metadata(&log_file)
+            .map_err(CowenError::from)?
+            .len()
     } else {
         0
     };
-    
+
     print!("⏳ 正在等待浏览器授权并在后台交换令牌...");
     std::io::stdout().flush().map_err(CowenError::from)?;
 
@@ -122,7 +125,10 @@ pub async fn wait_for_token_exchange(
         }
 
         let remaining = (timeout.as_secs() as i64 - elapsed.as_secs() as i64).max(0);
-        print!("\r⏳ 正在等待浏览器授权并在后台交换令牌... [剩余 {:3}s] ", remaining);
+        print!(
+            "\r⏳ 正在等待浏览器授权并在后台交换令牌... [剩余 {:3}s] ",
+            remaining
+        );
         std::io::stdout().flush().map_err(CowenError::from)?;
 
         // 1. Success check: Access token exists in domain storage
@@ -139,8 +145,10 @@ pub async fn wait_for_token_exchange(
                 // Read new content
                 let file = std::fs::File::open(&log_file).map_err(CowenError::from)?;
                 let mut reader = std::io::BufReader::new(file);
-                reader.seek(std::io::SeekFrom::Start(last_log_size)).map_err(CowenError::from)?;
-                
+                reader
+                    .seek(std::io::SeekFrom::Start(last_log_size))
+                    .map_err(CowenError::from)?;
+
                 for line in reader.lines() {
                     if let Ok(l) = line {
                         if l.contains("ERROR") {
@@ -160,13 +168,17 @@ pub async fn wait_for_token_exchange(
             // Give it a tiny bit of time to persist the token if it just happened
             sleep(Duration::from_millis(500)).await;
             if vault.get_access_token(profile).await.is_err() {
-                println!("\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。");
+                println!(
+                    "\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。"
+                );
                 render_last_auth_error(profile)?;
                 // Guard will handle cleanup
-                return Err(CowenError::Auth("Authorization state invalid (Session lost)".to_string()));
+                return Err(CowenError::Auth(
+                    "Authorization state invalid (Session lost)".to_string(),
+                ));
             }
         }
-        
+
         sleep(Duration::from_millis(1000)).await;
     }
 }
@@ -174,7 +186,7 @@ pub async fn wait_for_token_exchange(
 pub fn spawn_finalizer(profile: &str, session_id: &str) -> CowenResult<u32> {
     let exe = std::env::current_exe().map_err(CowenError::from)?;
     let mut cmd = std::process::Command::new(exe);
-    
+
     // Setup log file
     let log_dir = cowen_common::config::get_app_dir().join("logs");
     std::fs::create_dir_all(&log_dir).map_err(CowenError::from)?;
@@ -182,12 +194,20 @@ pub fn spawn_finalizer(profile: &str, session_id: &str) -> CowenResult<u32> {
     let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_file).map_err(CowenError::from)?;
+        .open(log_file)
+        .map_err(CowenError::from)?;
 
-    cmd.args(&["--profile", profile, "auth", "login", "--finalize", session_id])
-       .stdin(std::process::Stdio::null())
-       .stdout(file.try_clone().map_err(CowenError::from)?)
-       .stderr(file);
+    cmd.args(&[
+        "--profile",
+        profile,
+        "auth",
+        "login",
+        "--finalize",
+        session_id,
+    ])
+    .stdin(std::process::Stdio::null())
+    .stdout(file.try_clone().map_err(CowenError::from)?)
+    .stderr(file);
 
     #[cfg(unix)]
     {
@@ -200,7 +220,9 @@ pub fn spawn_finalizer(profile: &str, session_id: &str) -> CowenResult<u32> {
 }
 
 pub fn render_last_auth_error(profile: &str) -> CowenResult<()> {
-    let log_file = cowen_common::config::get_app_dir().join("logs").join(format!("{}_auth.log", profile));
+    let log_file = cowen_common::config::get_app_dir()
+        .join("logs")
+        .join(format!("{}_auth.log", profile));
     if !log_file.exists() {
         return Ok(());
     }
@@ -220,7 +242,11 @@ pub fn render_last_auth_error(profile: &str) -> CowenResult<()> {
     if !errors.is_empty() {
         println!("\n\x1b[31m🔍 诊断信息 (来自背景日志):\x1b[0m");
         // Show last 3 errors
-        let start = if errors.len() > 3 { errors.len() - 3 } else { 0 };
+        let start = if errors.len() > 3 {
+            errors.len() - 3
+        } else {
+            0
+        };
         for err in &errors[start..] {
             println!("  {}", err);
         }

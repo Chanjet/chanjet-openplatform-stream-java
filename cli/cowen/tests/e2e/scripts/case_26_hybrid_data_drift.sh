@@ -9,6 +9,8 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -78,7 +80,7 @@ EOF
     --app-key AK_HYBRID --app-secret AS_HYBRID --certificate CERT_HYBRID --encrypt-key 1234567890123456 \
     --openapi-url $MOCK_URL --stream-url $MOCK_WS \
     --webhook-target "$MOCK_URL/webhook_sink" \
-    --proxy-port 9127 >/dev/null
+    --proxy-port $PROXY_PORT >/dev/null
 
 # Start daemon to open websocket connection
 "$COWEN_BIN" daemon start --profile "$PROF" > /dev/null

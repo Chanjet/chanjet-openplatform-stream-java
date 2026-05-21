@@ -8,6 +8,8 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -78,7 +80,7 @@ APP_KEY="AK_PG_STORE"
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
     --webhook-target "$MOCK_URL/webhook_sink" \
-    --proxy-port 9295 > /dev/null
+    --proxy-port $PROXY_PORT > /dev/null
 
 echo -e "   ✓ Node 1 initialized as StoreApp"
 

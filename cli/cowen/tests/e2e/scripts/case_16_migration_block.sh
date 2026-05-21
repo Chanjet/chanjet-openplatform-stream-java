@@ -19,8 +19,15 @@ mkdir -p "$TEST_BASE"
 
 # 🚀 Isolate binary for process manager visibility
 cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_16"
-export COWEN_BIN="$TEST_BASE/cowen_case_16"
+export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_16"
 chmod +x "$COWEN_BIN"
+
+# 🚀 Isolate daemon binary as well
+if [ -f "$COWEN_BUILD_DIR/cowen-daemon" ]; then
+    cp "$COWEN_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_16"
+    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_16"
+    chmod +x "$COWEN_DAEMON_BIN"
+fi
 
 rm -f "$SHARED_DB"*
 mkdir -p "$HOME_MIGRATE"

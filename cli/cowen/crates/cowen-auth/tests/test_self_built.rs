@@ -1,15 +1,15 @@
+use async_trait::async_trait;
+use cowen_auth::client::{HttpSender, SimpleResponse};
+use cowen_auth::pool::TokenPool;
 use cowen_auth::provider::self_built::SelfBuiltProvider;
 use cowen_auth::provider::AuthProvider;
-use cowen_auth::client::{HttpSender, SimpleResponse};
 use cowen_auth::VaultTokenPool;
-use cowen_auth::pool::TokenPool;
-use cowen_common::{CowenResult, CowenError, Config};
+use cowen_common::{Config, CowenError, CowenResult};
 use cowen_store::file::FileStore;
 use cowen_store::StoreVault;
-use async_trait::async_trait;
-use tempfile::tempdir;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use tempfile::tempdir;
 
 struct CounterHttpSender {
     pub call_count: Arc<AtomicUsize>,
@@ -17,23 +17,44 @@ struct CounterHttpSender {
 
 #[async_trait]
 impl HttpSender for CounterHttpSender {
-    async fn post(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> CowenResult<SimpleResponse> {
+    async fn post(
+        &self,
+        _url: &str,
+        _headers: reqwest::header::HeaderMap,
+        _body: serde_json::Value,
+    ) -> CowenResult<SimpleResponse> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
         Ok(SimpleResponse {
             status: 200,
             body: serde_json::json!({
                 "code": "200",
                 "message": "success"
-            }).to_string(),
+            })
+            .to_string(),
         })
     }
 
-    async fn post_form(&self, _url: &str, _headers: reqwest::header::HeaderMap, _body: serde_json::Value) -> CowenResult<SimpleResponse> {
-        Ok(SimpleResponse { status: 200, body: "{}".to_string() })
+    async fn post_form(
+        &self,
+        _url: &str,
+        _headers: reqwest::header::HeaderMap,
+        _body: serde_json::Value,
+    ) -> CowenResult<SimpleResponse> {
+        Ok(SimpleResponse {
+            status: 200,
+            body: "{}".to_string(),
+        })
     }
 
-    async fn get(&self, _url: &str, _headers: reqwest::header::HeaderMap) -> CowenResult<SimpleResponse> {
-        Ok(SimpleResponse { status: 200, body: "{}".to_string() })
+    async fn get(
+        &self,
+        _url: &str,
+        _headers: reqwest::header::HeaderMap,
+    ) -> CowenResult<SimpleResponse> {
+        Ok(SimpleResponse {
+            status: 200,
+            body: "{}".to_string(),
+        })
     }
 }
 
@@ -44,11 +65,13 @@ async fn test_self_built_concurrent_resend_lock() {
     let store = Arc::new(FileStore::new(vault_path, "fingerprint").unwrap());
     let vault = Arc::new(StoreVault::new(store.clone(), store.clone()));
     let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault));
-    
+
     let call_count = Arc::new(AtomicUsize::new(0));
-    let sender = Arc::new(CounterHttpSender { call_count: call_count.clone() });
+    let sender = Arc::new(CounterHttpSender {
+        call_count: call_count.clone(),
+    });
     let provider = SelfBuiltProvider::new(pool, sender);
-    
+
     let config = Config {
         app_key: "AK_TEST".to_string(),
         app_secret: "AS_TEST".to_string(),

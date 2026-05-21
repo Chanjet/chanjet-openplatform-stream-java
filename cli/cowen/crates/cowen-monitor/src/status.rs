@@ -151,7 +151,7 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
                     let name = process.name().to_string_lossy().to_lowercase();
                     let bin_name = get_bin_name().to_lowercase();
                     
-                    if name.contains(&bin_name) || cmdline.contains(&bin_name) {
+                    if name.contains(&bin_name) || cmdline.contains(&bin_name) || name.contains("cowen") || cmdline.contains("cowen") {
                         let mut info = DaemonInfo {
                             pid: pid_val,
                             build_id: None,

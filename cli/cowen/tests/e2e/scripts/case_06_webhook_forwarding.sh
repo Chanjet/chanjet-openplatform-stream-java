@@ -2,6 +2,8 @@
 set -e
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -16,7 +18,7 @@ SINK_URL="http://127.0.0.1:9299/webhook_sink"
 "$COWEN_BIN" init --profile fwd --app-mode self-built \
     --app-key AK_FWD --app-secret AS_FWD --encrypt-key 1234567890123456 --certificate CERT_FWD \
     --webhook-target "$SINK_URL" \
-    --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port 9902 >/dev/null
+    --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port $PROXY_PORT >/dev/null
 assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Start Daemon${NC}"

@@ -30,6 +30,20 @@ pub async fn start(
     _telemetry: Option<Arc<TelemetryControl>>,
     daemon_svc: Arc<dyn DaemonService>,
 ) -> Result<()> {
+    #[cfg(unix)]
+    {
+        // On Unix, we use the standalone cowen-daemon binary via IPC.
+        // If foreground=true, we might want to wait for it or block, 
+        // but for now let's just trigger the start.
+        if !foreground {
+            eprintln!("🚀 Triggering standalone daemon for profile '{}'...", profile);
+            daemon_svc.start_daemon(profile, config, vault).await.map_err(|e| anyhow::anyhow!(e))?;
+            eprintln!("✅ Startup command sent to daemon.");
+            return Ok(());
+        }
+    }
+
+    #[cfg(not(unix))]
     if !foreground {
         // Parent process logic: spawn itself with --foreground
         let app_dir = cowen_common::config::get_app_dir();
@@ -217,9 +231,11 @@ pub async fn stop(_profile: &str, _all: bool, _cfg_mgr: &ConfigManager) -> Resul
     let pid_file = app_dir.join("master_daemon.pid");
     
     if let Ok(content) = fs::read_to_string(&pid_file) {
-        if let Ok(pid) = content.trim().parse::<u32>() {
-            eprintln!("🛑 Stopping master daemon (PID: {})...", pid);
-            kill_process(pid);
+        if let Some(pid_str) = content.lines().next() {
+            if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                eprintln!("🛑 Stopping master daemon (PID: {})...", pid);
+                kill_process(pid);
+            }
         }
     }
     let _ = fs::remove_file(pid_file);

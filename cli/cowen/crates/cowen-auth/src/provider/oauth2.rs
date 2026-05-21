@@ -1,14 +1,14 @@
-use cowen_common::{CowenResult, CowenError};
-use async_trait::async_trait;
-use rand::Rng;
-use cowen_common::daemon::DaemonService;
-use cowen_infra::obfs;
 use crate::client::HttpSender;
 use crate::lifecycle::AuthSessionManager;
 use crate::models::{OAuth2TokenPair, Token};
 use crate::pool::TokenPool;
 use crate::provider::AuthProvider;
+use async_trait::async_trait;
 use cowen_common::config::Config;
+use cowen_common::daemon::DaemonService;
+use cowen_common::{CowenError, CowenResult};
+use cowen_infra::obfs;
+use rand::Rng;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration, Utc};
@@ -94,8 +94,13 @@ impl OAuth2Provider {
         cfg: &Config,
     ) -> CowenResult<cowen_common::models::Token> {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("appKey", cfg.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-        
+        headers.insert(
+            "appKey",
+            cfg.app_key
+                .parse()
+                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+        );
+
         let resp = self.http_sender.post_form(url, headers, body).await?;
 
         if !resp.is_success() {
@@ -110,30 +115,52 @@ impl OAuth2Provider {
                 error = %err_text,
                 "OAuth2 token rotation failed"
             );
-            
-            eprintln!("❌ OAuth2 token rotation failed (HTTP {}): {}", status, err_text);
+
+            eprintln!(
+                "❌ OAuth2 token rotation failed (HTTP {}): {}",
+                status, err_text
+            );
 
             // Handle specific platform error codes (Design §6)
             if err_text.contains("4029") {
-                return Err(CowenError::Auth(format!("登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})", status)));
+                return Err(CowenError::Auth(format!(
+                    "登录会话已超时（7天），请执行 `owenc init` 重新授权。 (Error: {})",
+                    status
+                )));
             }
             if err_text.contains("4007") || err_text.contains("invalid_grant") {
-                let _ = self.pool.as_vault().set_config(profile, "oauth2_revoked", "true").await;
-                return Err(CowenError::Auth(format!("令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})", status)));
+                let _ = self
+                    .pool
+                    .as_vault()
+                    .set_config(profile, "oauth2_revoked", "true")
+                    .await;
+                return Err(CowenError::Auth(format!(
+                    "令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})",
+                    status
+                )));
             }
             if err_text.contains("4006") {
-                return Err(CowenError::Auth(format!("ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})", status)));
+                return Err(CowenError::Auth(format!(
+                    "ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})",
+                    status
+                )));
             }
             if err_text.contains("4001") {
-                return Err(CowenError::Auth(format!("授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})", status)));
+                return Err(CowenError::Auth(format!(
+                    "授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})",
+                    status
+                )));
             }
 
-            return Err(CowenError::Auth(format!("OAuth2 token request failed (HTTP {}): {}", status, err_text)));
+            return Err(CowenError::Auth(format!(
+                "OAuth2 token request failed (HTTP {}): {}",
+                status, err_text
+            )));
         }
 
         let token_resp: OAuth2TokenResponse = resp.json().await?;
         let now = Utc::now();
-        
+
         tracing::info!(target: "sys", profile = %profile, "Received token response: expires_in={:?}, refresh_expires_in={:?}", token_resp.expires_in, token_resp.refresh_expires_in);
 
         let token = Token {
@@ -149,15 +176,37 @@ impl OAuth2Provider {
         };
 
         // Save to vault via pool (Structured TokenDomain is the single source of truth)
-        self.pool.as_vault().save_access_token(profile, token.clone()).await?;
-        self.pool.as_vault().save_refresh_token(profile, refresh_token).await?;
-        
-        let _ = self.pool.as_vault().delete_config(profile, "oauth2_revoked").await;
-        let _ = self.pool.as_vault().delete_config(profile, "last_refresh_error").await;
-        
+        self.pool
+            .as_vault()
+            .save_access_token(profile, token.clone())
+            .await?;
+        self.pool
+            .as_vault()
+            .save_refresh_token(profile, refresh_token)
+            .await?;
+
+        let _ = self
+            .pool
+            .as_vault()
+            .delete_config(profile, "oauth2_revoked")
+            .await;
+        let _ = self
+            .pool
+            .as_vault()
+            .delete_config(profile, "last_refresh_error")
+            .await;
+
         // 🚀 OCP: Cleanup legacy JSON-blob to prevent inconsistency
-        let _ = self.pool.as_vault().delete_config(profile, "oauth2_token_pair").await;
-        let _ = self.pool.as_vault().delete_secret(profile, "oauth2_token_pair").await;
+        let _ = self
+            .pool
+            .as_vault()
+            .delete_config(profile, "oauth2_token_pair")
+            .await;
+        let _ = self
+            .pool
+            .as_vault()
+            .delete_secret(profile, "oauth2_token_pair")
+            .await;
 
         tracing::info!(
             target: "audit",
@@ -170,7 +219,10 @@ impl OAuth2Provider {
         Ok(token)
     }
 
-    async fn get_refresh_token_with_fallback(&self, profile: &str) -> CowenResult<cowen_common::models::Token> {
+    async fn get_refresh_token_with_fallback(
+        &self,
+        profile: &str,
+    ) -> CowenResult<cowen_common::models::Token> {
         let vault = self.pool.as_vault();
         match vault.get_refresh_token(profile).await {
             Ok(t) => Ok(t),
@@ -197,19 +249,31 @@ impl OAuth2Provider {
         }
     }
 
-    async fn finalize_login(&self, profile: &str, cfg: &Config, session_id: &str, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
+    async fn finalize_login(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        session_id: &str,
+        daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
+    ) -> CowenResult<()> {
         tracing::info!(target: "sys", profile = %profile, session_id = %session_id, "Finalizer started for OAuth2 auth");
-        
+
         let session_manager = AuthSessionManager::new(self.pool.as_ref());
         let session = session_manager.get_session(session_id).await?;
-        
+
         // 🚀 IPC ENHANCEMENT: Check if code is already captured (pushed via Monitor API)
         if let Ok(captured_code) = session_manager.get_captured_code(profile).await {
-             tracing::info!(target: "sys", "Using pre-captured code from IPC/Session");
-             return self.perform_exchange_and_finish(profile, cfg, &captured_code, &session, daemon_service).await;
+            tracing::info!(target: "sys", "Using pre-captured code from IPC/Session");
+            return self
+                .perform_exchange_and_finish(profile, cfg, &captured_code, &session, daemon_service)
+                .await;
         }
 
-        let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
+        let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
+            session.redirect_port,
+            profile.to_string(),
+        )
+        .await?;
         tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
 
         let res = tokio::select! {
@@ -220,7 +284,7 @@ impl OAuth2Provider {
                             Ok(res) => {
                                 tracing::info!(target: "sys", "Callback received, saving code...");
                                 session_manager.save_code(profile, &res.code, &res.state).await?;
-                                
+
                                 // Trigger exchange
                                 self.perform_exchange_and_finish(profile, cfg, &res.code, &session, daemon_service).await
                             }
@@ -245,17 +309,26 @@ impl OAuth2Provider {
     }
 
     async fn perform_exchange_and_finish(
-        &self, 
-        profile: &str, 
-        cfg: &Config, 
-        code: &str, 
+        &self,
+        profile: &str,
+        cfg: &Config,
+        code: &str,
         session: &cowen_common::models::AuthSession,
-        daemon_service: Option<std::sync::Arc<dyn DaemonService>>
+        daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
     ) -> CowenResult<()> {
-        match self.exchange_code(profile, cfg, code, &session.code_verifier, &session.redirect_uri).await {
+        match self
+            .exchange_code(
+                profile,
+                cfg,
+                code,
+                &session.code_verifier,
+                &session.redirect_uri,
+            )
+            .await
+        {
             Ok(_) => {
                 tracing::info!(target: "sys", "Token exchange successful");
-                
+
                 // 🚀 OCP: Auto-start daemon after successful authorization
                 if let Some(ds) = daemon_service {
                     tracing::info!(target: "sys", "Triggering background daemon startup after successful OAuth2 exchange");
@@ -281,10 +354,18 @@ impl AuthProvider for OAuth2Provider {
                 tracing::info!(target: "sys", "OAuth2 token expires in {:?}. Proactively refreshing...", remaining);
                 match self.refresh(profile, config, &Default::default()).await {
                     Ok(_) => {
-                        let _ = self.pool.as_vault().delete_config(profile, "last_refresh_error").await;
+                        let _ = self
+                            .pool
+                            .as_vault()
+                            .delete_config(profile, "last_refresh_error")
+                            .await;
                     }
                     Err(e) => {
-                        let _ = self.pool.as_vault().set_config(profile, "last_refresh_error", &e.to_string()).await;
+                        let _ = self
+                            .pool
+                            .as_vault()
+                            .set_config(profile, "last_refresh_error", &e.to_string())
+                            .await;
                         return Err(e);
                     }
                 }
@@ -293,7 +374,12 @@ impl AuthProvider for OAuth2Provider {
         Ok(())
     }
 
-    async fn get_token(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token> {
+    async fn get_token(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        _headers: &reqwest::header::HeaderMap,
+    ) -> CowenResult<cowen_common::models::Token> {
         // 1. Fast path: check current memory/local cache
         if let Ok(token) = self.pool.get_access_token(profile).await {
             if !token.is_expired() {
@@ -305,11 +391,13 @@ impl AuthProvider for OAuth2Provider {
         let lock_dir = cowen_common::config::get_app_dir().join("locks");
         let _ = std::fs::create_dir_all(&lock_dir);
         let lock_file_path = lock_dir.join(format!("{}.lock", profile));
-        let lock_file = File::create(&lock_file_path).map_err(|e| CowenError::Internal(format!("Failed to create lock file: {}", e)))?;
+        let lock_file = File::create(&lock_file_path)
+            .map_err(|e| CowenError::Internal(format!("Failed to create lock file: {}", e)))?;
 
         // 🚀 STABILITY: Use try_lock in a loop with async sleep to avoid blocking Tokio threads
         let mut acquired = false;
-        for _ in 0..300 { // Max 30s
+        for _ in 0..300 {
+            // Max 30s
             if lock_file.try_lock_exclusive().is_ok() {
                 acquired = true;
                 break;
@@ -318,7 +406,10 @@ impl AuthProvider for OAuth2Provider {
         }
 
         if !acquired {
-            return Err(CowenError::Auth(format!("Timeout waiting for cross-process lock for profile '{}'.", profile)));
+            return Err(CowenError::Auth(format!(
+                "Timeout waiting for cross-process lock for profile '{}'.",
+                profile
+            )));
         }
 
         let result = (|| async {
@@ -340,17 +431,25 @@ impl AuthProvider for OAuth2Provider {
             let rt = self.get_refresh_token_with_fallback(profile).await?;
 
             if rt.is_expired() {
-                return Err(CowenError::Auth(format!("OAuth2 session expired. Please run 'owenc auth login' to re-authenticate.")));
+                return Err(CowenError::Auth(format!(
+                    "OAuth2 session expired. Please run 'owenc auth login' to re-authenticate."
+                )));
             }
 
             self.refresh_token(profile, cfg, &rt.value).await
-            })().await;
+        })()
+        .await;
 
         lock_file.unlock()?;
         result
     }
 
-    async fn refresh(&self, profile: &str, cfg: &Config, _headers: &reqwest::header::HeaderMap) -> CowenResult<cowen_common::models::Token> {
+    async fn refresh(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        _headers: &reqwest::header::HeaderMap,
+    ) -> CowenResult<cowen_common::models::Token> {
         let rt = self.get_refresh_token_with_fallback(profile).await?;
         self.refresh_token(profile, cfg, &rt.value).await
     }
@@ -366,7 +465,9 @@ impl AuthProvider for OAuth2Provider {
         app_key: &str,
         cfg_mgr: &cowen_config::ConfigManager,
     ) -> CowenResult<Option<String>> {
-        cfg_mgr.find_profile_by_key_and_mode(app_key, &cowen_common::models::AuthMode::Oauth2).await
+        cfg_mgr
+            .find_profile_by_key_and_mode(app_key, &cowen_common::models::AuthMode::Oauth2)
+            .await
     }
 
     async fn intercept_request(
@@ -380,9 +481,14 @@ impl AuthProvider for OAuth2Provider {
         spec: &serde_json::Value,
     ) -> CowenResult<crate::provider::ProxyRequestAction> {
         let token = self.get_token(profile, config, &headers).await?;
-        
+
         let auth_headers = crate::RequestDecorator::get_auth_headers(
-            spec, path, method, &config.app_key, &config.app_secret, &token.value
+            spec,
+            path,
+            method,
+            &config.app_key,
+            &config.app_secret,
+            &token.value,
         );
 
         for (name, value) in auth_headers {
@@ -406,7 +512,6 @@ impl AuthProvider for OAuth2Provider {
         daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
     ) -> CowenResult<()> {
         use crate::lifecycle::orchestrator;
-        
 
         // 1. Setup credentials (OCP: forced built-in for OAuth2)
         if params.app_key.is_some() || params.app_secret.is_some() {
@@ -437,19 +542,19 @@ impl AuthProvider for OAuth2Provider {
         // 3. Start Flow
 
         println!("\n\x1b[1;34m🔒 Starting Authorization Flow...\x1b[0m");
-        
+
         let token_pool = crate::VaultTokenPool::new(vault.clone());
         let session_manager = crate::lifecycle::AuthSessionManager::new(&token_pool);
-        
+
         // 1. Get a free port for redirect_uri
         let port = cfg_mgr.find_free_port().await;
-        
+
         // 1.1 Pre-cleanup residual sessions
         let _ = session_manager.clear(profile).await;
-        
+
         // 2. Create Session
         let session = session_manager.create_session(profile, port).await?;
-        
+
         // 3. Generate Auth URL
         let market_url = obfs!(cowen_common::config::DEF_MARKET_URL);
         let auth_url = format!(
@@ -461,23 +566,29 @@ impl AuthProvider for OAuth2Provider {
             Pkce::generate_challenge(&session.code_verifier),
         );
 
-        println!("\n\x1b[1mPlease authorize in the LOCAL browser of this machine. Opening URL...\x1b[0m");
-        
+        println!(
+            "\n\x1b[1mPlease authorize in the LOCAL browser of this machine. Opening URL...\x1b[0m"
+        );
+
         // 4. Automatically open browser
         if let Err(e) = open::that(&auth_url) {
             tracing::warn!(target: "sys", error = %e, "Failed to open browser automatically");
             println!("\x1b[33m(Failed to open browser automatically. Please copy the URL below manually to your LOCAL browser)\x1b[0m");
         }
-        
+
         println!("\x1b[34m{}\x1b[0m", auth_url);
-        
+
         // 5. Detect Running Daemon for IPC Finalization
         let daemon_info = cowen_monitor::status::get_active_daemon_info(profile);
         if let Some(info) = daemon_info {
             if let Some(m_port) = info.monitor_port {
                 println!("\n\x1b[34m🚀 Detected running Master Daemon. Using IPC-based authorization...\x1b[0m");
-                
-                let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
+
+                let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
+                    session.redirect_port,
+                    profile.to_string(),
+                )
+                .await?;
                 tracing::info!(target: "sys", port = %actual_port, "CLI listening for callback");
 
                 tokio::select! {
@@ -487,10 +598,10 @@ impl AuthProvider for OAuth2Provider {
                                 println!("✅ Callback received. Pushing to Daemon for exchange...");
                                 let monitor_cli = cowen_monitor::MonitorClient::new(m_port);
                                 monitor_cli.finalize_auth(profile, &callback_res.code, Some(&callback_res.state), &session.state).await?;
-                                
+
                                 // Wait for results via IPC progress bar
                                 orchestrator::wait_for_token_exchange_ipc(profile, m_port).await?;
-                                
+
                                 // Successfully finished via IPC
                                 return Ok(());
                             }
@@ -512,7 +623,7 @@ impl AuthProvider for OAuth2Provider {
         println!("\n\x1b[34m🚀 授权监听已在本机启动。请在浏览器中确认...\x1b[0m");
 
         let pid = orchestrator::spawn_finalizer(profile, &session.state)?;
-        
+
         // 7. Wait for Result (Closed Loop) with Signal Handling
         tokio::select! {
             res = orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr, &session.state) => {
@@ -526,16 +637,27 @@ impl AuthProvider for OAuth2Provider {
 
         // 8. Automatically start the daemon (OCP: Consistent experience across all modes)
         if params.auto_start {
-            if let Some(ds) = &daemon_service { let _ = ds.start_daemon(profile, config, vault.clone()).await; }
+            if let Some(ds) = &daemon_service {
+                let _ = ds.start_daemon(profile, config, vault.clone()).await;
+            }
         }
 
         Ok(())
     }
 
-    async fn perform_login(&self, profile: &str, config: &Config, _force: bool, finalize: Option<&str>, daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
+    async fn perform_login(
+        &self,
+        profile: &str,
+        config: &Config,
+        _force: bool,
+        finalize: Option<&str>,
+        daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
+    ) -> CowenResult<()> {
         // 1. Finalizer Implementation (Background flow)
         if let Some(session_id) = finalize {
-            return self.finalize_login(profile, config, session_id, daemon_service).await;
+            return self
+                .finalize_login(profile, config, session_id, daemon_service)
+                .await;
         }
 
         // 2. Regular Login flow: Try refresh if valid pair exists
@@ -544,29 +666,38 @@ impl AuthProvider for OAuth2Provider {
 
         if let Some(rt) = rt_opt {
             if !rt.is_expired() {
-                println!("🔄 [OAuth2] Attempting to refresh token pair for profile '{}'...", profile);
+                println!(
+                    "🔄 [OAuth2] Attempting to refresh token pair for profile '{}'...",
+                    profile
+                );
                 match self.refresh_token(profile, config, &rt.value).await {
                     Ok(_) => {
                         println!("✅ Success! OAuth2 Token Pair has been rotated.");
                         return Ok(());
                     }
                     Err(e) => {
-                        println!("⚠️  Refresh failed: {}. Falling back to full authorization...", e);
+                        println!(
+                            "⚠️  Refresh failed: {}. Falling back to full authorization...",
+                            e
+                        );
                     }
                 }
             } else {
                 println!("⚠️  OAuth2 RefreshToken has expired.");
             }
         } else {
-            println!("💡 No active OAuth2 session found for profile '{}'.", profile);
+            println!(
+                "💡 No active OAuth2 session found for profile '{}'.",
+                profile
+            );
         }
 
         // 3. Fallback: Trigger Automatic Re-authorization (Init Flow)
         println!("🚀 Triggering automatic browser-based authorization...");
-        
+
         let mut mutable_config = config.clone();
         let cfg_mgr = cowen_config::ConfigManager::new()?;
-        
+
         let params = crate::provider::InitParams {
             app_key: None,
             app_secret: None,
@@ -580,12 +711,25 @@ impl AuthProvider for OAuth2Provider {
             is_new: false,
         };
 
-        self.initialize(profile, &mut mutable_config, vault, &cfg_mgr, params, daemon_service).await
+        self.initialize(
+            profile,
+            &mut mutable_config,
+            vault,
+            &cfg_mgr,
+            params,
+            daemon_service,
+        )
+        .await
     }
 
-    async fn get_diagnostics(&self, ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
-        use cowen_monitor::status::{StatusEntry, StatusLevel, CommonTemplate, AsStatusUI, collect_daemon_status};
-        
+    async fn get_diagnostics(
+        &self,
+        ctx: &cowen_monitor::status::StatusContext<'_>,
+    ) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
+        use cowen_monitor::status::{
+            collect_daemon_status, AsStatusUI, CommonTemplate, StatusEntry, StatusLevel,
+        };
+
         enum OAuth2Template {
             SecurityVault,
             AccessToken,
@@ -611,14 +755,20 @@ impl AuthProvider for OAuth2Provider {
         let mut auth_entries = Vec::new();
 
         // 1.1 Security Check
-        auth_entries.push(StatusEntry::new(OAuth2Template::SecurityVault, StatusLevel::OK, "All core secrets are securely stored.".to_string()));
+        auth_entries.push(StatusEntry::new(
+            OAuth2Template::SecurityVault,
+            StatusLevel::OK,
+            "All core secrets are securely stored.".to_string(),
+        ));
 
         // 1.2 Token Status
         let refresh_error = vault.get_config(profile, "last_refresh_error").await.ok();
         let ref_revoked = vault.get_config(profile, "oauth2_revoked").await.is_ok();
 
-        let at_res: CowenResult<cowen_common::models::Token> = vault.get_access_token(profile).await;
-        let rt_res: CowenResult<cowen_common::models::Token> = self.get_refresh_token_with_fallback(profile).await;
+        let at_res: CowenResult<cowen_common::models::Token> =
+            vault.get_access_token(profile).await;
+        let rt_res: CowenResult<cowen_common::models::Token> =
+            self.get_refresh_token_with_fallback(profile).await;
 
         match (at_res, rt_res) {
             (Ok(at), Ok(rt)) => {
@@ -626,23 +776,74 @@ impl AuthProvider for OAuth2Provider {
                 let ref_expired = rt.is_expired();
 
                 let token_children = vec![
-                    StatusEntry::new(OAuth2Template::AccessToken, if is_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
-                            if is_expired || ref_revoked { "EXPIRED" } else { "VALID" },
-                            at.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
-                        .with_reason(if ref_revoked {
-                            Some("关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。".to_string())
-                        } else if is_expired { 
-                            refresh_error.as_ref().map(|e| format!("自动续约失败: {}", e))
-                                .or(Some("AccessToken 已过期，正在等待后台续约进程处理...".to_string()))
-                        } else { None }),
-                    StatusEntry::new(OAuth2Template::RefreshToken, if ref_expired || ref_revoked { StatusLevel::ERROR } else { StatusLevel::OK }, format!("[{}] (Expires: {})", 
-                            if ref_revoked { "REVOKED" } else if ref_expired { "EXPIRED" } else { "VALID" },
-                            rt.expires_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S")))
-                        .with_reason(if ref_revoked {
-                            Some("令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。".to_string())
-                        } else if ref_expired { 
-                            Some("RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。".to_string()) 
-                        } else { None }),
+                    StatusEntry::new(
+                        OAuth2Template::AccessToken,
+                        if is_expired || ref_revoked {
+                            StatusLevel::ERROR
+                        } else {
+                            StatusLevel::OK
+                        },
+                        format!(
+                            "[{}] (Expires: {})",
+                            if is_expired || ref_revoked {
+                                "EXPIRED"
+                            } else {
+                                "VALID"
+                            },
+                            at.expires_at
+                                .with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %H:%M:%S")
+                        ),
+                    )
+                    .with_reason(if ref_revoked {
+                        Some(
+                            "关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。"
+                                .to_string(),
+                        )
+                    } else if is_expired {
+                        refresh_error
+                            .as_ref()
+                            .map(|e| format!("自动续约失败: {}", e))
+                            .or(Some(
+                                "AccessToken 已过期，正在等待后台续约进程处理...".to_string(),
+                            ))
+                    } else {
+                        None
+                    }),
+                    StatusEntry::new(
+                        OAuth2Template::RefreshToken,
+                        if ref_expired || ref_revoked {
+                            StatusLevel::ERROR
+                        } else {
+                            StatusLevel::OK
+                        },
+                        format!(
+                            "[{}] (Expires: {})",
+                            if ref_revoked {
+                                "REVOKED"
+                            } else if ref_expired {
+                                "EXPIRED"
+                            } else {
+                                "VALID"
+                            },
+                            rt.expires_at
+                                .with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %H:%M:%S")
+                        ),
+                    )
+                    .with_reason(if ref_revoked {
+                        Some(
+                            "令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。"
+                                .to_string(),
+                        )
+                    } else if ref_expired {
+                        Some(
+                            "RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。"
+                                .to_string(),
+                        )
+                    } else {
+                        None
+                    }),
                 ];
 
                 let mut details = vec![];
@@ -652,10 +853,26 @@ impl AuthProvider for OAuth2Provider {
                     details.push(format!("App ID:  {}", identity.app_id));
                 }
 
-                auth_entries.push(StatusEntry::new(OAuth2Template::Authentication, if ref_revoked { StatusLevel::ERROR } else if is_expired { StatusLevel::WARN } else { StatusLevel::OK }, "OAuth2 tokens are locally managed.".to_string())
-                    .with_reason(if ref_revoked { Some("会话已失效 (Revoked)".to_string()) } else { None })
+                auth_entries.push(
+                    StatusEntry::new(
+                        OAuth2Template::Authentication,
+                        if ref_revoked {
+                            StatusLevel::ERROR
+                        } else if is_expired {
+                            StatusLevel::WARN
+                        } else {
+                            StatusLevel::OK
+                        },
+                        "OAuth2 tokens are locally managed.".to_string(),
+                    )
+                    .with_reason(if ref_revoked {
+                        Some("会话已失效 (Revoked)".to_string())
+                    } else {
+                        None
+                    })
                     .with_details(details)
-                    .with_children(token_children));
+                    .with_children(token_children),
+                );
             }
             _ => {
                 auth_entries.push(StatusEntry::new(
@@ -668,21 +885,43 @@ impl AuthProvider for OAuth2Provider {
 
         // Wrap Authentication Summary
         if !auth_entries.is_empty() {
-            let max_level = auth_entries.iter().map(|e| e.level).max_by_key(|l| match l {
-                StatusLevel::ERROR => 3,
-                StatusLevel::WARN => 2,
-                StatusLevel::OK => 1,
-                _ => 0,
-            }).unwrap_or(StatusLevel::OK);
+            let max_level = auth_entries
+                .iter()
+                .map(|e| e.level)
+                .max_by_key(|l| match l {
+                    StatusLevel::ERROR => 3,
+                    StatusLevel::WARN => 2,
+                    StatusLevel::OK => 1,
+                    _ => 0,
+                })
+                .unwrap_or(StatusLevel::OK);
 
-            results.push(StatusEntry::new(CommonTemplate::ProviderSummary("Authentication Status".to_string(), "🔐".to_string()), max_level, format!("Collected {} status indicators", auth_entries.len()))
-                .with_children(auth_entries));
+            results.push(
+                StatusEntry::new(
+                    CommonTemplate::ProviderSummary(
+                        "Authentication Status".to_string(),
+                        "🔐".to_string(),
+                    ),
+                    max_level,
+                    format!("Collected {} status indicators", auth_entries.len()),
+                )
+                .with_children(auth_entries),
+            );
         }
 
         // 2. Daemon Status
         let daemon_info = cowen_monitor::status::get_active_daemon_info(profile);
         let (display_name, efficiency_tip) = self.get_daemon_display_info(daemon_info.is_some());
-        results.push(collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks(), daemon_info).await?);
+        results.push(
+            collect_daemon_status(
+                ctx,
+                &display_name,
+                &efficiency_tip,
+                self.supports_webhooks(),
+                daemon_info,
+            )
+            .await?,
+        );
 
         Ok(results)
     }
@@ -695,7 +934,13 @@ impl AuthProvider for OAuth2Provider {
         false
     }
 
-    fn decorate_openapi_request(&self, url: &mut String, headers: &mut reqwest::header::HeaderMap, token: &Token, config: &Config) {
+    fn decorate_openapi_request(
+        &self,
+        url: &mut String,
+        headers: &mut reqwest::header::HeaderMap,
+        token: &Token,
+        config: &Config,
+    ) {
         if !url.contains("checkPermission=") {
             if url.contains('?') {
                 url.push_str("&checkPermission=false");
@@ -703,25 +948,44 @@ impl AuthProvider for OAuth2Provider {
                 url.push_str("?checkPermission=false");
             }
         }
-        headers.insert("openToken", token.value.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-        headers.insert("appKey", config.app_key.parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
+        headers.insert(
+            "openToken",
+            token
+                .value
+                .parse()
+                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+        );
+        headers.insert(
+            "appKey",
+            config
+                .app_key
+                .parse()
+                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+        );
     }
 
     async fn on_logout(&self, profile: &str, _config: &Config) -> CowenResult<()> {
         let vault = self.pool.as_vault();
         let _ = vault.delete_access_token(profile).await;
         let _ = vault.delete_refresh_token(profile).await;
-        
+
         // Cleanup legacy keys if any
         let _ = vault.delete_config(profile, "oauth2_token_pair").await;
         let _ = vault.delete_secret(profile, "oauth2_token_pair").await;
-        
+
         let _ = vault.delete_config(profile, "oauth2_revoked").await;
         let _ = vault.delete_config(profile, "last_refresh_error").await;
         Ok(())
     }
 
-    async fn should_auto_recover(&self, profile: &str, config: &Config, has_pid: bool, _pid_file_exists: bool, is_distributed: bool) -> bool {
+    async fn should_auto_recover(
+        &self,
+        profile: &str,
+        config: &Config,
+        has_pid: bool,
+        _pid_file_exists: bool,
+        is_distributed: bool,
+    ) -> bool {
         if has_pid || config.app_key.trim().is_empty() {
             return false;
         }
@@ -736,13 +1000,17 @@ impl AuthProvider for OAuth2Provider {
         if self.get_refresh_token_with_fallback(profile).await.is_ok() {
             return true;
         }
-        
+
         false
     }
 
     fn get_daemon_display_info(&self, is_running: bool) -> (String, String) {
         let name = "Token Renewer (Daemon)";
-        let tip = if is_running { "主动续约: [ACTIVE]" } else { "若需实现令牌自动续约，请运行 'cowen daemon start'" };
+        let tip = if is_running {
+            "主动续约: [ACTIVE]"
+        } else {
+            "若需实现令牌自动续约，请运行 'cowen daemon start'"
+        };
         (name.to_string(), tip.to_string())
     }
 }
@@ -770,4 +1038,3 @@ impl Pkce {
         URL_SAFE_NO_PAD.encode(result)
     }
 }
-

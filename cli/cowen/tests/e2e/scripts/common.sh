@@ -13,7 +13,13 @@ export NC='\033[0m'
 
 # Detect OS and adjust binary name
 OS_TYPE=$(uname -s)
-find_bin() {
+
+get_source_bin() {
+    if [ -n "$COWEN_BIN" ]; then
+        echo "$COWEN_BIN"
+        return
+    fi
+    
     local bins=()
     if [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
         bins=("./target/release/cowen-test.exe" "./target/debug/cowen-test.exe" "./target/release/cowen.exe" "./target/debug/cowen.exe")
@@ -40,16 +46,17 @@ find_bin() {
     done
     echo "$newest"
 }
-export SOURCE_BIN="${COWEN_BIN:-$(find_bin)}"
-if [ -z "$SOURCE_BIN" ]; then
-    echo -e "${RED}FATAL: No cowen binary found in target/!${NC}"
-    exit 1
-fi
-echo -e "DEBUG: SOURCE_BIN=$SOURCE_BIN"
-echo -e "DEBUG: SOURCE_BIN Modification Time: $(ls -l $SOURCE_BIN | awk '{print $6, $7, $8}')"
-$SOURCE_BIN --version
 
-export COWEN_BUILD_DIR=$(dirname "$SOURCE_BIN")
+update_source_bin() {
+    export SOURCE_BIN=$(get_source_bin)
+    if [ -z "$SOURCE_BIN" ]; then
+        echo -e "${RED}FATAL: No cowen binary found!${NC}"
+        exit 1
+    fi
+    export COWEN_BUILD_DIR=$(dirname "$SOURCE_BIN")
+}
+
+update_source_bin
 
 export MOCK_PORT="${MOCK_PORT:-9299}"
 export MOCK_URL="http://127.0.0.1:$MOCK_PORT"
@@ -132,7 +139,9 @@ get_case_db_name() {
 # Isolation
 setup_workspace() {
     local suite=$1
-    export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
+    if [[ "${TEST_BASE:-}" != /* ]]; then
+        export TEST_BASE="$(pwd)/${TEST_BASE:-target/cowen_tests}"
+    fi
     export COWEN_HOME="$TEST_BASE/.cowen_test_$suite"
     echo -e "${BLUE}▶ Starting Suite: $suite${NC}"
     echo -e "  Workspace: $COWEN_HOME"
@@ -161,15 +170,47 @@ setup_workspace() {
 
     # 🚀 PROCESS ISOLATION: Create a symbolic link with a unique name
     local unique_name="cowen_$suite"
+    local unique_daemon="cowen_daemon_$suite"
     # Filter out dots and dashes from name
     unique_name=$(echo $unique_name | tr '.-' '_')
+    unique_daemon=$(echo $unique_daemon | tr '.-' '_')
     
     # Use cp instead of symbolic link so the OS process manager shows the unique name
     # On modern filesystems, cp is fast. This ensures 'pkill' and process isolation works flawlessly.
     local abs_source=$(python3 -c "import os; print(os.path.abspath('$SOURCE_BIN'))")
     cp "$abs_source" "$COWEN_HOME/$unique_name"
     export COWEN_BIN="$COWEN_HOME/$unique_name"
-    # Ensure it is executable (usually links follow permissions, but let's be safe)
+    
+    # 🚀 DAEMON EXTRACTION: Also copy and RENAME the standalone daemon binary
+    local build_dir=$(dirname "$abs_source")
+    local daemon_src="$build_dir/cowen-daemon"
+    
+    # Fallback to other build dirs if not found in current one
+    if [ ! -f "$daemon_src" ]; then
+        if [ -f "target/release/cowen-daemon" ]; then
+            daemon_src="target/release/cowen-daemon"
+        elif [ -f "target/debug/cowen-daemon" ]; then
+            daemon_src="target/debug/cowen-daemon"
+        fi
+    fi
+
+    if [ -f "$daemon_src" ]; then
+        cp "$daemon_src" "$COWEN_HOME/$unique_daemon"
+        export COWEN_DAEMON_BIN="$COWEN_HOME/$unique_daemon"
+        chmod +x "$COWEN_DAEMON_BIN"
+    else
+        echo -e "${YELLOW}⚠️  cowen-daemon not found. Standard internal server logic will be used.${NC}"
+    fi
+
+    # Also copy search embedding plugin if exists
+    if [ -f "$build_dir/libcowen_search_embedding.dylib" ]; then
+        cp "$build_dir/libcowen_search_embedding.dylib" "$COWEN_HOME/"
+    fi
+    if [ -f "$build_dir/libcowen_search_embedding.so" ]; then
+        cp "$build_dir/libcowen_search_embedding.so" "$COWEN_HOME/"
+    fi
+
+    # Ensure it is executable
     chmod +x "$COWEN_BIN"
     
     # Create isolated app.yaml with absolute DB path
@@ -192,6 +233,7 @@ apply_fixture() {
 
 # Cleanup
 cleanup_suite() {
+    local exit_code=$?
     # Run in a subshell to isolate errors during cleanup
     (
         set +e
@@ -219,7 +261,10 @@ cleanup_suite() {
 
         # 1.5 Global pkill as fallback (Robustness)
         if [ -n "$COWEN_BIN" ]; then
-            pkill -9 "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
+            pkill -9 -x "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
+        fi
+        if [ -n "$COWEN_DAEMON_BIN" ]; then
+            pkill -9 -x "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
         fi
         
         # 2. Cleanup mock server state for next case (Only if shared)
@@ -233,9 +278,13 @@ cleanup_suite() {
             kill -9 "$MOCK_PID" >/dev/null 2>&1 || true
         fi
 
-        # 4. Remove workspace directory
-        if [ -n "$COWEN_HOME" ] && [[ "$COWEN_HOME" == *"_test_"* ]]; then
-            rm -rf "$COWEN_HOME" >/dev/null 2>&1 || true
+        # 4. Remove workspace directory (Only on success)
+        if [ "$exit_code" -eq 0 ]; then
+            if [ -n "$COWEN_HOME" ] && [[ "$COWEN_HOME" == *"_test_"* ]]; then
+                rm -rf "$COWEN_HOME" >/dev/null 2>&1 || true
+            fi
+        else
+            echo -e "${YELLOW}ℹ️  Workspace preserved for debugging: $COWEN_HOME${NC}"
         fi
     )
     return 0

@@ -6,6 +6,9 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
+PROXY_PORT_2=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -23,7 +26,7 @@ export COWEN_EXCLUSIVE=true
     --app-mode self-built --app-key AK_EXCLUSIVE --app-secret AS_EXC \
     --encrypt-key 1234567890123456 --certificate CERT_EXC \
     --openapi-url $MOCK_URL --stream-url $MOCK_WS \
-    --proxy-port 9134 >/dev/null
+    --proxy-port $PROXY_PORT >/dev/null
 assert_pass "Profile P1 initialized"
 
 echo -e "${BOLD}2. Start First Daemon (P1)${NC}"
@@ -55,7 +58,7 @@ cp "$HOME_P1/app.yaml" "$HOME_P2/app.yaml"
     --app-mode self-built --app-key AK_EXCLUSIVE --app-secret AS_EXC \
     --encrypt-key 1234567890123456 --certificate CERT_EXC \
     --openapi-url $MOCK_URL --stream-url $MOCK_WS \
-    --proxy-port 9135 >/dev/null
+    --proxy-port $PROXY_PORT_2 >/dev/null
 
 # Start P2
 "$COWEN_BIN" daemon start --profile p2 >/dev/null

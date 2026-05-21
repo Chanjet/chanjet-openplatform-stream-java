@@ -1,9 +1,9 @@
-use cowen_common::{CowenResult, CowenError};
+use cowen_common::{CowenError, CowenResult};
 
-use cowen_common::config::Config;
-use crate::pool::TokenPool;
-use crate::client::HttpSender;
 use super::{client, storage};
+use crate::client::HttpSender;
+use crate::pool::TokenPool;
+use cowen_common::config::Config;
 
 pub(crate) async fn get_token(
     pool: &(dyn TokenPool + Send + Sync),
@@ -76,7 +76,7 @@ pub(crate) async fn get_user_token(
 
     // 🚀 Fallback to User Permanent Auth Code ("Fire Seed")
     tracing::info!(target: "sys", userId = %uid, orgId = %org_id, "Attempting recovery via Permanent Auth Code...");
-    
+
     match try_permanent_code_recovery(pool, http_sender, profile, cfg, org_id, Some(uid)).await {
         Ok(t) => {
             // Token is already saved to vault inside recovery function via save_access_token
@@ -86,7 +86,10 @@ pub(crate) async fn get_user_token(
         }
         Err(err) => {
             tracing::error!(target: "sys", userId = %uid, "Recovery via Permanent Auth Code failed: {}", err);
-            Err(CowenError::Auth(format!("User session expired and recovery failed: {}", err)))
+            Err(CowenError::Auth(format!(
+                "User session expired and recovery failed: {}",
+                err
+            )))
         }
     }
 }
@@ -125,7 +128,10 @@ pub(crate) async fn get_org_token(
             pool.set_access_token(&custom_profile, &t).await?;
             Ok(t)
         }
-        Err(e) => Err(CowenError::Auth(format!("Organization session expired and recovery failed for org {}: {}", org_id, e)))
+        Err(e) => Err(CowenError::Auth(format!(
+            "Organization session expired and recovery failed for org {}: {}",
+            org_id, e
+        ))),
     }
 }
 
@@ -135,42 +141,71 @@ pub(crate) async fn try_permanent_code_recovery(
     profile: &str,
     cfg: &Config,
     org_id: &str,
-    user_id: Option<&str>
+    user_id: Option<&str>,
 ) -> CowenResult<cowen_common::models::Token> {
     let vault = pool.as_vault();
     let app_key = cfg.app_key.trim();
-    
+
     let (upc, opc, target_name) = if let Some(uid) = user_id {
         (
-            vault.get_user_permanent_code(app_key, org_id, uid).await.ok(),
+            vault
+                .get_user_permanent_code(app_key, org_id, uid)
+                .await
+                .ok(),
             vault.get_org_permanent_code(app_key, org_id).await.ok(),
-            format!("user {} in org {}", uid, org_id)
+            format!("user {} in org {}", uid, org_id),
         )
     } else {
         (
             None,
             vault.get_org_permanent_code(app_key, org_id).await.ok(),
-            format!("org {}", org_id)
+            format!("org {}", org_id),
         )
     };
 
     if upc.is_none() && opc.is_none() {
-        return Err(CowenError::Auth(format!("No permanent codes found for recovery of {}", target_name)));
+        return Err(CowenError::Auth(format!(
+            "No permanent codes found for recovery of {}",
+            target_name
+        )));
     }
 
     tracing::info!(target: "sys", profile = %profile, target = %target_name, "Triggering permanent code exchange for store app auth recovery");
 
     if let Some(uid) = user_id {
         if let Some(code) = upc {
-            client::get_user_access_token_by_permanent_code(pool, http_sender, profile, cfg, org_id, uid, &code).await
+            client::get_user_access_token_by_permanent_code(
+                pool,
+                http_sender,
+                profile,
+                cfg,
+                org_id,
+                uid,
+                &code,
+            )
+            .await
         } else {
-            Err(CowenError::Auth(format!("User permanent code missing for recovery of {}", target_name)))
+            Err(CowenError::Auth(format!(
+                "User permanent code missing for recovery of {}",
+                target_name
+            )))
         }
     } else {
         if let Some(code) = opc {
-            client::get_org_access_token_by_permanent_code(pool, http_sender, profile, cfg, org_id, &code).await
+            client::get_org_access_token_by_permanent_code(
+                pool,
+                http_sender,
+                profile,
+                cfg,
+                org_id,
+                &code,
+            )
+            .await
         } else {
-            Err(CowenError::Auth(format!("Org permanent code missing for recovery of {}", target_name)))
+            Err(CowenError::Auth(format!(
+                "Org permanent code missing for recovery of {}",
+                target_name
+            )))
         }
     }
 }

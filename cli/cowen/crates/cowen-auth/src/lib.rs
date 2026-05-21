@@ -1,14 +1,14 @@
-use cowen_common::{CowenResult, CowenError};
-pub mod models;
-pub mod pool;
+use cowen_common::{CowenError, CowenResult};
 pub mod client;
 pub mod decorator;
-pub mod provider;
 pub mod lifecycle;
+pub mod models;
+pub mod pool;
+pub mod provider;
 
-pub use pool::VaultTokenPool;
 pub use client::AuthClient;
 pub use decorator::RequestDecorator;
+pub use pool::VaultTokenPool;
 
 use std::sync::Arc;
 
@@ -22,16 +22,24 @@ pub fn create_auth_client(pool: Arc<dyn pool::TokenPool + Send + Sync>) -> AuthC
     builder
         .register(
             models::AuthMode::SelfBuilt,
-            Arc::new(provider::self_built::SelfBuiltProvider::new(pool.clone(), http_sender.clone())),
+            Arc::new(provider::self_built::SelfBuiltProvider::new(
+                pool.clone(),
+                http_sender.clone(),
+            )),
         )
         .register(
             models::AuthMode::Oauth2,
-            Arc::new(provider::oauth2::OAuth2Provider::new(pool.clone(), http_sender.clone())),
+            Arc::new(provider::oauth2::OAuth2Provider::new(
+                pool.clone(),
+                http_sender.clone(),
+            )),
         )
-
         .register(
             models::AuthMode::StoreApp,
-            Arc::new(provider::store_app::StoreAppProvider::new(pool.clone(), http_sender)),
+            Arc::new(provider::store_app::StoreAppProvider::new(
+                pool.clone(),
+                http_sender,
+            )),
         )
         .build()
 }
@@ -54,7 +62,13 @@ impl AuthProviderValidator {
 }
 
 impl cowen_store::ConfigValidator for AuthProviderValidator {
-    fn validate_load(&self, profile: &str, config: &cowen_common::config::Config, is_distributed: bool, exists: bool) -> CowenResult<()> {
+    fn validate_load(
+        &self,
+        profile: &str,
+        config: &cowen_common::config::Config,
+        is_distributed: bool,
+        exists: bool,
+    ) -> CowenResult<()> {
         if is_distributed && exists && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
             let msg = format!("⚠️  Skipping profile '{}': Auth mode 'Oauth2' is not allowed in distributed storage scenarios (shared database/redis).", profile);
             eprintln!("{}", msg);
@@ -63,7 +77,12 @@ impl cowen_store::ConfigValidator for AuthProviderValidator {
         Ok(())
     }
 
-    fn validate_save(&self, _profile: &str, config: &cowen_common::config::Config, is_distributed: bool) -> CowenResult<()> {
+    fn validate_save(
+        &self,
+        _profile: &str,
+        config: &cowen_common::config::Config,
+        is_distributed: bool,
+    ) -> CowenResult<()> {
         if is_distributed && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
             return Err(CowenError::Config("Auth mode 'Oauth2' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.".to_string()));
         }

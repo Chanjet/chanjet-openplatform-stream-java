@@ -1,15 +1,15 @@
-use cowen_common::{CowenResult, CowenError};
-use cowen_infra::obfs;
-use cowen_common::config::Config;
-use crate::pool::TokenPool;
 use crate::client::HttpSender;
+use crate::pool::TokenPool;
 use crate::provider::AuthProvider;
+use cowen_common::config::Config;
+use cowen_common::{CowenError, CowenResult};
+use cowen_infra::obfs;
 
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 use std::sync::Arc;
-use async_trait::async_trait;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PlatformTokenResponse {
@@ -51,7 +51,11 @@ impl SelfBuiltProvider {
         }
     }
 
-    async fn perform_network_refresh(&self, profile: &str, cfg: &Config) -> CowenResult<cowen_common::models::Token> {
+    async fn perform_network_refresh(
+        &self,
+        profile: &str,
+        cfg: &Config,
+    ) -> CowenResult<cowen_common::models::Token> {
         if cfg.app_key.trim().is_empty() || cfg.app_secret.trim().is_empty() {
             return Err(CowenError::Config(format!("Credential Missing: AppKey or AppSecret is empty for profile '{}'. Please run 'cowen init' to configure your environment.", profile)));
         }
@@ -61,40 +65,108 @@ impl SelfBuiltProvider {
         let mut retry_count = 0;
         loop {
             // 0. AppTicket validation
-            if self.pool.as_vault().get_app_ticket(&cfg.app_key).await.is_err() {
+            let mut waited_initial = 0;
+            while self
+                .pool
+                .as_vault()
+                .get_app_ticket(&cfg.app_key)
+                .await
+                .is_err()
+                && waited_initial < 15
+            {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                waited_initial += 1;
+            }
+            if self
+                .pool
+                .as_vault()
+                .get_app_ticket(&cfg.app_key)
+                .await
+                .is_err()
+            {
                 return Err(CowenError::Auth("AppTicket missing in Vault. Please ensure 'cowen daemon' is running and connected to the platform.".to_string()));
             }
 
+            // 🚀 Jitter & Re-check: Prevent race condition between Daemon and CLI both trying to refresh at the same time.
+            use rand::Rng;
+            let jitter_ms = rand::thread_rng().gen_range(50..500);
+            tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
+
+            if let Ok(token) = self.pool.get_app_access_token(&cfg.app_key).await {
+                if !token.is_expired() {
+                    tracing::info!(target: "sys", profile = %profile, "Token was refreshed by another process while waiting.");
+                    return Ok(token);
+                }
+            }
+
             // 1. Build Request
-            let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/v1/common/auth/selfBuiltApp/generateToken"));
+            let url = format!(
+                "{}{}",
+                cfg.openapi_url.trim_end_matches('/'),
+                obfs!("/v1/common/auth/selfBuiltApp/generateToken")
+            );
             let mut headers = HeaderMap::new();
-            headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-            headers.insert("appSecret", cfg.app_secret.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-            
+            headers.insert(
+                "appKey",
+                cfg.app_key
+                    .trim()
+                    .parse()
+                    .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+            );
+            headers.insert(
+                "appSecret",
+                cfg.app_secret
+                    .trim()
+                    .parse()
+                    .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+            );
+
             let mut body_map = serde_json::Map::new();
-            
+
             // 🚀 OCP: Include certificate if provided (Required for some platform versions)
             if !cfg.certificate.trim().is_empty() {
-                body_map.insert("certificate".to_string(), serde_json::Value::String(cfg.certificate.clone()));
+                body_map.insert(
+                    "certificate".to_string(),
+                    serde_json::Value::String(cfg.certificate.clone()),
+                );
             }
 
             // AppTicket is MANDATORY for this environment
-            let ticket = self.pool.as_vault().get_app_ticket(&cfg.app_key).await
-                .map_err(|_| CowenError::Auth("AppTicket missing. This is required for self-built app authentication.".to_string()))?;
-            body_map.insert("appTicket".to_string(), serde_json::Value::String(ticket.value));
+            let ticket = self
+                .pool
+                .as_vault()
+                .get_app_ticket(&cfg.app_key)
+                .await
+                .map_err(|_| {
+                    CowenError::Auth(
+                        "AppTicket missing. This is required for self-built app authentication."
+                            .to_string(),
+                    )
+                })?;
+            body_map.insert(
+                "appTicket".to_string(),
+                serde_json::Value::String(ticket.value),
+            );
 
             // 2. Execute
-            let resp = self.http_sender.post(&url, headers, serde_json::Value::Object(body_map)).await?;
+            let resp = self
+                .http_sender
+                .post(&url, headers, serde_json::Value::Object(body_map))
+                .await?;
             if !resp.is_success() {
                 let status = resp.status;
                 let safe_err = cowen_common::utils::mask_sensitive_json(&resp.body);
-                return Err(CowenError::Auth(format!("Platform auth failed (HTTP {}): {}", status, safe_err)));
+                return Err(CowenError::Auth(format!(
+                    "Platform auth failed (HTTP {}): {}",
+                    status, safe_err
+                )));
             }
 
             let token_resp: PlatformTokenResponse = resp.json().await?;
-            
+
             // Success if result is true OR code is 200
-            let is_success = token_resp.result.unwrap_or(false) || token_resp.code.as_deref() == Some("200");
+            let is_success =
+                token_resp.result.unwrap_or(false) || token_resp.code.as_deref() == Some("200");
             if !is_success || token_resp.value.is_none() {
                 let code_str = token_resp.code.as_deref().unwrap_or("");
                 let err_val = token_resp.error.clone().or(token_resp.message.clone());
@@ -104,18 +176,35 @@ impl SelfBuiltProvider {
                     None => "Unknown platform error".to_string(),
                 };
 
-                if retry_count < 3 && (code_str == "4041" || code_str == "4031" || code_str == "4019" || err_msg.contains("4041") || err_msg.contains("4031") || err_msg.contains("4019")) {
+                if retry_count < 3
+                    && (code_str == "4041"
+                        || code_str == "4031"
+                        || code_str == "4019"
+                        || err_msg.contains("4041")
+                        || err_msg.contains("4031")
+                        || err_msg.contains("4019"))
+                {
                     tracing::warn!(target: "sys", profile = %profile, "AppTicket expired/invalid ({}). Clearing and triggering push... (Attempt {}/3)", err_msg, retry_count + 1);
-                    let _ = self.pool.as_vault().delete_app_ticket(cfg.app_key.trim()).await;
+                    let _ = self
+                        .pool
+                        .as_vault()
+                        .delete_app_ticket(cfg.app_key.trim())
+                        .await;
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    
+
                     let _ = self.trigger_push_internal(profile, cfg, true).await;
-                    
+
                     tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 20s)...");
                     let mut waited = 0;
                     while waited < 35 {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        if self.pool.as_vault().get_app_ticket(cfg.app_key.trim()).await.is_ok() {
+                        if self
+                            .pool
+                            .as_vault()
+                            .get_app_ticket(cfg.app_key.trim())
+                            .await
+                            .is_ok()
+                        {
                             tracing::info!(target: "sys", profile = %profile, "Received new AppTicket.");
                             // Additional brief sleep to ensure ticket is fully propagated or avoid hitting platform replication delay
                             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -132,7 +221,8 @@ impl SelfBuiltProvider {
 
             let val = token_resp.value.unwrap();
             let expires_at = if let Some(ts) = val.expires_at {
-                DateTime::from_timestamp(ts / 1000, 0).unwrap_or_else(|| Utc::now() + chrono::Duration::hours(2))
+                DateTime::from_timestamp(ts / 1000, 0)
+                    .unwrap_or_else(|| Utc::now() + chrono::Duration::hours(2))
             } else if let Some(secs) = val.expires_in {
                 Utc::now() + chrono::Duration::seconds(secs as i64)
             } else {
@@ -153,20 +243,29 @@ impl SelfBuiltProvider {
         }
     }
 
-    async fn trigger_push_internal(&self, profile: &str, cfg: &Config, force: bool) -> CowenResult<()> {
+    async fn trigger_push_internal(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        force: bool,
+    ) -> CowenResult<()> {
         if cfg.app_key.trim().is_empty() || cfg.app_secret.trim().is_empty() {
-            return Err(CowenError::Config(format!("Missing AppKey or AppSecret for profile '{}'. Please run 'cowen init' first.", profile)));
+            return Err(CowenError::Config(format!(
+                "Missing AppKey or AppSecret for profile '{}'. Please run 'cowen init' first.",
+                profile
+            )));
         }
 
         // 1. Process-level mutex to avoid local concurrent race condition
-        static RESEND_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+        static RESEND_LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> =
+            std::sync::OnceLock::new();
         let mutex = RESEND_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
         let _lock = mutex.lock().await;
 
         // 2. Distributed de-duplication lock (using primary_store set_token)
         let store = self.pool.as_vault().primary_store();
         let lock_key = format!("lock:resend:{}", cfg.app_key);
-        
+
         if let Ok(expire_val) = store.get_token(profile, &lock_key).await {
             if let Ok(expire_ts) = expire_val.parse::<i64>() {
                 if Utc::now().timestamp() < expire_ts {
@@ -178,19 +277,41 @@ impl SelfBuiltProvider {
 
         // Acquire distributed lock for 15 seconds
         let new_expire_ts = Utc::now().timestamp() + 15;
-        let _ = store.set_token(profile, &lock_key, &new_expire_ts.to_string(), 15).await;
+        let _ = store
+            .set_token(profile, &lock_key, &new_expire_ts.to_string(), 15)
+            .await;
 
-        let url = format!("{}{}", cfg.openapi_url.trim_end_matches('/'), obfs!("/auth/appTicket/resend"));
+        let url = format!(
+            "{}{}",
+            cfg.openapi_url.trim_end_matches('/'),
+            obfs!("/auth/appTicket/resend")
+        );
         let mut headers = HeaderMap::new();
-        headers.insert("appKey", cfg.app_key.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-        headers.insert("appSecret", cfg.app_secret.trim().parse().unwrap_or(reqwest::header::HeaderValue::from_static("")));
-        
+        headers.insert(
+            "appKey",
+            cfg.app_key
+                .trim()
+                .parse()
+                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+        );
+        headers.insert(
+            "appSecret",
+            cfg.app_secret
+                .trim()
+                .parse()
+                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+        );
+
         let mut body_map = serde_json::Map::new();
         if force {
-             body_map.insert("force".to_string(), serde_json::Value::Bool(true));
+            body_map.insert("force".to_string(), serde_json::Value::Bool(true));
         }
 
-        let resp = match self.http_sender.post(&url, headers, serde_json::Value::Object(body_map)).await {
+        let resp = match self
+            .http_sender
+            .post(&url, headers, serde_json::Value::Object(body_map))
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 let _ = store.delete_token(profile, &lock_key).await;
@@ -202,14 +323,20 @@ impl SelfBuiltProvider {
             let _ = store.delete_token(profile, &lock_key).await;
             let status = resp.status;
             let err_text = cowen_common::utils::mask_sensitive_json(&resp.body);
-            return Err(CowenError::Auth(format!("Failed to trigger push (HTTP {}): {}", status, err_text)));
+            return Err(CowenError::Auth(format!(
+                "Failed to trigger push (HTTP {}): {}",
+                status, err_text
+            )));
         }
 
         let resend_resp: PlatformResendResponse = match resp.json().await {
             Ok(r) => r,
             Err(e) => {
                 let _ = store.delete_token(profile, &lock_key).await;
-                return Err(CowenError::Auth(format!("Failed to parse resend response: {}", e)));
+                return Err(CowenError::Auth(format!(
+                    "Failed to parse resend response: {}",
+                    e
+                )));
             }
         };
 
@@ -220,19 +347,46 @@ impl SelfBuiltProvider {
                 Some(v) => v.to_string(),
                 None => "Unknown error".to_string(),
             };
-            return Err(CowenError::Auth(format!("Platform error: {} - {}", resend_resp.code, err_msg)));
+            return Err(CowenError::Auth(format!(
+                "Platform error: {} - {}",
+                resend_resp.code, err_msg
+            )));
         }
 
         tracing::info!(target: "sys", profile = %profile, "Proactive AppTicket push triggered");
         Ok(())
     }
 
-    fn decorate_openapi_request_internal(&self, _url: &mut String, _headers: &mut HeaderMap, _token: &cowen_common::models::Token, _config: &Config) {
+    fn decorate_openapi_request_internal(
+        &self,
+        _url: &mut String,
+        _headers: &mut HeaderMap,
+        _token: &cowen_common::models::Token,
+        _config: &Config,
+    ) {
     }
 }
 
 #[async_trait]
 impl AuthProvider for SelfBuiltProvider {
+    async fn hydrate_config(
+        &self,
+        profile: &str,
+        config: &mut Config,
+        vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+    ) -> CowenResult<()> {
+        if let Ok(as_val) = vault.get_secret(profile, "app_secret").await {
+            config.app_secret = as_val;
+        }
+        if let Ok(cert) = vault.get_secret(profile, "certificate").await {
+            config.certificate = cert;
+        }
+        if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await {
+            config.encrypt_key = ek;
+        }
+        Ok(())
+    }
+
     async fn on_logout(&self, profile: &str, config: &Config) -> CowenResult<()> {
         let vault = self.pool.as_vault();
         let _ = vault.delete_access_token(profile).await;
@@ -246,7 +400,12 @@ impl AuthProvider for SelfBuiltProvider {
         Ok(())
     }
 
-    async fn get_token(&self, profile: &str, config: &Config, _headers: &HeaderMap) -> CowenResult<cowen_common::models::Token> {
+    async fn get_token(
+        &self,
+        profile: &str,
+        config: &Config,
+        _headers: &HeaderMap,
+    ) -> CowenResult<cowen_common::models::Token> {
         tracing::info!(target: "sys", profile = %profile, app_key = %config.app_key, "Attempting to retrieve token");
         // 1. Try Cache
         match self.pool.get_app_access_token(&config.app_key).await {
@@ -264,7 +423,7 @@ impl AuthProvider for SelfBuiltProvider {
 
         // 2. Lock & Refresh
         let _lock = self.refresh_lock.lock().await;
-        
+
         // Re-check after lock
         if let Ok(token) = self.pool.get_app_access_token(&config.app_key).await {
             if !token.is_expired() {
@@ -276,7 +435,12 @@ impl AuthProvider for SelfBuiltProvider {
         self.perform_network_refresh(profile, config).await
     }
 
-    async fn refresh(&self, profile: &str, config: &Config, _headers: &HeaderMap) -> CowenResult<cowen_common::models::Token> {
+    async fn refresh(
+        &self,
+        profile: &str,
+        config: &Config,
+        _headers: &HeaderMap,
+    ) -> CowenResult<cowen_common::models::Token> {
         let _lock = self.refresh_lock.lock().await;
         self.perform_network_refresh(profile, config).await
     }
@@ -294,38 +458,79 @@ impl AuthProvider for SelfBuiltProvider {
         params: crate::provider::InitParams,
         daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
     ) -> CowenResult<()> {
-        if let Some(ak) = params.app_key { config.app_key = ak; }
-        if let Some(as_val) = params.app_secret { config.app_secret = as_val; }
-        if let Some(cert) = params.certificate { config.certificate = cert; }
-        if let Some(ek) = params.encrypt_key { config.encrypt_key = ek; }
-        if let Some(wt) = params.webhook_target { config.webhook_target = wt; }
-        if let Some(ou) = params.openapi_url { config.openapi_url = ou; }
-        if let Some(su) = params.stream_url { config.stream_url = su; }
-        if let Some(pp) = params.proxy_port { config.proxy_port = pp; }
-        
+        if let Some(ak) = params.app_key {
+            config.app_key = ak;
+        }
+        if let Some(as_val) = params.app_secret {
+            config.app_secret = as_val;
+        }
+        if let Some(cert) = params.certificate {
+            config.certificate = cert;
+        }
+        if let Some(ek) = params.encrypt_key {
+            config.encrypt_key = ek;
+        }
+        if let Some(wt) = params.webhook_target {
+            config.webhook_target = wt;
+        }
+        if let Some(ou) = params.openapi_url {
+            config.openapi_url = ou;
+        }
+        if let Some(su) = params.stream_url {
+            config.stream_url = su;
+        }
+        if let Some(pp) = params.proxy_port {
+            config.proxy_port = pp;
+        }
+
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
-        
+
         // 🚀 Validation: SelfBuilt mode REQUIRES all core credentials
-        if config.app_key.trim().is_empty() { return Err(CowenError::Config("Missing mandatory parameter: --app-key".to_string())); }
-        if config.app_secret.trim().is_empty() { return Err(CowenError::Config("Missing mandatory parameter: --app-secret".to_string())); }
-        if config.certificate.trim().is_empty() { return Err(CowenError::Config("Missing mandatory parameter: --certificate".to_string())); }
-        if config.encrypt_key.trim().is_empty() { return Err(CowenError::Config("Missing mandatory parameter: --encrypt-key".to_string())); }
-        
+        if config.app_key.trim().is_empty() {
+            return Err(CowenError::Config(
+                "Missing mandatory parameter: --app-key".to_string(),
+            ));
+        }
+        if config.app_secret.trim().is_empty() {
+            return Err(CowenError::Config(
+                "Missing mandatory parameter: --app-secret".to_string(),
+            ));
+        }
+        if config.certificate.trim().is_empty() {
+            return Err(CowenError::Config(
+                "Missing mandatory parameter: --certificate".to_string(),
+            ));
+        }
+        if config.encrypt_key.trim().is_empty() {
+            return Err(CowenError::Config(
+                "Missing mandatory parameter: --encrypt-key".to_string(),
+            ));
+        }
+
         // Persist non-sensitive to app.yaml via ConfigManager
         cfg_mgr.save(profile, config).await?;
-        
-        // Persist sensitive to Vault
-        vault.set_secret(profile, "app_secret", &config.app_secret).await?;
-        vault.set_secret(profile, "certificate", &config.certificate).await?;
-        vault.set_secret(profile, "encrypt_key", &config.encrypt_key).await?;
 
-        println!("✅ Configuration saved for profile: \x1b[1;32m{}\x1b[0m", profile);
-        
+        // Persist sensitive to Vault
+        vault
+            .set_secret(profile, "app_secret", &config.app_secret)
+            .await?;
+        vault
+            .set_secret(profile, "certificate", &config.certificate)
+            .await?;
+        vault
+            .set_secret(profile, "encrypt_key", &config.encrypt_key)
+            .await?;
+
+        println!(
+            "✅ Configuration saved for profile: \x1b[1;32m{}\x1b[0m",
+            profile
+        );
+
         if params.auto_start {
             if let Some(svc) = daemon_service {
                 println!("🚀 Mode is 'SelfBuilt': Triggering proactive AppTicket push...");
                 let _ = self.trigger_push_internal(profile, config, false).await;
-                
+
                 println!("📡 Starting background daemon to maintain AppTicket...");
                 let _ = svc.start_daemon(profile, config, vault).await;
             }
@@ -340,35 +545,52 @@ impl AuthProvider for SelfBuiltProvider {
     async fn requires_initial_push(&self, _cfg: &Config) -> bool {
         // Check if ticket is missing or older than 50 minutes
         if let Ok(ticket) = self.pool.as_vault().get_app_ticket(&_cfg.app_key).await {
-            let age = chrono::Utc::now().signed_duration_since(ticket.created_at).num_minutes();
+            let age = chrono::Utc::now()
+                .signed_duration_since(ticket.created_at)
+                .num_minutes();
             age > 50
         } else {
             true
         }
     }
 
-    async fn handle_platform_event(&self, profile: &str, cfg: &Config, event: crate::provider::PlatformEvent) -> CowenResult<()> {
+    async fn handle_platform_event(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        event: crate::provider::PlatformEvent,
+    ) -> CowenResult<()> {
         match event {
             crate::provider::PlatformEvent::AppTicket(ticket_val) => {
                 let ticket = cowen_common::models::Ticket {
                     value: ticket_val,
                     created_at: Utc::now(),
                 };
-                self.pool.as_vault().save_app_ticket(&cfg.app_key, ticket).await?;
+                self.pool
+                    .as_vault()
+                    .save_app_ticket(&cfg.app_key, ticket)
+                    .await?;
                 tracing::info!(target: "sys", profile = %profile, "✅ AppTicket updated via PlatformEvent and saved to vault");
-                eprintln!("✨ 收到平台推送的新 AppTicket，已同步至 Vault (Profile: {})", profile);
-                
+                eprintln!(
+                    "✨ 收到平台推送的新 AppTicket，已同步至 Vault (Profile: {})",
+                    profile
+                );
+
                 // Proactively refresh token if it's about to expire or missing
                 let pool = self.pool.clone();
                 let profile = profile.to_string();
                 let cfg = cfg.clone();
                 let provider_clone = Self::new(pool, self.http_sender.clone());
-                
+
                 tokio::spawn(async move {
-                    let should_refresh = match provider_clone.pool.get_app_access_token(&cfg.app_key).await {
-                        Ok(t) => t.is_expired(),
-                        Err(_) => true,
-                    };
+                    // Delay proactive refresh to allow any active CLI login commands to complete and cache the token, avoiding a race condition.
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    
+                    let should_refresh =
+                        match provider_clone.pool.get_app_access_token(&cfg.app_key).await {
+                            Ok(t) => t.is_expired(),
+                            Err(_) => true,
+                        };
                     if should_refresh {
                         tracing::info!(target: "sys", profile = %profile, "Missing or expired token, triggering proactive refresh using new AppTicket");
                         let _ = provider_clone.perform_network_refresh(&profile, &cfg).await;
@@ -382,19 +604,29 @@ impl AuthProvider for SelfBuiltProvider {
         Ok(())
     }
 
-    async fn perform_login(&self, profile: &str, cfg: &Config, force: bool, _finalize: Option<&str>, _daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>) -> CowenResult<()> {
+    async fn perform_login(
+        &self,
+        profile: &str,
+        cfg: &Config,
+        force: bool,
+        _finalize: Option<&str>,
+        _daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
+    ) -> CowenResult<()> {
         if force {
-             self.refresh(profile, cfg, &HeaderMap::new()).await?;
-             println!("✅ Token forcefully refreshed from network.");
+            self.refresh(profile, cfg, &HeaderMap::new()).await?;
+            println!("✅ Token forcefully refreshed from network.");
         } else {
-             self.get_token(profile, cfg, &HeaderMap::new()).await?;
-             println!("✅ Token is active and ready.");
+            self.get_token(profile, cfg, &HeaderMap::new()).await?;
+            println!("✅ Token is active and ready.");
         }
         Ok(())
     }
 
-    async fn get_diagnostics(&self, ctx: &cowen_monitor::status::StatusContext<'_>) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
-        use cowen_monitor::status::{StatusEntry, StatusLevel, CommonTemplate};
+    async fn get_diagnostics(
+        &self,
+        ctx: &cowen_monitor::status::StatusContext<'_>,
+    ) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
+        use cowen_monitor::status::{CommonTemplate, StatusEntry, StatusLevel};
         let mut entries = Vec::new();
         let vault = self.pool.as_vault();
 
@@ -404,20 +636,39 @@ impl AuthProvider for SelfBuiltProvider {
             || !ctx.config.app_secret.is_empty();
         let has_encrypt_key = vault.get_secret(&ctx.profile, "encrypt_key").await.is_ok()
             || !ctx.config.encrypt_key.is_empty();
-        
-        if !has_secret { missing.push("app_secret".to_string()); }
-        if !has_encrypt_key { missing.push("encrypt_key".to_string()); }
-        
+
+        if !has_secret {
+            missing.push("app_secret".to_string());
+        }
+        if !has_encrypt_key {
+            missing.push("encrypt_key".to_string());
+        }
+
         let (sec_level, sec_msg) = if missing.is_empty() {
-            (StatusLevel::OK, "All core secrets are securely stored.".to_string())
+            (
+                StatusLevel::OK,
+                "All core secrets are securely stored.".to_string(),
+            )
         } else {
-            (StatusLevel::WARN, format!("Missing: {}", missing.join(", ")))
+            (
+                StatusLevel::WARN,
+                format!("Missing: {}", missing.join(", ")),
+            )
         };
-        entries.push(StatusEntry::new(CommonTemplate::Custom("Security (Vault)".to_string(), "🛡️".to_string()), sec_level, sec_msg));
+        entries.push(StatusEntry::new(
+            CommonTemplate::Custom("Security (Vault)".to_string(), "🛡️".to_string()),
+            sec_level,
+            sec_msg,
+        ));
 
         // 2. AppTicket Status (Optional for Self-Built)
         // 2. AppTicket Status (Optional for Self-Built)
-        let ticket_res = match self.pool.as_vault().get_app_ticket(&ctx.config.app_key).await {
+        let ticket_res = match self
+            .pool
+            .as_vault()
+            .get_app_ticket(&ctx.config.app_key)
+            .await
+        {
             Ok(t) => Ok(t),
             Err(_) => {
                 // FALLBACK: Try profile-level app_ticket secret
@@ -425,22 +676,39 @@ impl AuthProvider for SelfBuiltProvider {
                 let val = vault.get_secret(&ctx.profile, "app_ticket").await;
                 match val {
                     Ok(v) => {
-                        let created_str = vault.get_secret(&ctx.profile, "app_ticket_created").await.unwrap_or_default();
-                        let created_at = chrono::DateTime::parse_from_rfc3339(&created_str).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or_else(|_| chrono::Utc::now());
-                        Ok(cowen_common::models::Ticket { value: v, created_at })
-                    },
-                    Err(e) => Err(e)
+                        let created_str = vault
+                            .get_secret(&ctx.profile, "app_ticket_created")
+                            .await
+                            .unwrap_or_default();
+                        let created_at = chrono::DateTime::parse_from_rfc3339(&created_str)
+                            .map(|d| d.with_timezone(&chrono::Utc))
+                            .unwrap_or_else(|_| chrono::Utc::now());
+                        Ok(cowen_common::models::Ticket {
+                            value: v,
+                            created_at,
+                        })
+                    }
+                    Err(e) => Err(e),
                 }
             }
         };
 
         if let Ok(t) = ticket_res {
             let age = Utc::now().signed_duration_since(t.created_at).num_minutes();
-            let level = if age > 1440 { StatusLevel::WARN } else { StatusLevel::OK };
+            let level = if age > 1440 {
+                StatusLevel::WARN
+            } else {
+                StatusLevel::OK
+            };
             entries.push(StatusEntry::new(
                 CommonTemplate::Custom("AppTicket".to_string(), "🎫".to_string()),
                 level,
-                format!("[CACHED] (Received: {})", t.created_at.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"))
+                format!(
+                    "[CACHED] (Received: {})",
+                    t.created_at
+                        .with_timezone(&chrono::Local)
+                        .format("%Y-%m-%d %H:%M:%S")
+                ),
             ));
         }
 
@@ -455,7 +723,11 @@ impl AuthProvider for SelfBuiltProvider {
 
         match token_res {
             Ok(t) => {
-                let level = if t.is_expired() { StatusLevel::ERROR } else { StatusLevel::OK };
+                let level = if t.is_expired() {
+                    StatusLevel::ERROR
+                } else {
+                    StatusLevel::OK
+                };
                 let mut details = vec![];
                 if let Some(ident) = t.extract_identity() {
                     details.push(format!("User ID: {}", ident.user_id));
@@ -463,17 +735,30 @@ impl AuthProvider for SelfBuiltProvider {
                     details.push(format!("App ID:  {}", ident.app_id));
                 }
 
-                entries.push(StatusEntry::new(
-                    CommonTemplate::Custom("AccessToken".to_string(), "🔑".to_string()),
-                    level,
-                    format!("{} (Expires at: {})", if t.is_expired() { "[EXPIRED]" } else { "[VALID]" }, t.real_expires_at().with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"))
-                ).with_details(details));
+                entries.push(
+                    StatusEntry::new(
+                        CommonTemplate::Custom("AccessToken".to_string(), "🔑".to_string()),
+                        level,
+                        format!(
+                            "{} (Expires at: {})",
+                            if t.is_expired() {
+                                "[EXPIRED]"
+                            } else {
+                                "[VALID]"
+                            },
+                            t.real_expires_at()
+                                .with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %H:%M:%S")
+                        ),
+                    )
+                    .with_details(details),
+                );
             }
             Err(_) => {
                 entries.push(StatusEntry::new(
                     CommonTemplate::Custom("AccessToken".to_string(), "🔑".to_string()),
                     StatusLevel::WARN,
-                    "Not initialized".to_string()
+                    "Not initialized".to_string(),
                 ));
             }
         }
@@ -481,7 +766,16 @@ impl AuthProvider for SelfBuiltProvider {
         // 3. Daemon Status
         let daemon_info = cowen_monitor::status::get_active_daemon_info(&ctx.profile);
         let (display_name, efficiency_tip) = self.get_daemon_display_info(daemon_info.is_some());
-        entries.push(cowen_monitor::status::collect_daemon_status(ctx, &display_name, &efficiency_tip, self.supports_webhooks(), daemon_info).await?);
+        entries.push(
+            cowen_monitor::status::collect_daemon_status(
+                ctx,
+                &display_name,
+                &efficiency_tip,
+                self.supports_webhooks(),
+                daemon_info,
+            )
+            .await?,
+        );
 
         Ok(entries)
     }
@@ -495,8 +789,12 @@ impl AuthProvider for SelfBuiltProvider {
         if should_refresh {
             tracing::info!(target: "sys", profile = %profile, "Token expired or missing during maintenance tick, refreshing...");
             match self.perform_network_refresh(profile, config).await {
-                Ok(_) => tracing::info!(target: "sys", profile = %profile, "Maintenance refresh successful"),
-                Err(e) => tracing::error!(target: "sys", profile = %profile, error = %e, "Maintenance refresh failed"),
+                Ok(_) => {
+                    tracing::info!(target: "sys", profile = %profile, "Maintenance refresh successful")
+                }
+                Err(e) => {
+                    tracing::error!(target: "sys", profile = %profile, error = %e, "Maintenance refresh failed")
+                }
             }
         }
         Ok(())
@@ -525,7 +823,7 @@ impl AuthProvider for SelfBuiltProvider {
         _spec: &serde_json::Value,
     ) -> CowenResult<crate::provider::ProxyRequestAction> {
         let mut headers = headers;
-        
+
         // Inject token
         match self.get_token(profile, config, &headers).await {
             Ok(token) => {
@@ -543,7 +841,13 @@ impl AuthProvider for SelfBuiltProvider {
         }
     }
 
-    fn decorate_openapi_request(&self, url: &mut String, headers: &mut HeaderMap, token: &cowen_common::models::Token, config: &Config) {
+    fn decorate_openapi_request(
+        &self,
+        url: &mut String,
+        headers: &mut HeaderMap,
+        token: &cowen_common::models::Token,
+        config: &Config,
+    ) {
         self.decorate_openapi_request_internal(url, headers, token, config);
     }
 }

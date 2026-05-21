@@ -2,6 +2,8 @@
 set -e
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -20,29 +22,29 @@ echo -e "${BOLD}1. Initialization${NC}"
     --app-key AK_SA \
     --app-secret AS_SA \
     --encrypt-key 1234567890123456 \
-    --webhook-target "http://127.0.0.1:9092/webhook" \
+    --webhook-target "http://127.0.0.1:$PROXY_PORT/webhook" \
     --openapi-url $MOCK_URL \
     --stream-url $MOCK_WS \
-    --proxy-port 9092 >/dev/null
+    --proxy-port $PROXY_PORT >/dev/null
 assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Daemon Startup${NC}"
 # Stop the background daemon and wait for port release
 "$COWEN_BIN" daemon stop --profile sidecar >/dev/null 2>&1 || true
 sleep 1
-# Ensure port 9092 is REALLY free
-lsof -ti:9092 | xargs kill -9 >/dev/null 2>&1 || true
+# Ensure port $PROXY_PORT is REALLY free
+lsof -ti:$PROXY_PORT | xargs kill -9 >/dev/null 2>&1 || true
 sleep 1
 
 "$COWEN_BIN" daemon start --profile sidecar --foreground >"$COWEN_HOME/daemon.log" 2>&1 &
 DAEMON_PID=$!
 sleep 5
 
-if grep -q "Local Proxy Server listening on" "$COWEN_HOME/daemon.log"; then
+if grep -q "Local Proxy Server listening on" "$COWEN_HOME/logs/daemon.stderr.log"; then
     echo -e "  ${GREEN}✓${NC} Daemon is running in foreground"
 else
     echo -e "  ${RED}✗${NC} Daemon failed to start in foreground"
-    cat "$COWEN_HOME/daemon.log"
+    cat "$COWEN_HOME/logs/daemon.stderr.log"
     exit 1
 fi
 
@@ -68,7 +70,7 @@ curl -s -X POST -H "Content-Type: application/json" \
 
 echo -e "  Waiting for exchange and archival..."
 for i in {1..15}; do
-    if grep -q "Enterprise permanent code successfully archived" "$COWEN_HOME/daemon.log"; then
+    if grep -q "Enterprise permanent code successfully archived" "$COWEN_HOME/logs/sidecar_sys.log" || grep -q "Enterprise permanent code successfully archived" "$COWEN_HOME/logs/daemon.stderr.log"; then
         echo -e "  ${GREEN}✓${NC} Permanent code archived for $TEST_ORG_ID"
         break
     fi
@@ -77,13 +79,14 @@ done
 
 if [ "$i" -eq 15 ]; then
     echo -e "  ${RED}✗${NC} Permanent code exchange timeout"
-    cat "$COWEN_HOME/daemon.log"
+    cat "$COWEN_HOME/logs/daemon.stderr.log"
+    cat "$COWEN_HOME/logs/sidecar_sys.log"
     exit 1
 fi
 
 echo -e "${BOLD}4. Verify Token Usage with Org ID${NC}"
 echo -e "  Requesting API with x-org-id: $TEST_ORG_ID..."
-RESP=$(curl -s -H "x-org-id: $TEST_ORG_ID" "http://127.0.0.1:9092/v1/mock/secure")
+RESP=$(curl -s -H "x-org-id: $TEST_ORG_ID" "http://127.0.0.1:$PROXY_PORT/v1/mock/secure")
 
 assert_match "$RESP" "mock_at_oa2_permanent_code_" "Proxy used Org Access Token"
 assert_match "$RESP" "verified" "API call successful"

@@ -17,14 +17,8 @@ fn test_get_auth_headers_all() {
         }
     });
 
-    let headers = RequestDecorator::get_auth_headers(
-        &spec,
-        "/v1/test",
-        "get",
-        "key123",
-        "sec123",
-        "tok123"
-    );
+    let headers =
+        RequestDecorator::get_auth_headers(&spec, "/v1/test", "get", "key123", "sec123", "tok123");
 
     assert_eq!(headers.len(), 3);
     assert!(headers.contains(&("appKey".to_string(), "key123".to_string())));
@@ -44,14 +38,8 @@ fn test_get_auth_headers_none() {
         }
     });
 
-    let headers = RequestDecorator::get_auth_headers(
-        &spec,
-        "/v1/test",
-        "get",
-        "key123",
-        "sec123",
-        "tok123"
-    );
+    let headers =
+        RequestDecorator::get_auth_headers(&spec, "/v1/test", "get", "key123", "sec123", "tok123");
 
     assert_eq!(headers.len(), 0);
 }

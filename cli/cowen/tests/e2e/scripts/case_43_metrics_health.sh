@@ -25,10 +25,27 @@ echo -e "${BLUE}Starting Test Case 43: Metrics and Health API${NC}"
     --stream-url "$MOCK_WS" --webhook-target "http://127.0.0.1:8080" --no-telemetry > /dev/null
 
 # 2. Start daemon
-MONITOR_PORT=$((16000 + RANDOM % 1000))
-"$COWEN_BIN" config set monitor_port $MONITOR_PORT
 "$COWEN_BIN" daemon start --profile main
 
+echo "Waiting for daemon to write PID file..."
+for i in {1..20}; do
+    if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
+        if grep -q "MONITOR_PORT" "$COWEN_HOME/master_daemon.pid"; then
+            break
+        fi
+    fi
+    sleep 0.5
+done
+
+MONITOR_PORT=$(grep "MONITOR_PORT" "$COWEN_HOME/master_daemon.pid" 2>/dev/null | cut -d= -f2)
+
+if [ -z "$MONITOR_PORT" ]; then
+    echo -e "${RED}[FAILED]${NC} Could not extract MONITOR_PORT from master_daemon.pid"
+    cat "$COWEN_HOME/master_daemon.pid" 2>/dev/null || echo "PID file missing"
+    exit 1
+fi
+
+echo "Extracted monitor server port: $MONITOR_PORT"
 echo "Waiting for monitor server on port $MONITOR_PORT..."
 for i in {1..15}; do
     if curl -s http://127.0.0.1:$MONITOR_PORT/health | grep -q "UP"; then

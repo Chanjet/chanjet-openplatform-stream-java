@@ -9,6 +9,8 @@ set -e
 
 if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
+
+PROXY_PORT=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
 fi
@@ -23,7 +25,7 @@ PROF="dlq_manual"
 "$COWEN_BIN" init --profile "$PROF" --app-mode self-built \
     --app-key AK_DLQ --app-secret AS_DLQ --certificate CERT_DLQ --encrypt-key 1234567890123456 \
     --webhook-target "$MOCK_URL/webhook_sink" \
-    --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port 9122 >/dev/null
+    --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port $PROXY_PORT >/dev/null
 
 # Start Daemon
 "$COWEN_BIN" daemon start --profile "$PROF" >/dev/null 2>&1

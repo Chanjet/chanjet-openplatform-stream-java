@@ -1,10 +1,8 @@
-use cowen_common::CowenResult;
-use async_trait::async_trait;
 use crate::models::{Ticket, Token};
+use async_trait::async_trait;
 use cowen_common::vault::Vault;
+use cowen_common::CowenResult;
 use std::sync::Arc;
-
-
 
 #[async_trait]
 pub trait TokenPool: Send + Sync {
@@ -12,7 +10,8 @@ pub trait TokenPool: Send + Sync {
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket>;
     async fn set_app_ticket(&self, app_key: &str, ticket: &Ticket) -> CowenResult<()>;
 
-    async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token>;
+    async fn get_app_access_token(&self, app_key: &str)
+        -> CowenResult<cowen_common::models::Token>;
     async fn set_app_access_token(&self, app_key: &str, token: &Token) -> CowenResult<()>;
     #[allow(dead_code)]
     async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()>;
@@ -45,7 +44,10 @@ impl TokenPool for VaultTokenPool {
         self.v.save_app_ticket(app_key, ticket.clone()).await
     }
 
-    async fn get_app_access_token(&self, app_key: &str) -> CowenResult<cowen_common::models::Token> {
+    async fn get_app_access_token(
+        &self,
+        app_key: &str,
+    ) -> CowenResult<cowen_common::models::Token> {
         self.v.get_app_access_token(app_key).await
     }
 
