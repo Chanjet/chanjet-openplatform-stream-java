@@ -1,4 +1,4 @@
-use axum::{routing::{get, post}, Router, response::IntoResponse, extract::{State, Query}, Json};
+use axum::{routing::{get, post}, Router, response::IntoResponse, extract::{State, Query}};
 use serde::Deserialize;
 use std::sync::Arc;
 use cowen_common::daemon::DaemonService;

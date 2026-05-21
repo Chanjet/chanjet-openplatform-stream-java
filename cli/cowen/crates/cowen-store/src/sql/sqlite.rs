@@ -558,7 +558,7 @@ impl SqlBuilder for SqliteBuilder {
         let _ = lock_file.lock_exclusive();
 
         let mut last_err = None;
-        for i in 0..30 {
+        for _i in 0..30 {
             
         let mut success = true;
             for sql in ddl {

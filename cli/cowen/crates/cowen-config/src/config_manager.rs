@@ -8,7 +8,6 @@ use std::sync::Arc;
 use cowen_common::vault::Vault;
 use cowen_common::events::event_bus;
 use serde_yaml;
-use tracing::info;
 use cowen_infra::path::get_app_dir;
 
 pub trait ConfigValidator: Send + Sync {

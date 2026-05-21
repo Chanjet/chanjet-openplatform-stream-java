@@ -1,8 +1,7 @@
 use libloading::{Library, Symbol};
-use std::ffi::c_char;
 use std::path::{Path, PathBuf};
 use std::fs;
-use tracing::{info, warn};
+use tracing::info;
 
 pub struct PluginLoader {
     lib: Library,

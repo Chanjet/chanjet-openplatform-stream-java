@@ -45,7 +45,7 @@ impl DaemonService for ServerDaemonService {
 
     async fn finalize_auth(&self, profile: &str, code: &str, state: Option<&str>, session_id: &str) -> CowenResult<()> {
         let cfg_mgr = self.worker_mgr.config_manager();
-        let mut config = cfg_mgr.load(profile).await?;
+        let config = cfg_mgr.load(profile).await?;
         let app_cfg = cfg_mgr.load_app_config().await?;
         let app_dir = cowen_common::config::get_app_dir();
         
