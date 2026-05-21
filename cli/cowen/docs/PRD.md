@@ -1,6 +1,6 @@
 # cli/cowen v0.3.4 产品需求文档 (PRD)
 
-> **状态**: `DRAFT`
+> **状态**: `REVIEW`
 > **版本**: v0.3.4
 > **日期**: 2026-05-21
 
@@ -60,12 +60,28 @@
 ### 2.5 工程脚手架升级 (Makefile Modularization)
 *   **功能描述**: 将巨大的 `Makefile` 拆解为功能脚本。
 
-## 3. 影响范围评估 (Impact Assessment)
+## 3. 技术设计与关键技术选项确认 (Technical Design & Technology Options)
+
+### 3.1 进程间通信 (IPC) 方案确认
+*   **选型**: **Unix Domain Socket (UDS)**。
+*   **依据**: UDS 相比 Local Loopback 具有更高的安全性（基于文件权限控制）和更低的延迟。
+*   **兼容性**: 在 Windows 平台下自动回退至 **Named Pipes** 或 **Local Loopback**，由底层抽象库透明处理。
+
+### 3.2 诊断数据存储选型
+*   **选型**: **SQLite (via sqlx)**。
+*   **依据**: 无需外部依赖，支持复杂的 SQL 查询（便于实现 15 天滚动清理算法），且与现有 `cowen-store` 的技术栈保持一致。
+*   **位置**: 存储于 `~/.cowen/telemetry.db`。
+
+### 3.3 架构解耦实现方案
+*   **ConfigStrategy**: 采用 **Trait + Dynamic Dispatch (`Box<dyn ConfigStrategy>`)**。
+*   **DiagnosticTask**: 采用 **inventory-style 静态注册** 或 **并发插件队列** 模式，支持异步并发执行，提升诊断响应速度。
+
+## 4. 影响范围评估 (Impact Assessment)
 *   **打包交付**: 交付物增加一个 `cowen-daemon` 二进制。
 *   **存储层**: 新增 `telemetry.db` 用于记录历史轨迹。
 *   **安全性**: SSRF 校验逻辑升级为基于策略的等级校验。
 
-## 4. 任务计划 (High-level WBS)
+## 5. 任务计划 (High-level WBS)
 1. **P2.1**: 剥离并构建独立的 `cowen-daemon` 二进制。
 2. **P2.2**: 实现 SSRF 安全等级与 CIDR 校验。
 3. **P2.3**: 提取 `cowen-telemetry` 并实现 SQLite 持久化。
