@@ -25,23 +25,17 @@ graph TD
 *   **同步协议**: 初始版本采用 **Unix Domain Socket**。消息格式使用简单的 JSON-RPC-like 协议。
 
 ### 2.2 诊断与观测模块 (cowen-telemetry)
-*   **架构**: 异步事件监听器。
-*   **持久化**: 使用 SQLite 存储。包含 `worker_events`（状态变更）和 `backoff_history`（崩溃详情）两张主表。
-*   **清理逻辑**: 每次启动时执行 `DELETE FROM events WHERE created_at < date('now', '-15 days')`。
+*   **架构**: 异步事件监听器，负责捕获系统运行时的各类状态指标。
+*   **持久化**: 采用本地关系型数据库存储，实现故障现场的持久化复盘能力。
+*   **清理逻辑**: 依赖自动滚动清理机制，基于时间与容量双重阈值定期回收过时轨迹数据。
 
 ### 2.3 配置分发策略模式 (ConfigStrategy)
-*   **SPI 定义**:
-    ```rust
-    pub trait ConfigStrategy {
-        fn handle_get(&self, key: &str) -> CowenResult<Value>;
-        fn handle_set(&self, key: &str, val: &str) -> CowenResult<()>;
-    }
-    ```
-*   **动态分发**: `ConfigManager` 持有一个 `HashMap<String, Box<dyn ConfigStrategy>>`，根据路径前缀匹配策略。
+*   **抽象定义**: 定义标准配置策略接口 (SPI)，统一不同存储/缓存后端的操作契约。
+*   **动态分发**: 配置管理器基于路径前缀实施动态分发，底层通过映射表路由至对应的具体策略实现类。
 
 ### 2.4 并发诊断插件模型 (Doctor Plugins)
-*   **注册机制**: 采用 **inventory-style 静态注册**。各模块通过宏在编译期将 `DiagnosticTask` 实现类注入全局注册表。
-*   **并行执行**: 调度主循环从注册表中提取任务，使用 `tokio::task::JoinSet` 并发执行，显著降低全量检测耗时。
+*   **注册机制**: 采用编译期静态注册。各检测项通过标准元数据定义注入全局检测池。
+*   **并行执行**: 诊断调度主循环支持任务的并发分发与异步执行，旨在消除长耗时检测项对整体流程的阻塞。
 
 ## 3. 部署与物理视图 (Deployment Architecture)
 *   **交付产物**: `cowen` (CLI), `cowen-daemon` (Service)。
