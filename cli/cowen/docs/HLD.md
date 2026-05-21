@@ -39,6 +39,10 @@ graph TD
     ```
 *   **动态分发**: `ConfigManager` 持有一个 `HashMap<String, Box<dyn ConfigStrategy>>`，根据路径前缀匹配策略。
 
+### 2.4 并发诊断插件模型 (Doctor Plugins)
+*   **注册机制**: 采用 **inventory-style 静态注册**。各模块通过宏在编译期将 `DiagnosticTask` 实现类注入全局注册表。
+*   **并行执行**: 调度主循环从注册表中提取任务，使用 `tokio::task::JoinSet` 并发执行，显著降低全量检测耗时。
+
 ## 3. 部署与物理视图 (Deployment Architecture)
 *   **交付产物**: `cowen` (CLI), `cowen-daemon` (Service)。
 *   **安装路径**: 默认安装于 `/usr/local/bin/`。

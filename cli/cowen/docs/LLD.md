@@ -109,19 +109,65 @@ pub fn validate_ssrf(url: &str, level: SecurityLevel, whitelist: &[String]) -> R
 
 ---
 
-## 5. TDD 验证契约 (Testing Strategy)
+## 5. 诊断插件与并行调度实现
 
-### 5.1 IPC & Startup
+### 5.1 DiagnosticTask 契约与静态注册
+```rust
+#[async_trait]
+pub trait DiagnosticTask: Send + Sync {
+    fn name(&self) -> &str;
+    async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult>;
+}
+
+// 采用 inventory 注册实现机制
+inventory::collect!(Box<dyn DiagnosticTask>);
+```
+
+### 5.2 并发执行算子
+```rust
+async fn run_all_diagnostics(ctx: &DoctorContext) -> Vec<DiagnosticResult> {
+    let mut set = tokio::task::JoinSet::new();
+    for task in inventory::iter::<Box<dyn DiagnosticTask>> {
+        set.spawn(task.run(ctx.clone()));
+    }
+    // 收集并行执行结果...
+}
+```
+
+---
+
+## 6. SQL 迁移抽象 Trait (DSL)
+
+### 6.1 SchemaMigration 契约
+```rust
+#[async_trait]
+pub trait SchemaMigration: Send + Sync {
+    async fn get_current_version(&self, pool: &AnyPool) -> Result<u32>;
+    async fn apply_sql(&self, pool: &AnyPool, sql: &str) -> Result<()>;
+    fn get_migrations(&self) -> Vec<(u32, &'static str)>; // (version, sql)
+}
+```
+
+---
+
+## 7. TDD 验证契约 (Testing Strategy)
+
+### 7.1 IPC & Startup
 *   **GIVEN**: `cowen-daemon` 未运行。
 *   **WHEN**: 执行 `cowen daemon status`。
 *   **THEN**: CLI 成功拉起后台进程，并在 2s 后打印状态，`~/.cowen/uds.sock` 文件被创建。
 
-### 5.2 SSRF Protection
+### 7.2 SSRF Protection
 *   **GIVEN**: 安全等级为 `Strict`。
 *   **WHEN**: 设置 `webhook_target` 为 `192.168.1.1`。
 *   **THEN**: 转发时立即报错 `SSRFViolation`。
 
-### 5.3 Telemetry GC
+### 7.3 Telemetry GC
 *   **GIVEN**: 数据库中有 10,005 条记录，最旧的一条是 20 天前。
 *   **WHEN**: 执行 GC。
 *   **THEN**: 记录数减至 10,000，且 20 天前的记录被物理删除。
+
+### 7.4 Doctor Plugin
+*   **GIVEN**: 注册了 3 个并发诊断任务。
+*   **WHEN**: 执行 `cowen doctor`。
+*   **THEN**: 3 个任务并行启动，总耗时应显著小于串行执行耗时之和。

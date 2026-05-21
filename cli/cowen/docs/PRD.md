@@ -56,9 +56,16 @@
     *   **ConfigManager 策略化**: 引入 `ConfigStrategy` SPI。
     *   **Doctor 插件化**: 重构 `doctor.rs` 为基于 `DiagnosticTask` 的并发插件模型。
     *   **SQL 迁移抽象**: 提取通用的 `SchemaMigration` Trait。
+*   **验收标准**: 
+    *   `ConfigManager` 核心代码不再包含特定存储类型的硬编码逻辑，相关模块行数减少 30% 以上。
+    *   新增诊断项仅需实现 `DiagnosticTask` Trait 并注册，无需修改 `doctor` 命令的调度主循环。
+    *   `SchemaMigration` 成功适配 SQLite 和 MySQL，且单元测试验证 DDL 生成正确。
 
 ### 2.5 工程脚手架升级 (Makefile Modularization)
-*   **功能描述**: 将巨大的 `Makefile` 拆解为功能脚本。
+*   **功能描述**: 将巨大的 `Makefile` 拆解为功能脚本，清理敏感 ID。
+*   **验收标准**: 
+    *   `Makefile` 文件体积缩小 50% 以上，核心逻辑迁移至 `scripts/` 下的独立模块化脚本。
+    *   每个子脚本（如 `build.sh`, `test.sh`）支持独立执行并具备标准的退出码语义。
 
 ## 3. 技术设计与关键技术选项确认 (Technical Design & Technology Options)
 
@@ -74,7 +81,8 @@
 
 ### 3.3 架构解耦实现方案
 *   **ConfigStrategy**: 采用 **Trait + Dynamic Dispatch (`Box<dyn ConfigStrategy>`)**。
-*   **DiagnosticTask**: 采用 **inventory-style 静态注册** 或 **并发插件队列** 模式，支持异步并发执行，提升诊断响应速度。
+*   **DiagnosticTask**: 确认采用 **inventory-style 静态注册**。
+*   **依据**: 由于诊断项在编译期即确定，静态注册能提供更好的类型安全性和较低的运行时复杂度，同时支持异步并发执行。
 
 ## 4. 影响范围评估 (Impact Assessment)
 *   **打包交付**: 交付物增加一个 `cowen-daemon` 二进制。
