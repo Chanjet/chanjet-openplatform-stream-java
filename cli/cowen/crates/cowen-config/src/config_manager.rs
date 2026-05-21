@@ -460,6 +460,37 @@ impl ConfigManager {
         Ok(())
     }
 
+    pub async fn unset_value(&self, profile: &str, key: &str) -> CowenResult<()> {
+        let locked_fields = ["openapi_url", "stream_url", "app_key", "app_mode"];
+        if locked_fields.contains(&key) {
+             return Err(CowenError::Config(format!("Field '{}' is mandatory and cannot be unset", key)));
+        }
+
+        let global_fields = ["storage.store", "monitor_port"];
+        let is_global = global_fields.contains(&key) || key.starts_with("storage."); 
+        
+        if is_global {
+            let mut app_cfg = self.load_app_config().await?;
+            let mut val = serde_json::to_value(&app_cfg)?;
+            crate::path_parser::unset_by_path(&mut val, key)?;
+            app_cfg = serde_json::from_value(val)?;
+            self.save_app_config(&app_cfg).await?;
+        } else {
+            let config = self.load(profile).await?;
+            let mut val = serde_json::to_value(&config)?;
+            crate::path_parser::unset_by_path(&mut val, key)?;
+            let mut new_config: Config = serde_json::from_value(val)?;
+            
+            new_config.app_secret = config.app_secret;
+            new_config.certificate = config.certificate;
+            new_config.encrypt_key = config.encrypt_key;
+            new_config.version = config.version;
+            
+            self.save(profile, &mut new_config).await?;
+        }
+        Ok(())
+    }
+
     pub async fn auto_migrate(&self) -> CowenResult<()> {
         let local_profiles = self.list_local_profiles()?;
         let mut app_cfg = self.load_app_config().await?;

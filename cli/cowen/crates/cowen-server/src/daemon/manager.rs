@@ -1,113 +1,126 @@
 use std::collections::HashMap;
-use cowen_auth::client::Client;
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::Mutex;
 use cowen_common::{CowenResult, CowenError};
 use cowen_common::config::Config;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use cowen_config::ConfigManager;
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub enum WorkerStatus {
-    Starting,
-    Running,
-    Stopped,
-    Failed(String),
-}
-
-pub struct WorkerHandle {
-    pub profile: String,
-    pub status: WorkerStatus,
-    pub stop_tx: broadcast::Sender<()>,
-}
+use crate::daemon::state::{ProfileWorker, WorkerStatus};
+use tokio::time::{Duration, Instant};
+use cowen_auth::client::Client;
 
 pub struct WorkerManager {
     cfg_mgr: ConfigManager,
-    workers: Arc<Mutex<HashMap<String, WorkerHandle>>>,
+    workers: Arc<Mutex<HashMap<String, ProfileWorker>>>,
 }
 
 impl WorkerManager {
-    pub fn new(cfg_mgr: ConfigManager) -> Self {
-        Self {
+    pub fn new(cfg_mgr: ConfigManager) -> Arc<Self> {
+        let workers = Arc::new(Mutex::new(HashMap::new()));
+        let manager = Arc::new(Self {
             cfg_mgr,
-            workers: Arc::new(Mutex::new(HashMap::new())),
-        }
+            workers,
+        });
+
+        // Start Watchdog
+        let manager_clone = manager.clone();
+        tokio::spawn(async move {
+            manager_clone.watchdog_loop().await;
+        });
+
+        manager
     }
 
     pub fn config_manager(&self) -> &ConfigManager {
         &self.cfg_mgr
     }
 
-        pub async fn start_worker(&self, profile: &str, config: Config) -> CowenResult<()> {
-        let mut workers = self.workers.lock().await;
-        if workers.contains_key(profile) {
-            info!(target: "sys", profile = %profile, "Worker already exists, skipping start");
-            return Ok(());
-        }
+    pub async fn start_worker(&self, profile: &str, config: Config) -> CowenResult<()> {
+        let ready_rx = {
+            let mut workers = self.workers.lock().await;
+            let worker = workers.entry(profile.to_string()).or_insert_with(|| ProfileWorker::new(profile));
 
-        let (stop_tx, _) = broadcast::channel(1);
-        let mut stop_rx = stop_tx.subscribe();
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        let profile_name = profile.to_string();
+            if !worker.can_start() {
+                info!(target: "sys", profile = %profile, status = ?worker.status, "Worker already active or draining, skipping start");
+                return Ok(());
+            }
 
-        let handle = WorkerHandle {
-            profile: profile_name.clone(),
-            status: WorkerStatus::Starting,
-            stop_tx: stop_tx.clone(),
+            self.spawn_worker_internal_raw(worker, config)?
         };
-        workers.insert(profile_name.clone(), handle);
-        drop(workers); // 🔑 Fix deadlock: drop lock before awaiting ready_rx
 
-        let workers_clone = self.workers.clone();
-        let cfg_mgr = self.cfg_mgr.clone();
-        let cancel_token = tokio_util::sync::CancellationToken::new();
-        let cancel_token_for_worker = cancel_token.clone();
+        // Wait for readiness OUTSIDE the lock
+        match tokio::time::timeout(Duration::from_secs(30), ready_rx).await {
+            Ok(Ok(_)) => {
+                let mut workers = self.workers.lock().await;
+                if let Some(w) = workers.get_mut(profile) {
+                    w.status = WorkerStatus::Running;
+                }
+                Ok(())
+            }
+            _ => {
+                warn!(target: "sys", profile = %profile, "Worker signaled start failure or timed out");
+                Ok(())
+            }
+        }
+    }
+
+    fn spawn_worker_internal_raw(&self, worker: &mut ProfileWorker, config: Config) -> CowenResult<tokio::sync::oneshot::Receiver<()>> {
+        worker.status = WorkerStatus::Starting;
+        worker.cancel_token = tokio_util::sync::CancellationToken::new();
         
-        tokio::spawn(async move {
-            info!(target: "sys", profile = %profile_name, "Starting worker for profile");
-            
-            // Spawn a task to listen for the stop signal and trigger cancellation
-            let ct = cancel_token.clone();
-            let pn = profile_name.clone();
-            tokio::spawn(async move {
-                let _ = stop_rx.recv().await;
-                info!(target: "sys", profile = %pn, "Worker received stop signal, triggering cancellation token");
-                ct.cancel();
-            });
+        let profile_name = worker.profile.clone();
+        let cfg_mgr = self.cfg_mgr.clone();
+        let cancel_token = worker.cancel_token.clone();
+        let workers_clone = self.workers.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
-            // Run the worker to completion (it will return when cancel_token is triggered)
-            let result = run_profile_worker(&profile_name, config, cfg_mgr, ready_tx, cancel_token_for_worker).await;
+        let join_handle = tokio::spawn(async move {
+            let result = run_profile_worker(&profile_name, config, cfg_mgr, ready_tx, cancel_token).await;
 
-            let mut w = workers_clone.lock().await;
-            if let Some(h) = w.get_mut(&profile_name) {
+            let mut w_map = workers_clone.lock().await;
+            if let Some(w) = w_map.get_mut(&profile_name) {
                 match result {
-                    Ok(_) => h.status = WorkerStatus::Stopped,
+                    Ok(_) => {
+                        info!(target: "sys", profile = %profile_name, "Worker stopped gracefully");
+                        w.status = WorkerStatus::Stopped;
+                    }
                     Err(e) => {
                         error!(target: "sys", profile = %profile_name, error = %e, "Worker failed");
-                        h.status = WorkerStatus::Failed(e.to_string());
+                        let current_retry = match w.status {
+                            WorkerStatus::Backoff { retry_count, .. } => retry_count,
+                            _ => 0,
+                        };
+                        
+                        let next_retry = current_retry + 1;
+
+                        if next_retry > 5 {
+                            w.status = WorkerStatus::Failed { reason: format!("Circuit breaker triggered: {}", e) };
+                        } else {
+                            let delay = Duration::from_secs(2u64.pow(next_retry as u32).min(60));
+                            w.status = WorkerStatus::Backoff { 
+                                retry_count: next_retry, 
+                                next_retry_at: Instant::now() + delay,
+                                last_error: e.to_string()
+                            };
+                            info!(target: "sys", profile = %profile_name, "Entering backoff state, will retry in {:?}", delay);
+                        }
                     }
                 }
             }
         });
 
-        // Wait for worker to be ready
-        match tokio::time::timeout(tokio::time::Duration::from_secs(40), ready_rx).await {
-            Ok(Ok(_)) => {
-                let mut w = self.workers.lock().await;
-                if let Some(h) = w.get_mut(profile) {
-                    h.status = WorkerStatus::Running;
-                }
-                Ok(())
-            }
-            Ok(Err(_)) => Err(CowenError::Internal("Worker failed to signal readiness".to_string())),
-            Err(_) => Err(CowenError::Internal("Worker startup timed out".to_string())),
-        }
+        worker.join_handle = Some(join_handle);
+        Ok(ready_rx)
     }
 
     pub async fn stop_worker(&self, profile: &str) -> CowenResult<()> {
-        let workers = self.workers.lock().await;
-        if let Some(h) = workers.get(profile) {
-            let _ = h.stop_tx.send(());
+        let mut workers = self.workers.lock().await;
+        if let Some(worker) = workers.get_mut(profile) {
+            if worker.can_stop() {
+                info!(target: "sys", profile = %profile, "Stopping worker (Draining)");
+                worker.status = WorkerStatus::Draining;
+                worker.cancel_token.cancel();
+            }
             Ok(())
         } else {
             Err(CowenError::api(format!("Worker for profile '{}' not found", profile)))
@@ -117,8 +130,17 @@ impl WorkerManager {
     pub async fn reload_worker(&self, profile: &str) -> CowenResult<()> {
         let config = self.cfg_mgr.load(profile).await?;
         self.stop_worker(profile).await?;
-        // Brief wait for stop to propagate
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        
+        for _ in 0..50 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let workers = self.workers.lock().await;
+            if let Some(w) = workers.get(profile) {
+                if !w.is_active() { break; }
+            } else {
+                break;
+            }
+        }
+        
         self.start_worker(profile, config).await
     }
 
@@ -126,7 +148,59 @@ impl WorkerManager {
         let workers = self.workers.lock().await;
         workers.iter().map(|(k, v)| (k.clone(), v.status.clone())).collect()
     }
+
+    async fn watchdog_loop(&self) {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            let mut to_restart = Vec::new();
+
+            {
+                let w_map = self.workers.lock().await;
+                let now = Instant::now();
+                for (name, worker) in w_map.iter() {
+                    if let WorkerStatus::Backoff { next_retry_at, .. } = &worker.status {
+                        if now >= *next_retry_at {
+                            to_restart.push(name.clone());
+                        }
+                    }
+                }
+            }
+
+            for name in to_restart {
+                if let Ok(config) = self.cfg_mgr.load(&name).await {
+                    let ready_rx = {
+                        let mut w_map = self.workers.lock().await;
+                        if let Some(worker) = w_map.get_mut(&name) {
+                            if let WorkerStatus::Backoff { .. } = &worker.status {
+                                info!(target: "sys", profile = %name, "Watchdog triggering restart from backoff");
+                                self.spawn_worker_internal_raw(worker, config).ok()
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    };
+
+                    if let Some(rx) = ready_rx {
+                        // Wait for readiness OUTSIDE the lock
+                        if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_secs(30), rx).await {
+                            let mut workers = self.workers.lock().await;
+                            if let Some(w) = workers.get_mut(&name) {
+                                w.status = WorkerStatus::Running;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
+
+#[cfg(test)]
+#[path = "state_tests.rs"]
+mod state_tests;
 
 async fn run_profile_worker(
     profile: &str, 
@@ -141,36 +215,24 @@ async fn run_profile_worker(
 
     let _forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), vault.clone())?);
     
-    // Create the ShutdownGate for this worker
     let shutdown_gate = crate::utils::shutdown::ShutdownGate::new();
 
-    // Signal readiness early before blocking operations like token sync
+    // Signal readiness
     let _ = ready_tx.send(());
 
-    // 🚀 PROACTIVE SYNC (Non-blocking): Ensure we have the latest token from shared storage immediately upon start/reload
+    // Proactive Sync
     let auth = cowen_auth::create_auth_client(Arc::new(cowen_auth::VaultTokenPool::new(vault.clone())));
     let sync_profile = profile.to_string();
     let sync_config = config.clone();
     let sync_gate = shutdown_gate.clone();
     tokio::spawn(async move {
         let _guard = sync_gate.enter();
-        tracing::info!(target: "sys", profile = %sync_profile, "Proactively syncing token from vault in background");
         let _ = auth.get_token(&sync_profile, &sync_config, &reqwest::header::HeaderMap::new()).await;
     });
 
-    // 1. Bridge Task (Core Engine)
-    // The bridge handles streaming, proxy (if enabled), and token maintenance.
-    let b_profile = profile.to_string();
-    let b_config = config.clone();
-    let b_vault = vault.clone();
-    let b_proxy_port = config.proxy_port;
-    let b_enable_proxy = config.proxy_enabled;
-    let b_is_dist = cfg_mgr.is_distributed_storage(&app_cfg);
-    
     if let Err(e) = crate::cmd::bridge::run(
-        &b_profile, &b_config, b_vault, b_proxy_port, b_enable_proxy, b_is_dist, cancel_token, shutdown_gate
+        profile, &config, vault, config.proxy_port, config.proxy_enabled, cfg_mgr.is_distributed_storage(&app_cfg), cancel_token, shutdown_gate
     ).await {
-         error!(target: "sys", profile = %b_profile, error = %e, "Bridge task failed");
          return Err(CowenError::Internal(format!("Bridge task failed: {}", e)));
     }
 

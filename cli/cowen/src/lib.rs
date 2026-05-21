@@ -165,6 +165,11 @@ pub enum ConfigCommands {
         #[arg(help = "配置项路径")]
         key: String,
     },
+    /// 删除配置项 (支持数组坍缩)
+    Unset {
+        #[arg(help = "配置项路径 (e.g., search.plugins.0)")]
+        key: String,
+    },
     /// 列出所有配置项
     List {
         #[arg(short, long, default_value = "table", help = "输出格式 (table, json)")]
@@ -652,6 +657,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             Some(ConfigCommands::Get { key }) => {
                 let val = cfg_mgr.get_value(&active_profile, key).await.map_err(|e| anyhow::anyhow!(e))?;
                 println!("{}", val);
+            }
+            Some(ConfigCommands::Unset { key }) => {
+                cfg_mgr.unset_value(&active_profile, key).await.map_err(|e| anyhow::anyhow!(e))?;
+                println!("✅ Successfully unset '{}'", key);
             }
             Some(ConfigCommands::List { format }) => {
                 let val = cfg_mgr.list_values(&active_profile).await.map_err(|e| anyhow::anyhow!(e))?;

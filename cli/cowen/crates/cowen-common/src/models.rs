@@ -179,6 +179,30 @@ pub struct DlqMessage {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+pub trait StoreItem: Serialize + for<'de> Deserialize<'de> + Send + Sync {
+    fn key_prefix() -> &'static str;
+}
+
+impl StoreItem for Token {
+    fn key_prefix() -> &'static str { "tokens" }
+}
+
+impl StoreItem for Ticket {
+    fn key_prefix() -> &'static str { "tickets" }
+}
+
+impl StoreItem for DlqMessage {
+    fn key_prefix() -> &'static str { "dlq" }
+}
+
+impl StoreItem for Item {
+    fn key_prefix() -> &'static str { "cfg" }
+}
+
+impl StoreItem for AuditEntry {
+    fn key_prefix() -> &'static str { "audit" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

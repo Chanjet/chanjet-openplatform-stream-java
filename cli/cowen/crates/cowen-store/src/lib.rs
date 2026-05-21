@@ -32,10 +32,28 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
     // 1. Core Logic Redirection (Legacy Support)
     if url == "local" {
          let seal_path = app_dir.join(".seal");
-         if seal_path.is_file() {
-             return Ok(Arc::new(file::MonolithicSealStore::new(seal_path, fingerprint)) as Arc<dyn Store>);
+         let vault_dir = app_dir.join("vault");
+         let is_sealed = seal_path.is_file();
+         let fp_opt = if is_sealed { Some(fingerprint) } else { None };
+
+         // 🚀 V3 MIGRATION TRIGGER
+         if vault_dir.is_dir() {
+             if let Ok(entries) = std::fs::read_dir(&vault_dir) {
+                 for entry in entries.flatten() {
+                     if let Some(name) = entry.file_name().to_str() {
+                         if name.ends_with(".json") {
+                             let profile = &name[..name.len()-5];
+                             let _ = file::migration::migrate_v2_to_v3(&vault_dir, profile, fp_opt).await;
+                         }
+                     }
+                 }
+             }
          }
-         return Ok(Arc::new(FileStore::new(seal_path, fingerprint)?) as Arc<dyn Store>);
+
+         if is_sealed {
+             return Ok(Arc::new(file::MonolithicSealStore::new(vault_dir, fingerprint)) as Arc<dyn Store>);
+         }
+         return Ok(Arc::new(FileStore::new(vault_dir, None)?) as Arc<dyn Store>);
     }
 
     let mut actual_url = if url == "innerdb" {

@@ -80,6 +80,14 @@ else
     exit 1
 fi
 
+# 🔌 🔌 ENSURE SEARCH PLUGINS DYLIB IS AVAILABLE
+# The test scripts expect the dylib in the same directory as the binary
+FIND_DYLIB=$(find target/release/deps -name "libcowen_search_embedding.dylib" | head -n 1)
+[ -z "$FIND_DYLIB" ] && FIND_DYLIB=$(find target/debug/deps -name "libcowen_search_embedding.dylib" | head -n 1)
+if [ -n "$FIND_DYLIB" ]; then
+    cp "$FIND_DYLIB" "$(dirname "$BINARY_PATH")/libcowen_search_embedding.dylib"
+fi
+
 cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"
 export COWEN_BIN="$(pwd)/$(dirname "$BINARY_PATH")/cowen-test"
 

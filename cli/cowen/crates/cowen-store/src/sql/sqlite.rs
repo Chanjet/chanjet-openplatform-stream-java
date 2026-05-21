@@ -438,7 +438,7 @@ impl SqlDriver for SqliteDriver {
 
     async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> {
         sqlx::query("DELETE FROM cowen_dlq WHERE id = ?")
-            .bind(id as i32)
+            .bind(id)
             .execute(&self.pool).await
             .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())

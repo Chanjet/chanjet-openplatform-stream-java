@@ -13,10 +13,11 @@ pub struct ServerDaemonService {
 
 impl ServerDaemonService {
     pub fn new(cfg_mgr: ConfigManager) -> Self {
-        Self { 
-            worker_mgr: Arc::new(crate::daemon::manager::WorkerManager::new(cfg_mgr)),
+        Self {
+            worker_mgr: crate::daemon::manager::WorkerManager::new(cfg_mgr),
         }
     }
+
 }
 
 #[async_trait]
