@@ -4,8 +4,19 @@
 > **阶段**: Architecture Blueprint
 > **状态**: `DRAFT`
 
-## 1. 架构演进目标 (Architectural Evolution)
-v0.3.3 的核心架构演进在于从“过程化控制”向“声明式/状态驱动控制”转变。重点通过状态机模式隔离复杂的异步副作用，并通过更精细的 I/O 层重构消除技术债。
+## 1. 系统上下文与依赖拓扑 (System Context & Topology)
+v0.3.3 维持原有的单进程架构，但强化了内部组件间的状态同步契约。
+
+```mermaid
+graph TD
+    CLI[cowen CLI] -->|IPC/HTTP| MON[cowen-monitor]
+    CLI -->|Local FS| CFG[cowen-config]
+    SRV[cowen-server] -->|Manages| SM[Worker State Machine]
+    SM -->|Drives| WK[Profile Workers]
+    WK -->|I/O| STO[cowen-store]
+    MON -->|Inspects| SM
+    STO -->|Reads/Writes| FS[(Local Filesystem)]
+```
 
 ## 2. 核心模块设计 (Core Module Design)
 
@@ -14,12 +25,13 @@ v0.3.3 的核心架构演进在于从“过程化控制”向“声明式/状态
 
 *   **状态定义 (State Enum)**:
     *   `Created`, `Starting`, `Running`.
-    *   `Backoff`: 崩溃后的等待期。
-    *   `Failed`: 触发熔断。从 `Failed` 恢复至 `Starting` **必须由用户通过 `daemon restart` 命令显式触发**，不支持任何形式的隐式或自动唤醒。
+    *   `Backoff`: 崩溃后的等待期，持有 `retry_count` 和 `next_retry_at`。
+    *   `Failed`: 触发熔断，停止自愈。
     *   `Draining`, `Stopped`.
 
 *   **状态可见性 (Observability)**:
     *   Monitor API (`/v1/status`) 扩展返回 `Backoff` 详情及 `Failed` 熔断原因。
+    *   `cowen status` 命令渲染重试倒计时。
 
 ### 2.2 路径解析器 (Path Parser) 扩展
 `path_parser.rs` 支持数组 AST 解析、键值匹配寻址与坍缩删除。
@@ -29,9 +41,6 @@ v0.3.3 的核心架构演进在于从“过程化控制”向“声明式/状态
     2.  `locator` (`key:val`): 数组内部匹配寻址。
     3.  `index` (数字): 基础下标寻址。
     4.  `append` (`+`): 数组末尾新增。
-
-*   **即时绑定机制**:
-    寻址引擎基于当前内存中的配置快照进行匹配。若一次 `set` 操作改变了对象的标识符字段，该定位器在下一条指令中将立即失效。
 
 ### 2.3 存储层 (Storage Layer) 扁平化与迁移
 消除 `FileStore` 中的深层嵌套与布局混乱。
@@ -43,9 +52,25 @@ v0.3.3 的核心架构演进在于从“过程化控制”向“声明式/状态
     启动时执行单向静默迁移。
 
 *   **垃圾回收接口 (GC Interface)**:
-    定义 `list_orphans()` 方法，通过扫描物理目录并对比当前配置（如插件列表），识别出不再被配置引用的“孤儿数据文件”，为诊断工具提供数据。
+    定义 `list_orphans()` 方法，通过扫描物理目录并对比当前配置（如插件列表），识别出不再被配置引用的“孤儿数据文件”。
 
+## 3. 部署架构 (Deployment Architecture)
+`cowen` 采用单二进制 Sidecar 模式部署。
 
-## 3. 容错与安全性 (Fault Tolerance & Security)
-*   **熔断保护**: 防止因环境故障导致的死循环重启。
-*   **配置脱敏**: 确保 `unset` 敏感项后不再残留痕迹。
+*   **二进制交付**: AArch64/X86_64 静态链接二进制。
+*   **资源目录**: 遵循 XDG 规范，存储于 `~/.cowen/`。
+*   **持久化层**: v0.3.3 引入目录分级，每个 Profile 拥有独立的 `vault/` 树结构。
+
+## 4. 非功能性需求设计 (NFRs)
+
+### 4.1 可观测性 (Observability)
+*   **指标 (Metrics)**: Monitor API 新增 `cowen_worker_restart_total` 和 `cowen_worker_state` 指标，支持接入 Prometheus 监控。
+*   **告警 (Alerting)**: 当 Worker 转移至 `Failed` 状态时，`cowen-monitor` 会在 `/v1/health` 接口返回 `DOWN` 状态，触发外部存活探针告警。
+
+### 4.2 高可用与性能 (HA & Performance)
+*   **启动时延**: `migrate_v2_to_v3` 必须在 500ms 内完成（以 1000 个小文件计），避免阻塞守护进程启动。
+*   **容错**: 状态机在 `Backoff` 状态下仍允许接收 `Stop` 指令，确保系统可控退出。
+
+## 5. 架构决策记录 (ADR)
+*   **ADR-001**: 采用手写状态机而非第三方 crate，目的是减少编译依赖并获得对 `tokio` 异步上下文的最高控制权。
+*   **ADR-002**: 存储布局从单文件切换到目录树，是为了解决超大规模 DLQ 场景下的单文件 I/O 锁竞争问题。

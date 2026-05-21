@@ -14,7 +14,10 @@
 - [x] **实现优雅关机 (Graceful Shutdown)**: 显式跟踪所有异步任务（如 Token 交换、事件处理），确保守护进程退出时能安全回收资源。
 - [x] **优化 DLQ 重试逻辑**: 改进 `Forwarder::retry_message`，实现分页查询与按 ID 精确检索，解决了 OOM 风险。
 - [ ] **重构 Worker 生命周期管理**: 将 `WorkerManager` 中的复杂同步逻辑（oneshot/broadcast/Mutex）抽象为独立的 `ProfileWorker` 状态机，消除脆弱的 `drop(lock)` 模式，提升稳定性。
-- [ ] **ConfigManager 扁平化重构**: 消除 `auto_migrate` 等函数中的深层嵌套，将存储类型的元数据逻辑（是否分布式、默认 URL 等）从硬编码判断迁移至 `StorageConfig` 驱动。
+- [ ] **ConfigManager 扁平化重构**: 
+    - 消除 `auto_migrate` 等函数中的深层嵌套。
+    - 将存储类型的元数据逻辑（是否分布式、默认 URL 等）从硬编码判断迁移至 `StorageConfig` 驱动。
+    - **增强 `path_parser`**: 支持数组下标访问（如 `search.plugins.0.name`），彻底消除配置数组（如插件列表）时需手动输入完整 JSON 的痛点。
 - [ ] **FileStore 嵌套与冗余清理**: 
     - 修复 `delete_dlq_by_id` 等方法中的 6 层“毁灭金字塔”嵌套，改用迭代器或扁平化逻辑。
     - 将 `FileStore` 与 `MonolithicSealStore` 拆分为独立文件。
