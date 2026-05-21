@@ -474,6 +474,49 @@ impl SqlDriver for MssqlDriver {
         }).collect())
     }
 
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> {
+        let mut conn = self.pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let row = conn.query("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE id = @p1", &[&id])
+            .await.map_err(|e| CowenError::Store(e.to_string()))?
+            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        
+        Ok(row.map(|r| DlqMessage {
+            id: Some(r.get::<i64, _>(0).unwrap_or(0)),
+            profile: r.get::<&str, _>(1).unwrap_or_default().to_string(),
+            topic: r.get::<&str, _>(2).unwrap_or_default().to_string(),
+            payload: r.get::<&str, _>(3).unwrap_or_default().to_string(),
+            retry_count: r.get::<i32, _>(4).unwrap_or(0),
+            error: r.get::<&str, _>(5).map(|s| s.to_string()),
+            created_at: r.get::<DateTime<Utc>, _>(6).unwrap_or_else(|| Utc::now()),
+        }))
+    }
+
+    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>> {
+        let mut conn = self.pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let offset_val = offset as i64;
+        let limit_val = limit as i64;
+        let rows = conn.query("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p1 ORDER BY id OFFSET @p2 ROWS FETCH NEXT @p3 ROWS ONLY", &[&profile, &offset_val, &limit_val])
+            .await.map_err(|e| CowenError::Store(e.to_string()))?
+            .into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        
+        Ok(rows.into_iter().map(|r| DlqMessage {
+            id: Some(r.get::<i64, _>(0).unwrap_or(0)),
+            profile: r.get::<&str, _>(1).unwrap_or_default().to_string(),
+            topic: r.get::<&str, _>(2).unwrap_or_default().to_string(),
+            payload: r.get::<&str, _>(3).unwrap_or_default().to_string(),
+            retry_count: r.get::<i32, _>(4).unwrap_or(0),
+            error: r.get::<&str, _>(5).map(|s| s.to_string()),
+            created_at: r.get::<DateTime<Utc>, _>(6).unwrap_or_else(|| Utc::now()),
+        }).collect())
+    }
+
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> {
+        let mut conn = self.pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        conn.execute("DELETE FROM cowen_dlq WHERE id = @p1", &[&id])
+            .await.map_err(|e| CowenError::Store(e.to_string()))?;
+        Ok(())
+    }
+
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
         let mut conn = self.pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
         conn.execute("DELETE FROM cowen_config WHERE profile = @p1", &[&profile]).await.map_err(|e| CowenError::Store(e.to_string()))?;

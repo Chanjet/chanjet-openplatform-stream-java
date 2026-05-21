@@ -29,14 +29,15 @@ impl Forwarder {
     }
 
     pub async fn retry_message(&self, id: i64) -> CowenResult<()> {
-        let all = self.dlq.list_all().await?;
-        let entry = all.iter().find(|e| e.id == id).ok_or_else(|| CowenError::Store("Message not found in DLQ".to_string()))?;
+        let entry = self.dlq.get_by_id(id).await?
+            .ok_or_else(|| CowenError::Store(format!("Message with ID {} not found in DLQ", id)))?;
+        
         let event: Value = serde_json::from_str(&entry.payload)?;
         
         self.forward(event).await?;
         
-        // On success, delete from DLQ
-        self.dlq.delete(id, &entry.topic).await?;
+        // On success, delete from DLQ using precise ID
+        self.dlq.delete_by_id(id).await?;
         Ok(())
     }
 

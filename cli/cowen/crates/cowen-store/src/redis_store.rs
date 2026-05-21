@@ -288,6 +288,34 @@ impl Store for RedisStore {
         Ok(msgs)
     }
 
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> {
+        // Redis implementation is list-based per topic, so we have to scan
+        // This is inefficient but Redis is not the primary target for this large-scale DLQ optimization
+        let mut conn = self.conn.clone();
+        let keys: Vec<String> = redis::cmd("KEYS").arg("*:dlq:*").query_async(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        for k in keys {
+            let list: Vec<String> = redis::cmd("LRANGE").arg(&k).arg(0).arg(-1).query_async(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
+            for json in list {
+                if let Ok(m) = serde_json::from_str::<DlqMessage>(&json) {
+                    if m.id == Some(id) { return Ok(Some(m)); }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>> {
+        let all = self.list_all_dlq(profile).await?;
+        Ok(all.into_iter().skip(offset).take(limit).collect())
+    }
+
+    async fn delete_dlq_by_id(&self, _id: i64) -> CowenResult<()> {
+        // Deleting by ID in Redis list-based storage is complex without knowing the topic.
+        // For now, we rely on pop_dlq(topic) which is what the current system uses.
+        // If needed, we could scan all lists and LREM the specific JSON.
+        Err(cowen_common::CowenError::Store("delete_dlq_by_id not implemented for Redis".to_string()))
+    }
+
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
         let mut conn = self.conn.clone();
         let pattern = format!("{}:*", profile);

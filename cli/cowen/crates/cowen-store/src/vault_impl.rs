@@ -160,6 +160,15 @@ impl DlqDomain for StoreVault {
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<cowen_common::models::DlqMessage>> {
         self.primary.list_all_dlq(profile).await
     }
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<cowen_common::models::DlqMessage>> {
+        self.primary.get_dlq_by_id(id).await
+    }
+    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<cowen_common::models::DlqMessage>> {
+        self.primary.list_dlq_paged(profile, offset, limit).await
+    }
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> {
+        self.primary.delete_dlq_by_id(id).await
+    }
 }
 
 #[async_trait]

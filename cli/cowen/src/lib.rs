@@ -360,7 +360,12 @@ pub enum ServiceCommands {
 #[derive(clap::Subcommand)]
 pub enum DlqCommands {
     /// List events currently in the Dead Letter Queue
-    List,
+    List {
+        #[arg(long, default_value = "1", help = "Page number to view")]
+        page: usize,
+        #[arg(short = 's', long, default_value = "20", help = "Number of items per page")]
+        page_size: usize,
+    },
     /// Retry processing a specific event by ID
     Retry {
         /// Event ID to retry
@@ -679,7 +684,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             ProfileCommands::Rename { old_name, new_name } => cmd::system::rename_profile(old_name, new_name, &cfg_mgr, vault.clone(), cowen_common::events::event_bus()).await?,
         }
         Commands::Dlq { action } => match action {
-            DlqCommands::List => cmd::dlq::list(&active_profile, &config, &cli.format, vault.clone()).await?,
+            DlqCommands::List { page, page_size } => cmd::dlq::list(&active_profile, &config, &cli.format, *page, *page_size, vault.clone()).await?,
             DlqCommands::Retry { id } => cmd::dlq::retry(&active_profile, &config, id.clone(), vault.clone()).await?,
             DlqCommands::Purge => cmd::dlq::purge(&active_profile, &config, vault.clone()).await?,
         }

@@ -255,6 +255,61 @@ impl cowen_common::store::Store for FileStore {
         Ok(msgs)
     }
 
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> {
+        let root = self.root_dir.join("dlq");
+        if !root.exists() {
+            // Check in profiles
+            if let Ok(entries) = fs::read_dir(&self.root_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    if entry.path().is_dir() {
+                        let msgs = self.list_all_dlq(&entry.file_name().to_string_lossy()).await?;
+                        if let Some(m) = msgs.into_iter().find(|m| m.id == Some(id)) {
+                            return Ok(Some(m));
+                        }
+                    }
+                }
+            }
+            return Ok(None);
+        }
+        Ok(None)
+    }
+
+    async fn list_dlq_paged(&self, p: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>> {
+        let all = self.list_all_dlq(p).await?;
+        Ok(all.into_iter().skip(offset).take(limit).collect())
+    }
+
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> {
+        if let Ok(entries) = fs::read_dir(&self.root_dir) {
+            for profile_entry in entries.filter_map(|e| e.ok()) {
+                if profile_entry.path().is_dir() {
+                    let dlq_root = profile_entry.path().join("dlq");
+                    if dlq_root.exists() {
+                        if let Ok(topics) = fs::read_dir(dlq_root) {
+                            for topic_entry in topics.filter_map(|e| e.ok()) {
+                                if topic_entry.path().is_dir() {
+                                    if let Ok(msgs) = fs::read_dir(topic_entry.path()) {
+                                        for msg_entry in msgs.filter_map(|e| e.ok()) {
+                                            if let Ok(json) = fs::read_to_string(msg_entry.path()) {
+                                                if let Ok(m) = serde_json::from_str::<DlqMessage>(&json) {
+                                                    if m.id == Some(id) {
+                                                        let _ = fs::remove_file(msg_entry.path());
+                                                        return Ok(());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
 
     async fn clear_profile(&self, p: &str) -> CowenResult<()> {
         let dir = self.root_dir.join(p);
@@ -554,6 +609,9 @@ impl cowen_common::store::Store for MonolithicSealStore {
     async fn pop_dlq(&self, _p: &str, _t: &str) -> CowenResult<Option<DlqMessage>> { Ok(None) }
     async fn list_dlq(&self, _p: &str, _l: usize) -> CowenResult<Vec<DlqMessage>> { Ok(vec![]) }
     async fn list_all_dlq(&self, _p: &str) -> CowenResult<Vec<DlqMessage>> { Ok(vec![]) }
+    async fn get_dlq_by_id(&self, _id: i64) -> CowenResult<Option<DlqMessage>> { Ok(None) }
+    async fn list_dlq_paged(&self, _p: &str, _o: usize, _l: usize) -> CowenResult<Vec<DlqMessage>> { Ok(vec![]) }
+    async fn delete_dlq_by_id(&self, _id: i64) -> CowenResult<()> { Ok(()) }
 
     async fn clear_profile(&self, p: &str) -> CowenResult<()> {
         self.with_lock(|| {

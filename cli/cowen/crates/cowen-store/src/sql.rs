@@ -70,6 +70,9 @@ pub trait SqlDriver: Send + Sync {
     async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>>;
     async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>>;
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>>;
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>>;
+    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>>;
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()>;
 
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> CowenResult<()>;
@@ -190,6 +193,9 @@ impl Store for SqlStore {
     async fn pop_dlq(&self, p: &str, t: &str) -> CowenResult<Option<DlqMessage>> { self.driver.pop_dlq(p, t).await }
     async fn list_dlq(&self, p: &str, l: usize) -> CowenResult<Vec<DlqMessage>> { self.driver.list_dlq(p, l).await }
     async fn list_all_dlq(&self, p: &str) -> CowenResult<Vec<DlqMessage>> { self.driver.list_all_dlq(p).await }
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> { self.driver.get_dlq_by_id(id).await }
+    async fn list_dlq_paged(&self, p: &str, o: usize, l: usize) -> CowenResult<Vec<DlqMessage>> { self.driver.list_dlq_paged(p, o, l).await }
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> { self.driver.delete_dlq_by_id(id).await }
 
     async fn clear_profile(&self, p: &str) -> CowenResult<()> { self.driver.clear_profile(p).await }
     async fn rename_profile(&self, o: &str, n: &str) -> CowenResult<()> { self.driver.rename_profile(o, n).await }

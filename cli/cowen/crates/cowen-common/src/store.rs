@@ -60,6 +60,9 @@ pub trait Store: Send + Sync {
     async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>>;
     async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>>;
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>>;
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>>;
+    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>>;
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()>;
 
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> CowenResult<()>;

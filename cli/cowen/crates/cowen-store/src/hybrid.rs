@@ -176,6 +176,9 @@ impl Store for HybridStore {
     async fn pop_dlq(&self, p: &str, t: &str) -> CowenResult<Option<DlqMessage>> { self.persistence.pop_dlq(p, t).await }
     async fn list_dlq(&self, p: &str, l: usize) -> CowenResult<Vec<DlqMessage>> { self.persistence.list_dlq(p, l).await }
     async fn list_all_dlq(&self, p: &str) -> CowenResult<Vec<DlqMessage>> { self.persistence.list_all_dlq(p).await }
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> { self.persistence.get_dlq_by_id(id).await }
+    async fn list_dlq_paged(&self, p: &str, o: usize, l: usize) -> CowenResult<Vec<DlqMessage>> { self.persistence.list_dlq_paged(p, o, l).await }
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> { self.persistence.delete_dlq_by_id(id).await }
 
     async fn clear_profile(&self, p: &str) -> CowenResult<()> {
         let _ = self.cache.clear_profile(p).await;

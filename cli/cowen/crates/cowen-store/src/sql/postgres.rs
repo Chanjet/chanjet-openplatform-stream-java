@@ -410,6 +410,38 @@ impl SqlDriver for PostgresDriver {
         }).collect())
     }
 
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> {
+        let row: Option<(i32, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE id = $1"
+        ).bind(id as i32)
+        .fetch_optional(&self.pool).await
+        .map_err(|e| CowenError::Store(e.to_string()))?;
+
+        Ok(row.map(|r| DlqMessage {
+            id: Some(r.0 as i64), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
+        }))
+    }
+
+    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>> {
+        let rows: Vec<(i32, String, String, String, i32, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = $1 LIMIT $2 OFFSET $3"
+        ).bind(profile).bind(limit as i64).bind(offset as i64)
+        .fetch_all(&self.pool).await
+        .map_err(|e| CowenError::Store(e.to_string()))?;
+        
+        Ok(rows.into_iter().map(|r| DlqMessage {
+            id: Some(r.0 as i64), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
+        }).collect())
+    }
+
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> {
+        sqlx::query("DELETE FROM cowen_dlq WHERE id = $1")
+            .bind(id as i32)
+            .execute(&self.pool).await
+            .map_err(|e| CowenError::Store(e.to_string()))?;
+        Ok(())
+    }
+
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
         sqlx::query("DELETE FROM cowen_config WHERE profile = $1").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         sqlx::query("DELETE FROM cowen_secret WHERE profile = $1").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;

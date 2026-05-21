@@ -68,6 +68,35 @@ impl DlqStore {
         }).collect())
     }
 
+    pub async fn list_paged(&self, page: usize, page_size: usize) -> CowenResult<Vec<DLQEntry>> {
+        let offset = (page.max(1) - 1) * page_size;
+        let msgs = self.vault.list_dlq_paged(&self.profile, offset, page_size).await?;
+        Ok(msgs.into_iter().map(|m| DLQEntry {
+            id: m.id.unwrap_or(0),
+            topic: m.topic,
+            payload: m.payload,
+            retry_count: m.retry_count,
+            error: m.error,
+            created_at: m.created_at,
+        }).collect())
+    }
+
+    pub async fn get_by_id(&self, id: i64) -> CowenResult<Option<DLQEntry>> {
+        let msg = self.vault.get_dlq_by_id(id).await?;
+        Ok(msg.map(|m| DLQEntry {
+            id: m.id.unwrap_or(0),
+            topic: m.topic,
+            payload: m.payload,
+            retry_count: m.retry_count,
+            error: m.error,
+            created_at: m.created_at,
+        }))
+    }
+
+    pub async fn delete_by_id(&self, id: i64) -> CowenResult<()> {
+        self.vault.delete_dlq_by_id(id).await
+    }
+
     pub async fn delete(&self, _id: i64, topic: &str) -> CowenResult<()> {
         let _ = self.vault.pop_dlq(&self.profile, topic).await?;
         Ok(())

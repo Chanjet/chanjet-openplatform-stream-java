@@ -103,6 +103,13 @@ pub trait DlqDomain: Send + Sync {
     async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>>;
     async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>>;
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>>;
+
+    /// 新增：按 ID 获取单条死信
+    async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>>;
+    /// 新增：分页获取死信
+    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>>;
+    /// 新增：按 ID 删除死信
+    async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()>;
 }
 
 #[async_trait]
