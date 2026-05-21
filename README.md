@@ -1,6 +1,6 @@
 # 畅捷通 Stream Gateway
 
-[![Version](https://img.shields.io/badge/version-0.1.5-blue.svg)](RELEASE_NOTES_v0.1.0.md)
+[![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)](CHANGELOG.md)
 [![JDK](https://img.shields.io/badge/JDK-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![Performance](https://img.shields.io/badge/Loom-Ready-brightgreen.svg)](https://openjdk.org/jeps/444)
 

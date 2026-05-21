@@ -10,14 +10,22 @@
         3. **上限保护**: 设置最大检查间隔（如 1 小时），确保状态最终一致性。
 
 ## 🟠 P1: 高优先级 (High Priority)
-- [x] 🎯 **分拆 `cowen-common` 模块** (已规划，并入 v0.3.1 PRD 2.7): 该模块目前由于承载了配置、安全、网络及模型，已成为“上帝模块”。应将其底层工具剥离至 `cowen-infra` 或 `cowen-utils`，确保 `cowen-common`仅包含核心模型和 SPI 契约，以减少不必要的编译依赖。
-- [ ] **重构授权同步机制**: 替换 `orchestrator.rs` 中基于日志轮询的同步方式。考虑使用进程间通信 (IPC) 或更可靠的状态同步机制，解决目前严重影响首次配置成功率的不可靠问题。
-- [ ] **实现优雅关机 (Graceful Shutdown)**: 显式跟踪所有异步任务（如 Token 交换、事件处理），确保守护进程退出时能安全回收资源，防止状态损坏。
-- [ ] **优化 DLQ 重试逻辑**: 改进 `Forwarder::retry_message`，避免加载全量死信消息到内存。实现分页查询或按 ID 精确检索，防止大批量积压时导致的 OOM。
+- [x] **重构授权同步机制**: 替换 `orchestrator.rs` 中基于日志轮询的同步方式。现已实现基于 Monitor API (IPC) 的实时进度同步与进度条展示。
+- [x] **实现优雅关机 (Graceful Shutdown)**: 显式跟踪所有异步任务（如 Token 交换、事件处理），确保守护进程退出时能安全回收资源。
+- [x] **优化 DLQ 重试逻辑**: 改进 `Forwarder::retry_message`，实现分页查询与按 ID 精确检索，解决了 OOM 风险。
+- [ ] **重构 Worker 生命周期管理**: 将 `WorkerManager` 中的复杂同步逻辑（oneshot/broadcast/Mutex）抽象为独立的 `ProfileWorker` 状态机，消除脆弱的 `drop(lock)` 模式，提升稳定性。
+- [ ] **ConfigManager 扁平化重构**: 消除 `auto_migrate` 等函数中的深层嵌套，将存储类型的元数据逻辑（是否分布式、默认 URL 等）从硬编码判断迁移至 `StorageConfig` 驱动。
+- [ ] **FileStore 嵌套与冗余清理**: 
+    - 修复 `delete_dlq_by_id` 等方法中的 6 层“毁灭金字塔”嵌套，改用迭代器或扁平化逻辑。
+    - 将 `FileStore` 与 `MonolithicSealStore` 拆分为独立文件。
+    - 统一 Token/Ticket 的领域映射逻辑，消除 40+ 个 Trait 方法中的重复 JSON 序列化模板。
 
 ## 🔵 P2: 中低优先级 (Medium/Low Priority)
-- [ ] **解耦进程编排逻辑**: 将 `cowen-server/src/cmd/mod.rs` 中复杂的进程监控、PID 管理和僵尸进程探测逻辑提取到独立的 `cowen-daemon` 编排组件中，提升跨平台维护性。
-- [ ] **提取独立诊断模块**: 将散落在各处的 `status.rs` 和 `audit.rs` 整合为独立的 `cowen-telemetry` 模块，提升可观测性的扩展性。
+- [ ] **SQL 迁移抽象 (DSL/Trait)**: 为各 SQL Driver 提取通用的 `SchemaMigration` Trait，消除 SQLite/MySQL/Postgres 之间重复的列检查逻辑，并引入 `Transaction` 确保变更原子性。
+- [ ] **Doctor 插件化重构**: 将 `doctor.rs` 的过程化检测重构为基于 `DiagnosticTask` 插件的并发检测模型，提升扩展性。
+- [ ] **解耦进程编排逻辑**: 将 `cowen-server/src/cmd/mod.rs` 中复杂的进程监控、PID 管理和僵尸进程探测逻辑提取到独立的 `cowen-daemon` 编排组件中。
+- [ ] **提取独立诊断模块**: 将散落在各处的 `status.rs` 和 `audit.rs` 整合为独立的 `cowen-telemetry` 模块。
+
 - [ ] **灵活的 SSRF 防御**: 为 `forwarder.rs` 增加 Webhook 转发白名单配置，支持容器化环境（如 K8s）下的私有网段转发，而非目前硬编码的 loopback 限制。
 - [ ] **构建脚本脱敏**: 移除 `Makefile` 中硬编码的 `OFFICIAL_APP_KEY`，改为从环境变量或加密 Vault 中加载，提升工程安全性。
 - [ ] **拆解 Makefile**: 简化 `Makefile` 逻辑，将平台适配和容器管理逻辑拆分为独立的脚本，降低维护成本。

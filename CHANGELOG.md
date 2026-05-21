@@ -4,6 +4,23 @@
 
 ---
 
+## [0.3.2] - 2026-05-21
+
+### 🚀 架构与稳定性重构 (v0.3.2 Milestone)
+- **单进程多任务架构**: 重构守护进程模型，支持单进程管理多个 Profile Worker，大幅降低系统资源占用，提升进程管理确定性。
+- **两阶段优雅关机**: 实现 `ShutdownGate` 任务追踪机制，确保 SIGTERM 触发时存量 Webhook 任务排空 (Drain) 且存储连接平滑关闭。
+- **IPC 授权同步增强**: `init` 流程改为通过 Monitor API 与后台进程同步，集成 `indicatif` 实现交互式进度条，授权反馈达到秒级。
+- **配置引擎全路径化**: 支持点分路径 (e.g. `storage.store`) 管理，实现 `app.yaml` 与 `profile.yaml` 的自动分发及环境自检迁移。
+- **DLQ 高性能演进**: 为所有存储后端实现物理分页与 ID 级精准重试，彻底解决大 backlog 积压时的 OOM 风险。
+- **自动化诊断工具**: 显著增强 `cowen doctor`，支持 Schema 自动修复、IPC 健康度检测及配置物理迁移。
+
+### 🔧 存储与安全
+- **全后端分页支持**: SQLite, Postgres, MySQL, MSSQL, Redis, File 存储驱动全面适配分页 API。
+- **自动迁移机制**: 实现从 v0.3.1 及更早版本配置文件的物理提取与备份，确保全局配置项平滑合并。
+- **SSRF 保护增强**: Webhook 转发目标默认限制在本地回路，保障内网安全。
+
+---
+
 ## [0.1.5] - 2026-04-10
 
 ### 🚀 CLI & SDK 核心增强 (CLI & SDK Major Improvements)
