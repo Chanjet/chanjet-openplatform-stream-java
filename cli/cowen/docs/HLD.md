@@ -2,7 +2,7 @@
 
 > **版本**: v0.3.4
 > **阶段**: Architecture Blueprint
-> **状态**: `DRAFT`
+> **状态**: `APPROVED`
 
 ## 1. 系统上下文与依赖拓扑 (System Context & Topology)
 v0.3.4 引入了物理上的进程解耦，将原本单进程内部的模块转换为跨进程的 IPC 通信。

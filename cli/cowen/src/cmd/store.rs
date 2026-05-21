@@ -116,7 +116,7 @@ pub async fn migrate(
     cfg_mgr: &ConfigManager,
     to: &str,
     mode: MigrationMode,
-    daemon_svc: std::sync::Arc<cowen_server::ServerDaemonService>,
+    daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService>,
 ) -> Result<()> {
     let _app_dir = cowen_infra::get_app_dir();
     let _fingerprint = cowen_common::security::get_machine_fingerprint().map_err(|e| anyhow::anyhow!(e))?;

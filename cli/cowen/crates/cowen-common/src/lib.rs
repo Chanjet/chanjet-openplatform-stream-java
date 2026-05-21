@@ -12,6 +12,7 @@ pub mod domain;
 pub mod openapi;
 pub mod error;
 pub mod daemon;
+pub mod ipc;
 
 
 pub use error::{CowenError, CowenResult};

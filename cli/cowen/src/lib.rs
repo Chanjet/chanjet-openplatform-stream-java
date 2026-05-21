@@ -422,7 +422,13 @@ pub async fn run(cli: Cli) -> Result<()> {
     let _ = cfg_mgr.set_validator(std::sync::Arc::new(cowen_auth::AuthProviderValidator::new(auth_cli.clone())));
 
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
-    let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
+    #[cfg(unix)]
+    let daemon_svc: Arc<dyn DaemonService> = {
+        let uds_path = app_dir.join("uds.sock");
+        Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
+    };
+    #[cfg(not(unix))]
+    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
 
     if matches!(&cli.command, Commands::Init { .. }) {
         if cli.profile.is_none() {
@@ -502,7 +508,13 @@ pub async fn run(cli: Cli) -> Result<()> {
         let _ = cmd::completion::install_completion(None);
     }
 
-    let daemon_svc = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
+    #[cfg(unix)]
+    let daemon_svc: Arc<dyn DaemonService> = {
+        let uds_path = app_dir.join("uds.sock");
+        Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
+    };
+    #[cfg(not(unix))]
+    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
 
     // --- Daemon Lifecycle Enforcement ---
     // 1. Version Sync: Ensure all CURRENTLY RUNNING daemons match the CLI version.

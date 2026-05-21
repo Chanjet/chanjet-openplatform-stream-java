@@ -2,7 +2,7 @@
 
 > **版本**: v0.3.4
 > **阶段**: Implementation-Ready Blueprint
-> **状态**: `DRAFT`
+> **状态**: `APPROVED`
 
 ## 1. 独立守护进程与 IPC 实现
 

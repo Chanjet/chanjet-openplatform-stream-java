@@ -28,7 +28,7 @@ pub async fn start(
     cfg_mgr: &ConfigManager, 
     vault: Arc<dyn Vault>, 
     _telemetry: Option<Arc<TelemetryControl>>,
-    daemon_svc: Arc<ServerDaemonService>,
+    daemon_svc: Arc<dyn DaemonService>,
 ) -> Result<()> {
     if !foreground {
         // Parent process logic: spawn itself with --foreground
@@ -226,7 +226,7 @@ pub async fn stop(_profile: &str, _all: bool, _cfg_mgr: &ConfigManager) -> Resul
     Ok(())
 }
 
-pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>, telemetry: Option<Arc<TelemetryControl>>, daemon_svc: Arc<ServerDaemonService>) -> Result<()> {
+pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_proxy: bool, all: bool, cfg_mgr: &ConfigManager, vault: Arc<dyn Vault>, telemetry: Option<Arc<TelemetryControl>>, daemon_svc: Arc<dyn DaemonService>) -> Result<()> {
     stop(profile, all, cfg_mgr).await?;
     std::thread::sleep(std::time::Duration::from_millis(500));
     start(profile, config, proxy_port, enable_proxy, false, all, cfg_mgr, vault, telemetry, daemon_svc).await

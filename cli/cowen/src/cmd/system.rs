@@ -431,7 +431,10 @@ pub async fn ensure_daemon_running(
     {
         tracing::info!(target: "sys", profile = %profile, "Daemon not running, triggering auto-recovery...");
 
-        let daemon_svc = std::sync::Arc::new(cowen_server::ServerDaemonService::new(_cfg_mgr.clone()));
+        #[cfg(unix)]
+        let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_common::ipc::client::IpcDaemonService::new(cowen_infra::get_app_dir().join("uds.sock")));
+        #[cfg(not(unix))]
+        let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_server::ServerDaemonService::new(_cfg_mgr.clone()));
         let _ = crate::cmd::daemon::start(profile, config, config.proxy_port, config.proxy_enabled, false, false, _cfg_mgr, vault, None, daemon_svc).await;
     }
 
@@ -439,10 +442,10 @@ pub async fn ensure_daemon_running(
 }
 
 pub async fn enforce_daemon_version_sync(
-    _active_profile: &str,
+    profile: &str,
     cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
-    daemon_svc: Arc<cowen_server::ServerDaemonService>,
+    daemon_svc: Arc<dyn cowen_common::daemon::DaemonService>,
 ) -> Result<()> {
     let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
     for p in profiles {
