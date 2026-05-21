@@ -150,24 +150,54 @@ pub trait SchemaMigration: Send + Sync {
 
 ---
 
-## 7. TDD 验证契约 (Testing Strategy)
+## 7. 异常分类与重试矩阵 (Error Action & Retry Matrix)
 
-### 7.1 IPC & Startup
+### 7.1 错误 Action Code 定义
+| Action Code | 语义 | 处理策略 |
+| :--- | :--- | :--- |
+| `RETRY_FAST` | 瞬时抖动 | 立即重试，固定间隔 |
+| `RETRY_EXP` | 环境不稳定 | 指数退避重试 |
+| `CIRCUIT_BREAK` | 持续故障 | 停止尝试，进入熔断态 |
+| `FATAL` | 逻辑/配置错误 | 立即退出，报错提示 |
+
+### 7.2 健壮性数学模型
+#### A. IPC (UDS) 连接重试
+*   **适用场景**: `ensure_daemon` 启动连接。
+*   **模型**: 线性重试。
+*   **公式**: $delay = 200ms$，最大重试次数 $N = 5$。
+*   **超时判定**: 总耗时超过 2s 未建立连接则判定为 `FATAL`。
+
+#### B. SQLite Busy (数据库争用)
+*   **适用场景**: `telemetry` 并发写入或 `vault` 修改。
+*   **模型**: 随机抖动线性退避。
+*   **公式**: $delay = \text{rand}(10ms, 50ms)$，最大重试次数 $N = 10$。
+
+#### C. Worker 状态机 Backoff
+*   **适用场景**: 守护进程内部 Worker 异常崩溃自愈。
+*   **模型**: 指数退避 + 抖动。
+*   **公式**: $delay = \min(2^{retry\_count}, 60) \times (0.9 + \text{rand}(0.2))$ 秒。
+*   **熔断条件**: 5 分钟内 $retry\_count > 5$ 时，Action 提升为 `CIRCUIT_BREAK` (即进入 `Failed` 状态)。
+
+---
+
+## 8. TDD 验证契约 (Testing Strategy)
+
+### 8.1 IPC & Startup
 *   **GIVEN**: `cowen-daemon` 未运行。
 *   **WHEN**: 执行 `cowen daemon status`。
 *   **THEN**: CLI 成功拉起后台进程，并在 2s 后打印状态，`~/.cowen/uds.sock` 文件被创建。
 
-### 7.2 SSRF Protection
+### 8.2 SSRF Protection
 *   **GIVEN**: 安全等级为 `Strict`。
 *   **WHEN**: 设置 `webhook_target` 为 `192.168.1.1`。
 *   **THEN**: 转发时立即报错 `SSRFViolation`。
 
-### 7.3 Telemetry GC
+### 8.3 Telemetry GC
 *   **GIVEN**: 数据库中有 10,005 条记录，最旧的一条是 20 天前。
 *   **WHEN**: 执行 GC。
 *   **THEN**: 记录数减至 10,000，且 20 天前的记录被物理删除。
 
-### 7.4 Doctor Plugin
+### 8.4 Doctor Plugin
 *   **GIVEN**: 注册了 3 个并发诊断任务。
 *   **WHEN**: 执行 `cowen doctor`。
 *   **THEN**: 3 个任务并行启动，总耗时应显著小于串行执行耗时之和。
