@@ -444,6 +444,32 @@ impl SqlDriver for SqliteDriver {
         Ok(())
     }
 
+    async fn migrate(&self) -> CowenResult<()> {
+        // 1. Check if cowen_dlq has 'id' column
+        let rows: Vec<(i64, String, String, i64, Option<String>, Option<String>)> = sqlx::query_as("PRAGMA table_info(cowen_dlq)")
+            .fetch_all(&self.pool).await
+            .map_err(|e| CowenError::Store(e.to_string()))?;
+        
+        let has_id = rows.iter().any(|r| r.1 == "id");
+        if !has_id {
+            println!("🛠️  Migrating SQLite cowen_dlq schema (adding 'id' column)...");
+            
+            let migration_steps = [
+                "ALTER TABLE cowen_dlq RENAME TO cowen_dlq_old",
+                "CREATE TABLE cowen_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, topic TEXT NOT NULL, payload TEXT NOT NULL, retry_count INTEGER DEFAULT 0, error TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
+                "INSERT INTO cowen_dlq (profile, topic, payload, retry_count, error, created_at) SELECT profile, topic, payload, retry_count, error, created_at FROM cowen_dlq_old",
+                "DROP TABLE cowen_dlq_old",
+                "CREATE INDEX IF NOT EXISTS idx_dlq_profile_topic ON cowen_dlq (profile, topic)",
+            ];
+
+            for sql in migration_steps {
+                sqlx::query(sql).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+            }
+            println!("✅ SQLite DLQ migration completed.");
+        }
+        Ok(())
+    }
+
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
         sqlx::query("DELETE FROM cowen_config WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         sqlx::query("DELETE FROM cowen_secret WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;

@@ -139,6 +139,10 @@ pub enum Commands {
         /// 开启详细诊断模式
         #[arg(short, long)]
         verbose: bool,
+
+        /// 尝试自动修复发现的问题 (如存储 Schema 更新)
+        #[arg(long)]
+        fix: bool,
     },
     /// 管理并检查系统整体状态
     System {
@@ -629,14 +633,14 @@ pub async fn run(cli: Cli) -> Result<()> {
                 ServiceCommands::Status => cmd::daemon::service::execute(cmd::daemon::service::ServiceAction::Status).await?,
             }
         }
-        Commands::Doctor { profile: doctor_profile, verbose } => {
+        Commands::Doctor { profile: doctor_profile, verbose, fix } => {
             let target_profile = doctor_profile.as_ref().unwrap_or(&active_profile);
             let target_config = if doctor_profile.is_some() {
                 cfg_mgr.load(target_profile).await.unwrap_or_else(|_| cowen_common::config::Config::default_with_profile(target_profile))
             } else {
                 config.clone()
             };
-            cmd::doctor::execute(target_profile, &target_config, *verbose, vault.clone(), &cfg_mgr).await?;
+            cmd::doctor::execute(target_profile, &target_config, *verbose, *fix, vault.clone(), &cfg_mgr).await?;
         }
         Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?,
         Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? }

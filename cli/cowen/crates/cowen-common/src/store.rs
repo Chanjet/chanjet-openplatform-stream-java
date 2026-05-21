@@ -64,6 +64,9 @@ pub trait Store: Send + Sync {
     async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>>;
     async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()>;
 
+    // --- Schema Migration ---
+    async fn migrate(&self) -> CowenResult<()>;
+
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> CowenResult<()>;
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()>;

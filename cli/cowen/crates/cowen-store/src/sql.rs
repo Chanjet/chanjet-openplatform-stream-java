@@ -74,6 +74,9 @@ pub trait SqlDriver: Send + Sync {
     async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>>;
     async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()>;
 
+    // --- Schema Migration ---
+    async fn migrate(&self) -> CowenResult<()>;
+
     // --- Management ---
     async fn clear_profile(&self, profile: &str) -> CowenResult<()>;
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()>;
@@ -196,6 +199,8 @@ impl Store for SqlStore {
     async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> { self.driver.get_dlq_by_id(id).await }
     async fn list_dlq_paged(&self, p: &str, o: usize, l: usize) -> CowenResult<Vec<DlqMessage>> { self.driver.list_dlq_paged(p, o, l).await }
     async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> { self.driver.delete_dlq_by_id(id).await }
+
+    async fn migrate(&self) -> CowenResult<()> { self.driver.migrate().await }
 
     async fn clear_profile(&self, p: &str) -> CowenResult<()> { self.driver.clear_profile(p).await }
     async fn rename_profile(&self, o: &str, n: &str) -> CowenResult<()> { self.driver.rename_profile(o, n).await }

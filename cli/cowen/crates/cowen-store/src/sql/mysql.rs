@@ -442,6 +442,21 @@ impl SqlDriver for MySqlDriver {
         Ok(())
     }
 
+    async fn migrate(&self) -> CowenResult<()> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT column_name FROM information_schema.columns WHERE table_name = 'cowen_dlq' AND column_name = 'id' AND table_schema = DATABASE()")
+            .fetch_optional(&self.pool).await
+            .map_err(|e| CowenError::Store(e.to_string()))?;
+
+        if row.is_none() {
+            println!("🛠️  Migrating MySQL cowen_dlq schema (adding 'id' column)...");
+            sqlx::query("ALTER TABLE cowen_dlq ADD COLUMN id BIGINT PRIMARY KEY AUTO_INCREMENT FIRST")
+                .execute(&self.pool).await
+                .map_err(|e| CowenError::Store(e.to_string()))?;
+            println!("✅ MySQL DLQ migration completed.");
+        }
+        Ok(())
+    }
+
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
         sqlx::query("DELETE FROM cowen_config WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         sqlx::query("DELETE FROM cowen_secret WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;

@@ -21,6 +21,14 @@ impl Vault for StoreVault {
     fn primary_store(&self) -> Arc<dyn Store> {
         self.primary.clone()
     }
+
+    async fn migrate(&self) -> CowenResult<()> {
+        self.primary.migrate().await?;
+        if self.sensitive.name() != self.primary.name() || self.sensitive.description() != self.primary.description() {
+            self.sensitive.migrate().await?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]

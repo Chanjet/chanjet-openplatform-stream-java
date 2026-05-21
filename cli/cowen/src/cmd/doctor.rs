@@ -5,8 +5,9 @@ use cowen_config::ConfigManager;
 use std::sync::Arc;
 use colored::*;
 use std::time::Instant;
+use crate::core::DaemonManager;
 
-pub async fn execute(profile: &str, config: &Config, verbose: bool, vault: Arc<dyn Vault>, cfg_mgr: &ConfigManager) -> Result<()> {
+pub async fn execute(profile: &str, config: &Config, verbose: bool, fix: bool, vault: Arc<dyn Vault>, cfg_mgr: &ConfigManager) -> Result<()> {
     println!("\n{} {} (Profile: {})", "🩺".bold(), "Cowen Doctor - 环境诊断工具".bold(), profile.cyan());
     println!("{}\n", "=".repeat(60).dimmed());
 
@@ -15,13 +16,16 @@ pub async fn execute(profile: &str, config: &Config, verbose: bool, vault: Arc<d
     // 1. 系统与配置检查
     if !check_system_info(config, verbose) { all_ok = false; }
     
-    // 2. 存储后端检查
-    if !check_storage(cfg_mgr, verbose).await { all_ok = false; }
+    // 2. 存储后端与 Schema 检查
+    if !check_storage(cfg_mgr, profile, verbose, fix).await { all_ok = false; }
 
-    // 3. 网络连通性检查
+    // 3. 守护进程与 IPC 检查
+    if !check_daemon(profile, cfg_mgr, verbose).await { all_ok = false; }
+
+    // 4. 网络连通性检查
     if !check_network(config, verbose).await { all_ok = false; }
 
-    // 4. 凭据与认证检查
+    // 5. 凭据与认证检查
     if !check_credentials(profile, config, vault, verbose).await { all_ok = false; }
 
     println!("\n{}", "=".repeat(60).dimmed());
@@ -35,7 +39,7 @@ pub async fn execute(profile: &str, config: &Config, verbose: bool, vault: Arc<d
 }
 
 fn check_system_info(config: &Config, verbose: bool) -> bool {
-    println!("{} {}", "[1/4]".dimmed(), "系统与配置检查...".bold());
+    println!("{} {}", "[1/5]".dimmed(), "系统与配置检查...".bold());
     
     println!("  • Cowen Version: {}", env!("CARGO_PKG_VERSION").cyan());
     println!("  • OS:            {} {}", std::env::consts::OS, std::env::consts::ARCH);
@@ -48,13 +52,8 @@ fn check_system_info(config: &Config, verbose: bool) -> bool {
 
     let app_dir = cowen_common::config::get_app_dir();
     if app_dir.exists() {
-        // 尝试检查可用磁盘空间 (简易版)
-        let space_info = if let Ok(metadata) = std::fs::metadata(&app_dir) {
-            format!("(Permissions: {:?})", metadata.permissions())
-        } else {
-            "".to_string()
-        };
-        println!("  • Home Dir:      {} {} {}", app_dir.display(), "OK".green(), space_info.dimmed());
+        let permissions = std::fs::metadata(&app_dir).map(|m| format!("{:?}", m.permissions())).unwrap_or_default();
+        println!("  • Home Dir:      {} {} {}", app_dir.display(), "OK".green(), permissions.dimmed());
     } else {
         println!("  • Home Dir:      {} {}", app_dir.display(), "MISSING".red());
         return false;
@@ -63,28 +62,91 @@ fn check_system_info(config: &Config, verbose: bool) -> bool {
     true
 }
 
-async fn check_storage(cfg_mgr: &ConfigManager, _verbose: bool) -> bool {
-    println!("\n{} {}", "[2/4]".dimmed(), "存储后端检查...".bold());
+async fn check_storage(cfg_mgr: &ConfigManager, profile: &str, _verbose: bool, fix: bool) -> bool {
+    println!("\n{} {}", "[2/5]".dimmed(), "存储后端与 Schema 检查...".bold());
     
-    match cfg_mgr.load_app_config().await {
-        Ok(app_cfg) => {
-            println!("  • Storage Store: {}", app_cfg.storage.store.cyan());
-            println!("  • Cache Store:   {}", app_cfg.storage.cache.cyan());
-            
-            // TODO: 这里可以尝试通过 cowen-store 建立真实连接进行健康检查
-            // 目前先做基础配置检查
-            println!("  • Connectivity:  {}", "OK (configured)".green());
-            true
-        }
+    let app_cfg = match cfg_mgr.load_app_config().await {
+        Ok(c) => c,
         Err(e) => {
             println!("  • AppConfig:     {} ({})", "ERROR".red(), e);
-            false
+            return false;
+        }
+    };
+
+    println!("  • Storage Store: {}", app_cfg.storage.store.cyan());
+    
+    match crate::core::create_store(cfg_mgr).await {
+        Ok(store) => {
+            println!("  • Connectivity:  {}", "OK".green());
+            
+            match store.list_dlq_paged(profile, 0, 1).await {
+                Ok(_) => {
+                    println!("  • DLQ Schema:    {}", "OK (v0.3.2 ready)".green());
+                }
+                Err(e) => {
+                    println!("  • DLQ Schema:    {} ({})", "OUTDATED or ERROR".red(), e);
+                    if fix {
+                        println!("    🛠️  正在尝试自动修复 Schema...");
+                        match store.migrate().await {
+                            Ok(_) => {
+                                println!("    ✅ Schema 修复成功。");
+                                return true;
+                            }
+                            Err(me) => {
+                                println!("    ❌ Schema 修复失败: {}", me);
+                            }
+                        }
+                    } else {
+                        println!("    {} 存储 Schema 可能需要更新。建议运行 'cowen doctor --fix'。", "建议:".yellow());
+                    }
+                    return false;
+                }
+            }
+        }
+        Err(e) => {
+            println!("  • Connectivity:  {} ({})", "FAILED".red(), e);
+            return false;
         }
     }
+    true
+}
+
+async fn check_daemon(profile: &str, cfg_mgr: &ConfigManager, _verbose: bool) -> bool {
+    println!("\n{} {}", "[3/5]".dimmed(), "守护进程与 IPC 检查...".bold());
+    
+    let dm = DaemonManager::new(cfg_mgr.clone());
+    let status = dm.get_status(profile).await;
+    
+    if let Some(info) = status {
+        println!("  • Daemon Status: {} (PID: {})", "RUNNING".green(), info.pid);
+        
+        // 尝试 IPC 通信 (Monitor API)
+        if let Some(port) = info.monitor_port {
+            let client = reqwest::Client::new();
+            let url = format!("http://127.0.0.1:{}/health", port);
+            match client.get(&url).timeout(std::time::Duration::from_millis(500)).send().await {
+                Ok(res) if res.status().is_success() => {
+                    println!("  • IPC Health:    {} (Monitor API OK)", "OK".green());
+                }
+                Ok(res) => {
+                    println!("  • IPC Health:    {} (Status: {})", "UNHEALTHY".yellow(), res.status());
+                }
+                Err(e) => {
+                    println!("  • IPC Health:    {} ({})", "FAILED".red(), e);
+                }
+            }
+        } else {
+            println!("  • IPC Health:    {} (Monitor port unknown)", "UNKNOWN".yellow());
+        }
+    } else {
+        println!("  • Daemon Status: {}", "NOT RUNNING".dimmed());
+    }
+    
+    true
 }
 
 async fn check_network(config: &Config, _verbose: bool) -> bool {
-    println!("\n{} {}", "[3/4]".dimmed(), "网络连通性检查...".bold());
+    println!("\n{} {}", "[4/5]".dimmed(), "网络连通性检查...".bold());
     
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -130,23 +192,21 @@ async fn check_network(config: &Config, _verbose: bool) -> bool {
 }
 
 async fn check_credentials(profile: &str, _config: &Config, vault: Arc<dyn Vault>, _verbose: bool) -> bool {
-    println!("\n{} {}", "[4/4]".dimmed(), "凭据与认证检查...".bold());
+    println!("\n{} {}", "[5/5]".dimmed(), "凭据与认证检查...".bold());
     
     let mut ok = true;
     
-    // 检查 AppSecret 是否存在
     match vault.get_secret(profile, "app_secret").await {
         Ok(s) if !s.is_empty() => {
             println!("  • App Secret:    {}", "FOUND".green());
         }
         _ => {
             println!("  • App Secret:    {}", "MISSING".red());
-            println!("    {} 请运行 'cowen init' 或 'cowen auth login'。", "建议:".yellow());
+            println!("    {} 请运行 'cowen init'。", "建议:".yellow());
             ok = false;
         }
     }
 
-    // 检查 AccessToken (仅提示，不作为硬性错误)
     match vault.get_secret(profile, "access_token").await {
         Ok(s) if !s.is_empty() => {
             println!("  • Access Token:  {}", "FOUND".green());

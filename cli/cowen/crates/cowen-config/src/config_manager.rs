@@ -158,6 +158,10 @@ impl ConfigManager {
         self.validator.set(validator).map_err(|_| CowenError::Internal("Validator already set".to_string()))
     }
 
+    pub fn get_pid_file(&self, profile: &str) -> PathBuf {
+        self.app_dir.join(format!("{}_daemon.pid", profile))
+    }
+
     pub async fn find_free_port(&self) -> u16 {
         use rand::Rng;
         let start_range = std::env::var("COWEN_PORT_RANGE_START")

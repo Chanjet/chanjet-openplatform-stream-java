@@ -316,6 +316,8 @@ impl Store for RedisStore {
         Err(cowen_common::CowenError::Store("delete_dlq_by_id not implemented for Redis".to_string()))
     }
 
+    async fn migrate(&self) -> CowenResult<()> { Ok(()) }
+
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
         let mut conn = self.conn.clone();
         let pattern = format!("{}:*", profile);

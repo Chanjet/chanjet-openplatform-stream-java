@@ -1,7 +1,6 @@
-use async_trait::async_trait;
 use std::sync::Arc;
 use crate::domain::*;
-use crate::{CowenResult, CowenError};
+use crate::CowenResult;
 
 #[async_trait::async_trait]
 pub trait Vault: 
@@ -13,5 +12,9 @@ pub trait Vault:
 
     async fn shutdown(&self) -> CowenResult<()> {
         self.primary_store().shutdown().await
+    }
+
+    async fn migrate(&self) -> CowenResult<()> {
+        self.primary_store().migrate().await
     }
 }

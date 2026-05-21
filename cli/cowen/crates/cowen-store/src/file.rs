@@ -310,6 +310,8 @@ impl cowen_common::store::Store for FileStore {
         Ok(())
     }
 
+    async fn migrate(&self) -> CowenResult<()> { Ok(()) }
+
 
     async fn clear_profile(&self, p: &str) -> CowenResult<()> {
         let dir = self.root_dir.join(p);
@@ -612,6 +614,8 @@ impl cowen_common::store::Store for MonolithicSealStore {
     async fn get_dlq_by_id(&self, _id: i64) -> CowenResult<Option<DlqMessage>> { Ok(None) }
     async fn list_dlq_paged(&self, _p: &str, _o: usize, _l: usize) -> CowenResult<Vec<DlqMessage>> { Ok(vec![]) }
     async fn delete_dlq_by_id(&self, _id: i64) -> CowenResult<()> { Ok(()) }
+
+    async fn migrate(&self) -> CowenResult<()> { Ok(()) }
 
     async fn clear_profile(&self, p: &str) -> CowenResult<()> {
         self.with_lock(|| {

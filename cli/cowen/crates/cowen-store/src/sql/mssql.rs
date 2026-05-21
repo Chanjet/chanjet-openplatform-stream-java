@@ -517,6 +517,19 @@ impl SqlDriver for MssqlDriver {
         Ok(())
     }
 
+    async fn migrate(&self) -> CowenResult<()> {
+        let mut conn = self.pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let stream = conn.query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'cowen_dlq' AND COLUMN_NAME = 'id'", &[]).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let rows = stream.into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        
+        if rows.is_empty() {
+            println!("🛠️  Migrating MSSQL cowen_dlq schema (adding 'id' column)...");
+            conn.execute("ALTER TABLE cowen_dlq ADD id BIGINT IDENTITY(1,1) PRIMARY KEY", &[]).await.map_err(|e| CowenError::Store(e.to_string()))?;
+            println!("✅ MSSQL DLQ migration completed.");
+        }
+        Ok(())
+    }
+
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
         let mut conn = self.pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
         conn.execute("DELETE FROM cowen_config WHERE profile = @p1", &[&profile]).await.map_err(|e| CowenError::Store(e.to_string()))?;
