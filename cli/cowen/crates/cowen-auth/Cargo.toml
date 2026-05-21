@@ -30,6 +30,7 @@ cowen-infra = { path = "../cowen-infra" }
 cowen-config = { path = "../cowen-config" }
 cowen-monitor = { path = "../cowen-monitor" }
 cowen-store = { path = "../cowen-store" }
+indicatif = "0.18.4"
 [features]
 inte = []
 

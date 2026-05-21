@@ -22,6 +22,13 @@ impl MssqlDriver {
 
 #[async_trait]
 impl SqlDriver for MssqlDriver {
+    async fn shutdown(&self) -> CowenResult<()> {
+        // bb8 connection pool does not have an explicit close/shutdown method
+        // that we can readily call to forcefully drop connections, it cleans up on drop.
+        // We will just let it be dropped when the Store is dropped.
+        Ok(())
+    }
+
     async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String> {
         let mut conn = self.pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
         let row = conn.query("SELECT item_value FROM cowen_config WHERE profile = @p1 AND item_key = @p2", &[&profile, &key])

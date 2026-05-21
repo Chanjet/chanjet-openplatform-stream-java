@@ -34,10 +34,15 @@ impl WorkerManager {
         }
     }
 
+    pub fn config_manager(&self) -> &ConfigManager {
+        &self.cfg_mgr
+    }
+
         pub async fn start_worker(&self, profile: &str, config: Config) -> CowenResult<()> {
         let mut workers = self.workers.lock().await;
         if workers.contains_key(profile) {
-            return Err(CowenError::api(format!("Worker for profile '{}' already exists", profile)));
+            info!(target: "sys", profile = %profile, "Worker already exists, skipping start");
+            return Ok(());
         }
 
         let (stop_tx, _) = broadcast::channel(1);
@@ -51,19 +56,27 @@ impl WorkerManager {
             stop_tx: stop_tx.clone(),
         };
         workers.insert(profile_name.clone(), handle);
+        drop(workers); // 🔑 Fix deadlock: drop lock before awaiting ready_rx
 
         let workers_clone = self.workers.clone();
         let cfg_mgr = self.cfg_mgr.clone();
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        let cancel_token_for_worker = cancel_token.clone();
+        
         tokio::spawn(async move {
             info!(target: "sys", profile = %profile_name, "Starting worker for profile");
             
-            let result = tokio::select! {
-                _ = stop_rx.recv() => {
-                    info!(target: "sys", profile = %profile_name, "Worker received stop signal");
-                    Ok(())
-                }
-                res = run_profile_worker(&profile_name, config, cfg_mgr, ready_tx) => res,
-            };
+            // Spawn a task to listen for the stop signal and trigger cancellation
+            let ct = cancel_token.clone();
+            let pn = profile_name.clone();
+            tokio::spawn(async move {
+                let _ = stop_rx.recv().await;
+                info!(target: "sys", profile = %pn, "Worker received stop signal, triggering cancellation token");
+                ct.cancel();
+            });
+
+            // Run the worker to completion (it will return when cancel_token is triggered)
+            let result = run_profile_worker(&profile_name, config, cfg_mgr, ready_tx, cancel_token_for_worker).await;
 
             let mut w = workers_clone.lock().await;
             if let Some(h) = w.get_mut(&profile_name) {
@@ -115,13 +128,22 @@ impl WorkerManager {
     }
 }
 
-async fn run_profile_worker(profile: &str, config: Config, cfg_mgr: ConfigManager, ready_tx: tokio::sync::oneshot::Sender<()>) -> CowenResult<()> {
+async fn run_profile_worker(
+    profile: &str, 
+    config: Config, 
+    cfg_mgr: ConfigManager, 
+    ready_tx: tokio::sync::oneshot::Sender<()>,
+    cancel_token: tokio_util::sync::CancellationToken,
+) -> CowenResult<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let app_cfg = cfg_mgr.load_app_config().await?;
     let vault = cowen_store::create_vault(&app_cfg, &app_dir, &config.app_key).await?;
 
     let _forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), vault.clone())?);
     
+    // Create the ShutdownGate for this worker
+    let shutdown_gate = crate::utils::shutdown::ShutdownGate::new();
+
     // Signal readiness early before blocking operations like token sync
     let _ = ready_tx.send(());
 
@@ -129,7 +151,9 @@ async fn run_profile_worker(profile: &str, config: Config, cfg_mgr: ConfigManage
     let auth = cowen_auth::create_auth_client(Arc::new(cowen_auth::VaultTokenPool::new(vault.clone())));
     let sync_profile = profile.to_string();
     let sync_config = config.clone();
+    let sync_gate = shutdown_gate.clone();
     tokio::spawn(async move {
+        let _guard = sync_gate.enter();
         tracing::info!(target: "sys", profile = %sync_profile, "Proactively syncing token from vault in background");
         let _ = auth.get_token(&sync_profile, &sync_config, &reqwest::header::HeaderMap::new()).await;
     });
@@ -143,7 +167,9 @@ async fn run_profile_worker(profile: &str, config: Config, cfg_mgr: ConfigManage
     let b_enable_proxy = config.proxy_enabled;
     let b_is_dist = cfg_mgr.is_distributed_storage(&app_cfg);
     
-    if let Err(e) = crate::cmd::bridge::run(&b_profile, &b_config, b_vault, b_proxy_port, b_enable_proxy, b_is_dist).await {
+    if let Err(e) = crate::cmd::bridge::run(
+        &b_profile, &b_config, b_vault, b_proxy_port, b_enable_proxy, b_is_dist, cancel_token, shutdown_gate
+    ).await {
          error!(target: "sys", profile = %b_profile, error = %e, "Bridge task failed");
          return Err(CowenError::Internal(format!("Bridge task failed: {}", e)));
     }

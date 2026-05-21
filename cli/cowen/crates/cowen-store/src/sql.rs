@@ -16,6 +16,8 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait SqlDriver: Send + Sync {
+    async fn shutdown(&self) -> CowenResult<()> { Ok(()) }
+
     // --- Config ---
     async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String>;
     async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)>;
@@ -141,6 +143,10 @@ impl SqlStore {
 
 #[async_trait]
 impl Store for SqlStore {
+    async fn shutdown(&self) -> CowenResult<()> {
+        self.driver.shutdown().await
+    }
+
     async fn get_config(&self, p: &str, k: &str) -> CowenResult<String> { self.driver.get_config(p, k).await }
     async fn get_config_metadata(&self, p: &str, k: &str) -> CowenResult<(u64, i64)> { self.driver.get_config_metadata(p, k).await }
     async fn get_config_full(&self, p: &str, k: &str) -> CowenResult<Item> { self.driver.get_config_full(p, k).await }

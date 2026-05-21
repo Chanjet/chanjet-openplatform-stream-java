@@ -5,6 +5,59 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::io::{BufRead, Write, Seek};
 use tokio::time::sleep;
+use indicatif::{ProgressBar, ProgressStyle};
+use cowen_monitor::MonitorClient;
+
+pub async fn wait_for_token_exchange_ipc(
+    profile: &str,
+    monitor_port: u16,
+) -> CowenResult<()> {
+    let client = MonitorClient::new(monitor_port);
+    let pb = ProgressBar::new(100);
+    pb.set_style(ProgressStyle::default_bar()
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos:>7}% {msg}")
+        .map_err(|e| CowenError::api(e.to_string()))?
+        .progress_chars("#>-"));
+    
+    pb.set_message("Waiting for browser authorization...");
+    pb.set_position(5);
+
+    let start_time = Instant::now();
+    let timeout = Duration::from_secs(300);
+
+    loop {
+        if start_time.elapsed() > timeout {
+            pb.finish_with_message("❌ Authorization timed out");
+            return Err(CowenError::Auth("Authorization timed out".to_string()));
+        }
+
+        match client.get_auth_progress(profile).await {
+            Ok(info) => {
+                pb.set_position(info.percent as u64);
+                pb.set_message(info.message.clone());
+
+                match info.status {
+                    cowen_monitor::AuthStatus::Completed => {
+                        pb.finish_with_message("✅ Authorization successful");
+                        return Ok(());
+                    }
+                    cowen_monitor::AuthStatus::Failed => {
+                        let err = info.error.unwrap_or_else(|| "Unknown error".to_string());
+                        pb.finish_with_message(format!("❌ Failed: {}", err));
+                        return Err(CowenError::Auth(err));
+                    }
+                    _ => {}
+                }
+            }
+            Err(_) => {
+                // If monitor doesn't have progress yet, it might be waiting for the callback
+                // Just keep waiting
+            }
+        }
+
+        sleep(Duration::from_millis(500)).await;
+    }
+}
 
 pub async fn wait_for_token_exchange(
     profile: &str, 

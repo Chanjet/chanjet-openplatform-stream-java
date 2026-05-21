@@ -11,6 +11,7 @@ use std::env;
 use std::fs;
 use std::sync::Arc;
 use cowen_common::vault::Vault;
+use cowen_common::daemon::DaemonService;
 use crate::service_impl::ServerDaemonService;
 use tracing::{info, error};
 
@@ -122,13 +123,44 @@ pub async fn start(
 
     // Start Monitor Server
     let app_cfg = cfg_mgr.load_app_config().await?;
-    if app_cfg.monitor_port > 0 {
-        let m_port = app_cfg.monitor_port;
-        let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone());
-        tokio::spawn(async move {
-            let _ = m_server.start(None).await;
-        });
-        info!(target: "sys", "Master monitor server started on port {}", m_port);
+    let m_port = app_cfg.monitor_port; // might be 0
+    let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone());
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let _ = m_server.start(Some(port_tx)).await;
+    });
+    
+    let actual_m_port = match tokio::time::timeout(tokio::time::Duration::from_secs(5), port_rx).await {
+        Ok(Ok(p)) => p,
+        _ => {
+            error!(target: "sys", "Timed out or failed waiting for monitor server to start");
+            0
+        }
+    };
+    
+    if actual_m_port > 0 {
+        info!(target: "sys", "Master monitor server started on port {}", actual_m_port);
+        // Rewrite PID file with Monitor Port
+        fs::write(
+            &pid_file, 
+            format!(
+                "{}\nBUILD_ID={}\nBUILD_TIME={}\nMONITOR_PORT={}", 
+                std::process::id(), 
+                cowen_common::BUILD_ID, 
+                cowen_common::BUILD_TIME,
+                actual_m_port
+            )
+        )?;
+    } else {
+        fs::write(
+            &pid_file, 
+            format!(
+                "{}\nBUILD_ID={}\nBUILD_TIME={}", 
+                std::process::id(), 
+                cowen_common::BUILD_ID, 
+                cowen_common::BUILD_TIME
+            )
+        )?;
     }
 
     // Identify profiles to start
@@ -155,9 +187,26 @@ pub async fn start(
     }
 
     // Keep master alive
-    info!(target: "sys", "Master daemon is running. Press Ctrl+C to stop.");
-    tokio::signal::ctrl_c().await?;
+    info!(target: "sys", "Master daemon is running. Press Ctrl+C or send SIGTERM to stop.");
+    
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await?;
+    }
+
     info!(target: "sys", "Master daemon shutting down...");
+    
+    // Stop all workers gracefully
+    let _ = daemon_svc.stop_all().await;
+    
     let _ = fs::remove_file(pid_file);
     
     Ok(())

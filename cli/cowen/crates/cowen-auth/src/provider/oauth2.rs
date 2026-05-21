@@ -203,6 +203,12 @@ impl OAuth2Provider {
         let session_manager = AuthSessionManager::new(self.pool.as_ref());
         let session = session_manager.get_session(session_id).await?;
         
+        // 🚀 IPC ENHANCEMENT: Check if code is already captured (pushed via Monitor API)
+        if let Ok(captured_code) = session_manager.get_captured_code(profile).await {
+             tracing::info!(target: "sys", "Using pre-captured code from IPC/Session");
+             return self.perform_exchange_and_finish(profile, cfg, &captured_code, &session, daemon_service).await;
+        }
+
         let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
         tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
 
@@ -216,23 +222,7 @@ impl OAuth2Provider {
                                 session_manager.save_code(profile, &res.code, &res.state).await?;
                                 
                                 // Trigger exchange
-                                match self.exchange_code(profile, cfg, &res.code, &session.code_verifier, &session.redirect_uri).await {
-                                    Ok(_) => {
-                                        tracing::info!(target: "sys", "Token exchange successful");
-                                        
-                                        // 🚀 OCP: Auto-start daemon after successful authorization
-                                        if let Some(ds) = daemon_service {
-                                            tracing::info!(target: "sys", "Triggering background daemon startup after successful OAuth2 exchange");
-                                            let _ = ds.start_daemon(profile, cfg, self.pool.as_vault()).await;
-                                        }
-
-                                        Ok(())
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(target: "sys", error = %e, "Token exchange failed");
-                                        Err(e)
-                                    }
-                                }
+                                self.perform_exchange_and_finish(profile, cfg, &res.code, &session, daemon_service).await
                             }
                             Err(e) => Err(CowenError::Auth(format!("Authorization failed: {}", e)))
                         }
@@ -240,6 +230,9 @@ impl OAuth2Provider {
                     Err(e) => Err(CowenError::Auth(format!("Internal listener error: {}", e)))
                 }
             },
+            _ = tokio::signal::ctrl_c() => {
+                Err(CowenError::Auth("Cancelled by user".to_string()))
+            }
             _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
                 Err(CowenError::Auth("Timeout waiting for authorization (5 mins)".to_string()))
             }
@@ -249,6 +242,33 @@ impl OAuth2Provider {
             let _ = session_manager.clear(profile).await;
         }
         res
+    }
+
+    async fn perform_exchange_and_finish(
+        &self, 
+        profile: &str, 
+        cfg: &Config, 
+        code: &str, 
+        session: &cowen_common::models::AuthSession,
+        daemon_service: Option<std::sync::Arc<dyn DaemonService>>
+    ) -> CowenResult<()> {
+        match self.exchange_code(profile, cfg, code, &session.code_verifier, &session.redirect_uri).await {
+            Ok(_) => {
+                tracing::info!(target: "sys", "Token exchange successful");
+                
+                // 🚀 OCP: Auto-start daemon after successful authorization
+                if let Some(ds) = daemon_service {
+                    tracing::info!(target: "sys", "Triggering background daemon startup after successful OAuth2 exchange");
+                    let _ = ds.start_daemon(profile, cfg, self.pool.as_vault()).await;
+                }
+
+                Ok(())
+            }
+            Err(e) => {
+                tracing::error!(target: "sys", error = %e, "Token exchange failed");
+                Err(e)
+            }
+        }
     }
 }
 
@@ -451,14 +471,49 @@ impl AuthProvider for OAuth2Provider {
         
         println!("\x1b[34m{}\x1b[0m", auth_url);
         
-        // 5. Spawn Background Finalizer
+        // 5. Detect Running Daemon for IPC Finalization
+        let daemon_info = cowen_monitor::status::get_active_daemon_info(profile);
+        if let Some(info) = daemon_info {
+            if let Some(m_port) = info.monitor_port {
+                println!("\n\x1b[34m🚀 Detected running Master Daemon. Using IPC-based authorization...\x1b[0m");
+                
+                let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(session.redirect_port, profile.to_string()).await?;
+                tracing::info!(target: "sys", port = %actual_port, "CLI listening for callback");
+
+                tokio::select! {
+                    result = rx => {
+                        match result {
+                            Ok(Ok(callback_res)) => {
+                                println!("✅ Callback received. Pushing to Daemon for exchange...");
+                                let monitor_cli = cowen_monitor::MonitorClient::new(m_port);
+                                monitor_cli.finalize_auth(profile, &callback_res.code, Some(&callback_res.state), &session.state).await?;
+                                
+                                // Wait for results via IPC progress bar
+                                orchestrator::wait_for_token_exchange_ipc(profile, m_port).await?;
+                                
+                                // Successfully finished via IPC
+                                return Ok(());
+                            }
+                            _ => return Err(CowenError::Auth("Failed to receive callback locally".to_string())),
+                        }
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        println!("\n🛑 Authorization cancelled by user.");
+                        return Err(CowenError::Auth("Authorization cancelled".to_string()));
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
+                        return Err(CowenError::Auth("Timeout waiting for browser redirect (5 mins)".to_string()));
+                    }
+                }
+            }
+        }
+
+        // 6. Legacy Fallback: Spawn Background Finalizer
         println!("\n\x1b[34m🚀 授权监听已在本机启动。请在浏览器中确认...\x1b[0m");
 
         let pid = orchestrator::spawn_finalizer(profile, &session.state)?;
         
-        // 6. Wait for Result (Closed Loop)
-        
-        // 6. Wait for Result (Closed Loop) with Signal Handling
+        // 7. Wait for Result (Closed Loop) with Signal Handling
         tokio::select! {
             res = orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr, &session.state) => {
                 res?;
@@ -469,8 +524,7 @@ impl AuthProvider for OAuth2Provider {
             }
         }
 
-
-        // 7. Automatically start the daemon (OCP: Consistent experience across all modes)
+        // 8. Automatically start the daemon (OCP: Consistent experience across all modes)
         if params.auto_start {
             if let Some(ds) = &daemon_service { let _ = ds.start_daemon(profile, config, vault.clone()).await; }
         }

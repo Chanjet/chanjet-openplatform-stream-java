@@ -16,6 +16,7 @@ MOCK_STATE = {
     "token_expires_in": 3600,
     "force_error": None, # e.g. {"code": "401", "message": "invalid_token"}
     "webhook_sink_status": 200,
+    "webhook_delay_ms": 0,
 }
 
 def hmac_sha256(data, key):
@@ -345,6 +346,11 @@ async def handle_webhook_sink(request):
         "body": data,
         "headers": headers
     })
+    
+    delay_ms = MOCK_STATE.get("webhook_delay_ms", 0)
+    if delay_ms > 0:
+        print(f"   [MOCK SINK] Delaying response for {delay_ms}ms...")
+        await asyncio.sleep(delay_ms / 1000.0)
 
     status = MOCK_STATE.get("webhook_sink_status", 200)
     if status != 200:

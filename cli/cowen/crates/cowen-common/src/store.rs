@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 #[async_trait]
 pub trait Store: Send + Sync {
+    // --- Lifecycle ---
+    async fn shutdown(&self) -> CowenResult<()> { Ok(()) }
+
     // --- Config Domain ---
     async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String>;
     async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)>;

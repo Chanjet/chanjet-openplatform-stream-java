@@ -41,6 +41,12 @@ impl RedisStore {
 
 #[async_trait]
 impl Store for RedisStore {
+    async fn shutdown(&self) -> CowenResult<()> {
+        // MultiplexedConnection in rust-redis doesn't have an explicit close/shutdown method
+        // It relies on being dropped.
+        Ok(())
+    }
+
     async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String> {
         self.raw_get(profile, &format!("cfg:{}", key)).await
     }

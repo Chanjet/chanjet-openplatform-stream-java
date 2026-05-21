@@ -113,6 +113,7 @@ pub struct DaemonInfo {
     pub pid: u32,
     pub build_id: Option<String>,
     pub build_time: Option<String>,
+    pub monitor_port: Option<u16>,
 }
 
 pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
@@ -155,6 +156,7 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
                             pid: pid_val,
                             build_id: None,
                             build_time: None,
+                            monitor_port: None,
                         };
                         
                         for line in lines {
@@ -162,6 +164,8 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
                                 info.build_id = Some(bid.trim().to_string());
                             } else if let Some(bt) = line.strip_prefix("BUILD_TIME=") {
                                 info.build_time = Some(bt.trim().to_string());
+                            } else if let Some(mp) = line.strip_prefix("MONITOR_PORT=") {
+                                info.monitor_port = mp.trim().parse::<u16>().ok();
                             }
                         }
                         return Some(info);

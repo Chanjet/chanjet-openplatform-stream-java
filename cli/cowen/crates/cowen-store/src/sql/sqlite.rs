@@ -22,6 +22,11 @@ impl SqliteDriver {
 
 #[async_trait]
 impl SqlDriver for SqliteDriver {
+    async fn shutdown(&self) -> CowenResult<()> {
+        self.pool.close().await;
+        Ok(())
+    }
+
     async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String> {
         let row: (String,) = sqlx::query_as("SELECT item_value FROM cowen_config WHERE profile = ? AND item_key = ?")
             .bind(profile)

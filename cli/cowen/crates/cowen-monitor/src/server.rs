@@ -1,4 +1,4 @@
-use axum::{routing::{get, post}, Router, response::IntoResponse, extract::{State, Query}};
+use axum::{routing::{get, post}, Router, response::IntoResponse, extract::{State, Query}, Json};
 use serde::Deserialize;
 use std::sync::Arc;
 use cowen_common::daemon::DaemonService;
@@ -6,15 +6,21 @@ use cowen_common::daemon::DaemonService;
 use prometheus::{Encoder, TextEncoder};
 use std::net::SocketAddr;
 use tokio::sync::oneshot;
+use crate::mgmt::{AuthManager, finalize_auth_handler, progress_handler};
 
 pub struct MonitorServer {
     port: u16,
     daemon_svc: Arc<dyn DaemonService>,
+    auth_mgr: Arc<AuthManager>,
 }
 
 impl MonitorServer {
     pub fn new(port: u16, daemon_svc: Arc<dyn DaemonService>) -> Self {
-        Self { port, daemon_svc }
+        Self { 
+            port, 
+            daemon_svc,
+            auth_mgr: Arc::new(AuthManager::new()),
+        }
     }
 
     pub async fn start(&self, port_tx: Option<oneshot::Sender<u16>>) -> anyhow::Result<()> {
@@ -22,7 +28,9 @@ impl MonitorServer {
             .route("/health", get(health_handler))
             .route("/metrics", get(metrics_handler))
             .route("/daemon/reload", post(reload_handler))
-            .with_state(self.daemon_svc.clone());
+            .route("/v1/mgmt/auth/finalize", post(finalize_auth_handler))
+            .route("/v1/mgmt/auth/progress", get(progress_handler))
+            .with_state((self.daemon_svc.clone(), self.auth_mgr.clone()));
 
         let addr = SocketAddr::from(([127, 0, 0, 1], self.port));
         
@@ -72,7 +80,7 @@ struct ReloadQuery {
 }
 
 async fn reload_handler(
-    State(daemon_svc): State<Arc<dyn DaemonService>>,
+    State((daemon_svc, _)): State<(Arc<dyn DaemonService>, Arc<AuthManager>)>,
     Query(query): Query<ReloadQuery>,
 ) -> impl IntoResponse {
     if let Some(profile) = query.profile {
