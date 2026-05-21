@@ -121,3 +121,17 @@ pub fn resolve_segment(current: &mut serde_json::Value, segment: &str) -> CowenR
 2. `Strict Bounds`: 设置索引 99 报错。
 3. `Append Mode`: `+` 符号成功向数组末尾添加新元素。
 4. `Collapsing`: `unset` 中间元素后，后续元素索引前移。
+
+### 4.3 迁移与治理验证 (Migrator & GC)
+1. `Successful Migration`: 
+    - GIVEN: `vault/default.json` 存在且包含有效数据。
+    - WHEN: 执行 `migrate_v2_to_v3`。
+    - THEN: 数据按新布局 `vault/default/{prefix}/{id}.json` 写入，且旧文件更名为 `.v2_bak`。
+2. `Idempotent Skip`:
+    - GIVEN: `vault/default.json` 不存在。
+    - WHEN: 触发迁移。
+    - THEN: 无任何 I/O 副作用，函数返回 Ok。
+3. `Orphan Detection`:
+    - GIVEN: 磁盘存在 `vault/p1/plugins/p_old.json`，但配置中无此 ID 引用。
+    - WHEN: 调用 `list_orphans()`。
+    - THEN: 返回结果中包含该孤儿文件记录。
