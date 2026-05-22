@@ -24,6 +24,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize Rustls Crypto Provider (Mandatory for Rustls 0.23+)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     // CAPTURE PANICS: Ensure background crashes are recorded
     std::panic::set_hook(Box::new(|info| {
         let payload = info.payload().downcast_ref::<&str>().cloned()
@@ -206,4 +209,18 @@ async fn handle_connection(mut stream: UnixStream, svc: Arc<ServerDaemonService>
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_rustls_crypto_provider_installed() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        assert!(
+            rustls::crypto::CryptoProvider::get_default().is_some(),
+            "Rustls CryptoProvider must be installed for secure connections to function!"
+        );
+    }
+}
+
+
 

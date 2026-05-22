@@ -955,6 +955,7 @@ dependencies = [
  "cowen-store",
  "directories",
  "futures",
+ "rustls",
  "serde",
  "serde_json",
  "serde_yaml",
