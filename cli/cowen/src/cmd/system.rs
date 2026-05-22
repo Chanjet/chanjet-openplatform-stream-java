@@ -442,7 +442,7 @@ pub async fn ensure_daemon_running(
 }
 
 pub async fn enforce_daemon_version_sync(
-    profile: &str,
+    _profile: &str,
     cfg_mgr: &ConfigManager,
     vault: Arc<dyn Vault>,
     daemon_svc: Arc<dyn cowen_common::daemon::DaemonService>,

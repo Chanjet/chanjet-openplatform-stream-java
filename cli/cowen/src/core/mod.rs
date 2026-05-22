@@ -17,21 +17,7 @@ pub async fn create_store(cfg_mgr: &ConfigManager) -> Result<Arc<dyn Store>> {
         app_cfg.storage.db_url.as_deref().unwrap_or("innerdb")
     };
 
+
     Ok(cowen_store::create_store_from_url(url, app_dir, &fingerprint).await?)
-}
-
-use cowen_monitor::status::{get_active_daemon_info, DaemonInfo};
-
-pub struct DaemonManager {
-    _cfg_mgr: ConfigManager,
-}
-
-impl DaemonManager {
-    pub fn new(cfg_mgr: ConfigManager) -> Self {
-        Self { _cfg_mgr: cfg_mgr }
     }
 
-    pub async fn get_status(&self, profile: &str) -> Option<DaemonInfo> {
-        get_active_daemon_info(profile)
-    }
-}

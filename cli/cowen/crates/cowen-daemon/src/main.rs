@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use tracing::{info, error, Level};
+use tracing::{info, error};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(unix)]
 use tokio::net::{UnixListener, UnixStream};
 
-use cowen_common::ipc::{DaemonRequest, DaemonResponse, WorkerStateDto};
+use cowen_common::ipc::{DaemonRequest, DaemonResponse};
 use cowen_common::daemon::DaemonService;
 use cowen_common::vault::Vault;
 use cowen_server::ServerDaemonService;

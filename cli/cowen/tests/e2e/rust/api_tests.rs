@@ -3,7 +3,6 @@ use predicates::prelude::PredicateBooleanExt;
 use tempfile::tempdir;
 use std::fs;
 use serde_json::json;
-use cowen_common::store::Store;
 
 fn setup_test_env(ai_enabled: bool) -> (tempfile::TempDir, String) {
     let dir = tempdir().unwrap();

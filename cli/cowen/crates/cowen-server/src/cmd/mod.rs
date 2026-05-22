@@ -4,15 +4,12 @@ pub mod renewer;
 
 use cowen_common::config::Config;
 use cowen_config::ConfigManager;
-use sysinfo::System;
 use anyhow::Result;
-use std::process::{Command, Stdio};
-use std::env;
+use std::process::Command;
 use std::fs;
 use std::sync::Arc;
 use cowen_common::vault::Vault;
 use cowen_common::daemon::DaemonService;
-use crate::service_impl::ServerDaemonService;
 use tracing::{info, error};
 
 use cowen_monitor::telemetry::TelemetryControl;
@@ -194,7 +191,6 @@ pub async fn start(
         let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
         let _ = auth_cli.provider(&p_cfg.app_mode).hydrate_config(&p, &mut p_cfg, vault.clone()).await;
 
-        use cowen_common::daemon::DaemonService;
         if let Err(e) = daemon_svc.start_daemon(&p, &p_cfg, vault.clone()).await {
             error!(target: "sys", profile = %p, error = %e, "Failed to start worker");
         }
