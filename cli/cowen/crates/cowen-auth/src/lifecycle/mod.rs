@@ -76,7 +76,6 @@ impl<'a> AuthSessionManager<'a> {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub async fn clear_session(&self, state: &str) -> CowenResult<()> {
         let _ = self.pool.as_vault().delete_session(state).await;
         let profile = format!("session:{}", state);

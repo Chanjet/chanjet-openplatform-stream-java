@@ -53,6 +53,12 @@ pub struct ReqwestSender {
     client: HttpClient,
 }
 
+impl Default for ReqwestSender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReqwestSender {
     pub fn new() -> Self {
         Self {
@@ -155,7 +161,6 @@ pub trait Client: Send + Sync {
         cfg: &Config,
         headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token>;
-    #[allow(dead_code)]
     async fn refresh_token(
         &self,
         profile: &str,
@@ -182,13 +187,11 @@ pub trait Client: Send + Sync {
         profile: &str,
         cfg: &Config,
     ) -> CowenResult<cowen_common::models::Token>;
-    #[allow(dead_code)]
     async fn refresh_app_access_token(
         &self,
         profile: &str,
         cfg: &Config,
     ) -> CowenResult<cowen_common::models::Token>;
-    #[allow(dead_code)]
     async fn exchange_temp_code(
         &self,
         profile: &str,
@@ -196,7 +199,6 @@ pub trait Client: Send + Sync {
         org_id: &str,
         temp_code: &str,
     ) -> CowenResult<cowen_common::models::Token>;
-    #[allow(dead_code)]
     async fn get_user_access_token(
         &self,
         profile: &str,
@@ -204,7 +206,6 @@ pub trait Client: Send + Sync {
         org_id: &str,
         user_id: &str,
     ) -> CowenResult<cowen_common::models::Token>;
-    #[allow(dead_code)]
     async fn intercept_exchange(
         &self,
         profile: &str,
@@ -221,7 +222,6 @@ pub trait Client: Send + Sync {
         cfg: &Config,
         event: crate::provider::PlatformEvent,
     ) -> CowenResult<()>;
-    #[allow(dead_code)]
     fn requires_ticket(&self, cfg: &Config) -> bool;
     fn supports_webhooks(&self, cfg: &Config) -> bool;
     fn supports_api_call(&self, cfg: &Config) -> bool;

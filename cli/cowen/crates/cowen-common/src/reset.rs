@@ -20,6 +20,12 @@ pub struct ResetEngine {
     tasks: Vec<Box<dyn ResetTask>>,
 }
 
+impl Default for ResetEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ResetEngine {
     pub fn new() -> Self {
         Self { tasks: Vec::new() }

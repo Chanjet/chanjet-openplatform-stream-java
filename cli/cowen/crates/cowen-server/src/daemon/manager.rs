@@ -114,7 +114,7 @@ impl WorkerManager {
                             }
                         } else {
                             // Exponential backoff with 10% jitter logic
-                            let base_delay = 2u64.pow(next_retry as u32).min(60) as f64;
+                            let base_delay = 2u64.pow(next_retry).min(60) as f64;
                             use rand::Rng;
                             let jitter = rand::thread_rng().gen_range(0.0..=0.2);
                             let delay_secs = base_delay * (0.9 + jitter);

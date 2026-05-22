@@ -46,7 +46,7 @@ pub(crate) async fn get_token(
                                 }
                                 Err(err) => {
                                     tracing::error!(target: "sys", error = %err, "Proactive AppAccessToken exchange failed");
-                                    Err(CowenError::Auth(format!("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).")))
+                                    Err(CowenError::Auth("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).".to_string()))
                                 }
                             }
                         }
@@ -201,22 +201,20 @@ pub(crate) async fn try_permanent_code_recovery(
                 target_name
             )))
         }
+    } else if let Some(code) = opc {
+        client::get_org_access_token_by_permanent_code(
+            pool,
+            http_sender,
+            profile,
+            cfg,
+            org_id,
+            &code,
+        )
+        .await
     } else {
-        if let Some(code) = opc {
-            client::get_org_access_token_by_permanent_code(
-                pool,
-                http_sender,
-                profile,
-                cfg,
-                org_id,
-                &code,
-            )
-            .await
-        } else {
-            Err(CowenError::Auth(format!(
-                "Org permanent code missing for recovery of {}",
-                target_name
-            )))
-        }
+        Err(CowenError::Auth(format!(
+            "Org permanent code missing for recovery of {}",
+            target_name
+        )))
     }
 }

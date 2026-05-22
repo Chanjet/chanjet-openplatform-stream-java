@@ -39,7 +39,7 @@ impl OAuth2CallbackListener {
 
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         cowen_infra::validate_loopback_addr(&addr)
-            .map_err(|e| cowen_common::CowenError::Security(e))?;
+            .map_err(cowen_common::CowenError::Security)?;
 
         let shared_result_tx = Arc::new(Mutex::new(Some(result_tx)));
         let shared_shutdown_tx = Arc::new(Mutex::new(Some(shutdown_tx)));

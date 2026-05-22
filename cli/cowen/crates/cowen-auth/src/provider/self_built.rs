@@ -683,7 +683,7 @@ impl AuthProvider for SelfBuiltProvider {
             )
         } else {
             let key_len = if decrypt_key.len() == 32 {
-                if hex::decode(&decrypt_key).is_ok() {
+                if decrypt_key.len().is_multiple_of(2) && decrypt_key.chars().all(|c| c.is_ascii_hexdigit()) {
                     16
                 } else {
                     32

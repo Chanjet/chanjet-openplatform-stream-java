@@ -25,7 +25,7 @@ fn main() {
 
     // Get Git Commit ID
     let git_hash = std::process::Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())

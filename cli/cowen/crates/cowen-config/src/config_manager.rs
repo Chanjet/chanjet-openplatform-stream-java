@@ -53,10 +53,11 @@ impl ConfigManager {
         default_interceptors.push(Arc::new(crate::interceptors::PortInterceptor));
         default_interceptors.push(Arc::new(crate::interceptors::UrlInterceptor));
         
-        let mut strategies: Vec<Box<dyn ConfigStrategy>> = Vec::new();
-        strategies.push(Box::new(GlobalAppConfigStrategy));
-        strategies.push(Box::new(ProfileLockedStrategy));
-        strategies.push(Box::new(ProfileDefaultStrategy));
+        let strategies: Vec<Box<dyn ConfigStrategy>> = vec![
+            Box::new(GlobalAppConfigStrategy),
+            Box::new(ProfileLockedStrategy),
+            Box::new(ProfileDefaultStrategy),
+        ];
 
         let mgr = Self { 
             app_dir,
@@ -550,7 +551,7 @@ impl ConfigManager {
                         if should_remove {
                             // Remove storage from profile yaml
                             if let Some(mapping) = yaml.as_mapping_mut() {
-                                mapping.remove(&serde_yaml::Value::String("storage".to_string()));
+                                mapping.remove(serde_yaml::Value::String("storage".to_string()));
                             }
 
                             // Backup and Save updated profile

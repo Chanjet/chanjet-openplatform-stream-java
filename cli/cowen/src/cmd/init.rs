@@ -98,7 +98,7 @@ pub async fn execute(
         m_str.parse().map_err(|e: String| anyhow::anyhow!(e))?
     } else if !is_new {
         let config = cfg_mgr.load(profile).await.map_err(|e| anyhow::anyhow!(e))?;
-        config.app_mode.clone()
+        config.app_mode
     } else {
         Default::default()
     };

@@ -1,10 +1,9 @@
 use std::ffi::{c_char, CStr};
-use std::sync::Mutex;
-use once_cell::sync::Lazy;
+use std::sync::{Mutex, LazyLock};
 use cowen_search::SearchProvider;
 use cowen_ai::{ONNXEmbedder, SearchIndex};
 
-static PROVIDER: Lazy<Mutex<Option<Box<dyn SearchProvider>>>> = Lazy::new(|| Mutex::new(None));
+static PROVIDER: LazyLock<Mutex<Option<Box<dyn SearchProvider>>>> = LazyLock::new(|| Mutex::new(None));
 
 use std::cell::RefCell;
 
@@ -61,7 +60,7 @@ impl SearchProvider for EmbeddingProvider {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn v1_init(model_path: *const c_char, tokenizer_path: *const c_char) -> i32 {
+pub unsafe extern "C" fn v1_init(model_path: *const c_char, tokenizer_path: *const c_char) -> i32 {
     let model = if !model_path.is_null() {
         unsafe { CStr::from_ptr(model_path).to_string_lossy().to_string() }
     } else {
@@ -95,19 +94,18 @@ pub extern "C" fn v1_init(model_path: *const c_char, tokenizer_path: *const c_ch
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn v1_index(docs_json: *const c_char) -> i32 {
+pub unsafe extern "C" fn v1_index(docs_json: *const c_char) -> i32 {
     let json = unsafe { CStr::from_ptr(docs_json).to_string_lossy() };
-    if let Ok(docs) = serde_json::from_str::<Vec<cowen_search::SearchDocument>>(&json) {
-        if let Some(ref provider) = *PROVIDER.lock().unwrap() {
+    if let Ok(docs) = serde_json::from_str::<Vec<cowen_search::SearchDocument>>(&json)
+        && let Some(ref provider) = *PROVIDER.lock().unwrap() {
             provider.update_index(&docs);
             return 0;
         }
-    }
     1
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn v1_search(query_ptr: *const c_char, top: usize) -> *const c_char {
+pub unsafe extern "C" fn v1_search(query_ptr: *const c_char, top: usize) -> *const c_char {
     let query = unsafe { CStr::from_ptr(query_ptr).to_string_lossy() };
     if let Some(ref provider) = *PROVIDER.lock().unwrap() {
         let results = provider.search(&query, top);
@@ -123,16 +121,16 @@ pub extern "C" fn v1_search(query_ptr: *const c_char, top: usize) -> *const c_ch
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn v1_free() {
+pub unsafe extern "C" fn v1_free() {
     *PROVIDER.lock().unwrap() = None;
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn v1_name() -> *const c_char {
+pub unsafe extern "C" fn v1_name() -> *const c_char {
     c"AI Embedding Matcher".as_ptr()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn v1_desc() -> *const c_char {
+pub unsafe extern "C" fn v1_desc() -> *const c_char {
     c"Local ONNX-based semantic search provider".as_ptr()
 }

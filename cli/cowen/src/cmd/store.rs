@@ -2,7 +2,7 @@ use anyhow::Result;
 use cowen_common::AppConfig;
 use cowen_config::ConfigManager;
 use cowen_store::migration::{StoreMigrator, MigrationMode};
-use colored::Colorize;
+use crate::Colorize;
 
 pub async fn set(
     app_config: &mut AppConfig,

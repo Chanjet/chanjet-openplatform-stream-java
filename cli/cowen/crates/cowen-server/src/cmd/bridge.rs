@@ -136,10 +136,8 @@ pub async fn run(
                 json["state"] = serde_json::json!(state_str);
                 if let Some(err) = error_msg {
                     json["error"] = serde_json::json!(err);
-                } else {
-                    if let Some(obj) = json.as_object_mut() {
-                        obj.remove("error");
-                    }
+                } else if let Some(obj) = json.as_object_mut() {
+                    obj.remove("error");
                 }
                 json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
                 let _ = std::fs::write(&status_file_for_stream, serde_json::to_string(&json).unwrap_or_default());

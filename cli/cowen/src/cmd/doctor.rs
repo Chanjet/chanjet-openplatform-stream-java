@@ -3,7 +3,7 @@ use cowen_common::config::Config;
 use cowen_common::vault::Vault;
 use cowen_config::ConfigManager;
 use std::sync::Arc;
-use colored::*;
+use crate::Colorize;
 use cowen_doctor::{DoctorContext, DiagnosticTask, DiagnosticResult, DiagnosticStatus, DiagnosticRegistration};
 use async_trait::async_trait;
 use std::time::Instant;

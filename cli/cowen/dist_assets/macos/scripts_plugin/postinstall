@@ -1,0 +1,46 @@
+#!/bin/bash
+# Cowen AI Plugin Post-installation script
+
+# Path where the binary is installed by pkgbuild (base on --install-location /)
+BINARY_PATH="/usr/local/bin/cowen"
+STAGING_FILE="/usr/local/share/cowen/staging/libcowen_search_embedding.dylib"
+
+# 1. 准确获取当前图形界面的真实登录用户（绕过 root 环境）
+# macOS Installer app runs as root, but we want to install the plugin for the user who invoked it.
+CURRENT_USER=$(stat -f "%Su" /dev/console)
+if [ -z "$CURRENT_USER" ] || [ "$CURRENT_USER" = "root" ]; then
+    # Fallback if not run via GUI or dev_console is weird
+    if [ -n "$SUDO_USER" ]; then
+        CURRENT_USER="$SUDO_USER"
+    else
+        CURRENT_USER=$(users | awk '{print $1}')
+    fi
+fi
+
+REAL_HOME=$(eval echo ~$CURRENT_USER)
+PLUGIN_DIR="$REAL_HOME/.cowen/plugins"
+
+echo "📟 Installing AI plugin for user: $CURRENT_USER (Home: $REAL_HOME)"
+
+# 2. 为该用户创建目录
+mkdir -p "$PLUGIN_DIR"
+
+# 3. 把中转区的文件移动到用户的真实目录下
+if [ -f "$STAGING_FILE" ]; then
+    mv "$STAGING_FILE" "$PLUGIN_DIR/"
+fi
+
+# 4. 关键：把文件的所有权交还给真实用户
+chown -R "$CURRENT_USER" "$PLUGIN_DIR"
+
+# 5. 动态修改该用户的配置，启用插件 (利用 cowen 自身的功能)
+if [ -f "$BINARY_PATH" ]; then
+    # Wait for daemon to stabilize if it was just installed
+    sleep 1
+    sudo -u "$CURRENT_USER" "$BINARY_PATH" plugins enable libcowen_search_embedding > /dev/null 2>&1 || true
+fi
+
+# 6. 清理公共中转区
+rm -rf /usr/local/share/cowen/staging/
+
+exit 0

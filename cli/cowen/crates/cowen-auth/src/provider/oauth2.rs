@@ -415,7 +415,7 @@ impl AuthProvider for OAuth2Provider {
             )));
         }
 
-        let result = (|| async {
+        let result = async {
             // 3. Double-Check: Reload from Vault after acquiring lock
             if let Ok(token) = self.pool.as_vault().get_access_token(profile).await {
                 if !token.is_expired() {
@@ -434,13 +434,11 @@ impl AuthProvider for OAuth2Provider {
             let rt = self.get_refresh_token_with_fallback(profile).await?;
 
             if rt.is_expired() {
-                return Err(CowenError::Auth(format!(
-                    "OAuth2 session expired. Please run 'owenc auth login' to re-authenticate."
-                )));
+                return Err(CowenError::Auth("OAuth2 session expired. Please run 'owenc auth login' to re-authenticate.".to_string()));
             }
 
             self.refresh_token(profile, cfg, &rt.value).await
-        })()
+        }
         .await;
 
         lock_file.unlock()?;
@@ -630,7 +628,7 @@ impl AuthProvider for OAuth2Provider {
             }
             _ = tokio::signal::ctrl_c() => {
                 println!("\n🛑 Authorization cancelled by user.");
-                return Err(CowenError::Auth(format!("Authorization cancelled")));
+                return Err(CowenError::Auth("Authorization cancelled".to_string()));
             }
         }
 
@@ -1013,6 +1011,12 @@ impl AuthProvider for OAuth2Provider {
         (name.to_string(), tip.to_string())
     }
 }
+impl Default for Pkce {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Pkce {
     pub fn new() -> Self {
         let verifier = Self::generate_verifier(64);

@@ -74,7 +74,6 @@ impl StoreAppProvider {
         .await
     }
 
-    #[allow(dead_code)]
     pub async fn get_user_token(
         &self,
         profile: &str,
@@ -93,7 +92,6 @@ impl StoreAppProvider {
         .await
     }
 
-    #[allow(dead_code)]
     pub async fn get_org_token(
         &self,
         profile: &str,
@@ -468,9 +466,7 @@ impl AuthProvider for StoreAppProvider {
                 "Example: {} init --app-mode store-app --app-key X --app-secret Y --encrypt-key Z",
                 bin_name
             );
-            return Err(CowenError::Auth(format!(
-                "Missing required credentials for StoreApp mode"
-            )));
+            return Err(CowenError::Auth("Missing required credentials for StoreApp mode".to_string()));
         }
 
         println!(
@@ -513,15 +509,15 @@ impl AuthProvider for StoreAppProvider {
 
         match vault.get_secret(&global_profile, "app_secret").await { Ok(s) => {
             config.app_secret = s;
-        } _ => { match vault.get_secret(profile, "app_secret").await { Ok(s) => {
+        } _ => { if let Ok(s) = vault.get_secret(profile, "app_secret").await {
             config.app_secret = s;
-        } _ => {}}}}
+        }}}
 
         match vault.get_secret(&global_profile, "encrypt_key").await { Ok(ek) => {
             config.encrypt_key = ek;
-        } _ => { match vault.get_secret(profile, "encrypt_key").await { Ok(ek) => {
+        } _ => { if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await {
             config.encrypt_key = ek;
-        } _ => {}}}}
+        }}}
         Ok(())
     }
 

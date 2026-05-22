@@ -17,7 +17,8 @@ pub fn get_machine_fingerprint() -> CowenResult<String> {
     let mut hasher = Sha256::new();
     hasher.update(base.as_bytes());
     
-    Ok(hex::encode(hasher.finalize()))
+    let hash = hasher.finalize();
+    Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
 pub fn derive_key(fingerprint: &str) -> [u8; 32] {

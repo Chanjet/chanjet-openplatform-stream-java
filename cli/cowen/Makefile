@@ -240,30 +240,40 @@ windows-x86_64: build-plugins
 # --- 打包目标 ---
 
 package-macos-aarch64: clean macos-aarch64
-	@echo "📦 Packaging macOS Apple Silicon..."
-	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/lib/cowen pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-aarch64/release
-	cp $(OUTPUT_DIR)/macos-aarch64/$(BINARY) pkg_root/usr/local/bin/$(BINARY)
-	cp $(OUTPUT_DIR)/macos-aarch64/cowen-daemon pkg_root/usr/local/bin/cowen-daemon
-	cp target/release/libcowen_search_embedding.dylib pkg_root/usr/local/lib/cowen/ || true
-	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
-	@chmod +x dist_assets/macos/scripts/postinstall
-	pkgbuild --identifier com.chanjet.$(BINARY).aarch64 --version $(VERSION) --root pkg_root --install-location / --scripts dist_assets/macos/scripts $(OUTPUT_DIR)/macos-aarch64/release/$(BINARY)-v$(VERSION)-macos-aarch64.pkg
-	rm -rf pkg_root
-	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/release/$(BINARY)-v$(VERSION)-macos-aarch64.pkg)
-	@$(call SHA1,$(OUTPUT_DIR)/macos-aarch64/release/$(BINARY)-v$(VERSION)-macos-aarch64.pkg)
+	@echo "📦 Packaging macOS Apple Silicon (Component Based)..."
+	@$(MAKE) impl-package-macos ARCH=aarch64
 
 package-macos-x86_64: clean macos-x86_64
-	@echo "📦 Packaging macOS Intel..."
-	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/lib/cowen pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-x86_64/release
-	cp $(OUTPUT_DIR)/macos-x86_64/$(BINARY) pkg_root/usr/local/bin/$(BINARY)
-	cp $(OUTPUT_DIR)/macos-x86_64/cowen-daemon pkg_root/usr/local/bin/cowen-daemon
-	cp target/release/libcowen_search_embedding.dylib pkg_root/usr/local/lib/cowen/ || true
-	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
-	@chmod +x dist_assets/macos/scripts/postinstall
-	pkgbuild --identifier com.chanjet.$(BINARY).x86_64 --version $(VERSION) --root pkg_root --install-location / --scripts dist_assets/macos/scripts $(OUTPUT_DIR)/macos-x86_64/release/$(BINARY)-v$(VERSION)-macos-x86_64.pkg
-	rm -rf pkg_root
-	@$(call MD5,$(OUTPUT_DIR)/macos-x86_64/release/$(BINARY)-v$(VERSION)-macos-x86_64.pkg)
-	@$(call SHA1,$(OUTPUT_DIR)/macos-x86_64/release/$(BINARY)-v$(VERSION)-macos-x86_64.pkg)
+	@echo "📦 Packaging macOS Intel (Component Based)..."
+	@$(MAKE) impl-package-macos ARCH=x86_64
+
+impl-package-macos:
+	@echo "📦 Building Component Packages for $(ARCH)..."
+	mkdir -p pkg_core_root/usr/local/bin pkg_core_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-$(ARCH)/release
+	mkdir -p pkg_plugin_root/usr/local/share/cowen/staging
+	cp $(OUTPUT_DIR)/macos-$(ARCH)/$(BINARY) pkg_core_root/usr/local/bin/$(BINARY)
+	cp $(OUTPUT_DIR)/macos-$(ARCH)/cowen-daemon pkg_core_root/usr/local/bin/cowen-daemon
+	cp dist_assets/macos/cowen-uninstall pkg_core_root/usr/local/bin/cowen-uninstall
+	cp CHANGELOG.md pkg_core_root/usr/local/share/doc/cowen/
+	cp target/release/libcowen_search_embedding.dylib pkg_plugin_root/usr/local/share/cowen/staging/ || true
+	@chmod +x dist_assets/macos/scripts_core/postinstall
+	@chmod +x dist_assets/macos/scripts_plugin/postinstall
+	pkgbuild --identifier com.chanjet.$(BINARY).core.$(ARCH) --version $(VERSION) --root pkg_core_root --install-location / --scripts dist_assets/macos/scripts_core $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).aiplugin.$(ARCH) --version $(VERSION) --root pkg_plugin_root --install-location / --scripts dist_assets/macos/scripts_plugin $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-ai-plugin.pkg
+	@echo "🧩 Synthesizing Distribution UI..."
+	cd $(OUTPUT_DIR)/macos-$(ARCH)/release && \
+	productbuild --synthesize --package cowen-core.pkg --package cowen-ai-plugin.pkg Distribution.xml && \
+	sed -i '' 's/customize="never"/customize="always"/' Distribution.xml && \
+	sed -i '' '/<line choice="default">/d' Distribution.xml && \
+	sed -i '' '/<\/line>/d' Distribution.xml && \
+	sed -i '' 's/<choice id="com.chanjet.$(BINARY).core.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).core.$(ARCH)" title="Cowen Core CLI" description="The core Cowen CLI and daemon." visible="true" enabled="false" selected="true">/' Distribution.xml && \
+	sed -i '' 's/<choice id="com.chanjet.$(BINARY).aiplugin.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).aiplugin.$(ARCH)" title="AI Embedding Plugin" description="Installs the AI embedding capabilities (Optional)." visible="true" selected="true">/' Distribution.xml && \
+	productbuild --distribution Distribution.xml --package-path . $(BINARY)-v$(VERSION)-macos-$(ARCH).pkg
+	rm -rf pkg_core_root pkg_plugin_root
+	rm -f $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-ai-plugin.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/Distribution.xml
+	cp dist_assets/macos/cowen-uninstall $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-uninstall
+	@$(call MD5,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)
+	@$(call SHA1,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)
 
 package-linux-x86_64: clean linux-x86_64
 	@echo "📦 Packaging Linux x86_64 (Native Build)..."
@@ -318,6 +328,7 @@ impl-package-linux-x86_64:
 
 test-rust:
 	@echo "🧪 Running Rust internal and integration tests..."
+	cargo build -p cowen -p cowen-daemon
 	cargo test
 
 # 自动根据环境运行测试

@@ -381,7 +381,7 @@ fn render_schema(spec: &serde_json::Value, schema: &serde_json::Value, indent: u
                 for (name, prop_schema) in props {
                     let is_required = required_fields.contains(name);
                     let prop_ty = prop_schema.get("type").and_then(|t| t.as_str())
-                        .or_else(|| prop_schema.get("$ref").and_then(|_| Some("object")))
+                        .or_else(|| prop_schema.get("$ref").map(|_| "object"))
                         .unwrap_or("any");
                     let desc = prop_schema.get("description").and_then(|d| d.as_str()).unwrap_or("");
                     

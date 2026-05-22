@@ -3,7 +3,7 @@ use assert_cmd::Command;
 use std::fs;
 use predicates::prelude::*;
 use cowen_common::config::AppConfig;
-use cowen_common::domain::SessionDomain;
+
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_oauth2_full_lifecycle_and_recovery() {

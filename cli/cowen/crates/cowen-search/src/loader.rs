@@ -53,7 +53,7 @@ impl SearchProvider for DynamicSearchProvider {
         if ptr.is_null() { return vec![]; }
 
         let json = unsafe { std::ffi::CStr::from_ptr(ptr).to_string_lossy() };
-        serde_json::from_str::<(Vec<(f32, SearchDocument)>)>(&json).unwrap_or_default()
+        serde_json::from_str::<Vec<(f32, SearchDocument)>>(&json).unwrap_or_default()
     }
 
     fn update_index(&self, docs: &[SearchDocument]) {

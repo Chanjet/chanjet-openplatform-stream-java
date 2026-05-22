@@ -110,11 +110,7 @@ pub async fn view(
     let len = metadata.len();
 
     // Simple tail: start from some bytes back
-    let mut pos = if len > (lines as u64 * 200) {
-        len - (lines as u64 * 200)
-    } else {
-        0
-    };
+    let mut pos = len.saturating_sub(lines as u64 * 200);
 
     file.seek(SeekFrom::Start(pos))?;
     let mut reader = BufReader::new(file);

@@ -61,7 +61,6 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 临时授权码兑换永久授权码 (StoreApp 专有，其他模式默认不支持)
-    #[allow(dead_code)]
     async fn exchange_temp_code(
         &self,
         _profile: &str,
@@ -75,7 +74,6 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 获取用户级访问令牌 (UserAccessToken)
-    #[allow(dead_code)]
     async fn get_user_token(
         &self,
         _profile: &str,
@@ -94,7 +92,6 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 令牌兑换拦截器 (用于劫持 OAuth2 流程)
-    #[allow(dead_code)]
     async fn intercept_exchange(
         &self,
         _profile: &str,
@@ -181,7 +178,6 @@ pub trait AuthProvider: Send + Sync {
     }
 
     /// 🚀 能力检查：该模式是否需要 AppTicket (用于 Ticket 采集器显示)
-    #[allow(dead_code)]
     fn requires_ticket(&self) -> bool {
         false
     }
@@ -294,7 +290,6 @@ pub trait AuthProvider: Send + Sync {
         Ok(vec![])
     }
 
-    #[allow(dead_code)]
     fn get_capabilities(&self) -> Vec<String> {
         vec![]
     }

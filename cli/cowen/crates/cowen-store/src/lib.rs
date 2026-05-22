@@ -41,8 +41,7 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
              if let Ok(entries) = std::fs::read_dir(&vault_dir) {
                  for entry in entries.flatten() {
                      if let Some(name) = entry.file_name().to_str() {
-                         if name.ends_with(".json") {
-                             let profile = &name[..name.len()-5];
+                         if let Some(profile) = name.strip_suffix(".json") {
                              let _ = file::migration::migrate_v2_to_v3(&vault_dir, profile, fp_opt).await;
                          }
                      }
@@ -69,7 +68,7 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
         if !path_part.is_empty() {
             let path = std::path::Path::new(path_part);
             if path.is_relative() {
-                if path.starts_with(&app_dir) || (app_dir.is_absolute() && path.to_string_lossy().contains(app_dir.to_string_lossy().as_ref())) {
+                if path.starts_with(app_dir) || (app_dir.is_absolute() && path.to_string_lossy().contains(app_dir.to_string_lossy().as_ref())) {
                      actual_url = format!("sqlite://{}", path.to_string_lossy());
                 } else {
                      let db_path = app_dir.join(path);

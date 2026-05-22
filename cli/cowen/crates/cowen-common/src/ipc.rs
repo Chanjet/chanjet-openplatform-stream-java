@@ -1,23 +1,25 @@
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
 use crate::config::Config;
-use crate::{CowenResult, CowenError};
-use async_trait::async_trait;
-use std::sync::Arc;
-use crate::vault::Vault;
 use crate::daemon::DaemonService;
+use crate::vault::Vault;
+use crate::{CowenError, CowenResult};
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WorkerStateDto {
     Created,
     Starting,
     Running,
-    Backoff { 
-        retry_count: u32, 
+    Backoff {
+        retry_count: u32,
         last_error: String,
         next_retry_in_secs: u64,
     },
-    Failed { reason: String },
+    Failed {
+        reason: String,
+    },
     Draining,
     Stopped,
 }
@@ -40,16 +42,17 @@ pub enum DaemonResponse {
 }
 
 pub fn get_uds_path() -> std::path::PathBuf {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let app_dir = crate::config::get_app_dir();
     let mut uds_path = app_dir.join("uds.sock");
-    
+
     // SUN_LEN is usually 104-108. If path is too long (e.g. in deep parallel tests),
     // we use a hashed name in /tmp to ensure socket binding succeeds.
     if uds_path.to_string_lossy().len() >= 100 {
         let mut hasher = Sha256::new();
         hasher.update(uds_path.to_string_lossy().as_bytes());
-        let hash = hex::encode(hasher.finalize());
+        let hash_bytes = hasher.finalize();
+        let hash = hash_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
         uds_path = std::path::PathBuf::from(format!("/tmp/cowen_{}.sock", &hash[..16]));
     }
     uds_path
@@ -58,12 +61,12 @@ pub fn get_uds_path() -> std::path::PathBuf {
 #[cfg(unix)]
 pub mod client {
     use super::*;
+    use anyhow::{bail, Context, Result};
     use std::path::{Path, PathBuf};
-    use tokio::net::UnixStream;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use anyhow::{Context, Result, bail};
     use std::process::Command;
     use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixStream;
 
     pub async fn ensure_daemon(uds_path: &Path) -> Result<UnixStream> {
         if let Ok(stream) = UnixStream::connect(uds_path).await {
@@ -77,17 +80,28 @@ pub mod client {
             let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
             exe_dir.join("cowen-daemon")
         };
-        
+
         if !daemon_path.exists() {
-            bail!("cowen-daemon executable not found at {}", daemon_path.display());
+            bail!(
+                "cowen-daemon executable not found at {}",
+                daemon_path.display()
+            );
         }
 
         // Redirect stdout/stderr to files
         let app_dir = crate::config::get_app_dir();
         let log_dir = app_dir.join("logs");
-        if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
-        let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))?;
-        let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
+        if !log_dir.exists() {
+            let _ = std::fs::create_dir_all(&log_dir);
+        }
+        let stdout_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join("daemon.stdout.log"))?;
+        let stderr_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_dir.join("daemon.stderr.log"))?;
 
         let _child = Command::new(&daemon_path)
             .arg("--uds")
@@ -96,7 +110,10 @@ pub mod client {
             .stdout(std::process::Stdio::from(stdout_file))
             .stderr(std::process::Stdio::from(stderr_file))
             .spawn()
-            .context(format!("Failed to spawn cowen-daemon at {}", daemon_path.display()))?;
+            .context(format!(
+                "Failed to spawn cowen-daemon at {}",
+                daemon_path.display()
+            ))?;
 
         // Retry logic: MAX 5 times, 200ms delay, total 1s (LLD says RETRY_FAST 5 times/200ms)
         for _ in 0..5 {
@@ -105,11 +122,14 @@ pub mod client {
                 return Ok(stream);
             }
         }
-        
+
         bail!("FATAL: Failed to connect to cowen-daemon after spawning")
     }
 
-    pub async fn send_request(stream: &mut UnixStream, req: &DaemonRequest) -> Result<DaemonResponse> {
+    pub async fn send_request(
+        stream: &mut UnixStream,
+        req: &DaemonRequest,
+    ) -> Result<DaemonResponse> {
         let payload = serde_json::to_vec(req)?;
         let len = payload.len() as u32;
         stream.write_all(&len.to_be_bytes()).await?;
@@ -145,7 +165,7 @@ pub mod client {
                         continue;
                     }
                 };
-                
+
                 match send_request(&mut stream, &req).await {
                     Ok(res) => return Ok(res),
                     Err(e) => {
@@ -161,11 +181,18 @@ pub mod client {
 
     #[async_trait]
     impl DaemonService for IpcDaemonService {
-        async fn start_daemon(&self, profile: &str, config: &Config, _vault: Arc<dyn Vault>) -> CowenResult<()> {
-            let res = self.request(DaemonRequest::StartWorker {
-                profile: profile.to_string(),
-                config: config.clone(),
-            }).await?;
+        async fn start_daemon(
+            &self,
+            profile: &str,
+            config: &Config,
+            _vault: Arc<dyn Vault>,
+        ) -> CowenResult<()> {
+            let res = self
+                .request(DaemonRequest::StartWorker {
+                    profile: profile.to_string(),
+                    config: config.clone(),
+                })
+                .await?;
 
             if let DaemonResponse::Error { message, .. } = res {
                 return Err(CowenError::api(message));
@@ -174,9 +201,11 @@ pub mod client {
         }
 
         async fn reload_daemon(&self, profile: &str) -> CowenResult<()> {
-            let res = self.request(DaemonRequest::ReloadWorker {
-                profile: profile.to_string(),
-            }).await?;
+            let res = self
+                .request(DaemonRequest::ReloadWorker {
+                    profile: profile.to_string(),
+                })
+                .await?;
 
             if let DaemonResponse::Error { message, .. } = res {
                 return Err(CowenError::api(message));
@@ -185,9 +214,11 @@ pub mod client {
         }
 
         async fn stop_daemon(&self, profile: &str) -> CowenResult<()> {
-            let res = self.request(DaemonRequest::StopWorker {
-                profile: profile.to_string(),
-            }).await?;
+            let res = self
+                .request(DaemonRequest::StopWorker {
+                    profile: profile.to_string(),
+                })
+                .await?;
 
             if let DaemonResponse::Error { message, .. } = res {
                 return Err(CowenError::api(message));

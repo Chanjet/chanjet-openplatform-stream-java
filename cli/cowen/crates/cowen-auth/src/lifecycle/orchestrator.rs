@@ -197,7 +197,7 @@ pub fn spawn_finalizer(profile: &str, session_id: &str) -> CowenResult<u32> {
         .open(log_file)
         .map_err(CowenError::from)?;
 
-    cmd.args(&[
+    cmd.args([
         "--profile",
         profile,
         "auth",
@@ -231,11 +231,9 @@ pub fn render_last_auth_error(profile: &str) -> CowenResult<()> {
     let reader = std::io::BufReader::new(file);
     let mut errors = Vec::new();
 
-    for line in reader.lines() {
-        if let Ok(l) = line {
-            if l.contains("ERROR") {
-                errors.push(l);
-            }
+    for l in reader.lines().flatten() {
+        if l.contains("ERROR") {
+            errors.push(l);
         }
     }
 

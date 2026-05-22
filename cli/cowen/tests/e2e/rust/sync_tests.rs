@@ -1,7 +1,7 @@
 use crate::e2e::rust::common::setup_test_env;
 use assert_cmd::Command;
 use std::fs;
-use tempfile::tempdir;
+
 use predicates::prelude::*;
 
 #[tokio::test(flavor = "multi_thread")]

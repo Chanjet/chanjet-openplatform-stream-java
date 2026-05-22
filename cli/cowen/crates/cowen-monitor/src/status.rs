@@ -13,7 +13,6 @@ pub enum StatusLevel {
     OK,
     WARN,
     ERROR,
-    #[allow(dead_code)]
     PENDING,
     NONE,
 }
@@ -98,7 +97,6 @@ pub struct StatusContext<'a> {
 
 #[async_trait::async_trait]
 pub trait StatusCollector: Send + Sync {
-    #[allow(dead_code)]
     fn name(&self) -> &str;
     async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry>;
 }
@@ -179,13 +177,13 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
 
 pub async fn is_port_responsive(port: u16) -> bool {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        tokio::net::TcpStream::connect(addr)
-    ).await {
-        Ok(Ok(_)) => true,
-        _ => false,
-    }
+    matches!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            tokio::net::TcpStream::connect(addr)
+        ).await,
+        Ok(Ok(_))
+    )
 }
 
 pub async fn collect_daemon_status(
@@ -328,11 +326,11 @@ pub async fn collect_daemon_status(
             outdated = true; 
         }
 
-        if !outdated {
-                if info.build_id.as_deref() != Some(cowen_common::BUILD_ID) 
-                    || info.build_time.as_deref() != Some(cowen_common::BUILD_TIME) {
-                    outdated = true;
-                }
+        if !outdated
+            && (info.build_id.as_deref() != Some(cowen_common::BUILD_ID)
+                || info.build_time.as_deref() != Some(cowen_common::BUILD_TIME))
+        {
+            outdated = true;
         }
     }
 

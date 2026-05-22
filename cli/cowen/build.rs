@@ -26,7 +26,7 @@ fn main() {
 
     // Get Git Commit ID
     let git_hash = std::process::Command::new("git")
-        .args(&["rev-parse", "--short", "HEAD"])
+        .args(["rev-parse", "--short", "HEAD"])
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())
@@ -39,8 +39,8 @@ fn main() {
         since_the_epoch.as_millis().to_string()
     };
 
-    let cowen_build_id = std::env::var("COWEN_BUILD_ID").unwrap_or_else(|_| build_id);
-    let cowen_build_time = std::env::var("COWEN_BUILD_TIME").unwrap_or_else(|_| build_time);
+    let cowen_build_id = std::env::var("COWEN_BUILD_ID").unwrap_or(build_id);
+    let cowen_build_time = std::env::var("COWEN_BUILD_TIME").unwrap_or(build_time);
     let cowen_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "unknown".to_string());
 
     println!("cargo:rustc-env=COWEN_BUILD_ID={}", cowen_build_id);

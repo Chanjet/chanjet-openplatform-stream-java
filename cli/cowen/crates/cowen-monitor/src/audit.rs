@@ -12,7 +12,6 @@ impl AuditStore {
         vault.save_audit(entry).await
     }
 
-    #[allow(dead_code)]
     pub async fn list(vault: &dyn Vault, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>> {
         vault.list_audit(profile, limit).await
     }
@@ -55,7 +54,7 @@ where
         
         let message = fields.remove("message")
             .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "".to_string());
+            .unwrap_or_default();
 
         let entry = AuditEntry {
             id: Uuid::new_v4().to_string(),

@@ -330,7 +330,7 @@ impl Store for RedisStore {
 
     async fn rename_profile(&self, old: &str, new: &str) -> CowenResult<()> {
         let mut conn = self.conn.clone();
-        let keys: Vec<String> = redis::cmd("KEYS").arg(&format!("{}:*", old)).query_async(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let keys: Vec<String> = redis::cmd("KEYS").arg(format!("{}:*", old)).query_async(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
         for ok in keys {
             let nk = ok.replace(old, new);
             redis::cmd("RENAME").arg(&ok).arg(&nk).query_async::<()>(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;

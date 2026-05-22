@@ -15,7 +15,7 @@ base64 = "0.22"
 sha2 = "0.10"
 aes-gcm = "0.10"
 rand = "0.8"
-hex = "0.4"
+
 hostname = "0.4"
 thiserror = "2.0"
 uuid = { version = "1.12", features = ["v4"] }

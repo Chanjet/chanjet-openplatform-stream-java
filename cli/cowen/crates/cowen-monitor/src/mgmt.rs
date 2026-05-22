@@ -33,6 +33,12 @@ pub struct AuthManager {
     progress: Mutex<HashMap<String, AuthProgressInfo>>,
 }
 
+impl Default for AuthManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AuthManager {
     pub fn new() -> Self {
         Self {

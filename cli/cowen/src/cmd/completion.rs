@@ -3,7 +3,7 @@ use clap::CommandFactory;
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::Cli;
 
@@ -106,7 +106,7 @@ fn get_home() -> anyhow::Result<PathBuf> {
         .map(|u| u.home_dir().to_path_buf())
 }
 
-fn install_powershell_completion(script_path: &PathBuf) -> anyhow::Result<()> {
+fn install_powershell_completion(script_path: &Path) -> anyhow::Result<()> {
     let bin_name = cowen_common::utils::get_bin_name();
     let script_path_str = script_path.display().to_string();
     
@@ -242,7 +242,7 @@ pub fn is_auto_install_needed() -> bool {
     !app_dir.join(".completion_installed").exists()
 }
 
-fn append_to_rc(rc_path: PathBuf, script_path: &PathBuf, shell: clap_complete::Shell) {
+fn append_to_rc(rc_path: PathBuf, script_path: &Path, shell: clap_complete::Shell) {
     let bin_name = cowen_common::utils::get_bin_name();
     let script_path_str = script_path.display().to_string();
     let marker = format!("# {} autocomplete", bin_name);

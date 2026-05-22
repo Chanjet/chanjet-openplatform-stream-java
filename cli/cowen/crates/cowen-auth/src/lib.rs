@@ -51,7 +51,7 @@ pub fn create_auth_client_with_vault(vault: Arc<dyn cowen_common::vault::Vault>)
 }
 
 thread_local! {
-    static DISABLE_TEST_ENV_CHECK: std::cell::Cell<bool> = std::cell::Cell::new(false);
+    static DISABLE_TEST_ENV_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn is_test_env() -> bool {
@@ -94,7 +94,7 @@ fn validate_decrypt_key(config: &cowen_common::config::Config) -> CowenResult<()
             }
         } else {
             let key_len = if decrypt_key.len() == 32 {
-                if hex::decode(&decrypt_key).is_ok() {
+                if decrypt_key.len().is_multiple_of(2) && decrypt_key.chars().all(|c| c.is_ascii_hexdigit()) {
                     16
                 } else {
                     32

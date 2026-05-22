@@ -12,7 +12,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
 
     println!("🔍 Scanning plugins directory: {:?}", plugins_dir);
-    println!("{:<60} | {:<10} | {:<10} | {}", "NAME (DESC)", "REGISTERED", "ENABLED", "PATH");
+    println!("{:<60} | {:<10} | {:<10} | PATH", "NAME (DESC)", "REGISTERED", "ENABLED");
     println!("{:-<60}-+-{:-<10}-+-{:-<10}-+-{:-<40}", "", "", "", "");
 
     if !plugins_dir.exists() {

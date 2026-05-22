@@ -39,7 +39,7 @@ pub async fn start_proxy(
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    cowen_infra::validate_loopback_addr(&addr).map_err(|e| cowen_common::CowenError::Security(e))?;
+    cowen_infra::validate_loopback_addr(&addr).map_err(cowen_common::CowenError::Security)?;
     
     // Retry logic for binding to handle port release delay during reloads
     let mut retry_count = 0;

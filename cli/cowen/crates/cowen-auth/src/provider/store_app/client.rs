@@ -149,7 +149,7 @@ pub(crate) async fn intercept_exchange(
                 .await?;
         }
     } else {
-        return Err(CowenError::Auth(format!("Failed to extract identity from token during proxy exchange. Multi-tenant arbitration requires a valid JWT.")));
+        return Err(CowenError::Auth("Failed to extract identity from token during proxy exchange. Multi-tenant arbitration requires a valid JWT.".to_string()));
     }
 
     Ok(raw_json)
@@ -178,7 +178,7 @@ pub(crate) async fn get_app_access_token(
                 Ok(t) => break t,
                 Err(_) => {
                     if retry_count >= 20 {
-                        return Err(CowenError::Auth(format!("[StoreApp] 尚未接收到平台推送的 appTicket。请确保 daemon 已启动并保持在线。 (Retried 20s)")));
+                        return Err(CowenError::Auth("[StoreApp] 尚未接收到平台推送的 appTicket。请确保 daemon 已启动并保持在线。 (Retried 20s)".to_string()));
                     }
 
                     if retry_count == 0 {

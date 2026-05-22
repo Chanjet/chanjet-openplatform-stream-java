@@ -11,6 +11,26 @@ use std::sync::Arc;
 use cowen_auth::client::Client;
 use cowen_common::daemon::DaemonService;
 
+pub trait Colorize {
+    fn red(&self) -> String;
+    fn green(&self) -> String;
+    fn yellow(&self) -> String;
+    fn cyan(&self) -> String;
+    fn bold(&self) -> String;
+    fn dimmed(&self) -> String;
+    fn underline(&self) -> String;
+}
+
+impl<T: std::fmt::Display> Colorize for T {
+    fn red(&self) -> String { format!("\x1b[31m{}\x1b[0m", self) }
+    fn green(&self) -> String { format!("\x1b[32m{}\x1b[0m", self) }
+    fn yellow(&self) -> String { format!("\x1b[33m{}\x1b[0m", self) }
+    fn cyan(&self) -> String { format!("\x1b[36m{}\x1b[0m", self) }
+    fn bold(&self) -> String { format!("\x1b[1m{}\x1b[0m", self) }
+    fn dimmed(&self) -> String { format!("\x1b[2m{}\x1b[0m", self) }
+    fn underline(&self) -> String { format!("\x1b[4m{}\x1b[0m", self) }
+}
+
 #[derive(Parser)]
 #[command(name = option_env!("CARGO_BIN_NAME_OVERRIDE").unwrap_or("cowen"))]
 #[command(version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " / ", env!("BUILD_TIME"), ")"))]
@@ -472,10 +492,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
     #[cfg(unix)]
     let daemon_svc: Arc<dyn DaemonService> = {
-        let is_foreground_start = match &cli.command {
-            Commands::Daemon { action: DaemonCommands::Start { foreground: true, .. } } => true,
-            _ => false,
-        };
+        let is_foreground_start = matches!(&cli.command, Commands::Daemon { action: DaemonCommands::Start { foreground: true, .. } });
 
         if is_foreground_start {
             Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None))
@@ -487,12 +504,11 @@ pub async fn run(cli: Cli) -> Result<()> {
     #[cfg(not(unix))]
     let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None));
 
-    if matches!(&cli.command, Commands::Init { .. }) {
-        if cli.profile.is_none() {
+    if matches!(&cli.command, Commands::Init { .. })
+        && cli.profile.is_none() {
             active_profile = cfg_mgr.get_next_profile_name().await.map_err(|e| anyhow::anyhow!(e))?;
             println!("🪄 No profile name provided. Automatically generating new profile: \x1b[1;32m{}\x1b[0m", active_profile);
         }
-    }
     
     let mut config = match cfg_mgr.load(&active_profile).await {
         Ok(cfg) => cfg,
@@ -613,7 +629,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 openapi_url: openapi_url.clone(),
                 stream_url: stream_url.clone(),
                 app_mode: app_mode.clone(),
-                proxy_port: proxy_port.clone(),
+                proxy_port: *proxy_port,
                 auto_start: false,
             };
             cmd::init::execute(&active_profile, &cfg_mgr, &mut app_config, vault.clone(), ctx, Some(daemon_svc.clone())).await?;
@@ -659,7 +675,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 let mut changed = false;
                 if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
-                else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
+                else if *no_proxy && updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; }
                 
                 if let Some(m) = monitor_port {
                     let mut app_cfg = cfg_mgr.load_app_config().await?;
@@ -683,7 +699,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 let mut changed = false;
                 if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
                 if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
-                else if *no_proxy { if updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; } }
+                else if *no_proxy && updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; }
                 if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
                 cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), telemetry_control.clone(), daemon_svc.clone()).await?;
             }

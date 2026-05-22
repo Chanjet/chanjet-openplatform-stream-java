@@ -17,10 +17,11 @@ impl ConfigInterceptor for PortInterceptor {
 pub struct UrlInterceptor;
 impl ConfigInterceptor for UrlInterceptor {
     fn validate(&self, key: &str, value: &str) -> CowenResult<()> {
-        if key.ends_with(".target") || key.ends_with(".url") {
-            if !value.starts_with("http://") && !value.starts_with("https://") {
-                return Err(CowenError::Config(format!("Invalid URL format: {}", value)));
-            }
+        if (key.ends_with(".target") || key.ends_with(".url"))
+            && !value.starts_with("http://")
+            && !value.starts_with("https://")
+        {
+            return Err(CowenError::Config(format!("Invalid URL format: {}", value)));
         }
         Ok(())
     }
