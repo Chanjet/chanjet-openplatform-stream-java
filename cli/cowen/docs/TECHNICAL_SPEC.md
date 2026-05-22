@@ -1,4 +1,4 @@
-# cowen 技术规约文档 (Technical Specification v0.3.0)
+# cowen 技术规约文档 (Technical Specification v0.3.5)
 
 本文档旨在定义 `cowen` CLI 的核心技术实现标准、底层算法及协议细节，作为开发与评审的执行依据。
 
@@ -106,6 +106,23 @@
 - **上报时机**: 关键命令执行结束、严重异常发生。
 - **采样策略**: 生产环境采取 10% 采样，`DEBUG` 环境 100% 上报。
 - **数据脱敏**: 严禁上报任何包含令牌片段、密钥或用户业务数据的 Payload。
+
+---
+
+## 7. 编译与运行环境变量规约 (Build & Runtime Env) (v0.3.5+)
+
+为了保障配置的安全隔离与构建的确定性，`cowen` 定义了严格的编译期与运行期环境变量契约：
+
+### 7.1 编译期强校验注入
+必须在编译期通过构建脚本（如 `build.rs`）校验并静态注入以下变量，任何缺失或格式错误均会导致编译失败：
+- `COWEN_BUILD_CLIENT_ID`: 编译期注入的内置自建应用 Client ID，用于安全引导和默认代金券交换。
+- `COWEN_BUILD_MARKET_URL`: 编译期注入的默认开放平台应用市场 API 地址。
+
+### 7.2 运行时全局环境变量覆盖
+运行时允许通过带 `COWEN_GLOBAL_` 前缀的环境变量直接覆盖全局 `app.yaml` 中的对应配置项，无需修改物理文件即可调整行为：
+- `COWEN_GLOBAL_LOG_LEVEL`: 覆盖全局日志级别（如 `sys` 日志输出级别）。
+- `COWEN_GLOBAL_SSRF_WHITELIST`: 覆盖 Webhook 转发的 IP/网段白名单。
+- `COWEN_GLOBAL_VAULT_PIN`: 覆盖运行时 Vault 指纹 PIN 码。
 
 ---
 © 2026 Chanjet Advanced Agentic Coding Team.

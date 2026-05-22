@@ -1,4 +1,4 @@
-# cowen 命令指南 (Commands v0.3.1)
+# cowen 命令指南 (Commands v0.3.5)
 
 本文档详述了 `cowen` CLI 所有可用命令及其功能。
 
@@ -25,9 +25,15 @@ cowen init ...
 ```
 
 ### `config` - 查看与管理配置
-查看当前活跃 Profile 的非敏感配置信息。
-- `cowen config`: 查看全量配置。
-- `cowen config set <KEY> <VALUE>`: 动态修改配置（如 `log.level`, `monitor.port`）。
+查看或修改配置信息。
+- `cowen config`: 查看活跃 Profile 与全局配置的组合结果。
+- `cowen config set <KEY> <VALUE>`: 动态修改当前活跃 Profile 的局部配置。
+- `cowen config set <KEY> <VALUE> --global`: (v0.3.5+) 动态修改全局基础设施配置 (`app.yaml`)，对所有 Profile 共享并即时生效（如 `log.level`, `security.ssrf_whitelist`）。
+
+### `reset` - 系统重置 (v0.3.5+)
+一键重置清理，恢复系统初始状态。基于 `Resettable` 插件化架构实现。
+- `--dry-run`: 仅生成并打印出计划清理的物理资源清单（包括 SQLite 文件路径、Redis 清理模式、本地模型缓存、日志轮转目录、文件锁等），但不产生任何物理删除或修改的副作用。
+- 执行不带 `--dry-run` 的命令会物理抹除上述所有已注册的状态介质。
 
 ---
 

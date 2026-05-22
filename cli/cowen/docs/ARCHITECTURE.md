@@ -1,4 +1,4 @@
-# cowen 架构设计 (Architecture v0.3.1)
+# cowen 架构设计 (Architecture v0.3.5)
 
 本文档详细介绍了 `cowen` CLI 的核心设计理念、模块划分以及实现细节。本项目遵循 **TDD (测试驱动开发)** 与 **OCP (开闭原则)**。
 
@@ -45,6 +45,16 @@ graph TD
 - **Service Layer**: 业务逻辑层。包含鉴权协调者 `AuthClient`、后台守护进程 `Daemon` 以及语义搜索。
 - **Core & Infrastructure**: 基础设施层。提供配置、安全、存储、网络及遙测等基础能力。
 
+### 2. 配置分层与寻址隔离设计 (v0.3.5+)
+
+在 `v0.3.5` 中，`cowen` 彻底解耦了全局与 Profile 级的配置，并引入了配置分层寻址机制：
+- **全局基础设施配置 (`app.yaml`)**:
+  - 用于承载应用全局一致的基础设施策略，包括 `security` (Vault 指纹校验与 Webhook 转发 SSRF 白名单)、`log` (日志级别、单文件大小和保留个数)、全局服务器端点以及 `search` (向量化搜索插件列表与加载策略)。
+  - 该配置逻辑在所有 Profile 间物理共享，确保全局管理的一致性和安全性。
+- **Profile 租户配置 (`profile.yaml`)**:
+  - 用于承载特定租户/Profile 级的鉴权凭证（例如：Client ID, Client Secret）以及本地存储后端（如 SQLite 单文件物理路径、独立 Redis 实例端点等）。
+  - 彻底实现了多租户/多环境的物理隔离和独立寻址。
+
 ---
 
 ## 🔌 SPI 与 插件化设计 (OCP Implementation)
@@ -58,8 +68,24 @@ graph TD
 ### 3. SearchProvider SPI: 可插拔搜索 (v0.3.1+)
 为了保持主二进制文件的轻量，复杂的语义搜索（向量化、ONNX 推理）已被剥离为动态插件：
 - **枢纽 (Hub)**: `cowen-search` crate 提供基础 Trait 与插件加载逻辑。
-- **插件 (Plugin)**: 导出 C ABI 接口的动态链接库（`.dylib`, `.so`）。
+- **插件 (Plugin)**: 导出 C ABI 接口 of 动态链接库（`.dylib`, `.so`）。
 - **加载机制**: 使用 `cowen-infra` 中的 `PluginLoader` 实现跨平台动态链接，支持在运行时根据配置文件显式启用或禁用特定搜索算法。
+
+### 4. Resettable SPI: 模块化系统重置 (v0.3.5+)
+为了符合开闭原则（OCP），在 v0.3.5 中将 `cowen reset` 的破坏性清理逻辑彻底重构为插件化模型：
+- **统一接口 (Trait)**:
+  ```rust
+  #[async_trait]
+  pub trait Resettable: Send + Sync {
+      fn name(&self) -> &str;
+      async fn dry_run(&self) -> CowenResult<Vec<String>>;
+      async fn reset(&self) -> CowenResult<()>;
+  }
+  ```
+- **自动收集机制**: 诸如 `Vault`、`Store`、`Telemetry`、`Config` 等状态化物理组件，分别实现该接口，并通过 `inventory::submit!` 将自己 box 注册到系统注册表中。
+- **确定性两阶段重置**:
+  - **Dry Run**: 遍历所有已注册的组件，收集其返回的计划清除的物理文件路径或资源清单，提供确定性预览，无任何物理副作用。
+  - **Reset**: 正式执行清理操作。每个组件自行抹除其管理的介质（例如：删除 SQLite 文件、清空 Redis 缓存、清空模型文件及锁文件），调度器仅负责顺序驱动，从而实现了核心逻辑对新增组件的完全“开闭”。
 
 ---
 
@@ -79,12 +105,13 @@ graph TD
 
 ## 💾 物理模块隔离 (Crate Isolation)
 
-v0.3.1 实现了严格的物理目录隔离，每个领域拥有独立的 `Cargo.toml`：
-- `cowen-common`: 核心模型与脱敏类型。
-- `cowen-store`: 存储 SPI 与 SQL/Redis 驱动。
-- `cowen-auth`: 鉴权 SPI 与 OAuth2/SelfBuilt 实现。
-- `cowen-search`: 搜索枢纽。
-- `cowen-infra`: 插件加载器、混淆器等基础设施。
+v0.3.5 实现了严格的物理目录隔离，每个领域拥有独立的 `Cargo.toml`：
+- `cowen-common`: 核心数据模型、脱敏类型和通用错误机制。
+- `cowen-config`: 配置管理器。实现全局应用配置与多 Profile 租户配置的分层解析寻址、校验及自动迁移策略。
+- `cowen-store`: 存储 SPI 与 SQLite/PostgreSQL/MySQL/Redis 等异构持久化存储后端驱动。
+- `cowen-auth`: 鉴权 SPI 与 Self-Built / Store-App / OAuth2 鉴权驱动插件实现。
+- `cowen-search`: 语义搜索 Hub。承载向量化转换与动态 C-ABI 搜索插件管理。
+- `cowen-infra`: 包括动态插件加载器、敏感信息混淆器、文件锁等底层工具组件。
 
 ---
 

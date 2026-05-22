@@ -10,7 +10,7 @@
         3. **上限保护**: 设置最大检查间隔（如 1 小时），确保状态最终一致性。
 
 ## 🟠 P1: 高优先级 (High Priority)
-- [ ] **迁移核心配置至应用全局 (app.yaml)**: 
+- [x] **迁移核心配置至应用全局 (app.yaml)**: 
     *   **现状**: `security`, `log`, `openapi_url`, `stream_url`, `search` 等配置目前在 `Config` (Profile 级别) 中定义。
     *   **修改建议**: 应该作为应用级配置移入 `AppConfig`，确保这些基础架构配置在所有 Profile 间共享，避免重复配置。
 - [x] **重构授权同步机制**: 替换 `orchestrator.rs` 中基于日志轮询的同步方式。现已实现基于 Monitor API (IPC) 的实时进度同步与进度条展示。
@@ -25,7 +25,7 @@
 - [x] **ConfigManager 内部重构**: 
     - 消除 `auto_migrate` 等函数中的深层嵌套逻辑（虽然 v0.3.3 已优化，但仍有扁平化空间）。
     - 将存储/缓存类型的元数据逻辑（是否分布式、默认 URL 等）从硬编码判断迁移至策略模式（Completed via `ConfigStrategy`).
-- [ ] **清理硬编码默认值**:
+- [x] **清理硬编码默认值**:
     *   **现状**: `BUILTIN_CLIENT_ID` 和 `DEF_MARKET_URL` 等关键默认值目前在代码中硬编码。
     *   **修改建议**: 必须通过构建脚本（`build.rs` 或 `Makefile`）在构建时注入。同步排查全工程中其他硬编码的默认值，确保配置的一致性。
 
@@ -36,4 +36,4 @@
 - [x] **提取独立诊断模块**: 将散落在各处的 `status.rs` 和 `audit.rs` 整合为独立的 `cowen-telemetry` (cowen-monitor) 模块。
 - [x] **灵活的 SSRF 防御**: 为 `forwarder.rs` 增加 Webhook 转发白名单配置，支持容器化环境（如 K8s）下的私有网段转发，并通过 `ssrf.rs` 实现分级校验。
 - [ ] ~~**拆解 Makefile**~~: 简化 `Makefile` 逻辑，将平台适配和容器管理逻辑拆分为独立的脚本 (Cancelled for v0.3.4 freeze).
-- [ ] **补全 OCP 抽象**: 将系统重置 (System Reset) 逻辑彻底模块化。
+- [x] **补全 OCP 抽象**: 将系统重置 (System Reset) 逻辑彻底模块化。
