@@ -165,55 +165,57 @@ pub enum Commands {
 
 #[derive(clap::Subcommand)]
 pub enum ConfigCommands {
-    /// 设置配置项的值 (e.g., cowen config set log.level debug)
+    /// 设置当前环境配置项的值 (e.g., cowen config set log.level debug)
     Set {
-        #[arg(help = "配置项路径 (e.g., log.level, storage.db_url)")]
+        #[arg(help = "要设置的配置项路径 (例如 log.level, storage.db_url)")]
         key: String,
         #[arg(help = "配置项的新值")]
         value: String,
+        #[arg(long, help = "动态修改全局基础设施配置 (app.yaml)")]
+        global: bool,
     },
-    /// 获取配置项的值
+    /// 获取指定配置项的当前数值
     Get {
-        #[arg(help = "配置项路径")]
+        #[arg(help = "要获取的配置项路径")]
         key: String,
     },
-    /// 删除配置项 (支持数组坍缩)
+    /// 删除局部配置项 (支持配置数组坍缩)
     Unset {
-        #[arg(help = "配置项路径 (e.g., search.plugins.0)")]
+        #[arg(help = "要删除的配置项路径 (例如 search.plugins.0)")]
         key: String,
     },
-    /// 列出所有配置项
+    /// 列出当前生效的所有配置项目
     List {
-        #[arg(short, long, default_value = "table", help = "输出格式 (table, json)")]
+        #[arg(short, long, default_value = "table", help = "列表的展示输出格式 (table, json)")]
         format: String,
     },
 }
 
 #[derive(clap::Subcommand)]
 pub enum ProfileCommands {
-    /// Switch to a different profile
+    /// 切换并激活到指定的 Profile 环境
     Use {
-        /// Profile name to activate
+        /// 要激活的 Profile 环境名称
         name: String,
     },
-    /// Show the currently active profile
+    /// 显示当前默认激活的 Profile 环境名称
     Current,
-    /// List all configured profiles
+    /// 列出所有已配置的多 Profile 环境列表
     List,
-    /// Rename an existing profile
+    /// 重命名已有的环境及其关联的安全存储与数据库记录
     Rename {
-        /// Current profile name
+        /// 当前需要重命名的 Profile 名称
         old_name: String,
-        /// New profile name
+        /// 新的环境 Profile 名称
         new_name: String,
     },
 }
 
 #[derive(clap::Subcommand)]
 pub enum SystemCommands {
-    /// Check system overall status (Daemon, Store, Auth, AI)
+    /// 检查系统的整体运行状态指标 (包括 Daemon、Store、Auth、AI 等)
     Status {
-        /// Show detailed status for all profiles
+        /// 扫描并输出所有 Profile 环境的详细运行状态
         #[arg(short, long)]
         all: bool,
     },
@@ -221,195 +223,204 @@ pub enum SystemCommands {
 
 #[derive(clap::Subcommand)]
 pub enum StoreCommands {
+    /// 配置全局存储后端与缓存的连接参数与引擎类型
     Set {
-        /// Store type (e.g. sqlite, mysql, postgres, redis, local, innerdb)
+        /// 主存储引擎类型 (可选 sqlite / innerdb / mysql / postgres / redis / local)
         #[arg(
             long, 
             env = "COWEN_STORE_TYPE",
-            long_help = "Primary storage engine type.\n\nValues:\n  - sqlite / innerdb: Local SQLite database\n  - mysql / postgres: Distributed SQL database\n  - redis: High-performance key-value store\n  - local: Legacy flat-file storage"
+            long_help = "主存储数据库引擎类型。\n\n支持的取值:\n  - sqlite / innerdb: 本地高性能 SQLite 数据库文件\n  - mysql / postgres: 远程分布式关系数据库\n  - redis: 高并发 Key-Value 内存存储\n  - local: 遗留的扁平化文件本地配置存储"
         )]
         store: Option<String>,
-        /// Database connection URL
+        /// 数据库连接 URL 地址
         #[arg(
             long, 
             env = "COWEN_DB_URL",
-            long_help = "Connection URL for the selected store.\n\nExamples:\n  - sqlite:data/cowen.db\n  - postgres://user:pass@localhost:5432/cowen\n  - mysql://user:pass@localhost:3306/cowen\n  - redis://localhost:6379"
+            long_help = "选定主存储引擎所需的物理连接 URL 地址。\n\n格式示例:\n  - sqlite:data/cowen.db\n  - postgres://user:pass@localhost:5432/cowen\n  - mysql://user:pass@localhost:3306/cowen\n  - redis://localhost:6379"
         )]
         db_url: Option<String>,
-        /// Cache store type (e.g. redis, memory)
-        #[arg(long, env = "COWEN_CACHE_TYPE")]
+        /// 全局缓存引擎类型 (如 redis, memory)
+        #[arg(long, env = "COWEN_CACHE_TYPE", help = "全局缓存引擎类型")]
         cache: Option<String>,
-        /// Cache connection URL (e.g. redis://localhost:6379)
-        #[arg(long, env = "COWEN_CACHE_URL")]
+        /// 缓存连接 URL 地址 (如 redis://localhost:6379)
+        #[arg(long, env = "COWEN_CACHE_URL", help = "缓存连接的物理 URL 地址")]
         cache_url: Option<String>,
     },
+    /// 检查当前配置的主存储后端与缓存连接性及健康状态
     Status,
+    /// 在不同的底层存储后端之间安全地迁移已保存的配置与凭据状态
     Migrate {
-        /// Target Store URL to migrate to.
+        /// 迁移的目标数据库连接 URL 地址
         #[arg(
             long, 
             value_name = "URL",
-            long_help = "Target Store URL to migrate to.\n\nSupported formats:\n  - sqlite:path/to/db.sqlite (e.g. sqlite:data/cowen.db)\n  - mysql://user:pass@host:port/db\n  - postgres://user:pass@host:port/db\n  - redis://host:port\n  - local (Legacy file-based store)\n  - innerdb (Default managed SQLite)"
+            long_help = "需要将当前数据迁移到的目标数据库连接 URL 地址。\n\n格式与 Set 命令一致，例如 sqlite:data/new.db"
         )]
         to: String,
-        /// Migration mode
-        #[arg(long, value_enum, default_value = "clone")]
+        /// 数据迁移的交互工作模式
+        #[arg(long, value_enum, default_value = "clone", help = "数据迁移模式 (clone: 复制数据; move: 物理迁移)")]
         mode: cowen_store::migration::MigrationMode,
     },
 }
 
 #[derive(clap::Subcommand)]
 pub enum ApiCommands {
-    /// List available APIs from the current specification
+    /// 搜索并列出当前环境规格中所有授权可用的平台 API 列表
     List {
-        /// Optional search term to filter APIs
-        #[arg(short, long)]
+        /// 提供搜索词以模糊过滤或语义检索特定的 API 接口
+        #[arg(short, long, help = "API 模糊过滤或自然语言语义检索词")]
         search: Option<String>,
-        /// Page number for results
-        #[arg(long, default_value_t = 1)]
+        /// 分页查看的页码
+        #[arg(long, default_value_t = 1, help = "要查看的页码")]
         page: usize,
-        /// Number of results per page
-        #[arg(short = 'n', long, default_value_t = 20)]
+        /// 每页显示的 API 记录数量
+        #[arg(short = 'n', long, default_value_t = 20, help = "每页显示的记录限制条数")]
         page_size: usize,
-        /// Force refresh the local specification from the platform
-        #[arg(short, long)]
+        /// 强制从云端开放平台重新拉取同步最新的规约定义
+        #[arg(short, long, help = "强制从云平台刷新同步最新规约")]
         refresh: bool,
     },
-    /// Show detailed specification for a specific API
+    /// 查看指定 API 接口在本地规格中的具体数据与详情规约定义
     Spec {
-        /// HTTP method (GET, POST, etc.)
+        /// 接口对应的 HTTP 方法名 (如 GET, POST)
         method: String,
-        /// API path
+        /// 接口地址路径 (如 /v1/user)
         path: String,
-        /// Show raw JSON specification
-        #[arg(long)]
+        /// 以原始 JSON 结构输出接口规约详情
+        #[arg(long, help = "直接输出原始 JSON 格式规约定义")]
         raw: bool,
     },
 }
 
 #[derive(clap::Subcommand)]
 pub enum AuthCommands {
-    /// Check current authentication status
+    /// 检查当前环境的安全凭据健康状况与剩余寿命
     Status,
-    /// Reset authentication state
+    /// 强制清空并重置本地的所有身份认证与换票状态
     Reset,
-    /// Clear local session and logout
+    /// 安全清除本地内存与 Vault 中的 Token 凭据并退出会话
     Logout,
-    /// Perform interactive or forced login
+    /// 触发与开放平台的换票及交互式 OAuth2 登录流
     Login {
-        /// Force re-authentication even if token is valid
-        #[arg(short, long)]
+        /// 强制废弃本地 Token 并立即触发重新网络登录
+        #[arg(short, long, help = "强制废弃缓存凭据并立即网络重登录")]
         force: bool,
-        /// Internal use only for finalizing async login flows
+        /// 仅供内部流转，用于异步完成登录握手回传
         #[arg(long, hide = true)]
         finalize: Option<String>,
     },
-    /// Retrieve or refresh the current access token
+    /// 获取或 proactive 刷新当前 Profile 的 AccessToken
     Token {
-        /// Proactively refresh the token from the platform
-        #[arg(short, long)]
+        /// 主动触发向开放平台发起 Token 的寿命续期刷新
+        #[arg(short, long, help = "强制立即向开放平台执行 Token 刷新")]
         refresh: bool,
     },
-    /// Reload token from shared storage (Force memory sync)
+    /// 从共享存储中强制同步最新凭据数据到当前工作上下文
     Reload,
 }
 
 #[derive(clap::Subcommand)]
 pub enum DaemonCommands {
-    /// Start the background daemon service
+    /// 启动长连接桥接器、反向代理与 Token 自适应自动续签后台服务
     Start {
-        /// Override the proxy listening port
-        #[arg(long)]
+        /// 覆盖代理端口
+        #[arg(long, help = "覆盖本地反向代理服务监听端口")]
         proxy_port: Option<u16>,
-        /// Override the monitor listening port
-        #[arg(long)]
+        /// 覆盖监控管理服务的通信监听端口
+        #[arg(long, help = "覆盖守护进程管理端口")]
         monitor_port: Option<u16>,
-        /// Force enable API proxying
-        #[arg(long)]
+        /// 强制开启 HTTP API 签名反向代理服务
+        #[arg(long, help = "强制启用 API 请求代理网关能力")]
         enable_proxy: bool,
-        /// Force disable API proxying
-        #[arg(long)]
+        /// 强制禁用 HTTP API 反向代理
+        #[arg(long, help = "强制禁用代理网关，仅做流消息桥接")]
         no_proxy: bool,
-        /// Run in foreground instead of background
-        #[arg(long)]
+        /// 在控制台前台挂起运行以方便直接观察日志流
+        #[arg(long, help = "在前台阻塞式启动并打印交互日志")]
         foreground: bool,
-        /// Start daemons for all configured profiles
-        #[arg(short, long)]
+        /// 同时为所有已配置激活的 Profile 环境一并启动后台守护服务
+        #[arg(short, long, help = "批量为所有已配置的 Profile 环境并行启动服务")]
         all: bool,
     },
-    /// Stop the background daemon service
+    /// 优雅停止运行中的后台守护进程服务
     Stop {
-        /// Stop daemons for all running profiles
-        #[arg(short, long)]
+        /// 批量停止当前机器上运行的所有 Profile 后台守护进程
+        #[arg(short, long, help = "批量停止所有正在运行环境的守护服务")]
         all: bool,
     },
-    /// Restart the background daemon service
+    /// 重启守护服务并应用最新加载的配置文件参数
     Restart {
-        /// Override the proxy listening port
-        #[arg(long)]
+        /// 重启并覆盖代理网关监听端口
+        #[arg(long, help = "重新指定反向代理服务监听端口")]
         proxy_port: Option<u16>,
-        /// Force enable API proxying
-        #[arg(long)]
+        /// 重启强制开启请求签名反向代理
+        #[arg(long, help = "强制启用 API 请求代理网关")]
         enable_proxy: bool,
-        /// Force disable API proxying
-        #[arg(long)]
+        /// 重启强制关闭请求代理
+        #[arg(long, help = "强制禁用代理网关，仅做消息桥接")]
         no_proxy: bool,
-        /// Restart daemons for all configured profiles
-        #[arg(short, long)]
+        /// 同时为所有已配置的 Profile 重启其关联的守护进程服务
+        #[arg(short, long, help = "批量为所有 Profile 服务进行重启")]
         all: bool,
     },
-    /// Reload specific or all workers without stopping the master daemon
+    /// 在不停止主控服务 Master 守护的前提下，平滑热重启特定的工作 Worker 子进程
     Reload {
-        /// Reload ALL workers
-        #[arg(short, long)]
+        /// 批量热重启所有的工作 Worker 子进程
+        #[arg(short, long, help = "热重启所有激活环境的工作子进程")]
         all: bool,
     },
-    /// Manage OS-level system services (e.g. systemd/launchd)
-    Service { #[command(subcommand)] action: ServiceCommands },
+    /// 管理操作系统的底层自启动服务单元 (支持 systemd / launchd)
+    Service { 
+        #[command(subcommand)] 
+        action: ServiceCommands 
+    },
 }
 
 #[derive(clap::Subcommand)]
 pub enum ServiceCommands {
-    /// Install the daemon as an OS system service (systemd/launchd)
+    /// 安装后台守护守护服务到操作系统开机自启动单元中
     Install,
-    /// Uninstall the OS system service
+    /// 从操作系统服务管理器中安全卸载守护进程开机单元
     Uninstall,
-    /// Check the OS system service status
+    /// 诊断操作系统服务管理器中的当前单元运行生命周期状态
     Status,
 }
 
 #[derive(clap::Subcommand)]
 pub enum DlqCommands {
-    /// List events currently in the Dead Letter Queue
+    /// 列出当前死信队列 (DLQ) 中因为网络或本地重试耗尽而堆积的异常事件
     List {
-        #[arg(long, default_value = "1", help = "Page number to view")]
+        /// 要查看的页码
+        #[arg(long, default_value = "1", help = "死信记录查看的分页页码")]
         page: usize,
-        #[arg(short = 's', long, default_value = "20", help = "Number of items per page")]
+        /// 每页显示的死信记录数限制
+        #[arg(short = 'n', long, default_value = "20", help = "每页显示的死信记录条数")]
         page_size: usize,
     },
-    /// Retry processing a specific event by ID
+    /// 手动重新投递重试特定 ID 的死信队列异常事件
     Retry {
-        /// Event ID to retry
+        /// 需要手动触发重发动作的死信事件 ID
+        #[arg(help = "死信记录的唯一事件 ID (UUID)")]
         id: String,
     },
-    /// Clear all events from the Dead Letter Queue
+    /// 物理抹除死信队列中堆积的所有历史事件
     Purge,
 }
 
 #[derive(clap::Subcommand)]
 pub enum LogCommands {
-    /// List available log files or domains
+    /// 列出当前环境支持的所有日志域及其对应的物理审计文件信息
     List,
-    /// View or follow log content
+    /// 查看审计文件或实时跟踪多域日志流的控制台输出
     View {
-        /// Log domain to view (e.g. sys, audit, stream, dlq). Use 'cowen log list' to see all available files.
-        #[arg(default_value = "sys")]
+        /// 需要查看的日志域 (可选 sys / audit / stream / dlq，缺省为 sys)
+        #[arg(default_value = "sys", help = "要查询的日志域。可用 'cowen log list' 命令获取")]
         domain: String,
-        /// Follow log output in real-time
-        #[arg(short, long)]
+        /// 挂起终端实时追踪并跟随时时产生的新日志流水
+        #[arg(short, long, help = "挂起终端以 follow 模式实时追随日志流")]
         follow: bool,
-        /// Number of lines to show from the end
-        #[arg(short = 'n', long, default_value_t = 10)]
+        /// 默认在起始位置展示日志审计文件的尾部行数
+        #[arg(short = 'n', long, default_value_t = 10, help = "要在尾部默认读取的日志行数")]
         lines: usize,
     },
 }
@@ -685,7 +696,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?,
         Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? }
         Commands::Config { action } => match action {
-            Some(ConfigCommands::Set { key, value }) => {
+            Some(ConfigCommands::Set { key, value, global }) => {
+                if *global {
+                    let global_strategy = cowen_config::strategy::GlobalAppConfigStrategy;
+                    use cowen_config::strategy::ConfigStrategy;
+                    if !global_strategy.matches(key) {
+                        return Err(anyhow::anyhow!("❌ Error: Key '{}' is not a global infrastructure config. Only global configs (e.g. log.level, storage.*, security.*, search.*, monitor_port, openapi_url, stream_url, telemetry_enabled) can be modified globally.", key));
+                    }
+                }
                 cfg_mgr.set_value(&active_profile, key, value).await.map_err(|e| anyhow::anyhow!(e))?;
                 println!("✅ Successfully updated '{}' to '{}'", key, value);
             }

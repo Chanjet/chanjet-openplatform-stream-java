@@ -97,10 +97,19 @@ cowen doctor --verbose
 扫描并诊断系统所有 Profile 的运行状态矩阵。
 
 ### `store status`
-检查存储后端（如 SQLite）的连接性与健康度。
+检查当前配置的主存储后端与缓存连接性及健康状态。
 
-### `store set --store <TYPE>`
-切换全局存储后端 (e.g. `sqlite`, `redis`, `mysql`, `postgres`)。
+### `store set`
+配置全局存储后端与缓存的连接参数与引擎类型。
+- `--store`: 主存储引擎类型 (可选 `sqlite`, `innerdb`, `mysql`, `postgres`, `redis`, `local`)。
+- `--db-url`: 数据库连接 URL 地址。
+- `--cache`: 全局缓存引擎类型 (如 `redis`, `memory`)。
+- `--cache-url`: 缓存连接的物理 URL 地址。
+
+### `store migrate` (v0.3.5+)
+在不同的底层存储后端之间安全地迁移已保存的配置与凭据状态。
+- `--to <URL>`: 迁移的目标数据库连接 URL 地址，如 `sqlite:data/new.db`。
+- `--mode <MODE>`: 数据迁移模式。支持 `clone` (复制数据) 或 `move` (物理移动数据，迁移后抹除源数据)。默认值为 `clone`。
 
 ---
 
@@ -114,7 +123,9 @@ cowen doctor --verbose
 - `-n`: 指定起始行数。
 
 ### `dlq list`
-查看堆积的失败事件。
+列出当前死信队列 (DLQ) 中因为网络或本地重试耗尽而堆积的异常事件。
+- `--page`: 要查看的分页页码 (默认 1)。
+- `-n`, `--page-size`: 每页显示的死信记录条数限制 (默认 20)。
 
 ### `dlq retry <ID>`
 手动触发死信重发。
