@@ -111,32 +111,20 @@ impl DiagnosticTask for StorageCheck {
 }
 inventory::submit! { DiagnosticRegistration { builder: || Box::new(StorageCheck) } }
 
-struct NetworkCheck;
+struct StreamUrlCheck;
 #[async_trait]
-impl DiagnosticTask for NetworkCheck {
-    fn name(&self) -> &str { "网络连通性" }
+impl DiagnosticTask for StreamUrlCheck {
+    fn name(&self) -> &str { "网络连通性 (Stream)" }
     async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
         let start = Instant::now();
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
 
-        let mut status = DiagnosticStatus::Ok;
-        let mut errs = vec![];
-
-        match client.get(&ctx.config.stream_url).send().await {
-            Ok(_) => {},
-            Err(e) => errs.push(format!("Stream URL 连接失败: {}", e)),
-        }
-
-        match client.get(&ctx.config.openapi_url).send().await {
-            Ok(_) => {},
-            Err(e) => errs.push(format!("OpenAPI 连接失败: {}", e)),
-        }
-
-        if !errs.is_empty() {
-            status = DiagnosticStatus::Error(errs.join(" | "));
-        }
+        let status = match client.get(&ctx.config.stream_url).send().await {
+            Ok(_) => DiagnosticStatus::Ok,
+            Err(e) => DiagnosticStatus::Error(format!("Stream URL 连接失败: {}", e)),
+        };
 
         Ok(DiagnosticResult {
             name: self.name().to_string(),
@@ -145,7 +133,31 @@ impl DiagnosticTask for NetworkCheck {
         })
     }
 }
-inventory::submit! { DiagnosticRegistration { builder: || Box::new(NetworkCheck) } }
+inventory::submit! { DiagnosticRegistration { builder: || Box::new(StreamUrlCheck) } }
+
+struct OpenApiCheck;
+#[async_trait]
+impl DiagnosticTask for OpenApiCheck {
+    fn name(&self) -> &str { "网络连通性 (OpenAPI)" }
+    async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
+        let start = Instant::now();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
+
+        let status = match client.get(&ctx.config.openapi_url).send().await {
+            Ok(_) => DiagnosticStatus::Ok,
+            Err(e) => DiagnosticStatus::Error(format!("OpenAPI 连接失败: {}", e)),
+        };
+
+        Ok(DiagnosticResult {
+            name: self.name().to_string(),
+            status,
+            duration_ms: start.elapsed().as_millis() as u64,
+        })
+    }
+}
+inventory::submit! { DiagnosticRegistration { builder: || Box::new(OpenApiCheck) } }
 
 struct CredentialsCheck;
 #[async_trait]

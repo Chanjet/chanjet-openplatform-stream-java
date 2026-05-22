@@ -135,13 +135,27 @@ pub mod client {
         }
 
         async fn request(&self, req: DaemonRequest) -> CowenResult<DaemonResponse> {
-            let mut stream = ensure_daemon(&self.uds_path)
-                .await
-                .map_err(|e| CowenError::api(format!("IPC connection failed: {}", e)))?;
-            
-            send_request(&mut stream, &req)
-                .await
-                .map_err(|e| CowenError::api(format!("IPC request failed: {}", e)))
+            let mut last_err = None;
+            for _ in 0..3 {
+                let mut stream = match ensure_daemon(&self.uds_path).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        last_err = Some(CowenError::api(format!("IPC connection failed: {}", e)));
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        continue;
+                    }
+                };
+                
+                match send_request(&mut stream, &req).await {
+                    Ok(res) => return Ok(res),
+                    Err(e) => {
+                        last_err = Some(CowenError::api(format!("IPC request failed: {}", e)));
+                        // If it's early eof, maybe the daemon just restarted or is busy
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                    }
+                }
+            }
+            Err(last_err.unwrap_or_else(|| CowenError::api("IPC request failed after retries")))
         }
     }
 

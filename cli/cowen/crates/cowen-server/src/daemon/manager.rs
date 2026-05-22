@@ -257,7 +257,8 @@ async fn run_profile_worker(
 ) -> CowenResult<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let app_cfg = cfg_mgr.load_app_config().await?;
-    let vault = cowen_store::create_vault(&app_cfg, &app_dir, &config.app_key).await?;
+    let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
+    let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await?;
 
     let auth = cowen_auth::create_auth_client(Arc::new(cowen_auth::VaultTokenPool::new(vault.clone())));
     let _ = auth.provider(&config.app_mode).hydrate_config(profile, &mut config, vault.clone()).await;

@@ -40,11 +40,11 @@ sleep 1
 DAEMON_PID=$!
 sleep 5
 
-if grep -q "Local Proxy Server listening on" "$COWEN_HOME/logs/daemon.stderr.log"; then
+if grep -q "Local Proxy Server listening on" "$COWEN_HOME/daemon.log"; then
     echo -e "  ${GREEN}✓${NC} Daemon is running in foreground"
 else
     echo -e "  ${RED}✗${NC} Daemon failed to start in foreground"
-    cat "$COWEN_HOME/logs/daemon.stderr.log"
+    cat "$COWEN_HOME/daemon.log"
     exit 1
 fi
 
@@ -70,7 +70,7 @@ curl -s -X POST -H "Content-Type: application/json" \
 
 echo -e "  Waiting for exchange and archival..."
 for i in {1..15}; do
-    if grep -q "Enterprise permanent code successfully archived" "$COWEN_HOME/logs/sidecar_sys.log" || grep -q "Enterprise permanent code successfully archived" "$COWEN_HOME/logs/daemon.stderr.log"; then
+    if grep -q "Enterprise permanent code successfully archived" "$COWEN_HOME/logs/sidecar_sys.log" || grep -q "Enterprise permanent code successfully archived" "$COWEN_HOME/daemon.log"; then
         echo -e "  ${GREEN}✓${NC} Permanent code archived for $TEST_ORG_ID"
         break
     fi
@@ -79,7 +79,7 @@ done
 
 if [ "$i" -eq 15 ]; then
     echo -e "  ${RED}✗${NC} Permanent code exchange timeout"
-    cat "$COWEN_HOME/logs/daemon.stderr.log"
+    cat "$COWEN_HOME/daemon.log"
     cat "$COWEN_HOME/logs/sidecar_sys.log"
     exit 1
 fi

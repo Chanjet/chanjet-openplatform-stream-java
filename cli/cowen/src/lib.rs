@@ -426,8 +426,17 @@ pub async fn run(cli: Cli) -> Result<()> {
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
     #[cfg(unix)]
     let daemon_svc: Arc<dyn DaemonService> = {
-        let uds_path = cowen_common::ipc::get_uds_path();
-        Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
+        let is_foreground_start = match &cli.command {
+            Commands::Daemon { action: DaemonCommands::Start { foreground: true, .. } } => true,
+            _ => false,
+        };
+
+        if is_foreground_start {
+            Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None))
+        } else {
+            let uds_path = cowen_common::ipc::get_uds_path();
+            Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
+        }
     };
     #[cfg(not(unix))]
     let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None));
@@ -510,14 +519,6 @@ pub async fn run(cli: Cli) -> Result<()> {
     if std::env::var("COWEN_SKIP_COMPLETION_INSTALL").is_err() && cmd::completion::is_auto_install_needed() {
         let _ = cmd::completion::install_completion(None);
     }
-
-    #[cfg(unix)]
-    let daemon_svc: Arc<dyn DaemonService> = {
-        let uds_path = cowen_common::ipc::get_uds_path();
-        Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
-    };
-    #[cfg(not(unix))]
-    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None));
 
     // --- Daemon Lifecycle Enforcement ---
     // 1. Version Sync: Ensure all CURRENTLY RUNNING daemons match the CLI version.

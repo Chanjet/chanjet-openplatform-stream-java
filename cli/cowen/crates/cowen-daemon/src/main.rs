@@ -10,6 +10,7 @@ use tokio::net::{UnixListener, UnixStream};
 
 use cowen_common::ipc::{DaemonRequest, DaemonResponse, WorkerStateDto};
 use cowen_common::daemon::DaemonService;
+use cowen_common::vault::Vault;
 use cowen_server::ServerDaemonService;
 use cowen_config::ConfigManager;
 
@@ -23,6 +24,14 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // CAPTURE PANICS: Ensure background crashes are recorded
+    std::panic::set_hook(Box::new(|info| {
+        let payload = info.payload().downcast_ref::<&str>().cloned()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("no message");
+        tracing::error!("FATAL DAEMON PANIC: {}", payload);
+    }));
+
     // We'll initialize tracing shortly after setting up the DB
     let args = Args::parse();
 
@@ -105,8 +114,9 @@ async fn main() -> Result<()> {
                     match result {
                         Ok((stream, _)) => {
                             let svc = daemon_svc.clone();
+                            let v = vault.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = handle_connection(stream, svc).await {
+                                if let Err(e) = handle_connection(stream, svc, v).await {
                                     error!("Connection error: {}", e);
                                 }
                             });
@@ -147,7 +157,7 @@ async fn main() -> Result<()> {
 }
 
 #[cfg(unix)]
-async fn handle_connection(mut stream: UnixStream, svc: Arc<ServerDaemonService>) -> Result<()> {
+async fn handle_connection(mut stream: UnixStream, svc: Arc<ServerDaemonService>, vault: Arc<dyn Vault>) -> Result<()> {
     let mut len_buf = [0u8; 4];
     if stream.read_exact(&mut len_buf).await.is_err() {
         return Ok(()); // Connection closed
@@ -165,33 +175,9 @@ async fn handle_connection(mut stream: UnixStream, svc: Arc<ServerDaemonService>
         }
         DaemonRequest::StartWorker { profile, config } => {
             info!("StartWorker requested for {}", profile);
-            // We need a dummy vault here, or the daemon service needs to instantiate the vault
-            // For now, in v0.3.4, daemon service expects vault.
-            // But we can let daemon service fetch the vault, or we just pass it from config.
-            // Wait, ServerDaemonService::start_daemon requires `Arc<dyn Vault>`.
-            // We can create the vault here.
-            let app_dir = cowen_common::config::get_app_dir();
-            
-            let mut app_cfg = if let Ok(content) = std::fs::read_to_string(app_dir.join("app.yaml")) {
-                serde_yaml::from_str::<cowen_common::config::AppConfig>(&content).unwrap_or_default()
-            } else {
-                cowen_common::config::AppConfig::default()
-            };
-
-            if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
-                app_cfg.storage.store = st;
-                app_cfg.storage.db_url = Some(url);
-            }
-
-            let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
-            match cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await {
-                Ok(vault) => {
-                    match svc.start_daemon(&profile, &config, vault).await {
-                        Ok(_) => DaemonResponse::Success { message: format!("Worker {} started", profile) },
-                        Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
-                    }
-                }
-                Err(e) => DaemonResponse::Error { code: 500, message: format!("Vault init failed: {}", e) }
+            match svc.start_daemon(&profile, &config, vault.clone()).await {
+                Ok(_) => DaemonResponse::Success { message: format!("Worker {} started", profile) },
+                Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
             }
         }
         DaemonRequest::StopWorker { profile } => {
