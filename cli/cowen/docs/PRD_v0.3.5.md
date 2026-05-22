@@ -38,7 +38,17 @@ v0.3.5 的核心目标是 **“全局寻址优化与构建标准化 (Global Conf
     *   在不修改源码的情况下，通过 `COWEN_BUILD_CLIENT_ID=XXXX make build` 产生的二进制，其内置 Client ID 为 `XXXX`。
     *   通过 `cowen version --debug` 或类似指令可验证内置参数的准确性。
 
+### 2.3 补全 OCP 抽象：系统重置模块化 (Modular System Reset)
+*   **需求背景**: 目前 `cowen reset` 逻辑高度过程化，散落在各命令实现中。为了符合开闭原则（OCP），新增存储或组件时需要能自动参与重置流程。
+*   **功能描述**: 
+    *   **抽象 Trait**: 定义 `Resettable` Trait。
+    *   **自动注册**: 各核心组件（Vault, Store, Telemetry, Config）实现该 Trait 并通过插件化方式注册。
+    *   **调度重构**: 重构 `cmd/reset.rs`，使其仅作为调度器遍历并执行所有已注册组件的重置方法。
+*   **验收标准**: 
+    *   新增一个伪组件并注册重置逻辑后，运行 `cowen reset` 必须能自动触发该逻辑，无需修改 `reset.rs` 主代码。
+
 ## 3. 技术设计与关键技术选项确认 (Technical Design & Technology Options)
+
 
 ### 3.1 配置合并优先级 (Merge Strategy)
 *   **优先级权重**: `环境变量 (Highest)` > `命令行 Flag` > `Profile 覆盖配置 (Profile Config)` > `应用全局配置 (app.yaml)` > `内置编译默认值 (Lowest)`。
@@ -56,5 +66,6 @@ v0.3.5 的核心目标是 **“全局寻址优化与构建标准化 (Global Conf
 1. **P1.1**: 重构 `AppConfig` 结构并更新 `app.yaml` 读写逻辑。
 2. **P1.2**: 修改 `ConfigManager` 合并算法，实现全局配置继承。
 3. **P1.3**: 实现 `build.rs` 注入机制，清理 `config.rs` 硬编码项。
-4. **P1.4**: 编写配置平滑迁移脚本，确保旧版本用户无感升级。
-5. **P1.5**: 全量回归验证。
+4. **P1.4**: 系统重置逻辑 OCP 模块化重构。
+5. **P1.5**: 编写配置平滑迁移脚本，确保旧版本用户无感升级。
+6. **P1.6**: 全量回归验证。
