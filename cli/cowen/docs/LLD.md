@@ -38,11 +38,16 @@ pub struct Config {
 
 ### 1.2 配置加载逻辑算子 (Logical Operators)
 ```rust
-async fn load_config(profile: &str) -> Result<Config> {
-    let global = load_app_config().await?;
+async fn load_config(profile: &str) -> CowenResult<Config> {
+    let mut global = load_app_config().await?;
+    
+    // 运行时环境变量覆盖 (Runtime Environment Overrides)
+    // 仅限全局基础设施配置，遵循 COWEN_GLOBAL_* 命名空间
+    global.apply_runtime_env_overrides("COWEN_GLOBAL_");
+    
     let mut profile_cfg = load_profile_config(profile).await?;
     
-    // 强隔离验证：若 Profile 中包含全局字段，需抛出警告并忽略
+    // 强隔离验证：若 Profile 中包含全局字段，需抛出校验错误并阻断启动 (Abort)
     validate_profile_isolation(&profile_cfg)?;
     
     // 逻辑合并
@@ -97,7 +102,7 @@ inventory::collect!(Box<dyn Resettable>);
 
 ### 3.2 Reset 调度算子 (含 Dry Run)
 ```rust
-pub async fn execute_reset(dry_run_mode: bool) -> Result<()> {
+pub async fn execute_reset(dry_run_mode: bool) -> CowenResult<()> {
     for component in inventory::iter::<Box<dyn Resettable>> {
         let resources = component.dry_run().await;
         println!("Component [{}]:", component.name());
@@ -112,6 +117,7 @@ pub async fn execute_reset(dry_run_mode: bool) -> Result<()> {
     }
     Ok(())
 }
+```
 
 ---
 
@@ -135,8 +141,7 @@ pub fn get_uds_path() -> PathBuf {
 
 ## 5. 配置单向迁移算法
 
-
-### 4.1 迁移逻辑 (Migration Logic)
+### 5.1 迁移逻辑 (Migration Logic)
 1. **识别**: 检测 `app.yaml` 是否包含 v0.3.5 必需的新字段。
 2. **决策**: 以 `ConfigManager::get_current_profile()` 的配置为原始样板。
 3. **搬迁**:
@@ -153,14 +158,14 @@ pub fn get_uds_path() -> PathBuf {
 
 ---
 
-## 5. TDD 验证契约 (Testing Strategy)
+## 6. TDD 验证契约 (Testing Strategy)
 
-### 5.1 Build Injection
+### 6.1 Build Injection
 *   **GIVEN**: 环境变量 `COWEN_BUILD_CLIENT_ID` 未设置。
 *   **WHEN**: 执行 `cargo build`。
 *   **THEN**: 编译失败并输出 `FATAL: Missing mandatory build-time variable`.
 
-### 5.2 Config Isolation
+### 6.2 Config Isolation
 *   **GIVEN**: `app.yaml` 中 `openapi_url` 为 `A`。
 *   **WHEN**: 尝试在 `env.yaml` 中手动写入 `openapi_url: B` 并加载。
 *   **THEN**: 加载结果中 `openapi_url` 仍为 `A`，且输出隔离警告。
@@ -183,6 +188,7 @@ pub fn get_uds_path() -> PathBuf {
 
 ---
 
-## 6. LLD 执行边界
+## 7. LLD 执行边界
+
 *   **命名规范**: 环境变量前缀严格遵循 `COWEN_BUILD_*` 和 `COWEN_GLOBAL_*`。
 *   **重置清理**: Vault 模块的 `reset` 必须包含彻底擦除存储介质的操作。
