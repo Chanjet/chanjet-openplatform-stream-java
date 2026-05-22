@@ -252,6 +252,11 @@ pub fn build_client_options(config: &Config, app_cfg: &cowen_common::config::App
     connector_sdk::ClientOptions {
         app_key: config.app_key.clone(),
         app_secret: config.app_secret.clone(),
+        encrypt_key: if config.encrypt_key.is_empty() {
+            None
+        } else {
+            Some(config.encrypt_key.clone())
+        },
         gateway_url: app_cfg.stream_url.clone(), // 👈 修正为正确的 stream_url
         exclusive: config.exclusive.unwrap_or(false),
         ..Default::default()
@@ -282,6 +287,20 @@ mod tests {
         // 断言它应该取 stream_url
         assert_eq!(opts.gateway_url, "https://stream-open.chanapp.chanjet.com");
     }
+
+    #[test]
+    fn test_build_client_options_populates_encrypt_key() {
+        let config = Config {
+            app_key: "test_key".to_string(),
+            app_secret: "test_secret".to_string(),
+            encrypt_key: "1234567890123456".to_string(),
+            ..Config::default_with_profile("test")
+        };
+        let app_cfg = cowen_common::config::AppConfig::default();
+        let opts = build_client_options(&config, &app_cfg);
+        assert_eq!(opts.encrypt_key, Some("1234567890123456".to_string()));
+    }
+
 
     #[tokio::test]
     async fn test_should_enable_webhooks_for_different_modes() {

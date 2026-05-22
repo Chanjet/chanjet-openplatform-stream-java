@@ -53,3 +53,20 @@ fn test_disconnected_with_error_variant() {
         panic!("Incorrect variant");
     }
 }
+
+#[test]
+fn test_aes_decrypt_key_length_validation() {
+    // 32-character key should fail with our specific error message
+    let key_32 = "12345678901234561234567890123456";
+    let res = connector_sdk::crypto::aes_decrypt("ZW5jcnlwdGVkX3N0dWZm", key_32);
+    assert!(res.is_err());
+    let err_msg = res.err().unwrap().to_string();
+    assert!(err_msg.contains("AES-128 key must be 16 bytes"));
+
+    // 16-character key should check base64 decode first
+    let key_16 = "1234567890123456";
+    let res_16 = connector_sdk::crypto::aes_decrypt("invalid_base64_stuff!!!", key_16);
+    assert!(res_16.is_err());
+    assert!(res_16.err().unwrap().to_string().contains("Base64 decode failed"));
+}
+
