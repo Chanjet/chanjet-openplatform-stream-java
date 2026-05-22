@@ -875,6 +875,7 @@ dependencies = [
  "cowen-monitor",
  "cowen-store",
  "fs2",
+ "hex",
  "indicatif 0.18.4",
  "open",
  "rand 0.8.6",

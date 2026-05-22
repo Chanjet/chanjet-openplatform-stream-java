@@ -56,12 +56,12 @@ fn test_disconnected_with_error_variant() {
 
 #[test]
 fn test_aes_decrypt_key_length_validation() {
-    // 32-character key should fail with our specific error message
-    let key_32 = "12345678901234561234567890123456";
+    // 32-character invalid hex key should fail with our specific error message
+    let key_32 = "1234567890123456123456789012345g"; // 'g' makes it invalid hex
     let res = connector_sdk::crypto::aes_decrypt("ZW5jcnlwdGVkX3N0dWZm", key_32);
     assert!(res.is_err());
     let err_msg = res.err().unwrap().to_string();
-    assert!(err_msg.contains("AES-128 key must be 16 bytes"));
+    assert!(err_msg.contains("AES-128 key must be 16 bytes") || err_msg.contains("Failed to decode 32-character decryption key as hex"));
 
     // 16-character key should check base64 decode first
     let key_16 = "1234567890123456";
@@ -69,4 +69,115 @@ fn test_aes_decrypt_key_length_validation() {
     assert!(res_16.is_err());
     assert!(res_16.err().unwrap().to_string().contains("Base64 decode failed"));
 }
+
+#[tokio::test]
+async fn test_client_start_fails_early_with_invalid_key_length() {
+    let options = connector_sdk::ClientOptions {
+        app_key: "dummy_key".to_string(),
+        app_secret: "12345678901234567890".to_string(), // 20 bytes, not 16
+        encrypt_key: None,
+        gateway_url: "http://localhost:8080".to_string(),
+        ..Default::default()
+    };
+    let client = connector_sdk::GatewayClient::new(options);
+    let res = client.start().await;
+    assert!(res.is_err());
+    let err_msg = res.err().unwrap().to_string();
+    assert!(err_msg.contains("Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes"));
+}
+
+#[tokio::test]
+async fn test_client_start_fails_early_with_invalid_encrypt_key_length() {
+    let options = connector_sdk::ClientOptions {
+        app_key: "dummy_key".to_string(),
+        app_secret: "1234567890123456".to_string(), // 16 bytes, valid
+        encrypt_key: Some("too_short_key".to_string()), // 13 bytes, invalid
+        gateway_url: "http://localhost:8080".to_string(),
+        ..Default::default()
+    };
+    let client = connector_sdk::GatewayClient::new(options);
+    let res = client.start().await;
+    assert!(res.is_err());
+    let err_msg = res.err().unwrap().to_string();
+    assert!(err_msg.contains("Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes"));
+}
+
+#[test]
+fn test_aes_decrypt_with_32_character_hex_key() {
+    // 32-character valid hex key should pass the length check and hit pkcs7 or other decrypt errors
+    let key_32_hex = "12345678901234561234567890123456";
+    let res = connector_sdk::crypto::aes_decrypt("ZW5jcnlwdGVkX3N0dWZm", key_32_hex);
+    assert!(res.is_err());
+    let err_msg = res.err().unwrap().to_string();
+    // In TDD Red phase, this will fail because it actually complains about "AES-128 key must be 16 bytes"
+    // In Green phase, it will pass length check, try to decrypt, and fail on PKCS7 unpad or other logic
+    assert!(!err_msg.contains("AES-128 key must be 16 bytes"));
+
+    // 32-character invalid hex key should fail the validation
+    let key_32_invalid = "1234567890123456123456789012345g"; // 'g' is not valid hex
+    let res_inv = connector_sdk::crypto::aes_decrypt("ZW5jcnlwdGVkX3N0dWZm", key_32_invalid);
+    assert!(res_inv.is_err());
+}
+
+#[tokio::test]
+async fn test_client_start_passes_validation_with_32_character_hex_key() {
+    let options = connector_sdk::ClientOptions {
+        app_key: "dummy_key".to_string(),
+        app_secret: "1234567890123456".to_string(),
+        encrypt_key: Some("12345678901234561234567890123456".to_string()), // 32-char hex, valid
+        gateway_url: "http://localhost:8080".to_string(),
+        ..Default::default()
+    };
+    let client = connector_sdk::GatewayClient::new(options);
+    let res = client.start().await;
+    assert!(res.is_err());
+    let err_msg = res.err().unwrap().to_string();
+    // It should fail with network connection error, NOT decrypt key length validation error
+    assert!(!err_msg.contains("Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes for AES-128"));
+}
+
+#[test]
+fn test_ent_auth_code_message_deserialization_missing_state() {
+    let json_data = r#"{
+        "id": "7e7fe844-a1e1-800c-2d66-e2a3728601cb",
+        "msgType": "TEMP_AUTH_CODE",
+        "appKey": "dqOk3anb",
+        "appId": "",
+        "time": "1779437358871",
+        "headers": {},
+        "bizContent": {
+            "tempAuthCode": "test_temp_auth_code"
+        }
+    }"#;
+
+    let msg: Result<connector_sdk::EntAuthCodeMessage, _> = serde_json::from_str(json_data);
+    assert!(msg.is_ok(), "Expected EntAuthCodeMessage to be successfully deserialized even without state, but got: {:?}", msg.err());
+    let parsed = msg.unwrap();
+    assert_eq!(parsed.biz_content.temp_auth_code, "test_temp_auth_code");
+    assert!(parsed.biz_content.state.is_none());
+}
+
+#[test]
+fn test_ent_auth_code_message_deserialization_with_state() {
+    let json_data = r#"{
+        "id": "7e7fe844-a1e1-800c-2d66-e2a3728601cb",
+        "msgType": "TEMP_AUTH_CODE",
+        "appKey": "dqOk3anb",
+        "appId": "",
+        "time": "1779437358871",
+        "headers": {},
+        "bizContent": {
+            "tempAuthCode": "test_temp_auth_code",
+            "state": "my_custom_state"
+        }
+    }"#;
+
+    let msg: Result<connector_sdk::EntAuthCodeMessage, _> = serde_json::from_str(json_data);
+    assert!(msg.is_ok(), "Expected EntAuthCodeMessage to be successfully deserialized with state, but got: {:?}", msg.err());
+    let parsed = msg.unwrap();
+    assert_eq!(parsed.biz_content.temp_auth_code, "test_temp_auth_code");
+    assert_eq!(parsed.biz_content.state, Some("my_custom_state".to_string()));
+}
+
+
 

@@ -13,6 +13,7 @@ fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String) {
     let config = json!({
         "app_key": "test_key",
         "app_mode": mode,
+        "encrypt_key": "1234567890123456", // 16-byte dummy key to pass validation rules
         "webhook_target": "http://localhost:8080",
         "auto_start": false,
         "version": 1
@@ -37,7 +38,7 @@ fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String) {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_daemon_oauth2_webhook_no_stream_crash() {
     let profile = "test_oauth2_daemon";
-    let (_dir, home) = setup_daemon_env(profile, "oauth2");
+    let (dir, home) = setup_daemon_env(profile, "oauth2");
     
     // Seed dummy token in vault to pass auth checks on startup
     let app_cfg = cowen_common::config::AppConfig { openapi_url: "http://localhost:12345".to_string(), stream_url: "http://localhost:12345".to_string(), ..Default::default() };
@@ -114,6 +115,8 @@ async fn test_daemon_oauth2_webhook_no_stream_crash() {
             log_content
         );
     }
+
+    let _ = dir;
 }
 
 fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, String) {
@@ -126,6 +129,7 @@ fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, Stri
     let config = json!({
         "app_key": "test_key",
         "app_mode": mode,
+        "encrypt_key": "1234567890123456", // 16-byte dummy key to pass validation rules
         "webhook_target": "http://localhost:8080",
         "auto_start": false,
         "version": 1
@@ -150,7 +154,7 @@ fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, Stri
 #[tokio::test(flavor = "multi_thread")]
 async fn test_daemon_https_crash_prevention() {
     let profile = "test_selfbuilt_daemon_https";
-    let (_dir, home) = setup_daemon_env_https(profile, "self-built");
+    let (dir, home) = setup_daemon_env_https(profile, "self-built");
     
     // Seed dummy token in vault to pass auth checks on startup
     let app_cfg = cowen_common::config::AppConfig { 
@@ -161,6 +165,7 @@ async fn test_daemon_https_crash_prevention() {
     let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
     vault.set_config(profile, "app_key", "test_key").await.unwrap();
     vault.set_secret(profile, "app_secret", "test_secret").await.unwrap();
+    vault.set_secret(profile, "encrypt_key", "1234567890123456").await.unwrap();
     
     // Seed standard dummy access and refresh tokens
     let rt = cowen_common::models::Token {
@@ -236,5 +241,7 @@ async fn test_daemon_https_crash_prevention() {
         "Daemon failed with Rustls CryptoProvider configuration error! Log content:\n{}",
         log_content
     );
+
+    let _ = dir;
 }
 

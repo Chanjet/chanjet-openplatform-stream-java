@@ -19,12 +19,18 @@ pub fn aes_decrypt(encrypted_base64: &str, decrypt_key: &str) -> Result<String> 
     let ciphertext = general_purpose::STANDARD.decode(encrypted_base64)
         .map_err(|e| anyhow!("Base64 decode failed: {}", e))?;
     
-    let key_bytes = decrypt_key.as_bytes();
+    let key_bytes = if decrypt_key.len() == 32 {
+        hex::decode(decrypt_key)
+            .map_err(|e| anyhow!("Failed to decode 32-character decryption key as hex: {}", e))?
+    } else {
+        decrypt_key.as_bytes().to_vec()
+    };
+
     if key_bytes.len() != 16 {
-        return Err(anyhow!("AES-128 key must be 16 bytes, got {}", key_bytes.len()));
+        return Err(anyhow!("AES-128 key must be 16 bytes (or 32 hex characters), got {}", key_bytes.len()));
     }
 
-    let cipher = Aes128::new(GenericArray::from_slice(key_bytes));
+    let cipher = Aes128::new(GenericArray::from_slice(&key_bytes));
     let mut plaintext = ciphertext.clone();
     
     if plaintext.len() % 16 != 0 {

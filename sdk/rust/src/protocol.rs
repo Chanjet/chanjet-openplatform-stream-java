@@ -63,7 +63,8 @@ pub struct EntAuthCodeMessage {
 pub struct EntAuthCodeContent {
     #[serde(rename = "tempAuthCode")]
     pub temp_auth_code: String,
-    pub state: String,
+    #[serde(default)]
+    pub state: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

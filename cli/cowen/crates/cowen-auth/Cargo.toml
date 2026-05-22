@@ -25,6 +25,7 @@ sha2 = "0.10"
 fs2 = "0.4"
 sysinfo = "0.38"
 axum = "0.7"
+hex = "0.4"
 cowen-common = { path = "../cowen-common", features = ["reqwest"] }
 cowen-infra = { path = "../cowen-infra" }
 cowen-config = { path = "../cowen-config" }

@@ -100,6 +100,7 @@ fn setup_auth_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile::Te
     let config = json!({
         "app_key": "test_key",
         "app_mode": mode,
+        "encrypt_key": "1234567890123456", // 16-byte dummy key to pass validation rules
         "webhook_target": "http://localhost:8080",
         "auto_start": false,
         "version": 1
@@ -334,13 +335,14 @@ async fn test_auth_login_oauth2() {
 async fn test_auth_logout() {
     let (addr, _server_handle) = start_mock_platform().await;
     let openapi_url = format!("http://{}", addr);
-    let (_dir, home) = setup_auth_env("logout_profile", "self-built", &openapi_url);
+    let (dir, home) = setup_auth_env("logout_profile", "self-built", &openapi_url);
     
     let app_cfg = cowen_common::config::AppConfig { openapi_url: openapi_url.clone(), stream_url: openapi_url.clone(), ..Default::default() };
     let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
     
     // 1. Setup active token and ticket
     vault.set_config("logout_profile", "app_key", "test_key").await.unwrap();
+    vault.set_secret("logout_profile", "encrypt_key", "1234567890123456").await.unwrap();
     vault.save_app_access_token("test_key", cowen_common::models::Token {
         value: "active_token".to_string(),
         expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
@@ -370,4 +372,6 @@ async fn test_auth_logout() {
     // 4. Verify they are cleared
     assert!(vault.get_app_access_token("test_key").await.is_err());
     assert!(vault.get_app_ticket("test_key").await.is_err());
+
+    let _ = dir;
 }

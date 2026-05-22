@@ -60,7 +60,7 @@ pub async fn run(
         let gate_for_auth = shutdown_gate.clone();
         dispatcher.on_ent_auth_code(move |msg| {
             let temp_code = msg.biz_content.temp_auth_code.trim().to_string();
-            let state = Some(msg.biz_content.state.clone());
+            let state = msg.biz_content.state.clone();
             let t_pool_inner = t_pool.clone();
             let t_profile_inner = t_profile.clone();
             let t_config_inner = t_config.clone();
@@ -258,8 +258,9 @@ pub fn build_client_options(config: &Config, app_cfg: &cowen_common::config::App
             Some(config.encrypt_key.clone())
         },
         gateway_url: app_cfg.stream_url.clone(), // 👈 修正为正确的 stream_url
+        reconnect_interval: Duration::from_secs(1),
+        max_backoff: Duration::from_secs(60),
         exclusive: config.exclusive.unwrap_or(false),
-        ..Default::default()
     }
 }
 

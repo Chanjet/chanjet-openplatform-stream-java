@@ -97,6 +97,28 @@ impl GatewayClient {
             return Err(anyhow::anyhow!("AppSecret cannot be empty"));
         }
 
+        let decrypt_key = self.options
+            .encrypt_key
+            .as_ref()
+            .unwrap_or(&self.options.app_secret);
+
+        let key_len = if decrypt_key.len() == 32 {
+            if hex::decode(decrypt_key).is_ok() {
+                16
+            } else {
+                32
+            }
+        } else {
+            decrypt_key.len()
+        };
+
+        if key_len != 16 {
+            return Err(anyhow::anyhow!(
+                "Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes (or 32-character hex) for AES-128, got {} bytes",
+                decrypt_key.len()
+            ));
+        }
+
         {
             let mut running = self.running.lock().unwrap();
             if *running {
