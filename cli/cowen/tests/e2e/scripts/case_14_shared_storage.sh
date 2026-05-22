@@ -41,23 +41,27 @@ storage:
   db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
+openapi_url: "$MOCK_URL"
+stream_url: "$MOCK_WS"
 telemetry_enabled: false
 ai_enabled: false
 EOF
+
 
 "$COWEN_BIN" init --profile main \
     --app-mode self-built \
     --app-key AK_SYNC \
     --app-secret AS_SYNC \
     --certificate CERT_SYNC \
-    --encrypt-key ENCRYPT_SYNC \
-    --openapi-url http://127.0.0.1:9299 \
-    --stream-url ws://127.0.0.1:9299 \
-    --webhook-target http://127.0.0.1:9299/webhook_sink \
-    
+    --encrypt-key 1234567890123456 \
+    --openapi-url "$MOCK_URL" \
+    --stream-url "$MOCK_WS" \
+    --webhook-target "$MOCK_URL/webhook_sink"
+
 
 # Manually start daemon
 "$COWEN_BIN" daemon start --profile main
+wait_for_daemon "main" 8
 
 # --- Node 2: Follower (No Init) ---
 echo -e "${BOLD}2. Setup Node 2 (No Init)${NC}"
@@ -88,7 +92,7 @@ echo -e "${BOLD}3. Verify Token Synchronization${NC}"
 # 1. Get initial token from Node 1
 export COWEN_HOME="$HOME_1"
 echo -n "   Extracting token from Node 1..."
-TOKEN_1=$(extract_token "main")
+TOKEN_1=$(wait_for_token "main" "" 15)
 if [ -z "$TOKEN_1" ]; then
     fail_suite "Node 1 token extraction failed."
 fi
@@ -150,8 +154,11 @@ fi
 
 echo -e "${BOLD}6. Verify Node 2 Proxy Implementation${NC}"
 export COWEN_HOME="$HOME_2"
+# Stop any background daemon auto-launched by Node 2 commands earlier, to ensure clean port binding and socket ownership
+"$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
 # Start Node 2 daemon to test proxy on port PROXY_PORT_2
 "$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 &
+
 echo -n "   Waiting for Node 2 daemon to stabilize..."
 sleep 10
 

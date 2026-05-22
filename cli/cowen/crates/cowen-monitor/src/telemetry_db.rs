@@ -25,6 +25,7 @@ impl TelemetryDb {
         let options = SqliteConnectOptions::new()
             .filename(db_path)
             .create_if_missing(true)
+            .busy_timeout(Duration::from_secs(5))
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
             .log_statements(log::LevelFilter::Trace);
@@ -133,3 +134,42 @@ impl TelemetryDb {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_telemetry_concurrent_insertion() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("telemetry.db");
+
+        let db = TelemetryDb::new(&db_path).await.unwrap();
+
+        let mut handles = vec![];
+        let db_arc = std::sync::Arc::new(db);
+        for i in 0..50 {
+            let db_clone = db_arc.clone();
+            let handle = tokio::spawn(async move {
+                db_clone.insert_event(
+                    "profile_test",
+                    "type_test",
+                    Some("old"),
+                    Some("new"),
+                    Some(&format!("detail {}", i)),
+                ).await
+            });
+            handles.push(handle);
+        }
+
+        let mut results = vec![];
+        for handle in handles {
+            results.push(handle.await.unwrap());
+        }
+
+        for res in results {
+            assert!(res.is_ok(), "Expected Ok, got error: {:?}", res);
+        }
+    }
+}
+

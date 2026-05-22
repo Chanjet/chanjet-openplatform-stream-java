@@ -564,6 +564,10 @@ pub struct SqliteBuilder;
 impl SqlBuilder for SqliteBuilder {
     fn scheme(&self) -> &str { "sqlite" }
     async fn build(&self, url: &str) -> CowenResult<Arc<dyn SqlDriver>> {
+        static DDL_MUTEX: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
+        let mutex = DDL_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()));
+        let _ddl_guard = mutex.lock().await;
+
         use sqlx::sqlite::SqliteConnectOptions;
         use std::str::FromStr;
 
@@ -642,3 +646,34 @@ impl SqlBuilder for SqliteBuilder {
 }
 
 inventory::submit! { SqlBuilderRegistration { builder: &SqliteBuilder } }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_sqlite_concurrent_build() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_concurrent.db");
+        let db_url = format!("sqlite://{}", db_path.to_string_lossy());
+
+        let mut handles = vec![];
+        for _ in 0..15 {
+            let url = db_url.clone();
+            let handle = tokio::spawn(async move {
+                SqliteBuilder.build(&url).await
+            });
+            handles.push(handle);
+        }
+
+        let mut results = vec![];
+        for handle in handles {
+            results.push(handle.await.unwrap());
+        }
+
+        for res in results {
+            assert!(res.is_ok(), "Expected Ok, got error: {:?}", res.as_ref().err());
+        }
+    }
+}
+

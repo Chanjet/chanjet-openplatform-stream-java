@@ -194,6 +194,11 @@ impl ConfigManager {
     }
 
     pub async fn exists(&self, profile: &str) -> bool {
+        if let Ok(key) = std::env::var("COWEN_APP_KEY") {
+            if !key.trim().is_empty() {
+                return true;
+            }
+        }
         if let Some(vault) = self.vault.get() {
             if let Ok(profiles) = vault.list_all_profiles().await {
                 let profiles: Vec<String> = profiles;

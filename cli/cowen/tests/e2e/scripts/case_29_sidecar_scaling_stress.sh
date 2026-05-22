@@ -44,8 +44,8 @@ for i in {1..4}; do
     PIDS+=($!)
 done
 
-echo -e "  Waiting for pods to stabilize (15s)..."
-wait_for_pods_active "$BASE_HOME" 1 4 "ACTIVE\|RUNNING" 15
+echo -e "  Waiting for pods to stabilize (45s)..."
+wait_for_pods_active "$BASE_HOME" 1 4 "ACTIVE\|RUNNING" 45
 # Verify all 4 are running
 RUNNING_COUNT=0
 for i in {1..4}; do
@@ -77,8 +77,8 @@ for i in {5..8}; do
     PIDS+=($!)
 done
 
-echo -e "  Waiting for scaling stabilization (15s)..."
-wait_for_pods_active "$BASE_HOME" 1 8 "ACTIVE\|RUNNING" 15
+echo -e "  Waiting for scaling stabilization (45s)..."
+wait_for_pods_active "$BASE_HOME" 1 8 "ACTIVE\|RUNNING" 45
 
 RUNNING_COUNT=0
 for i in {1..8}; do

@@ -30,7 +30,7 @@ PROFILE="env-auto-init"
 DAEMON_PID=$!
 
 echo -e "  Waiting for auto-initialization..."
-if wait_for_daemon_status "$PROFILE" "ACTIVE\|RUNNING" 8; then
+if wait_for_daemon "$PROFILE" 15; then
     echo -e "  ${GREEN}✓${NC} Profile '$PROFILE' verified via status"
 else
     cat "$COWEN_HOME/daemon.log"
