@@ -415,18 +415,18 @@ impl AuthProvider for SelfBuiltProvider {
         _headers: &HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
         let _app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
-        tracing::info!(target: "sys", profile = %profile, app_key = %config.app_key, "Attempting to retrieve token");
+        tracing::debug!(target: "sys", profile = %profile, app_key = %config.app_key, "Attempting to retrieve token");
         // 1. Try Cache
         match self.pool.get_app_access_token(&config.app_key).await {
             Ok(token) => {
                 if !token.is_expired() {
-                    tracing::info!(target: "sys", profile = %profile, app_key = %config.app_key, token = %token.value, "Found valid cached token");
+                    tracing::debug!(target: "sys", profile = %profile, app_key = %config.app_key, token = "<ACCESS_TOKEN>", "Found valid cached token");
                     return Ok(token);
                 }
-                tracing::info!(target: "sys", profile = %profile, "Cached token expired");
+                tracing::debug!(target: "sys", profile = %profile, "Cached token expired");
             }
             Err(e) => {
-                tracing::info!(target: "sys", profile = %profile, error = %e, app_key = %config.app_key, "Cache miss or error");
+                tracing::debug!(target: "sys", profile = %profile, error = %e, app_key = %config.app_key, "Cache miss or error");
             }
         }
 
@@ -436,7 +436,7 @@ impl AuthProvider for SelfBuiltProvider {
         // Re-check after lock
         if let Ok(token) = self.pool.get_app_access_token(&config.app_key).await {
             if !token.is_expired() {
-                tracing::info!(target: "sys", profile = %profile, token = %token.value, "Found valid cached token after lock");
+                tracing::debug!(target: "sys", profile = %profile, token = "<ACCESS_TOKEN>", "Found valid cached token after lock");
                 return Ok(token);
             }
         }

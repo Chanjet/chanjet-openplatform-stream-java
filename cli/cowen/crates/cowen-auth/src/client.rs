@@ -502,13 +502,13 @@ impl Client for AuthClient {
                     }
 
                     // Cache expired but we have it as fallback if network fails
-                    tracing::info!(target: "sys", "Local spec cache expired ({}s), attempting refresh...", elapsed);
+                    tracing::debug!(target: "sys", "Local spec cache expired ({}s), attempting refresh...", elapsed);
                 }
             }
         }
 
         if force_refresh {
-            tracing::info!(target: "sys", "Force refresh requested, bypassing local cache.");
+            tracing::debug!(target: "sys", "Force refresh requested, bypassing local cache.");
         }
 
         let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
@@ -549,7 +549,7 @@ impl Client for AuthClient {
         }
 
         // 3. Fallback: Dynamic Discovery
-        tracing::info!(target: "sys", "Full OpenAPI spec unavailable or refresh needed. Fetching real authorized interface list...");
+        tracing::debug!(target: "sys", "Full OpenAPI spec unavailable or refresh needed. Fetching real authorized interface list...");
         match self.get_dynamic_interface_list(profile, cfg).await {
             Ok(dynamic_spec) => {
                 if let Err(e) = self.save_spec_to_cache(&cache_path, &dynamic_spec) {
@@ -614,7 +614,7 @@ impl Client for AuthClient {
                 url.push_str(&format!("?page={}&size=100", current_page - 1));
             }
 
-            tracing::info!(target: "sys", "Fetching interface list page {}/{}", current_page, total_pages);
+            tracing::debug!(target: "sys", "Fetching interface list page {}/{}", current_page, total_pages);
             let resp = self.http_sender.get(&url, headers).await?;
 
             if !resp.is_success() {
