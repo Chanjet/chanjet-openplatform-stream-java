@@ -76,9 +76,8 @@ done
 if [[ -n "$TICKET_IN_DB" ]]; then
     echo -e " ${GREEN}[OK]${NC} (Value found: ${TICKET_IN_DB:0:15}...)"
 else
-    echo -e " ${RED}[FAILED]${NC} AppTicket not found in cowen_ticket table"
     "$COWEN_BIN" daemon stop --profile main
-    exit 1
+    fail_suite "AppTicket not found in cowen_ticket table"
 fi
 
 echo -e "${BOLD}3. Verify Persistence after Node 1 Restart${NC}"
@@ -90,8 +89,7 @@ TICKET_AFTER_STOP=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE 
 if [[ "$TICKET_IN_DB" == "$TICKET_AFTER_STOP" ]]; then
     echo -e " ${GREEN}[OK]${NC}"
 else
-    echo -e " ${RED}[FAILED]${NC} Ticket lost or changed after stop"
-    exit 1
+    fail_suite "Ticket lost or changed after stop"
 fi
 
 echo -e "${BOLD}4. Verify Node 2 Access (Shared Storage)${NC}"
@@ -122,8 +120,7 @@ done
 if [[ -n "$TOKEN_2" ]]; then
     echo -e "   ✓ Node 2 successfully used shared AppTicket from PG to acquire token"
 else
-    echo -e "   ${RED}[FAILED]${NC} Node 2 could not acquire token using shared ticket"
-    exit 1
+    fail_suite "Node 2 could not acquire token using shared ticket"
 fi
 
 

@@ -37,9 +37,8 @@ check_crash_log_clean() {
         # and filter out known transient errors (e.g. port conflicts during test transitions).
         if grep -Ei "panic|stack backtrace" "$log_file" > /dev/null; then
              echo -e " ${RED}[FAILED]${NC}"
-             echo -e "   ${RED}✗${NC} Crash log contains errors/panics at stage $stage:"
              cat "$log_file"
-             exit 1
+             fail_suite "Crash log contains errors/panics at stage $stage:"
         else
              echo -e " ${GREEN}[OK]${NC} (No panic/error found)"
         fi
@@ -83,9 +82,8 @@ PID_SB1=$(get_daemon_pid "sb")
 if [ -n "$PID_SB1" ]; then 
     echo -e "   ✓ Daemon SB running (PID: $PID_SB1)"
 else 
-    echo -e "   ${RED}✗${NC} Failed to start daemon SB"
     "$COWEN_BIN" status --profile sb
-    exit 1
+    fail_suite "Failed to start daemon SB"
 fi
 
 echo -e "   ⚡ Simulating unexpected termination (kill -9 PID $PID_SB1)..."
@@ -108,8 +106,7 @@ PID_SB2=$(get_daemon_pid "sb")
 if [ -n "$PID_SB2" ] && [ "$PID_SB1" != "$PID_SB2" ]; then
     echo -e "   ${GREEN}✓${NC} Daemon SB successfully recovered (New PID: $PID_SB2)"
 else
-    echo -e "   ${RED}✗${NC} Daemon SB recovery failed"
-    exit 1
+    fail_suite "Daemon SB recovery failed"
 fi
 check_crash_log_clean "sb" "after_recovery"
 
@@ -144,9 +141,8 @@ for i in {1..20}; do
 done
 
 if [ -z "$SESSION_JSON" ]; then
-    echo -e " ${RED}[TIMEOUT]${NC}"
     kill "$INIT_PID" 2>/dev/null
-    exit 1
+    fail_suite "[TIMEOUT]"
 fi
 
 REDIRECT_PORT=$(get_json_field "$SESSION_JSON" "redirect_port")
@@ -173,8 +169,7 @@ PID_OA1=$(get_daemon_pid "oa2")
 if [ -n "$PID_OA1" ]; then 
     echo -e "   ✓ Daemon OA2 running (PID: $PID_OA1)"
 else 
-    echo -e "   ${RED}✗${NC} Failed to start daemon OA2"
-    exit 1
+    fail_suite "Failed to start daemon OA2"
 fi
 
 echo -e "   ⚡ Simulating unexpected termination (kill -9 PID $PID_OA1)..."
@@ -194,8 +189,7 @@ PID_OA2=$(get_daemon_pid "oa2")
 if [ -n "$PID_OA2" ] && [ "$PID_OA1" != "$PID_OA2" ]; then
     echo -e "   ${GREEN}✓${NC} Daemon OA2 successfully recovered (New PID: $PID_OA2)"
 else
-    echo -e "   ${RED}✗${NC} Daemon OA2 recovery failed"
-    exit 1
+    fail_suite "Daemon OA2 recovery failed"
 fi
 check_crash_log_clean "oa2" "after_recovery"
 

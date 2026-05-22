@@ -47,9 +47,8 @@ if [[ -z "$TOKEN_1" ]]; then
     echo -e "   ${RED}[FAILED]${NC} Initial token retrieval failed"
     echo "--- Daemon Log ---"
     cat "$COWEN_HOME/daemon.log"
-    echo "--- Mock Server Log ---"
     cat "$TEST_BASE/mock_server_$MOCK_PORT.log"
-    exit 1
+    fail_suite "--- Mock Server Log ---"
 fi
 echo -e "   ✓ Initial Token: ${TOKEN_1:0:15}..."
 
@@ -71,8 +70,7 @@ if [[ -n "$TOKEN_2" ]]; then
     echo -e "   ${GREEN}✓${NC} Token retrieval succeeded after ticket deletion"
     echo "     New Token: ${TOKEN_2:0:15}..."
 else
-    echo -e "   ${RED}[FAILED]${NC} Token retrieval failed after ticket deletion"
-    exit 1
+    fail_suite "Token retrieval failed after ticket deletion"
 fi
 
 # Cleanup

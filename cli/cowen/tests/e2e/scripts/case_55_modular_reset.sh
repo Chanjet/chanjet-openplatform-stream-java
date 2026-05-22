@@ -25,19 +25,16 @@ DRY_RUN_OUT=$("$COWEN_BIN" reset --dry-run)
 echo "$DRY_RUN_OUT"
 
 if ! echo "$DRY_RUN_OUT" | grep -q "\[DRY RUN\]"; then
-    echo "❌ Dry-run output missing DRY RUN header"
-    exit 1
+    fail_suite "Dry-run output missing DRY RUN header"
 fi
 
 if ! echo "$DRY_RUN_OUT" | grep -q "telemetry.db"; then
-    echo "❌ Dry-run output missing telemetry.db deletion plan"
-    exit 1
+    fail_suite "Dry-run output missing telemetry.db deletion plan"
 fi
 
 # Verify files still exist
 if [ ! -f "$COWEN_HOME/telemetry.db" ]; then
-    echo "❌ telemetry.db was deleted during dry-run!"
-    exit 1
+    fail_suite "telemetry.db was deleted during dry-run!"
 fi
 
 echo "Running actual reset..."
@@ -45,13 +42,11 @@ echo "Running actual reset..."
 
 # Verify files are deleted
 if [ -f "$COWEN_HOME/telemetry.db" ]; then
-    echo "❌ telemetry.db was NOT deleted!"
-    exit 1
+    fail_suite "telemetry.db was NOT deleted!"
 fi
 
 if [ -d "$COWEN_HOME/logs" ]; then
-    echo "❌ logs directory was NOT deleted!"
-    exit 1
+    fail_suite "logs directory was NOT deleted!"
 fi
 
 echo "✅ Modular reset test Passed!"

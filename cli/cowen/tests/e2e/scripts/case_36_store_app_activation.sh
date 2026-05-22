@@ -43,9 +43,8 @@ sleep 5
 if grep -q "Local Proxy Server listening on" "$COWEN_HOME/daemon.log"; then
     echo -e "  ${GREEN}✓${NC} Daemon is running in foreground"
 else
-    echo -e "  ${RED}✗${NC} Daemon failed to start in foreground"
     cat "$COWEN_HOME/daemon.log"
-    exit 1
+    fail_suite "Daemon failed to start in foreground"
 fi
 
 echo -e "  Triggering AppTicket push..."
@@ -78,10 +77,9 @@ for i in {1..15}; do
 done
 
 if [ "$i" -eq 15 ]; then
-    echo -e "  ${RED}✗${NC} Permanent code exchange timeout"
     cat "$COWEN_HOME/daemon.log"
     cat "$COWEN_HOME/logs/sidecar_sys.log"
-    exit 1
+    fail_suite "Permanent code exchange timeout"
 fi
 
 echo -e "${BOLD}4. Verify Token Usage with Org ID${NC}"

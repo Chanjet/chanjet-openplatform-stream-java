@@ -32,15 +32,13 @@ trap cleanup EXIT
 check_profile_absent() {
     local prof=$1
     if "$COWEN_BIN" profile list | grep -q "$prof"; then
-        echo -e " ${RED}[FAILED]${NC} Profile '$prof' still exists in list."
-        exit 1
+        fail_suite "Profile '$prof' still exists in list."
     else
         echo -e " ${GREEN}[OK]${NC} Profile '$prof' is absent."
     fi
     
     if [ -f "$COWEN_HOME/${prof}.yaml" ]; then
-        echo -e " ${RED}[FAILED]${NC} Profile file '$COWEN_HOME/${prof}.yaml' still exists."
-        exit 1
+        fail_suite "Profile file '$COWEN_HOME/${prof}.yaml' still exists."
     else
         echo -e " ${GREEN}[OK]${NC} Profile file is physically removed."
     fi
@@ -82,8 +80,7 @@ echo "   Created valid profile '${TEST_PROFILE}_existing'."
 if "$COWEN_BIN" profile list | grep -q "${TEST_PROFILE}_existing"; then
     echo -e " ${GREEN}[OK]${NC} Existing profile was preserved."
 else
-    echo -e " ${RED}[FAILED]${NC} Existing profile was incorrectly deleted!"
-    exit 1
+    fail_suite "Existing profile was incorrectly deleted!"
 fi
 
 echo -e "${GREEN}Test Case 37 PASSED!${NC}"

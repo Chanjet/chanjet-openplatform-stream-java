@@ -51,8 +51,7 @@ if [ -n "$FOUND_STR" ]; then
     if [ "$DELAY" != "600" ]; then
         echo "  ✓ Delay confirmed as adaptive."
     else
-        echo "  ✖ Delay is still default 600s."
-        exit 1
+        fail_suite "Delay is still default 600s."
     fi
 else
     echo "  ℹ Maintenance loop confirmed, but sleep log check skipped (usually timing in high-load)."

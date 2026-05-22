@@ -38,8 +38,7 @@ DEFAULT_LEVEL=$("$COWEN_BIN" config --profile main | grep "Log Level:" | awk '{p
 if [ "$DEFAULT_LEVEL" == "info" ]; then
     echo -e "   ${GREEN}✓${NC} Default log level is 'info'"
 else
-    echo -e "   ${RED}✗${NC} Expected default 'info', got '$DEFAULT_LEVEL'"
-    exit 1
+    fail_suite "Expected default 'info', got '$DEFAULT_LEVEL'"
 fi
 
 echo "2. Dynamically Change Log Level to DEBUG"
@@ -48,8 +47,7 @@ NEW_LEVEL=$("$COWEN_BIN" config --profile main | grep "Log Level:" | awk '{print
 if [ "$NEW_LEVEL" == "debug" ]; then
     echo -e "   ${GREEN}✓${NC} Log level updated to 'debug' in config"
 else
-    echo -e "   ${RED}✗${NC} Failed to update log level to 'debug'"
-    exit 1
+    fail_suite "Failed to update log level to 'debug'"
 fi
 
 echo "3. Verify Config Set Persistence"
@@ -57,8 +55,7 @@ echo "3. Verify Config Set Persistence"
 if grep -q "level: debug" "$COWEN_HOME/app.yaml"; then
     echo -e "   ${GREEN}✓${NC} 'debug' level persisted to YAML file"
 else
-    echo -e "   ${RED}✗${NC} Log level not persisted in YAML file"
-    exit 1
+    fail_suite "Log level not persisted in YAML file"
 fi
 
 echo "4. Test Case-Insensitivity and Restoration"
@@ -67,8 +64,7 @@ FINAL_LEVEL=$("$COWEN_BIN" config --profile main | grep "Log Level:" | awk '{pri
 if [ "$FINAL_LEVEL" == "info" ]; then
     echo -e "   ${GREEN}✓${NC} Log level restored to 'info' (case-insensitive set works)"
 else
-    echo -e "   ${RED}✗${NC} Failed to restore log level"
-    exit 1
+    fail_suite "Failed to restore log level"
 fi
 
 

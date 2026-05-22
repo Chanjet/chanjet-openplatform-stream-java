@@ -47,14 +47,12 @@ sleep 3
 # Verify daemon is running via PID file
 DAEMON_PID_FILE="$COWEN_HOME/master_daemon.pid"
 if [ ! -f "$DAEMON_PID_FILE" ]; then
-    echo -e "${RED}FAILED: Daemon PID file not found${NC}"
-    exit 1
+    fail_suite "Daemon PID file not found"
 fi
 
 DAEMON_PID=$(head -1 "$DAEMON_PID_FILE")
 if ! kill -0 $DAEMON_PID 2>/dev/null; then
-    echo -e "${RED}FAILED: Daemon process not running (PID: $DAEMON_PID)${NC}"
-    exit 1
+    fail_suite "Daemon process not running (PID: $DAEMON_PID)"
 fi
 echo "   Daemon running (PID: $DAEMON_PID)"
 
@@ -90,9 +88,8 @@ echo "--- Test 5: Verify Log Contents ---"
 DAEMON_LOG="$COWEN_HOME/logs/daemon.stderr.log"
 
 if [ ! -f "$DAEMON_LOG" ]; then
-    echo -e "${RED}FAILED: daemon.stderr.log not found${NC}"
     ls -la "$COWEN_HOME/logs/" 2>/dev/null
-    exit 1
+    fail_suite "daemon.stderr.log not found"
 fi
 
 # Check if "Shutdown signal received" or "Stopping worker (Draining)" was logged
@@ -100,9 +97,8 @@ if grep -q "Stopping worker (Draining)\|Shutdown signal received\|Waiting for ac
     echo "   ✓ Found drain/shutdown log"
 else
     echo -e "${RED}FAILED: Log missing shutdown/drain indicators${NC}"
-    echo "   === daemon.stderr.log (last 30 lines) ==="
     tail -n 30 "$DAEMON_LOG"
-    exit 1
+    fail_suite "=== daemon.stderr.log (last 30 lines) ==="
 fi
 
 # Check if "All active tasks completed gracefully" was logged
@@ -115,9 +111,8 @@ else
         echo "   ✓ Worker stopped (no active tasks at shutdown time)"
     else
         echo -e "${RED}FAILED: Log missing drain completion indicator${NC}"
-        echo "   === daemon.stderr.log (last 30 lines) ==="
         tail -n 30 "$DAEMON_LOG"
-        exit 1
+        fail_suite "=== daemon.stderr.log (last 30 lines) ==="
     fi
 fi
 
@@ -127,8 +122,7 @@ SINK_CHECK=$(curl -s "http://127.0.0.1:$MOCK_PORT/control/webhooks")
 if echo "$SINK_CHECK" | grep -q "value_for_shutdown_test"; then
     echo "   ✓ Webhook delivered successfully"
 else
-    echo -e "${RED}FAILED: Webhook was NOT delivered to the sink during shutdown${NC}"
-    exit 1
+    fail_suite "Webhook was NOT delivered to the sink during shutdown"
 fi
 
 

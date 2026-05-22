@@ -75,8 +75,7 @@ echo "$OUTPUT"
 if [ $EXIT_CODE -ne 0 ] && echo "$OUTPUT" | grep -qi "not allowed in distributed storage scenarios"; then
     echo -e "  ${GREEN}✓${NC} Blocked migrated OAuth2 profile successfully"
 else
-    echo -e "  ${RED}✗${NC} Failed to block migrated OAuth2 profile (Exit: $EXIT_CODE)"
-    exit 1
+    fail_suite "Failed to block migrated OAuth2 profile (Exit: $EXIT_CODE)"
 fi
 
 pass_suite

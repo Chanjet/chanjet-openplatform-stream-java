@@ -34,8 +34,7 @@ assert_pass "Configuration preserved"
 if [ -f "$COWEN_HOME/cowen.db" ]; then
     echo -e "  ${GREEN}✓${NC} SQLite DB file exists"
 else
-    echo -e "  ${RED}✗${NC} SQLite DB file missing"
-    exit 1
+    fail_suite "SQLite DB file missing"
 fi
 
 

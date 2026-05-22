@@ -43,8 +43,7 @@ echo "   Token 2: $T2"
 if [ "$T1" != "$T2" ] && [[ "$T2" == mock_at_sb* ]]; then
     echo -e "  ${GREEN}✓${NC} Token automatically rotated by proxy"
 else
-    echo -e "  ${RED}✗${NC} Token rotation failed"
-    exit 1
+    fail_suite "Token rotation failed"
 fi
 
 

@@ -40,8 +40,7 @@ CONN_COUNT=$(wait_for_connections 1 5)
 if [ "$CONN_COUNT" -eq 1 ]; then
     echo -e "   ${GREEN}✓${NC} First connection established"
 else
-    echo -e "   ${RED}✗${NC} Failed to establish first connection (Count: $CONN_COUNT)"
-    exit 1
+    fail_suite "Failed to establish first connection (Count: $CONN_COUNT)"
 fi
 
 echo -e "${BOLD}3. Start Second Daemon (P2) with same AppKey${NC}"
@@ -79,10 +78,9 @@ CONN_COUNT=$(wait_for_connections 1 5)
 if [ "$CONN_COUNT" -eq 1 ]; then
     echo -e "   ${GREEN}✓${NC} Only one connection remains active (Exclusive mode working)"
 else
-    echo -e "   ${RED}✗${NC} Multiple connections detected in exclusive mode! (Count: $CONN_COUNT)"
     # Show clients for debugging
     curl -s "$MOCK_URL/control/connection_count" | python3 -m json.tool
-    exit 1
+    fail_suite "Multiple connections detected in exclusive mode! (Count: $CONN_COUNT)"
 fi
 
 # Cleanup P2

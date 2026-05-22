@@ -36,8 +36,7 @@ echo -e "${BOLD}3. Token Acquisition (WS Push)${NC}"
 "$COWEN_BIN" auth login --profile main --force >/dev/null
 T=$(wait_for_token main mock_at_sb 10)
 if [ -z "$T" ]; then
-    echo -e "  ${RED}✗${NC} Token acquisition failed"
-    exit 1
+    fail_suite "Token acquisition failed"
 fi
 echo -e "  ${GREEN}✓${NC} Token acquired: $T"
 

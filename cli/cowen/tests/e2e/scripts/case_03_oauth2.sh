@@ -64,9 +64,8 @@ for i in {1..30}; do
 done
 
 if [ -z "$SESSION_JSON" ]; then
-    echo -e " ${RED}[TIMEOUT]${NC}"
     kill "$INIT_PID" 2>/dev/null
-    exit 1
+    fail_suite "[TIMEOUT]"
 fi
 
 # Extract redirect_port and state from session JSON
@@ -84,9 +83,8 @@ CALLBACK_RESP=$(curl -s -o /dev/null -w "%{http_code}" \
 if [ "$CALLBACK_RESP" == "200" ]; then
     echo -e " ${GREEN}[OK]${NC}"
 else
-    echo -e " ${RED}[HTTP $CALLBACK_RESP]${NC}"
     kill "$INIT_PID" 2>/dev/null
-    exit 1
+    fail_suite "[HTTP $CALLBACK_RESP]"
 fi
 
 # Wait for init to complete (it should unblock now)
@@ -100,9 +98,8 @@ for i in {1..15}; do
 done
 
 if kill -0 "$INIT_PID" 2>/dev/null; then
-    echo -e " ${RED}[TIMEOUT - init still blocking]${NC}"
     kill "$INIT_PID" 2>/dev/null
-    exit 1
+    fail_suite "[TIMEOUT - init still blocking]"
 fi
 
 # Verify token was acquired
@@ -110,8 +107,7 @@ T=$(extract_token "$PROF")
 if [ -n "$T" ] && [[ "$T" == mock_at_oa2* ]]; then
     echo -e "  ${GREEN}✓${NC} Initial token acquired via PKCE flow: $T"
 else
-    echo -e "  ${RED}✗${NC} Token acquisition failed after PKCE flow"
-    exit 1
+    fail_suite "Token acquisition failed after PKCE flow"
 fi
 
 # ============================================================
@@ -135,8 +131,7 @@ if [ -n "$T" ]; then
     assert_sanitized "$T" "Refreshed Token sanitization"
     echo "   Refreshed Token: $T"
 else
-    echo -e " ${RED}[FAIL]${NC}"
-    exit 1
+    fail_suite "[FAIL]"
 fi
 
 echo -e "\n${GREEN}🎊 Case 03 Passed!${NC}"

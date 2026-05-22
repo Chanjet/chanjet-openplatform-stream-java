@@ -77,8 +77,7 @@ echo -e "   Node B started (PID: $(get_daemon_pid 'main'))"
 echo -n "   Waiting for 2 WS connections..."
 CONN=$(wait_for_connections 2)
 if [ -z "$CONN" ] || [ "$CONN" -lt 2 ]; then
-    echo -e " ${RED}[FAILED waiting for 2 connections, got: $CONN]${NC}"
-    exit 1
+    fail_suite "[FAILED waiting for 2 connections, got: $CONN]"
 fi
 echo -e " ${GREEN}[$CONN connections]${NC}"
 
@@ -98,9 +97,8 @@ echo -e " [DONE]"
 echo -n "   Waiting for webhook delivery..."
 RECV_COUNT=$(wait_for_webhook_count "DIST_TEST" 10)
 if [ -z "$RECV_COUNT" ] || [ "$RECV_COUNT" -ne 10 ]; then
-    echo -e " ${RED}[$RECV_COUNT/10]${NC}"
     curl -s "$MOCK_URL/control/connection_count" | python3 -m json.tool
-    exit 1
+    fail_suite "[$RECV_COUNT/10]"
 fi
 echo -e " ${GREEN}[10/10]${NC}"
 

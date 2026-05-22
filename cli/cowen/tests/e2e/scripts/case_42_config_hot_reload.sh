@@ -39,8 +39,7 @@ sleep 2 # Give watcher time to react
 # 6. Verify PID is the same
 CURRENT_PID=$(cat "$COWEN_HOME/master_daemon.pid" | head -n 1)
 if [ "$DAEMON_PID" != "$CURRENT_PID" ]; then
-    echo -e "${RED}[FAILED]${NC} Daemon restarted! PID changed from $DAEMON_PID to $CURRENT_PID"
-    exit 1
+    fail_suite "Daemon restarted! PID changed from $DAEMON_PID to $CURRENT_PID"
 fi
 echo "PID preserved: $CURRENT_PID"
 

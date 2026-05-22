@@ -76,8 +76,7 @@ for attempt in {1..5}; do
 done
 
 if [ "$SUCCESS" != "true" ]; then
-    echo -e "  ${RED}[FAILED]${NC} Node 1 daemon failed to sync AppTicket after multiple attempts"
-    exit 1
+    fail_suite "Node 1 daemon failed to sync AppTicket after multiple attempts"
 fi
 
 assert_pass "Node 1 initialized and linked to MySQL"
@@ -100,8 +99,7 @@ PROFILES=$("$COWEN_BIN" profile list)
 if [[ "$PROFILES" == *"main"* ]]; then
     echo -e "   ✓ Node 2 successfully discovered 'main' profile from MySQL"
 else
-    echo -e "   ${RED}[FAILED]${NC} Node 2 could not see 'main' profile"
-    exit 1
+    fail_suite "Node 2 could not see 'main' profile"
 fi
 
 # 3. Verify Token Synchronization
@@ -134,8 +132,7 @@ done
 if [ "$TOKEN_1" != "$TOKEN_2" ]; then
     echo -e "   ${RED}[FAILED]${NC} Tokens mismatched between nodes"
     echo "     Node 1: $TOKEN_1"
-    echo "     Node 2: $TOKEN_2"
-    exit 1
+    fail_suite "Node 2: $TOKEN_2"
 fi
 
 echo -e "${BOLD}4. Refresh Token on Node 1${NC}"
@@ -153,12 +150,11 @@ echo -e "   Node 2 New Token:     ${BLUE}${TOKEN_2_V2:0:15}...${NC}"
 if [ "$TOKEN_V2" == "$TOKEN_2_V2" ]; then
     echo -e "   ✓ Node 2 picked up refreshed token from Node 1 via MySQL"
 else
-    echo -e "   ${RED}[FAILED]${NC} Node 2 token not synchronized after refresh"
     export COWEN_HOME="$HOME_1"
     cleanup_suite
     export COWEN_HOME="$HOME_2"
     cleanup_suite
-    exit 1
+    fail_suite "Node 2 token not synchronized after refresh"
 fi
 
 export COWEN_HOME="$HOME_1"

@@ -58,16 +58,14 @@ echo "$OUT"
 if echo "$OUT" | grep -q "healthy" && echo "$OUT" | grep -q "expired" && echo "$OUT" | grep -q "broken"; then
     echo -e "   ${GREEN}✓${NC} All profiles detected"
 else
-    echo -e "   ${RED}[FAILED]${NC} Not all profiles were detected"
-    exit 1
+    fail_suite "Not all profiles were detected"
 fi
 
 # Verify error reporting
 if echo "$OUT" | grep -q "Profiles with Errors" || echo "$OUT" | grep -q "broken:"; then
     echo -e "   ${GREEN}✓${NC} Errors correctly reported for 'broken' profile"
 else
-    echo -e "   ${RED}[FAILED]${NC} Error reporting failed"
-    exit 1
+    fail_suite "Error reporting failed"
 fi
 
 

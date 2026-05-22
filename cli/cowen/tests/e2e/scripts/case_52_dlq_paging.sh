@@ -51,8 +51,7 @@ COUNT=$(echo "$LIST_OUTPUT" | grep -c "ID:")
 echo "   Items in Page 1: $COUNT"
 if [ "$COUNT" -ne 20 ]; then
     echo -e "${RED}FAILED: Expected 20 items in default list, found $COUNT${NC}"
-    echo "$LIST_OUTPUT"
-    exit 1
+    fail_suite "$LIST_OUTPUT"
 fi
 echo "   ✓ Page 1 paging works"
 
@@ -62,8 +61,7 @@ COUNT_P2=$(echo "$LIST_OUTPUT_P2" | grep -c "ID:")
 echo "   Items in Page 2: $COUNT_P2"
 if [ "$COUNT_P2" -lt 5 ]; then
     echo -e "${RED}FAILED: Expected at least 5 items in page 2, found $COUNT_P2${NC}"
-    echo "$LIST_OUTPUT_P2"
-    exit 1
+    fail_suite "$LIST_OUTPUT_P2"
 fi
 echo "   ✓ Page 2 paging works"
 
@@ -79,15 +77,13 @@ echo "   Retrying ID: $FIRST_ID_P2"
 
 "$COWEN_BIN" dlq retry "$FIRST_ID_P2"
 if [ $? -ne 0 ]; then
-    echo -e "${RED}FAILED: dlq retry command failed${NC}"
-    exit 1
+    fail_suite "dlq retry command failed"
 fi
 
 # Verify it's gone from DLQ
 LIST_OUTPUT_P2_AFTER=$("$COWEN_BIN" dlq list --page 2)
 if echo "$LIST_OUTPUT_P2_AFTER" | grep -q "ID: ${FIRST_ID_P2}\b"; then
-    echo -e "${RED}FAILED: Item $FIRST_ID_P2 still in DLQ after retry${NC}"
-    exit 1
+    fail_suite "Item $FIRST_ID_P2 still in DLQ after retry"
 fi
 echo "   ✓ Precise retry and deletion successful"
 

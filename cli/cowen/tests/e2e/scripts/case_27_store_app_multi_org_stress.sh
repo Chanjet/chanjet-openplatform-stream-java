@@ -64,8 +64,7 @@ sleep 20
 # 3. Verify Tokens in DB
 echo -e "${BOLD}3. Verifying Token Storage Isolation${NC}"
 if ! command -v sqlite3 >/dev/null 2>&1; then
-    echo -e "   ${RED}[FAILED]${NC} sqlite3 command not found"
-    exit 1
+    fail_suite "sqlite3 command not found"
 fi
 
 # Wait for WAL to flush by killing daemon
@@ -76,34 +75,30 @@ pkill -9 -f "$(basename "$COWEN_BIN") daemon.*--profile $PROF" 2>/dev/null || tr
 sleep 5
 
 if [ ! -f "$DB_FILE" ]; then
-    echo -e "   ${RED}[FAILED]${NC} DB file not created at $DB_FILE"
     ls -la "$COWEN_HOME"
-    exit 1
+    fail_suite "DB file not created at $DB_FILE"
 fi
 
 echo "   Querying database $DB_FILE..."
 STORED_COUNT=$(sqlite3 "$DB_FILE" "SELECT count(*) FROM cowen_permanent_code WHERE code_type = 'org_permanent';" || echo "ERR")
 
 if [ "$STORED_COUNT" == "ERR" ]; then
-    echo -e "   ${RED}[FAILED]${NC} sqlite3 query failed"
-    exit 1
+    fail_suite "sqlite3 query failed"
 fi
 
 if [ "$STORED_COUNT" -ge "$ORG_COUNT" ]; then
     echo -e "   ${GREEN}✓${NC} Successfully stored permanent codes for $STORED_COUNT orgs"
 else
     echo -e "   ${RED}[FAILED]${NC} Only found '$STORED_COUNT' codes in DB"
-    echo "--- Full Table Dump (cowen_permanent_code) ---"
     sqlite3 "$DB_FILE" "SELECT app_key, org_id, code_type FROM cowen_permanent_code;"
-    exit 1
+    fail_suite "--- Full Table Dump (cowen_permanent_code) ---"
 fi
 
 # 3.1 Strict Key Integrity Validation (Bug Regression Check)
 echo "   Verifying Data Integrity (No empty org_id)..."
 BUGGED_RECORDS=$(sqlite3 "$DB_FILE" "SELECT org_id FROM cowen_permanent_code WHERE org_id = '' OR org_id IS NULL;" 2>/dev/null)
 if [ -n "$BUGGED_RECORDS" ]; then
-    echo -e "   ${RED}[FAILED]${NC} Found records with empty org_id"
-    exit 1
+    fail_suite "Found records with empty org_id"
 fi
 echo -e "   ${GREEN}✓${NC} All records have valid org_id values"
 
@@ -138,9 +133,8 @@ except:
         echo -e " ${RED}[MISMATCH]${NC}"
         echo "   Expected token containing: mock_at_oa2_permanent_code"
         echo "   Actual token received:     $RECEIVED_TOKEN"
-        echo "   Full Response:             $RECEIVED_RESP"
         kill -9 $DAEMON_PID 2>/dev/null || true
-        exit 1
+        fail_suite "Full Response:             $RECEIVED_RESP"
     fi
 done
 

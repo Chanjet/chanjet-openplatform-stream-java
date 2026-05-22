@@ -60,9 +60,8 @@ if [ "$RUNNING_COUNT" -eq 4 ]; then
 else
     echo -e "  ${RED}✗${NC} Only $RUNNING_COUNT pods are active"
     # Print one log for debug
-    echo "  --- POD 1 LOG ---"
     cat "$BASE_HOME/pod_1/daemon.log"
-    exit 1
+    fail_suite "--- POD 1 LOG ---"
 fi
 
 # Check mock server logs for redundant resend requests
@@ -92,8 +91,7 @@ done
 if [ "$RUNNING_COUNT" -eq 8 ]; then
     echo -e "  ${GREEN}✓${NC} 8 pods are active"
 else
-    echo -e "  ${RED}✗${NC} Only $RUNNING_COUNT pods are active"
-    exit 1
+    fail_suite "Only $RUNNING_COUNT pods are active"
 fi
 
 # Final check: Token Consistency
@@ -106,8 +104,7 @@ if [ "$TOKEN_01" == "$TOKEN_08" ] && [ -n "$TOKEN_01" ]; then
 else
     echo -e "  ${RED}✗${NC} Token inconsistency or missing detected!"
     echo "  Pod 1: $TOKEN_01"
-    echo "  Pod 8: $TOKEN_08"
-    exit 1
+    fail_suite "Pod 8: $TOKEN_08"
 fi
 
 # Cleanup

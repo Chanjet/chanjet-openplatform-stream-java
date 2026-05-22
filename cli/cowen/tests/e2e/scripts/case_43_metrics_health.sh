@@ -40,9 +40,8 @@ done
 MONITOR_PORT=$(grep "MONITOR_PORT" "$COWEN_HOME/master_daemon.pid" 2>/dev/null | cut -d= -f2)
 
 if [ -z "$MONITOR_PORT" ]; then
-    echo -e "${RED}[FAILED]${NC} Could not extract MONITOR_PORT from master_daemon.pid"
     cat "$COWEN_HOME/master_daemon.pid" 2>/dev/null || echo "PID file missing"
-    exit 1
+    fail_suite "Could not extract MONITOR_PORT from master_daemon.pid"
 fi
 
 echo "Extracted monitor server port: $MONITOR_PORT"
@@ -61,8 +60,7 @@ HEALTH_STATUS=$(curl -s http://127.0.0.1:$MONITOR_PORT/health || echo "DOWN")
 if [ "$HEALTH_STATUS" == "UP" ]; then
     echo "Health check passed."
 else
-    echo -e "${RED}[FAILED]${NC} Monitor server did not start. Got: $HEALTH_STATUS"
-    exit 1
+    fail_suite "Monitor server did not start. Got: $HEALTH_STATUS"
 fi
 
 # 4. Verify /metrics
@@ -71,8 +69,7 @@ METRICS=$(curl -s http://127.0.0.1:$MONITOR_PORT/metrics)
 if echo "$METRICS" | grep -q "cowen_active_connections"; then
     echo "Metrics endpoint returned active connections metric."
 else
-    echo -e "${RED}[FAILED]${NC} Metrics missing active_connections."
-    exit 1
+    fail_suite "Metrics missing active_connections."
 fi
 echo "Metrics check passed."
 

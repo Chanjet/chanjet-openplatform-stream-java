@@ -77,9 +77,8 @@ TOKEN_1=$(extract_token "$PROF")
 if [[ -n "$TOKEN_1" ]]; then
     echo -e "   ${GREEN}✓${NC} Initial token retrieval success"
 else
-    echo -e "   ${RED}[FAILED]${NC} Initial token retrieval failed"
     stop_test_redis
-    exit 1
+    fail_suite "Initial token retrieval failed"
 fi
 
 # 3. Stop Redis
@@ -106,8 +105,7 @@ TOKEN_3=$(extract_token "$PROF")
 if [[ -n "$TOKEN_3" ]]; then
     echo -e "   ${GREEN}✓${NC} System recovered after Redis restart"
 else
-    echo -e "   ${RED}[FAILED]${NC} System failed to recover"
-    exit 1
+    fail_suite "System failed to recover"
 fi
 
 # Mandatory Sanitization Check

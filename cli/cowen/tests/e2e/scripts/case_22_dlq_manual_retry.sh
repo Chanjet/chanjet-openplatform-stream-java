@@ -61,8 +61,7 @@ if echo "$DLQ_OUT" | grep -q "$MSG_ID"; then
     echo -e "   ${GREEN}✓${NC} Message successfully captured in DLQ"
 else
     echo -e "   ${RED}[FAILED]${NC} Message not found in DLQ"
-    echo "$DLQ_OUT"
-    exit 1
+    fail_suite "$DLQ_OUT"
 fi
 
 # Extract the internal DB ID of the DLQ item
@@ -70,8 +69,7 @@ fi
 DLQ_ID=$(echo "$DLQ_OUT" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(next(item['id'] for item in data if '$MSG_ID' in str(item)))" 2>/dev/null)
 
 if [ -z "$DLQ_ID" ]; then
-    echo -e "   ${RED}[FAILED]${NC} Could not extract DLQ ID"
-    exit 1
+    fail_suite "Could not extract DLQ ID"
 fi
 echo "   Extracted DLQ ID: $DLQ_ID"
 
@@ -97,15 +95,13 @@ done
 if echo "$SINK_CHECK" | grep -q "$MSG_ID"; then
     echo -e "   ${GREEN}✓${NC} Message successfully delivered to Sink after manual retry"
 else
-    echo -e "   ${RED}[FAILED]${NC} Message not found at Sink after retry"
-    exit 1
+    fail_suite "Message not found at Sink after retry"
 fi
 
 # Verify DLQ is empty or at least our specific ID is gone
 DLQ_OUT_POST=$("$COWEN_BIN" dlq list --profile "$PROF" --format json)
 if echo "$DLQ_OUT_POST" | grep -q "$DLQ_ID"; then
-    echo -e "   ${RED}[FAILED]${NC} The specific DLQ entry ($DLQ_ID) still exists after successful retry"
-    exit 1
+    fail_suite "The specific DLQ entry ($DLQ_ID) still exists after successful retry"
 else
     echo -e "   ${GREEN}✓${NC} Specific DLQ entry removed"
 fi

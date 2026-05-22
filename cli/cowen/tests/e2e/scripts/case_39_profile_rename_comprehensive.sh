@@ -63,8 +63,7 @@ EOF
     # 6. Verify 'old_prof' is gone
     LIST=$("$COWEN_BIN" profile list)
     if echo "$LIST" | grep -q "old_prof"; then
-        echo -e "  ${RED}✗${NC} 'old_prof' still exists in $mode"
-        exit 1
+        fail_suite "'old_prof' still exists in $mode"
     fi
     echo -e "  ${GREEN}✓${NC} 'old_prof' removed from list"
 
@@ -77,12 +76,10 @@ EOF
     # 8. Extra check for Local mode: file exists
     if [ "$mode" == "local" ]; then
         if [ ! -f "$COWEN_HOME/new_prof.yaml" ]; then
-            echo -e "  ${RED}✗${NC} new_prof.yaml not found in local mode"
-            exit 1
+            fail_suite "new_prof.yaml not found in local mode"
         fi
         if [ -f "$COWEN_HOME/old_prof.yaml" ]; then
-            echo -e "  ${RED}✗${NC} old_prof.yaml still exists in local mode"
-            exit 1
+            fail_suite "old_prof.yaml still exists in local mode"
         fi
         echo -e "  ${GREEN}✓${NC} Local file renamed correctly"
     fi

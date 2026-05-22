@@ -36,8 +36,7 @@ curl -s -X POST -H "appKey: AK_SA" "$MOCK_URL/auth/appTicket/resend" >/dev/null
 echo -e "${BOLD}3. Token Validation${NC}"
 T=$(wait_for_token sidecar mock_at_sa 20)
 if [ -z "$T" ]; then
-    echo -e "  ${RED}✗${NC} Token acquisition failed or still waiting"
-    exit 1
+    fail_suite "Token acquisition failed or still waiting"
 fi
 echo -e "  ${GREEN}✓${NC} Token acquired: $T"
 

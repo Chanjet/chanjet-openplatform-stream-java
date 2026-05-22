@@ -51,8 +51,7 @@ echo "   DLQ List: $DLQ_OUT"
 if echo "$DLQ_OUT" | grep -q "DLQ_TRIGGER"; then
     echo -e "  ${GREEN}✓${NC} Message successfully recorded in DLQ"
 else
-    echo -e "  ${RED}✗${NC} Message NOT found in DLQ"
-    exit 1
+    fail_suite "Message NOT found in DLQ"
 fi
 
 

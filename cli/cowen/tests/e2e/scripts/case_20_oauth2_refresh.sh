@@ -52,10 +52,9 @@ for i in {1..30}; do
 done
 
 if [[ -z "$STATE" ]]; then
-    echo -e "   ${RED}[FAILED]${NC} Failed to extract OAuth2 context from logs"
     cat "$COWEN_HOME/init.log"
     kill -9 "$INIT_PID" 2>/dev/null || true
-    exit 1
+    fail_suite "Failed to extract OAuth2 context from logs"
 fi
 
 # 3. Simulate Callback
@@ -82,8 +81,7 @@ echo "     Initial Token: $TOKEN_1"
 if [[ -n "$TOKEN_1" ]] && [[ "$TOKEN_1" == mock_at_oa2_* ]]; then
     echo -e "   ${GREEN}✓${NC} Initial token obtained"
 else
-    echo -e "   ${RED}[FAILED]${NC} Token retrieval failed"
-    exit 1
+    fail_suite "Token retrieval failed"
 fi
 
 # 5. Wait for expiration and trigger refresh
@@ -96,8 +94,7 @@ echo "     New Token: $TOKEN_2"
 if [[ -n "$TOKEN_2" ]] && [[ "$TOKEN_2" == mock_at_oa2_* ]] && [[ "$TOKEN_2" != "$TOKEN_1" ]]; then
     echo -e "   ${GREEN}✓${NC} Token successfully renewed"
 else
-    echo -e "   ${RED}[FAILED]${NC} Token refresh failed or token did not change. Got: $TOKEN_2"
-    exit 1
+    fail_suite "Token refresh failed or token did not change. Got: $TOKEN_2"
 fi
 
 

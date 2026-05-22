@@ -79,8 +79,7 @@ PROFILES=$("$COWEN_BIN" profile list)
 if [[ "$PROFILES" == *"main"* ]]; then
     echo -e "   ✓ Node 2 successfully discovered 'main' profile from shared DB"
 else
-    echo -e "   ${RED}[FAILED]${NC} Node 2 could not see 'main' profile"
-    exit 1
+    fail_suite "Node 2 could not see 'main' profile"
 fi
 
 # 3. Verify Token Synchronization
@@ -91,8 +90,7 @@ export COWEN_HOME="$HOME_1"
 echo -n "   Extracting token from Node 1..."
 TOKEN_1=$(extract_token "main")
 if [ -z "$TOKEN_1" ]; then
-    echo -e " ${RED}[FAILED]${NC} Node 1 token extraction failed."
-    exit 1
+    fail_suite "Node 1 token extraction failed."
 fi
 echo -e " ${GREEN}[OK]${NC} (${TOKEN_1:0:15}...)"
 
@@ -116,16 +114,14 @@ done
 if [ "$TOKEN_1" != "$TOKEN_2" ]; then
     echo -e "   ${RED}[FAILED]${NC} Tokens mismatched between nodes"
     echo "     Node 1: $TOKEN_1"
-    echo "     Node 2: $TOKEN_2"
-    exit 1
+    fail_suite "Node 2: $TOKEN_2"
 fi
 
 echo -e "${BOLD}4. Refresh Token on Node 1${NC}"
 export COWEN_HOME="$HOME_1"
 TOKEN_V2=$(extract_token "main" "--refresh")
 if [ -z "$TOKEN_V2" ]; then
-    echo -e "   ${RED}[FAILED]${NC} Node 1 refresh failed"
-    exit 1
+    fail_suite "Node 1 refresh failed"
 fi
 echo -e "   Node 1 New Token:     ${BLUE}${TOKEN_V2:0:15}...${NC}"
 
@@ -149,8 +145,7 @@ done
 if [ "$TOKEN_V2" != "$TOKEN_2_V2" ]; then
     echo -e "   ${RED}[FAILED]${NC} Node 2 token not synchronized after refresh"
     echo "     Node 1: $TOKEN_V2"
-    echo "     Node 2: $TOKEN_2_V2"
-    exit 1
+    fail_suite "Node 2: $TOKEN_2_V2"
 fi
 
 echo -e "${BOLD}6. Verify Node 2 Proxy Implementation${NC}"
@@ -175,9 +170,8 @@ done
 
 if [ $SUCCESS -eq 0 ]; then
     echo -e " ${RED}[FAILED]${NC} Node 2 Proxy unreachable after $MAX_RETRIES attempts"
-    echo "  --- Daemon Log ---"
     cat "$HOME_2/daemon.log"
-    exit 1
+    fail_suite "--- Daemon Log ---"
 fi
 
 RAW_CONTROL=$(curl -s "$MOCK_URL/control/webhooks")
@@ -196,8 +190,7 @@ if [[ "$LAST_TOKEN" == *"$TOKEN_V2"* ]]; then
 else
     echo -e " ${RED}[FAILED]${NC}"
     echo "     Expected token in header: $TOKEN_V2"
-    echo "     Actual token in header:   $LAST_TOKEN"
-    exit 1
+    fail_suite "Actual token in header:   $LAST_TOKEN"
 fi
 
 

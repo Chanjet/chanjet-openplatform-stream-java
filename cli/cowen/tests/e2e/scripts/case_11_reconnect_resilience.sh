@@ -41,8 +41,8 @@ for i in {1..10}; do
         break
     fi
     if [ $i -eq 10 ]; then
-        echo -e " ${RED}[TIMEOUT]${NC}"
-        cat "$COWEN_HOME/logs/"*.log; cat "$COWEN_HOME/"*.json; exit 1
+        cat "$COWEN_HOME/logs/"*.log; cat "$COWEN_HOME/"*.json
+        fail_suite "[TIMEOUT]"
     fi
     sleep 1
     echo -n "."
@@ -68,9 +68,9 @@ for i in {1..20}; do
 done
 
 if [ "$DETECTED" = false ]; then
-    echo -e "   ${RED}✗${NC} Daemon still thinks it's connected after 10s"
     "$COWEN_BIN" status
-    cat "$COWEN_HOME/logs/"*.log; cat "$COWEN_HOME/"*.json; exit 1
+    cat "$COWEN_HOME/logs/"*.log; cat "$COWEN_HOME/"*.json
+    fail_suite "Daemon still thinks it's connected after 10s"
 fi
 
 echo -e "${BOLD}4. Verify Automatic Reconnection${NC}"
@@ -81,9 +81,9 @@ for i in {1..20}; do
         break
     fi
     if [ $i -eq 20 ]; then
-        echo -e " ${RED}[TIMEOUT]${NC}"
         "$COWEN_BIN" status
-        cat "$COWEN_HOME/logs/"*.log; cat "$COWEN_HOME/"*.json; exit 1
+        cat "$COWEN_HOME/logs/"*.log; cat "$COWEN_HOME/"*.json
+        fail_suite "[TIMEOUT]"
     fi
     sleep 1
     echo -n "."
@@ -102,8 +102,8 @@ if echo "$MESSAGES" | grep -q "RECONNECT_TEST"; then
     echo -e "   ${GREEN}✓${NC} Received message after reconnection"
 else
     echo -e "   ${RED}✗${NC} Failed to receive message after reconnection"
-    echo "$MESSAGES"
-    cat "$COWEN_HOME/logs/"*.log; cat "$COWEN_HOME/"*.json; exit 1
+    cat "$COWEN_HOME/logs/"*.log; cat "$COWEN_HOME/"*.json
+    fail_suite "$MESSAGES"
 fi
 
 

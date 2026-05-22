@@ -12,8 +12,7 @@ fi
 setup_workspace "case_49"
 
 fail() {
-    echo -e "${RED}FAILED: $1${NC}"
-    exit 1
+    fail_suite "$1"
 }
 
 echo "--- Test 1: Set/Get Nested Config ---"

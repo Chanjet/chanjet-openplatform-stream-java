@@ -19,9 +19,8 @@ $COWEN_BIN doctor --profile "$TEST_PROFILE" > doctor_output.log || true
 if grep -q "ERROR (App Secret Missing)" doctor_output.log; then
     echo "Correctly identified missing App Secret."
 else
-    echo -e "${RED}[FAILED]${NC} Doctor did not report missing App Secret."
     cat doctor_output.log
-    exit 1
+    fail_suite "Doctor did not report missing App Secret."
 fi
 
 # 3. Initialize and run doctor again
@@ -32,17 +31,15 @@ $COWEN_BIN doctor --profile "$TEST_PROFILE" > doctor_output_init.log
 if ! grep -q "ERROR (App Secret Missing)" doctor_output_init.log; then
     echo "Correctly identified App Secret after init."
 else
-    echo -e "${RED}[FAILED]${NC} Doctor did not find App Secret after init."
     cat doctor_output_init.log
-    exit 1
+    fail_suite "Doctor did not find App Secret after init."
 fi
 
 if grep -q "OpenAPI" doctor_output_init.log; then
     echo "Network check included OpenAPI."
 else
-    echo -e "${RED}[FAILED]${NC} Doctor output missing network check."
     cat doctor_output_init.log
-    exit 1
+    fail_suite "Doctor output missing network check."
 fi
 
 echo -e "${GREEN}Test Case 44 PASSED!${NC}"

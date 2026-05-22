@@ -81,9 +81,8 @@ sleep 2
 
 # Verify Node 2 is running
 if ! ps -p $DAEMON_PID > /dev/null; then
-    echo -e "   ${RED}[FAILED]${NC} Node 2 daemon failed to start"
     cat "$HOME_2/daemon.log"
-    exit 1
+    fail_suite "Node 2 daemon failed to start"
 fi
 echo -e "   ✓ Node 2 daemon started successfully"
 
@@ -135,8 +134,7 @@ else
     echo "     Actual status message:     $ACTUAL_TICKET"
     echo "     --- RAW STATUS OUTPUT ---"
     "$COWEN_BIN" auth status --profile main --format json 2>&1
-    echo "     -------------------------"
-    exit 1
+    fail_suite "-------------------------"
 fi
 
 # 5. Verify AppAccessToken Generation on Node 2
@@ -149,9 +147,8 @@ if [[ "$TOKEN" == mock_at_sa_* ]]; then
     echo -e "   ${GREEN}✓${NC} Node 2 successfully generated AppAccessToken using shared credentials"
     echo "     Token: $TOKEN"
 else
-    echo -e "   ${RED}[FAILED]${NC} Token generation failed on Node 2"
     "$COWEN_BIN" auth status --profile main
-    exit 1
+    fail_suite "Token generation failed on Node 2"
 fi
 
 

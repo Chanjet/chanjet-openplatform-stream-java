@@ -69,8 +69,7 @@ assert_pass "Renamed 'prof_b' to 'prof_c'"
 LIST=$("$COWEN_BIN" profile list)
 assert_match "$LIST" "prof_c" "List contains 'prof_c'"
 if echo "$LIST" | grep -q "prof_b"; then
-    echo -e "  ${RED}✗${NC} 'prof_b' should not exist anymore"
-    exit 1
+    fail_suite "'prof_b' should not exist anymore"
 fi
 echo -e "  ${GREEN}✓${NC} 'prof_b' removed from list"
 
@@ -92,8 +91,7 @@ assert_pass "Reset current profile ('prof_a')"
 # The 'config' command might fail or return defaults.
 CFG=$("$COWEN_BIN" config)
 if echo "$CFG" | grep -q "KEY_A"; then
-    echo -e "  ${RED}✗${NC} 'prof_a' should be reset (KEY_A still present)"
-    exit 1
+    fail_suite "'prof_a' should be reset (KEY_A still present)"
 fi
 echo -e "  ${GREEN}✓${NC} 'prof_a' data cleared"
 

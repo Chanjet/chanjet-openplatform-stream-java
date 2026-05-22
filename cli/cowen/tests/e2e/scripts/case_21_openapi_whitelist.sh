@@ -34,9 +34,8 @@ echo -e "${BOLD}2. Test Whitelisted Path (/v1/app/data/get)${NC}"
 if grep -q "mock_at_sb_" "$COWEN_HOME/api_out_1.json" || grep -q "success" "$COWEN_HOME/api_out_1.json"; then
     echo -e "   ${GREEN}✓${NC} Whitelisted path allowed"
 else
-    echo -e "   ${RED}[FAILED]${NC} Whitelisted path blocked or failed"
     cat "$COWEN_HOME/api_out_1.json"
-    exit 1
+    fail_suite "Whitelisted path blocked or failed"
 fi
 
 # 3. Test Non-Whitelisted Path
@@ -47,9 +46,8 @@ echo -e "${BOLD}3. Test Non-Whitelisted Path (/v1/evil/hacker/path)${NC}"
 if grep -i "not in whitelist" "$COWEN_HOME/api_out_2.json" || grep -i "blocked" "$COWEN_HOME/api_out_2.json" || grep -i "Forbidden" "$COWEN_HOME/api_out_2.json" || grep -i "not found in OpenAPI spec" "$COWEN_HOME/api_out_2.json"; then
     echo -e "   ${GREEN}✓${NC} Non-whitelisted path correctly blocked"
 else
-    echo -e "   ${RED}[FAILED]${NC} Non-whitelisted path was NOT blocked"
     cat "$COWEN_HOME/api_out_2.json"
-    exit 1
+    fail_suite "Non-whitelisted path was NOT blocked"
 fi
 
 

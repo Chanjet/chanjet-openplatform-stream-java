@@ -44,8 +44,7 @@ OUTPUT=$("$COWEN_BIN" init --profile prof_b \
 echo "3. Verifying 'prof_b' was not created..."
 LIST=$("$COWEN_BIN" profile list)
 if echo "$LIST" | grep -q "prof_b"; then
-    echo -e "  ${RED}✗${NC} 'prof_b' should NOT have been created"
-    exit 1
+    fail_suite "'prof_b' should NOT have been created"
 fi
 echo -e "  ${GREEN}✓${NC} 'prof_b' was not created"
 

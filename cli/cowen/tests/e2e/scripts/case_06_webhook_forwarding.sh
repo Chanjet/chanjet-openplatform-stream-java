@@ -42,8 +42,7 @@ echo "   Sink Status: $SINK_CHECK"
 if echo "$SINK_CHECK" | grep -q "DATA_PUSH"; then
     echo -e "  ${GREEN}✓${NC} Webhook successfully forwarded to sink"
 else
-    echo -e "  ${RED}✗${NC} Webhook NOT found at sink"
-    exit 1
+    fail_suite "Webhook NOT found at sink"
 fi
 
 

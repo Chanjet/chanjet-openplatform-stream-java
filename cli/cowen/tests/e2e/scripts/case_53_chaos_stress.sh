@@ -38,9 +38,8 @@ echo "   Waiting for daemon to be ready..."
 sleep 3
 
 if ! kill -0 $DAEMON_PID 2>/dev/null; then
-    echo -e "${RED}FAILED: Daemon failed to start${NC}"
     cat "$DAEMON_LOG"
-    exit 1
+    fail_suite "Daemon failed to start"
 fi
 
 echo "--- Test 3: Inject Heavy Concurrent Load ---"
@@ -67,9 +66,8 @@ START_TIME=$(date +%s)
 while kill -0 $DAEMON_PID 2>/dev/null; do
     ELAPSED=$(( $(date +%s) - START_TIME ))
     if [ $ELAPSED -ge $WAIT_TIMEOUT ]; then
-        echo -e "${RED}FAILED: Daemon failed to exit within ${WAIT_TIMEOUT}s${NC}"
         kill -9 $DAEMON_PID 2>/dev/null
-        exit 1
+        fail_suite "Daemon failed to exit within s"
     fi
     sleep 0.5
 done
@@ -78,9 +76,8 @@ echo "   Daemon exited gracefully."
 echo "--- Test 5: Verify Integrity & Schema ---"
 # Use cowen doctor to ensure storage is not corrupted/locked and schema is valid
 if ! "$COWEN_BIN" doctor --fix > /dev/null 2>&1; then
-    echo -e "${RED}FAILED: Cowen doctor reported errors after chaos shutdown${NC}"
     "$COWEN_BIN" doctor --verbose
-    exit 1
+    fail_suite "Cowen doctor reported errors after chaos shutdown"
 fi
 echo "   ✓ Storage and Schema integrity verified"
 
@@ -93,9 +90,8 @@ else
     if grep -q "Waiting for active tasks to complete" "$DAEMON_LOG"; then
         echo "   ℹ️ Found drain attempt marker (tasks may have timed out but protocol followed)"
     else
-        echo -e "${RED}FAILED: Log missing shutdown protocol markers${NC}"
         tail -n 20 "$DAEMON_LOG"
-        exit 1
+        fail_suite "Log missing shutdown protocol markers"
     fi
 fi
 

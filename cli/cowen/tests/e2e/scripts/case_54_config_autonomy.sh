@@ -12,8 +12,7 @@ if [ -f "tests/e2e/scripts/common.sh" ]; then
 elif [ -f "./cli/cowen/tests/e2e/scripts/common.sh" ]; then
     source "./cli/cowen/tests/e2e/scripts/common.sh"
 else
-    echo "common.sh not found"
-    exit 1
+    fail_suite "common.sh not found"
 fi
 
 setup_workspace "case_54"
@@ -28,8 +27,7 @@ VAL=$("$COWEN_BIN" config get search.plugins.0.path | tr -d '"')
 if [ "$VAL" == "/new/path1" ]; then
     echo -e "   ${GREEN}✓${NC} Identifier locator (set) worked"
 else
-    echo -e "   ${RED}[FAILED]${NC} Identifier locator failed: expected /new/path1, got $VAL"
-    exit 1
+    fail_suite "Identifier locator failed: expected /new/path1, got $VAL"
 fi
 
 echo "3. Test Append Mode (+)"
@@ -38,8 +36,7 @@ LEN=$("$COWEN_BIN" config get search.plugins --format json | python3 -c "import 
 if [ "$LEN" -eq 3 ]; then
     echo -e "   ${GREEN}✓${NC} Append mode worked"
 else
-    echo -e "   ${RED}[FAILED]${NC} Append mode failed (count: $LEN)"
-    exit 1
+    fail_suite "Append mode failed (count: $LEN)"
 fi
 
 echo "4. Test Unset & Collapsing"
@@ -49,16 +46,14 @@ P3_PATH=$("$COWEN_BIN" config get search.plugins.1.path | tr -d '"')
 if [ "$P3_PATH" == "/path3" ]; then
     echo -e "   ${GREEN}✓${NC} Array collapsing worked"
 else
-    echo -e "   ${RED}[FAILED]${NC} Array collapsing failed: got $P3_PATH"
-    exit 1
+    fail_suite "Array collapsing failed: got $P3_PATH"
 fi
 
 echo "5. Test Immediate Binding"
 "$COWEN_BIN" config set search.plugins.name:p1.name "p_new"
 # locator name:p1 should now fail
 if "$COWEN_BIN" config get search.plugins.name:p1 2>/dev/null; then
-    echo -e "   ${RED}[FAILED]${NC} Old locator still worked after rename"
-    exit 1
+    fail_suite "Old locator still worked after rename"
 else
     echo -e "   ${GREEN}✓${NC} Immediate binding worked (old locator invalidated)"
 fi

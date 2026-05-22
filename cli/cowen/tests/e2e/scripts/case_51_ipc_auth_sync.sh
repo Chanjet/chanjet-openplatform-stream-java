@@ -23,16 +23,14 @@ sleep 3
 # Check for Monitor Port in PID file
 PID_FILE="$COWEN_HOME/master_daemon.pid"
 if [ ! -f "$PID_FILE" ]; then
-    echo -e "${RED}FAILED: master_daemon.pid not found${NC}"
     cat "$TEST_BASE/master.log"
-    exit 1
+    fail_suite "master_daemon.pid not found"
 fi
 
 MONITOR_PORT=$(grep "MONITOR_PORT=" "$PID_FILE" | cut -d'=' -f2)
 if [ -z "$MONITOR_PORT" ]; then
-    echo -e "${RED}FAILED: MONITOR_PORT not found in PID file${NC}"
     cat "$PID_FILE"
-    exit 1
+    fail_suite "MONITOR_PORT not found in PID file"
 fi
 echo "   Monitor Port detected: $MONITOR_PORT"
 
@@ -61,9 +59,8 @@ for i in {1..20}; do
 done
 
 if [ -z "$PORT" ]; then
-    echo -e "${RED}FAILED: Could not detect redirect port from init output${NC}"
     cat "$TEST_BASE/init_output.log"
-    exit 1
+    fail_suite "Could not detect redirect port from init output"
 fi
 echo "   Detected Redirect Port: $PORT, State: $STATE"
 
@@ -80,23 +77,20 @@ EXIT_CODE=$?
 
 echo "   Init exited with code: $EXIT_CODE"
 if [ "$EXIT_CODE" != "0" ]; then
-    echo -e "${RED}FAILED: Init did not exit with code 0${NC}"
     cat "$TEST_BASE/init_output.log"
-    exit 1
+    fail_suite "Init did not exit with code 0"
 fi
 
 # Verify init output contains IPC detection message
 if ! grep -q "Detected running Master Daemon. Using IPC-based authorization" "$TEST_BASE/init_output.log"; then
-    echo -e "${RED}FAILED: Init did not detect running daemon or use IPC path${NC}"
     cat "$TEST_BASE/init_output.log"
-    exit 1
+    fail_suite "Init did not detect running daemon or use IPC path"
 fi
 
 # Confirm callback was received locally
 if ! grep -q "Callback received" "$TEST_BASE/init_output.log"; then
-    echo -e "${RED}FAILED: Init did not receive callback locally${NC}"
     cat "$TEST_BASE/init_output.log"
-    exit 1
+    fail_suite "Init did not receive callback locally"
 fi
 
 echo "--- Test 5: Verify Token in Vault ---"
@@ -107,9 +101,8 @@ TOKEN_CHECK=$("$COWEN_BIN" status | grep "AccessToken")
 if echo "$TOKEN_CHECK" | grep -q "VALID"; then
     echo "   ✓ Token successfully synchronized via IPC"
 else
-    echo -e "${RED}FAILED: Token not found or invalid in status output${NC}"
     "$COWEN_BIN" status
-    exit 1
+    fail_suite "Token not found or invalid in status output"
 fi
 
 

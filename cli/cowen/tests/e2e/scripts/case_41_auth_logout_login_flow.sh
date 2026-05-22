@@ -48,7 +48,7 @@ for i in {1..40}; do
     fi
     sleep 0.5
 done
-[ -z "$SESSION_JSON" ] && { echo "Timeout"; exit 1; }
+[ -z "$SESSION_JSON" ] && fail_suite "Timeout waiting for auth session"
 echo -e " ${GREEN}[FOUND]${NC}"
 
 REDIRECT_PORT=$(get_json_field "$SESSION_JSON" "redirect_port")
@@ -68,9 +68,8 @@ for i in $(seq 1 $MAX_RETRIES); do
 done
 
 if [ $SUCCESS -eq 0 ]; then
-    echo -e " ${RED}[FAILED]${NC} - Redirect port ${REDIRECT_PORT} unreachable after $MAX_RETRIES attempts"
     kill "$INIT_PID" 2>/dev/null
-    exit 1
+    fail_suite "- Redirect port  unreachable after $MAX_RETRIES attempts"
 fi
 echo -e " ${GREEN}[OK]${NC}"
 wait "$INIT_PID"
@@ -93,8 +92,7 @@ if echo "$OUT" | grep -q "Not logged in or session expired"; then
     echo -e " ${GREEN}[OK]${NC}"
 else
     echo -e " ${RED}[FAILED]${NC}"
-    echo "$OUT"
-    exit 1
+    fail_suite "$OUT"
 fi
 
 # ============================================================
@@ -120,9 +118,8 @@ if [ -n "$REAUTH_SESSION" ]; then
     # Cleanup re-auth process as we've verified it triggered the flow
     kill "$LOGIN_PID" 2>/dev/null
 else
-    echo -e " ${RED}[FAILED]${NC} - No re-auth flow triggered"
     kill "$LOGIN_PID" 2>/dev/null
-    exit 1
+    fail_suite "- No re-auth flow triggered"
 fi
 
 

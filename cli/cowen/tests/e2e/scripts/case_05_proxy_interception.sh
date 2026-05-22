@@ -38,8 +38,7 @@ RESP_FAIL=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PROXY_PORT/
 if [ "$RESP_FAIL" == "404" ]; then
     echo -e "  ${GREEN}✓${NC} Received 404 for unauthorized path (whitelist not enforced)"
 else
-    echo -e "  ${RED}✗${NC} Unexpected response for path (Got $RESP_FAIL)"
-    exit 1
+    fail_suite "Unexpected response for path (Got $RESP_FAIL)"
 fi
 
 

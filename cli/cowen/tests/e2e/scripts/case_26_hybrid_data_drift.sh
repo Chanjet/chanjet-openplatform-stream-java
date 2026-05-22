@@ -27,8 +27,7 @@ start_test_redis() {
     echo -e "  Starting test Redis on port $REDIS_PORT..."
     if ! command -v redis-server >/dev/null 2>&1; then
         echo -e "  ${RED}[FAILED]${NC} redis-server not found in PATH"
-        echo "  PATH is: $PATH"
-        exit 1
+        fail_suite "PATH is: $PATH"
     fi
     lsof -ti ":$REDIS_PORT" | xargs kill -9 2>/dev/null || true
     
@@ -47,9 +46,8 @@ start_test_redis() {
         sleep 1
     done
     echo -e "  ${RED}[REDIS FAILED TO START]${NC}"
-    echo "--- Redis Log ---"
     cat "$COWEN_HOME/redis.log"
-    exit 1
+    fail_suite "--- Redis Log ---"
 }
 
 stop_test_redis() {
@@ -96,9 +94,8 @@ TOKEN_1=$(echo "$RAW_TOKEN_OUT" | python3 -c "import sys,json; d=json.loads(sys.
 echo "   Initial Token: $TOKEN_1"
 
 if [ -z "$TOKEN_1" ]; then
-    echo -e "   ${RED}[FAILED]${NC} Initial token retrieval failed"
     stop_test_redis
-    exit 1
+    fail_suite "Initial token retrieval failed"
 fi
 
 echo -e "${BOLD}3. Simulating Data Drift (Modifying Persistence Layer)${NC}"

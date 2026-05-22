@@ -28,8 +28,7 @@ SCRIPT=$("$COWEN_BIN" completion zsh)
 if [[ -n "$SCRIPT" ]] && [[ "$SCRIPT" == *"compdef"* ]]; then
     echo -e "   ${GREEN}✓${NC} Zsh completion script generated successfully"
 else
-    echo -e "   ${RED}[FAILED]${NC} Failed to generate Zsh completion script"
-    exit 1
+    fail_suite "Failed to generate Zsh completion script"
 fi
 
 # 3. Test Install (Mocking HOME for safety)
@@ -42,9 +41,8 @@ export HOME="$COWEN_HOME"
 if grep -q "cowen completion" "$HOME/.zshrc" || grep -q "source" "$HOME/.zshrc"; then
     echo -e "   ${GREEN}✓${NC} Completion installed in .zshrc"
 else
-    echo -e "   ${RED}[FAILED]${NC} Completion NOT found in .zshrc"
     cat "$HOME/.zshrc"
-    exit 1
+    fail_suite "Completion NOT found in .zshrc"
 fi
 
 # 4. Test Uninstall
@@ -54,9 +52,8 @@ echo -e "${BOLD}4. Test Uninstallation (--uninstall)${NC}"
 if ! grep -q "cowen completion" "$HOME/.zshrc" 2>/dev/null; then
     echo -e "   ${GREEN}✓${NC} Completion uninstalled from .zshrc"
 else
-    echo -e "   ${RED}[FAILED]${NC} Completion still remains in .zshrc"
     grep "cowen completion" "$HOME/.zshrc"
-    exit 1
+    fail_suite "Completion still remains in .zshrc"
 fi
 
 

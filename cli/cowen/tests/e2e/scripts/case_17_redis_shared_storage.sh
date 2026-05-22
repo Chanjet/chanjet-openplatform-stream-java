@@ -90,9 +90,8 @@ for i in {1..5}; do
 done
 
 if [[ -z "$TOKEN_1" ]]; then
-    echo -e "   ${RED}[FAILED]${NC} Failed to get token on Node 1"
     stop_test_redis
-    exit 1
+    fail_suite "Failed to get token on Node 1"
 fi
 echo -e "   ✓ Node 1 Token: ${TOKEN_1:0:15}..."
 echo "     Redis Keys:"
@@ -129,9 +128,8 @@ if [[ "$TOKEN_1" == "$TOKEN_2" ]]; then
 else
     echo -e "   ${RED}[FAILED]${NC} Token mismatch or sync failed"
     echo "     Node 1: $TOKEN_1"
-    echo "     Node 2: $TOKEN_2"
     stop_test_redis
-    exit 1
+    fail_suite "Node 2: $TOKEN_2"
 fi
 
 # 4. Invalidate Token in Redis and Verify Renewal
@@ -146,9 +144,8 @@ if [[ "$TOKEN_3" != "$TOKEN_1" && -n "$TOKEN_3" ]]; then
     echo -e "   ${GREEN}✓${NC} Node 2 successfully renewed token after Redis deletion"
     echo "     New Token: ${TOKEN_3:0:15}..."
 else
-    echo -e "   ${RED}[FAILED]${NC} Token renewal failed or returned old token"
     stop_test_redis
-    exit 1
+    fail_suite "Token renewal failed or returned old token"
 fi
 
 # Mandatory Sanitization Check

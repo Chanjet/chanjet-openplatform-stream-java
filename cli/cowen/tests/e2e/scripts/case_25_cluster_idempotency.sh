@@ -59,9 +59,8 @@ export COWEN_HOME="$HOME_NODE_A"
 echo -n "   Waiting for both nodes to connect to WebSocket..."
 COUNT=$(wait_for_connections 2 20)
 if [ -z "$COUNT" ] || [ "$COUNT" -lt 2 ]; then
-    echo -e " ${RED}[FAILED]${NC} Nodes failed to connect"
     kill -9 $NODE_A_PID $NODE_B_PID 2>/dev/null || true
-    exit 1
+    fail_suite "Nodes failed to connect"
 fi
 echo -e " ${GREEN}[CONNECTED: $COUNT]${NC}"
 

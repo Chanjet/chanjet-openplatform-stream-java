@@ -37,8 +37,7 @@ PID1=$(get_daemon_pid "main")
 if [ -n "$PID1" ]; then
     echo -e "   ${GREEN}✓${NC} Initial daemon running (PID: $PID1)"
 else
-    echo -e "   ${RED}✗${NC} Failed to start initial daemon"
-    exit 1
+    fail_suite "Failed to start initial daemon"
 fi
 
 echo -e "${BOLD}3. Simulate Daemon Crash${NC}"
@@ -52,9 +51,8 @@ sleep 1
 if ! kill -0 "$PID1" 2>/dev/null; then
     echo -e "   ${GREEN}✓${NC} Process confirmed dead"
 else
-    echo -e "   ${RED}✗${NC} Process still exists!"
     ps -p "$PID1" || echo "ps command failed"
-    exit 1
+    fail_suite "Process still exists!"
 fi
 
 echo -e "${BOLD}4. Trigger Recovery via Command${NC}"
@@ -68,8 +66,7 @@ if [ -n "$PID2" ] && [ "$PID1" != "$PID2" ]; then
     echo -e "   ${GREEN}✓${NC} New daemon started (PID: $PID2)"
 else
     echo -e "   ${RED}✗${NC} Daemon recovery failed"
-    echo "$STATUS_OUTPUT"
-    exit 1
+    fail_suite "$STATUS_OUTPUT"
 fi
 
 echo -e "${BOLD}5. Verify Connection Stability after Recovery${NC}"
@@ -84,9 +81,8 @@ fi
 if [ "$RUNNING" = true ]; then
     echo -e "   ${GREEN}✓${NC} Bridge re-connected after recovery"
 else
-    echo -e "   ${RED}✗${NC} Bridge failed to connect after recovery"
     "$COWEN_BIN" status
-    exit 1
+    fail_suite "Bridge failed to connect after recovery"
 fi
 
 

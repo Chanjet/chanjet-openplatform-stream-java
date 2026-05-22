@@ -33,10 +33,9 @@ echo -e "  Waiting for auto-initialization..."
 if wait_for_daemon_status "$PROFILE" "ACTIVE\|RUNNING" 8; then
     echo -e "  ${GREEN}✓${NC} Profile '$PROFILE' verified via status"
 else
-    echo -e "  ${RED}✗${NC} Profile '$PROFILE' NOT found or not running"
     cat "$COWEN_HOME/daemon.log"
     kill $DAEMON_PID 2>/dev/null
-    exit 1
+    fail_suite "Profile '$PROFILE' NOT found or not running"
 fi
 
 # 2. Verify Daemon Status
@@ -65,9 +64,8 @@ export COWEN_DB_URL="innerdb://$DB_PATH"
 if grep -q "$DB_PATH" "$COWEN_HOME/store_status.out"; then
     echo -e "  ${GREEN}✓${NC} Store URL overridden via COWEN_DB_URL"
 else
-    echo -e "  ${RED}✗${NC} Store URL NOT overridden"
     cat "$COWEN_HOME/store_status.out"
-    exit 1
+    fail_suite "Store URL NOT overridden"
 fi
 
 
