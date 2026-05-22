@@ -11,33 +11,11 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-# Force cleanup before starting
-# pkill -9 -f "$(basename "$COWEN_BIN")" || true
-sleep 1
+setup_workspace "case_14"
 
-echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
-
-# Define nodes
-export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
-HOME_1="$TEST_BASE/.cowen_test_dist_sync_node_1"
-HOME_2="$TEST_BASE/.cowen_test_dist_sync_node_2"
-# 🚀 Fix: Use a name that doesn't trigger the '.cowen_test_' regex replacement in run_parallel.sh
-# This ensures Node 1 and Node 2 definitely use the same filename.
-SHARED_DB_NAME="shared_storage_case_14.db"
-SHARED_DB="$TEST_BASE/$SHARED_DB_NAME"
-mkdir -p "$TEST_BASE"
-
-# 🚀 Isolate binary for process manager visibility
-cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_14"
-export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_14"
-chmod +x "$COWEN_BIN"
-
-# 🚀 Isolate daemon binary as well
-if [ -f "$COWEN_BUILD_DIR/cowen-daemon" ]; then
-    cp "$COWEN_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_14"
-    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_14"
-    chmod +x "$COWEN_DAEMON_BIN"
-fi
+HOME_1="$COWEN_HOME/node_1"
+HOME_2="$COWEN_HOME/node_2"
+SHARED_DB="$COWEN_HOME/shared_storage_case_14.db"
 
 # 🚀 Dynamic Ports
 PROXY_PORT_1=$(get_unused_port)
@@ -47,12 +25,11 @@ function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 14 environment...${NC}"
     kill_daemons_in_dirs "$HOME_1" "$HOME_2"
     cleanup_suite
-    rm -rf "$HOME_1" "$HOME_2"
 }
 trap final_cleanup EXIT
 
-rm -f "$SHARED_DB"*
 mkdir -p "$HOME_1" "$HOME_2"
+
 
 start_mock
 
@@ -61,7 +38,7 @@ export COWEN_HOME="$HOME_1"
 cat > "$HOME_1/app.yaml" <<EOF
 storage:
   store: sqlite
-  db_url: "sqlite://$(pwd)/$SHARED_DB"
+  db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
 telemetry_enabled: false
@@ -88,7 +65,7 @@ export COWEN_HOME="$HOME_2"
 cat > "$HOME_2/app.yaml" <<EOF
 storage:
   store: sqlite
-  db_url: "sqlite://$(pwd)/$SHARED_DB"
+  db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
 openapi_url: "$MOCK_URL"

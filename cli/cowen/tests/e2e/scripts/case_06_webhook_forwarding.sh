@@ -8,7 +8,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "webhook_fwd"
+setup_workspace "case_06"
 trap cleanup_suite EXIT
 start_mock
 

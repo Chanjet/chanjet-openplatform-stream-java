@@ -4,36 +4,16 @@
 # Validates dynamic log level updates and non-interruptive configuration refreshes.
 
 set -e
-NC='\033[0m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
+
+setup_workspace "case_42"
+TEST_PROFILE="hot_reload_test"
 
 echo -e "${BLUE}Starting Test Case 42: Config Hot-Reload${NC}"
-
-# 1. Setup environment
-if [ -z "$COWEN_BIN" ]; then
-    export COWEN_BIN="$(pwd)/target/release/cowen"
-fi
-export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
-mkdir -p "$TEST_BASE"
-
-# 🚀 Isolate binary for process manager visibility
-ORIG_BUILD_DIR=$(dirname "$COWEN_BIN")
-cp "$COWEN_BIN" "$TEST_BASE/cowen_case_45"
-export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_45"
-chmod +x "$COWEN_BIN"
-
-# 🚀 Isolate daemon binary as well
-if [ -f "$ORIG_BUILD_DIR/cowen-daemon" ]; then
-    cp "$ORIG_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_45"
-    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_45"
-    chmod +x "$COWEN_DAEMON_BIN"
-fi
-TEST_ID=$RANDOM
-export COWEN_HOME="$(pwd)/target/cowen_tests/case_45_$TEST_ID"
-mkdir -p "$COWEN_HOME"
-TEST_PROFILE="hot_reload_test_$TEST_ID"
 
 # 2. Initialize profile
 $COWEN_BIN init --profile "$TEST_PROFILE" --app-mode self-built --app-key "k" --app-secret "s" --certificate "c" --encrypt-key "e" --stream-url "http://localhost:8080" > /dev/null
@@ -42,7 +22,8 @@ $COWEN_BIN config set --profile "$TEST_PROFILE" log.level debug
 
 # 3. Start daemon in background
 $COWEN_BIN daemon start --profile "$TEST_PROFILE"
-DAEMON_PID=$(cat "$COWEN_HOME/${TEST_PROFILE}_daemon.pid" | head -n 1)
+wait_for_daemon "$TEST_PROFILE" 5
+DAEMON_PID=$(cat "$COWEN_HOME/master_daemon.pid" | head -n 1)
 echo "Daemon started with PID: $DAEMON_PID"
 
 # 4. Verify initial log level (debug)
@@ -56,7 +37,7 @@ $COWEN_BIN config set --profile "$TEST_PROFILE" log.level info
 sleep 2 # Give watcher time to react
 
 # 6. Verify PID is the same
-CURRENT_PID=$(cat "$COWEN_HOME/${TEST_PROFILE}_daemon.pid" | head -n 1)
+CURRENT_PID=$(cat "$COWEN_HOME/master_daemon.pid" | head -n 1)
 if [ "$DAEMON_PID" != "$CURRENT_PID" ]; then
     echo -e "${RED}[FAILED]${NC} Daemon restarted! PID changed from $DAEMON_PID to $CURRENT_PID"
     exit 1

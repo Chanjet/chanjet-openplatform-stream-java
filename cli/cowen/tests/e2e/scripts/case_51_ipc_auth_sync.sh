@@ -9,7 +9,7 @@ else
 fi
 
 # Setup: Isolated environment
-setup_workspace "ipc_auth_sync"
+setup_workspace "case_51"
 start_mock
 
 echo "--- Test 1: Start Master Daemon ---"

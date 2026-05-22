@@ -14,40 +14,19 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
+setup_workspace "case_15"
 
-# Define nodes
-export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
-if [[ "$TEST_BASE" != /* ]]; then
-    export TEST_BASE="$(pwd)/$TEST_BASE"
-fi
-HOME_1="$TEST_BASE/.cowen_test_store_app_node_1"
-HOME_2="$TEST_BASE/.cowen_test_store_app_node_2"
-SHARED_DB="$TEST_BASE/.cowen_test_store_app_shared.db"
-mkdir -p "$TEST_BASE"
-
-# 🚀 Isolate binary for process manager visibility
-cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_15"
-export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_15"
-chmod +x "$COWEN_BIN"
-
-# 🚀 Isolate daemon binary as well
-if [ -f "$COWEN_BUILD_DIR/cowen-daemon" ]; then
-    cp "$COWEN_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_15"
-    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_15"
-    chmod +x "$COWEN_DAEMON_BIN"
-fi
+HOME_1="$COWEN_HOME/node_1"
+HOME_2="$COWEN_HOME/node_2"
+SHARED_DB="$COWEN_HOME/store_app_shared.db"
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 15 environment...${NC}"
     kill_daemons_in_dirs "$HOME_1" "$HOME_2"
     cleanup_suite
-    rm -rf "$HOME_1" "$HOME_2"
 }
 trap final_cleanup EXIT
 
-rm -rf "$HOME_1" "$HOME_2"
-rm -f "$SHARED_DB"*
 mkdir -p "$HOME_1" "$HOME_2"
 
 start_mock

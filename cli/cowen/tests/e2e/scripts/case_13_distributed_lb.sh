@@ -9,23 +9,9 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-# Define nodes
-export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
-HOME_A="$TEST_BASE/.cowen_test_dist_lb_node_a"
-HOME_B="$TEST_BASE/.cowen_test_dist_lb_node_b"
-mkdir -p "$TEST_BASE"
-
-# 🚀 Isolate binary for process manager visibility
-cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_13"
-export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_13"
-chmod +x "$COWEN_BIN"
-
-# 🚀 Isolate daemon binary as well
-if [ -f "$COWEN_BUILD_DIR/cowen-daemon" ]; then
-    cp "$COWEN_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_13"
-    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_13"
-    chmod +x "$COWEN_DAEMON_BIN"
-fi
+setup_workspace "case_13"
+HOME_A="$COWEN_HOME/node_a"
+HOME_B="$COWEN_HOME/node_b"
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 13 environment...${NC}"
@@ -61,8 +47,14 @@ setup_node "$HOME_B" 9092
 assert_pass "Nodes initialized"
 
 echo -e "${BOLD}2. Clean Environment${NC}"
-cleanup_suite "distributed_lb_pre"
-# Re-init after cleanup deleted directories
+kill_daemons_in_dirs "$HOME_A" "$HOME_B"
+rm -rf "$HOME_A" "$HOME_B"
+mkdir -p "$HOME_A" "$HOME_B"
+if [ "$COWEN_MOCK_MANAGED" == "true" ]; then
+    curl -s -X POST "$MOCK_URL/control/kill_connections" >/dev/null 2>&1 || true
+    curl -s -X POST "$MOCK_URL/control/clear_webhooks" >/dev/null 2>&1 || true
+fi
+# Re-init after cleanup
 setup_node "$HOME_A" 9091
 setup_node "$HOME_B" 9092
 start_mock

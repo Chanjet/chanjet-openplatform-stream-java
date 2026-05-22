@@ -12,7 +12,7 @@ else
 fi
 
 # Setup workspace
-setup_workspace "daemon_recovery"
+setup_workspace "case_12"
 trap cleanup_suite EXIT
 start_mock
 

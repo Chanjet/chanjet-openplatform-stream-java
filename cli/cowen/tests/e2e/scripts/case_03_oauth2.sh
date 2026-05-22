@@ -23,7 +23,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "oauth2"
+setup_workspace "case_03"
 trap cleanup_suite EXIT
 start_mock
 

@@ -11,7 +11,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "reconnect_test"
+setup_workspace "case_11"
 trap cleanup_suite EXIT
 start_mock
 

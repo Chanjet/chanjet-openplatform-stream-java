@@ -10,7 +10,7 @@ else
 fi
 
 # Setup: Isolated environment
-setup_workspace "chaos_stress"
+setup_workspace "case_53"
 start_mock
 
 # Configure moderate delay in mock to keep connections alive longer

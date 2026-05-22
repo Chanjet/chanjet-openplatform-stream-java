@@ -11,7 +11,7 @@ if [ -f "tests/e2e/scripts/common.sh" ]; then
 else
     source "$(dirname "$0")/common.sh"
 fi
-setup_workspace "daemon_recovery_enhanced"
+setup_workspace "case_34"
 trap cleanup_suite EXIT
 start_mock
 

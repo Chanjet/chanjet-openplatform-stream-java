@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 PROFILE="case_56_version"
-setup_workspace "$PROFILE"
+setup_workspace "case_56_$PROFILE"
 
 echo "Checking cowen version -o json..."
 JSON_OUT=$("$COWEN_BIN" version -o json)

@@ -8,30 +8,19 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-# Force cleanup
-# sleep 1
+setup_workspace "case_16"
 
-echo -e "${BOLD}1. Setup Local OAuth2 Profile${NC}"
-export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
-HOME_MIGRATE="$TEST_BASE/.cowen_test_migration_block"
-SHARED_DB="$TEST_BASE/.cowen_test_migrated_target.db"
-mkdir -p "$TEST_BASE"
+HOME_MIGRATE="$COWEN_HOME/node_migrate"
+SHARED_DB="$COWEN_HOME/migrated_target.db"
 
-# 🚀 Isolate binary for process manager visibility
-cp "$SOURCE_BIN" "$TEST_BASE/cowen_case_16"
-export COWEN_BIN="$(cd "$TEST_BASE" && pwd)/cowen_case_16"
-chmod +x "$COWEN_BIN"
+function final_cleanup {
+    echo -e "\n${YELLOW}🧹 Cleaning up Case 16 environment...${NC}"
+    kill_daemons_in_dirs "$HOME_MIGRATE"
+    cleanup_suite
+}
+trap final_cleanup EXIT
 
-# 🚀 Isolate daemon binary as well
-if [ -f "$COWEN_BUILD_DIR/cowen-daemon" ]; then
-    cp "$COWEN_BUILD_DIR/cowen-daemon" "$TEST_BASE/cowen_daemon_case_16"
-    export COWEN_DAEMON_BIN="$(cd "$TEST_BASE" && pwd)/cowen_daemon_case_16"
-    chmod +x "$COWEN_DAEMON_BIN"
-fi
-
-rm -f "$SHARED_DB"*
 mkdir -p "$HOME_MIGRATE"
-
 export COWEN_HOME="$HOME_MIGRATE"
 
 # --- Phase 1: Local OAuth2 ---
@@ -92,6 +81,4 @@ fi
 
 echo -e "\n🎊 ${GREEN}Case 16 Passed!${NC}"
 
-# Cleanup
-rm -rf "$HOME_MIGRATE"
-rm -f "$SHARED_DB"*
+

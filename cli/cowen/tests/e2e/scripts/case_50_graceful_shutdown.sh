@@ -17,7 +17,7 @@ else
 fi
 
 # Setup: Isolated environment
-setup_workspace "graceful_shutdown"
+setup_workspace "case_50"
 start_mock
 
 # Configure delay in mock server to simulate slow webhook processing

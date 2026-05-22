@@ -8,7 +8,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "51"
+setup_workspace "case_48"
 start_mock
 
 # 1. Setup paths

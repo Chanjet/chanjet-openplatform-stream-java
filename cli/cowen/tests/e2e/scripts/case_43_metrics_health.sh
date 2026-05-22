@@ -14,7 +14,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "46"
+setup_workspace "case_43"
 start_mock
 
 echo -e "${BLUE}Starting Test Case 43: Metrics and Health API${NC}"

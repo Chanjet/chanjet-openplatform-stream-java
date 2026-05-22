@@ -29,7 +29,7 @@ PROF="dlq_manual"
 
 # Start Daemon
 "$COWEN_BIN" daemon start --profile "$PROF" >/dev/null 2>&1
-sleep 3
+wait_for_daemon "$PROF" 10
 
 # 2. Inject Failure
 echo -e "${BOLD}2. Simulating Sink Failure (500 Error)${NC}"
@@ -46,11 +46,17 @@ curl -s -X POST "$MOCK_URL/control/broadcast" -d "{
 }" > /dev/null
 
 echo "   Waiting for daemon to process and fail (putting msg into DLQ)..."
-# Wait enough time for initial failure and DLQ insertion (Cowen retries internally, we just need it in DB)
-sleep 5
+# Wait enough time for initial failure and DLQ insertion with adaptive polling
+DLQ_OUT=""
+for i in {1..20}; do
+    DLQ_OUT=$("$COWEN_BIN" dlq list --profile "$PROF" --format json 2>/dev/null || true)
+    if echo "$DLQ_OUT" | grep -q "$MSG_ID"; then
+        break
+    fi
+    sleep 0.5
+done
 
 # Check if it's in DLQ
-DLQ_OUT=$("$COWEN_BIN" dlq list --profile "$PROF" --format json)
 if echo "$DLQ_OUT" | grep -q "$MSG_ID"; then
     echo -e "   ${GREEN}✓${NC} Message successfully captured in DLQ"
 else
@@ -76,11 +82,18 @@ curl -s -X POST "$MOCK_URL/control/clear_webhooks" > /dev/null
 
 # Execute manual retry
 "$COWEN_BIN" dlq retry "$DLQ_ID" --profile "$PROF" > /dev/null
-sleep 2
 
 # 4. Verify Forwarding and Deletion
 echo -e "${BOLD}4. Verifying Successful Forwarding and DLQ Cleanup${NC}"
-SINK_CHECK=$(curl -s "$MOCK_URL/control/webhooks")
+SINK_CHECK=""
+for i in {1..20}; do
+    SINK_CHECK=$(curl -s "$MOCK_URL/control/webhooks" 2>/dev/null || true)
+    if echo "$SINK_CHECK" | grep -q "$MSG_ID"; then
+        break
+    fi
+    sleep 0.5
+done
+
 if echo "$SINK_CHECK" | grep -q "$MSG_ID"; then
     echo -e "   ${GREEN}✓${NC} Message successfully delivered to Sink after manual retry"
 else

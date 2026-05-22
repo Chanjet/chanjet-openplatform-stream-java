@@ -9,7 +9,7 @@ else
 fi
 
 # Setup: Isolated environment
-setup_workspace "dlq_paging"
+setup_workspace "case_52"
 start_mock
 
 echo "--- Test 1: Setup Profile with Invalid Webhook (to trigger DLQ) ---"

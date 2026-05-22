@@ -12,7 +12,7 @@ fi
 pkill -9 -f "cowen_store_app_activation" || true
 sleep 1
 
-setup_workspace "store_app_activation"
+setup_workspace "case_36"
 trap cleanup_suite EXIT
 start_mock
 

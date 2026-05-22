@@ -13,7 +13,7 @@ fi
 echo -e "${BLUE}Starting Test Case 37: Initialization Failure Cleanup${NC}"
 
 # 1. Setup clean environment for this test
-setup_workspace "37"
+setup_workspace "case_37"
 TEST_PROFILE="cleanup_test_$(date +%s)"
 
 # Use a sub-directory in COWEN_HOME for this specific test

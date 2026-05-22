@@ -10,7 +10,7 @@ else
 fi
 
 # Setup workspace
-setup_workspace "log_level_dynamic"
+setup_workspace "case_40"
 
 echo "1. Verify Default Log Level"
 # Manually create a minimal config to avoid init/auth issues

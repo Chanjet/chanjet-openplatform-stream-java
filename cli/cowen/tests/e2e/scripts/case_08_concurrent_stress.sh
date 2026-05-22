@@ -8,7 +8,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "concurrency"
+setup_workspace "case_08"
 trap cleanup_suite EXIT
 start_mock
 

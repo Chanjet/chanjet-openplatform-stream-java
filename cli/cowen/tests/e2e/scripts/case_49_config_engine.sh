@@ -9,7 +9,7 @@ else
 fi
 
 # Setup: Isolated environment
-setup_workspace "config_engine"
+setup_workspace "case_49"
 
 fail() {
     echo -e "${RED}FAILED: $1${NC}"

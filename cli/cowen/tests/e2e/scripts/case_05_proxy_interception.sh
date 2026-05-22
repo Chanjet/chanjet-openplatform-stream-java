@@ -8,7 +8,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "proxy_intercept"
+setup_workspace "case_05"
 trap cleanup_suite EXIT
 start_mock
 

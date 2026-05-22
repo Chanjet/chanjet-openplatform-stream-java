@@ -6,7 +6,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "migration"
+setup_workspace "case_04"
 trap cleanup_suite EXIT
 
 echo -e "${BOLD}1. Source Data (Local Store)${NC}"

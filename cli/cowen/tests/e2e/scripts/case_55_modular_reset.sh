@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 PROFILE="case_55_reset"
-setup_workspace "$PROFILE"
+setup_workspace "case_55_$PROFILE"
 
 # Setup dummy config
 echo "Creating dummy config..."

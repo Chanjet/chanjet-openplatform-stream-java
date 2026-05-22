@@ -2,7 +2,7 @@
 
 > **版本**: v0.3.5
 > **阶段**: Architecture Blueprint
-> **状态**: `DRAFT`
+> **状态**: `Approved`
 
 ## 1. 系统上下文与层级配置视图 (System Context & Configuration Hierarchy)
 v0.3.5 引入了分层配置模型，实现了基础设施与业务环境配置的彻底物理隔离。

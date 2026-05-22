@@ -14,7 +14,7 @@ else
 fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
-setup_workspace "exclusive_test"
+setup_workspace "case_33"
 trap cleanup_suite EXIT
 start_mock
 

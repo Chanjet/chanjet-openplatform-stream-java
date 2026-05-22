@@ -6,7 +6,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "scaling_stress"
+setup_workspace "case_29"
 
 # Use a specific port for Redis to avoid conflicts
 REDIS_PORT=6381

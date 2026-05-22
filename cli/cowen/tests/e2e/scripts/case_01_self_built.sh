@@ -8,7 +8,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "self_built"
+setup_workspace "case_01"
 trap cleanup_suite EXIT
 start_mock
 

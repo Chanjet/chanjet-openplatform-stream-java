@@ -10,7 +10,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "init_dedup"
+setup_workspace "case_38"
 trap cleanup_suite EXIT
 start_mock
 

@@ -31,7 +31,7 @@ echo -e "${BLUE}${BOLD}   Cowen CLI Hybrid Verification Suite (Stable)         $
 echo -e "${BLUE}${BOLD}========================================================${NC}"
 
 # Configuration
-MAX_PARALLEL="${MAX_PARALLEL:-16}"
+MAX_PARALLEL="${MAX_PARALLEL:-32}"
 TEST_BASE="${TEST_BASE:-target/cowen_tests}"
 if [[ "$TEST_BASE" != /* ]]; then
     TEST_BASE="$(pwd)/$TEST_BASE"

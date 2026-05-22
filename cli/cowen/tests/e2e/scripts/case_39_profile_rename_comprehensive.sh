@@ -16,7 +16,7 @@ test_rename_for_storage() {
     echo -e "${BOLD}▶ Testing rename in mode: $mode${NC}"
     
     # 1. Setup Workspace
-    setup_workspace "rename_$mode"
+    setup_workspace "case_39_rename_$mode"
     start_mock
     
     # 2. Configure app.yaml

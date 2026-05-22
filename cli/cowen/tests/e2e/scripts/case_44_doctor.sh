@@ -8,7 +8,7 @@ else
     source "$(dirname "$0")/common.sh"
 fi
 
-setup_workspace "doctor_test"
+setup_workspace "case_44"
 trap cleanup_suite EXIT
 
 TEST_PROFILE="doctor_test_prof"
