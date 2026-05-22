@@ -50,5 +50,4 @@ echo "Config updated to info."
 
 # 8. Cleanup
 $COWEN_BIN daemon stop --profile "$TEST_PROFILE"
-echo -e "${GREEN}Test Case 42 PASSED!${NC}"
-rm -rf "$COWEN_HOME"
+pass_suite

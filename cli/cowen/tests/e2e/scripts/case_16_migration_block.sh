@@ -79,6 +79,6 @@ else
     exit 1
 fi
 
-echo -e "\n🎊 ${GREEN}Case 16 Passed!${NC}"
+pass_suite
 
 

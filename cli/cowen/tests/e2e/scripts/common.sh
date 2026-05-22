@@ -295,6 +295,34 @@ cleanup_suite() {
 }
 
 # Assertions
+pass_suite() {
+    local name=$1
+    if [ -z "$name" ]; then
+        local base=$(basename "$0" .sh)
+        if [[ "$base" =~ ^case_([0-9]+) ]]; then
+            name="Case ${BASH_REMATCH[1]}"
+        else
+            name="$base"
+        fi
+    fi
+    echo -e "\n${GREEN}🎊 $name Passed!${NC}"
+}
+
+fail_suite() {
+    local msg=$1
+    local name=$2
+    if [ -z "$name" ]; then
+        local base=$(basename "$0" .sh)
+        if [[ "$base" =~ ^case_([0-9]+) ]]; then
+            name="Case ${BASH_REMATCH[1]}"
+        else
+            name="$base"
+        fi
+    fi
+    echo -e "\n${RED}✗ $name FAILED: $msg${NC}"
+    exit 1
+}
+
 assert_pass() {
     if [ $? -eq 0 ]; then
         echo -e "  ${GREEN}✓${NC} $1"
