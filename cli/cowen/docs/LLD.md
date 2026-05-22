@@ -56,6 +56,23 @@ async fn load_config(profile: &str) -> CowenResult<Config> {
 }
 ```
 
+### 1.3 全局配置写入算子 (Global Write Operators)
+```rust
+impl ConfigManager {
+    pub async fn set_global_value(&self, key: &str, value: &str) -> CowenResult<()> {
+        let mut app_cfg_json = self.load_app_config_as_json().await?;
+        
+        // 路由校验：仅允许修改全局基础设施字段
+        if !is_global_infrastructure_key(key) {
+            return Err(CowenError::Validation(format!("Key '{}' must be set at Profile level.", key)));
+        }
+
+        path_parser::set_by_path(&mut app_cfg_json, key, value)?;
+        self.save_app_config_from_json(app_cfg_json).await
+    }
+}
+```
+
 ---
 
 ## 2. 构建期参数注入实现
@@ -78,6 +95,12 @@ fn main() {
 ```rust
 pub const BUILTIN_CLIENT_ID: &str = env!("COWEN_BUILD_CLIENT_ID");
 pub const DEF_MARKET_URL: &str = env!("COWEN_BUILD_MARKET_URL");
+
+// CLI version --debug 承接逻辑
+pub fn print_version_debug() {
+    println!("Build Client ID: {}", BUILTIN_CLIENT_ID);
+    println!("Default Market:  {}", DEF_MARKET_URL);
+}
 ```
 
 ---
