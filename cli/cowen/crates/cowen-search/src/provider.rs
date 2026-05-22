@@ -9,9 +9,9 @@ impl SearchProvider for StringMatchProvider {
         "string_match"
     }
 
-    fn search(&self, query: &str, top: usize) -> Vec<(f32, &SearchDocument)> {
+    fn search(&self, query: &str, top: usize) -> Vec<(f32, SearchDocument)> {
         let query_lower = query.to_lowercase();
-        let mut results: Vec<(f32, &SearchDocument)> = self.docs.iter()
+        let mut results: Vec<(f32, SearchDocument)> = self.docs.iter()
             .filter_map(|doc| {
                 let mut score = 0.0;
                 let content = format!("{} {}", doc.summary, doc.description).to_lowercase();
@@ -27,7 +27,7 @@ impl SearchProvider for StringMatchProvider {
                 score += match_count as f32 * 0.01;
                 
                 if score >= 1.0 {
-                    Some((score, doc))
+                    Some((score, doc.clone()))
                 } else {
                     None
                 }
@@ -36,6 +36,10 @@ impl SearchProvider for StringMatchProvider {
 
         results.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         results.into_iter().take(top).collect()
+    }
+
+    fn update_index(&self, _docs: &[SearchDocument]) {
+        // Simple provider initialized with fixed docs. 
     }
 }
 

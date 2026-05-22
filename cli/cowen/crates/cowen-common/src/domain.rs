@@ -58,6 +58,8 @@ pub trait SessionDomain: Send + Sync {
     async fn save_session(&self, session: AuthSession) -> CowenResult<()>;
     /// 删除交互式认证会话
     async fn delete_session(&self, state: &str) -> CowenResult<()>;
+    /// 列出所有活跃会话
+    async fn list_sessions(&self) -> CowenResult<Vec<AuthSession>>;
 }
 
 #[async_trait]

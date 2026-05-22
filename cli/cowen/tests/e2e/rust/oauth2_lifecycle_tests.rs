@@ -1,0 +1,135 @@
+use crate::e2e::rust::common::{setup_test_env, start_mock_platform};
+use assert_cmd::Command;
+use std::fs;
+use predicates::prelude::*;
+use cowen_common::config::AppConfig;
+use cowen_common::domain::SessionDomain;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_oauth2_full_lifecycle_and_recovery() {
+    let (addr, _server_handle) = start_mock_platform().await;
+    let openapi_url = format!("http://{}", addr);
+
+    let profile = "oa2_lifecycle";
+    let (dir, home) = setup_test_env(profile, "oauth2", &openapi_url);
+    let bin_dir = dir.path().join("bin");
+    let cowen_bin = bin_dir.join("cowen");
+
+    // 1. Run 'cowen init' in background
+    let mut child = std::process::Command::new(&cowen_bin)
+        .env("COWEN_HOME", &home)
+        .env("HOME", &home)
+        .env("COWEN_FS_FINGERPRINT", "sync_fingerprint")
+        .arg("--profile").arg(profile)
+        .arg("init")
+        .arg("--app-mode").arg("oauth2")
+        .arg("--openapi-url").arg(&openapi_url)
+        .arg("--stream-url").arg(&openapi_url)
+        .spawn().unwrap();
+
+    // 2. Wait for session to appear in DB
+    let app_cfg = AppConfig { 
+        openapi_url: openapi_url.clone(), 
+        stream_url: openapi_url.clone(), 
+        ..Default::default() 
+    };
+    
+    let mut session = None;
+    for _ in 0..40 { // 20 seconds max
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        
+        if let Ok(vault) = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "sync_fingerprint").await {
+            if let Ok(sessions) = vault.list_sessions().await {
+                if let Some(s) = sessions.into_iter().next() {
+                    session = Some(s);
+                    break;
+                }
+            }
+        }
+    }
+    
+    let session = session.expect("Timeout waiting for OAuth2 session to be created in DB");
+    
+    // 3. Simulate browser callback
+    let callback_url = format!("http://127.0.0.1:{}/callback?code=mock_code_123&state={}", session.redirect_port, session.state);
+    let client = reqwest::Client::new();
+    
+    let mut res = None;
+    for _ in 0..20 {
+        if let Ok(r) = client.get(&callback_url).send().await {
+            res = Some(r);
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
+    
+    let res = res.expect("Failed to connect to local callback server");
+    assert!(res.status().is_success());
+
+    // 4. Wait for 'init' to complete
+    let status = child.wait().unwrap();
+    assert!(status.success());
+
+    // 5. Verify daemon starts automatically via recovery or status
+    let mut cmd_status = Command::new(&cowen_bin);
+    cmd_status.env("COWEN_HOME", &home);
+    cmd_status.env("HOME", &home);
+    cmd_status.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
+    cmd_status.arg("--profile").arg(profile).arg("status");
+    
+    // Recovery happens if not already running
+    let output = cmd_status.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    
+    assert!(
+        stdout.contains("[RUNNING]") || 
+        stdout.contains("Daemon not running") ||
+        stderr.contains("triggering auto-recovery") ||
+        stderr.contains("Startup command sent to daemon"),
+        "Daemon should be tracked. Stdout: {}, Stderr: {}", stdout, stderr
+    );
+
+    // Wait for it to be actually running
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // 6. Simulate crash (kill -9)
+    let pid_file = std::path::Path::new(&home).join(format!("{}_daemon.pid", profile));
+    if pid_file.exists() {
+        let pid_str = fs::read_to_string(&pid_file).unwrap();
+        if let Ok(pid) = pid_str.trim().parse::<u32>() {
+            #[cfg(unix)]
+            {
+                let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+            }
+            #[cfg(windows)]
+            {
+                let _ = std::process::Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
+            }
+        }
+    }
+    
+    // Wait for it to be gone
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // 7. Verify recovery
+    let mut cmd_recover = Command::new(&cowen_bin);
+    cmd_recover.env("COWEN_HOME", &home);
+    cmd_recover.env("HOME", &home);
+    cmd_recover.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
+    cmd_recover.arg("--profile").arg(profile).arg("status");
+    
+    cmd_recover.assert()
+        .success()
+        .stdout(predicate::str::contains("Daemon not running, triggering auto-recovery").or(predicate::str::contains("[RUNNING]")));
+
+    // 8. Clean up
+    let mut cmd_stop = Command::new(&cowen_bin);
+    cmd_stop.env("COWEN_HOME", &home);
+    cmd_stop.env("HOME", &home);
+    cmd_stop.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
+    cmd_stop.arg("--profile").arg(profile).arg("daemon").arg("stop");
+    cmd_stop.assert().success();
+    
+    let _ = dir;
+}

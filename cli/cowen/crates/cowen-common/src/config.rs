@@ -129,12 +129,29 @@ pub struct Config {
     pub exclusive: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SearchConfig {
-    #[serde(default)]
+    #[serde(default = "default_search_plugins")]
     pub plugins: Vec<PluginEntry>,
-    #[serde(default)]
+    #[serde(default = "default_search_enabled")]
     pub enabled: Vec<String>,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            plugins: default_search_plugins(),
+            enabled: default_search_enabled(),
+        }
+    }
+}
+
+fn default_search_plugins() -> Vec<PluginEntry> {
+    vec![]
+}
+
+fn default_search_enabled() -> Vec<String> {
+    vec!["search-ai-embedding".to_string()]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

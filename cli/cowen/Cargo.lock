@@ -1031,6 +1031,7 @@ dependencies = [
  "cowen-infra",
  "libloading",
  "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -1040,6 +1041,7 @@ version = "0.3.5"
 dependencies = [
  "anyhow",
  "cowen-ai",
+ "cowen-common",
  "cowen-search",
  "once_cell",
  "serde",

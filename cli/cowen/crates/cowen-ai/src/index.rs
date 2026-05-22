@@ -19,6 +19,10 @@ pub struct SearchIndex {
 }
 
 impl SearchIndex {
+    pub fn push(&mut self, doc: SearchDocument) {
+        self.docs.push(doc);
+    }
+
     /// Hybrid search: Vector similarity + N-Gram boost for Chinese
     pub fn search(&self, query_vec: &[f32], query_text: &str, top: usize) -> Vec<(f32, &SearchDocument)> {
         let query_lower = query_text.to_lowercase();

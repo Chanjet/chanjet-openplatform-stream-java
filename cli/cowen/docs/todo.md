@@ -7,6 +7,9 @@
 *暂无未完成事项*
 
 ## 🔵 P2: 中低优先级 (Medium/Low Priority)
+- [ ] **插件管理命令 (Plugin Management)**: 在 CLI 中增加 `cowen plugins` 命令组，支持对 `~/.cowen/plugins/` 目录下的插件进行快速管理。
+    - [ ] `cowen plugins list`: 扫描目录并列出可用的插件选手（通过启发式检测）。
+    - [ ] `cowen plugins enable/disable <NAME>`: 一键开关插件，自动更新 `app.yaml` 映射，实现真正的即插即用。
 - [ ] ~~**拆解 Makefile**~~: 简化 `Makefile` 逻辑，将平台适配和容器管理逻辑拆分为独立的脚本 (Cancelled for v0.3.4 freeze).
 
 ---

@@ -48,28 +48,8 @@ pub async fn list(
 
     if let Some(query) = search {
         let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
-        // Initialize composite search provider
-        let mut primary: Option<Box<dyn SearchProvider>> = None;
-        
-        // Try to load the enabled plugin from config
-        if !app_cfg.search.enabled.is_empty() {
-            let plugin_name = &app_cfg.search.enabled[0]; // For now, support one primary
-            if let Some(plugin_info) = app_cfg.search.plugins.iter().find(|p| &p.name == plugin_name) {
-                unsafe {
-                    match DynamicSearchProvider::new(&plugin_info.name, &plugin_info.path) {
-                        Ok(p) => {
-                            println!("🔌 Using search plugin: {}", plugin_name);
-                            primary = Some(Box::new(p));
-                        }
-                        Err(e) => {
-                            eprintln!("⚠️  Failed to load search plugin '{}': {}", plugin_name, e);
-                        }
-                    }
-                }
-            }
-        }
 
-        // Convert spec to SearchDocuments for fallback provider
+        // Convert spec to SearchDocuments FIRST so we can feed them to the plugin
         let search_docs: Vec<cowen_search::SearchDocument> = all_ops.iter().map(|op| {
             cowen_search::SearchDocument {
                 id: format!("{} {}", op.method, op.path),
@@ -78,6 +58,68 @@ pub async fn list(
                 vector: vec![],
             }
         }).collect();
+
+        // Initialize composite search provider
+        let mut primary: Option<Box<dyn SearchProvider>> = None;
+        
+        // Try to load the enabled plugin from config
+        if !app_cfg.search.enabled.is_empty() {
+            let plugin_name = &app_cfg.search.enabled[0]; // For now, support one primary
+            
+            // 🚀 Ensure AI assets are available locally for the plugin
+            if plugin_name == "search-ai-embedding" {
+                let app_dir = cowen_common::config::get_app_dir();
+                if let Err(e) = cowen_ai::SearchIndex::ensure_assets(&app_dir) {
+                    eprintln!("⚠️  Failed to prepare AI assets: {}", e);
+                }
+            }
+
+            // 1. Try explicit config first
+            let mut plugin_path = app_cfg.search.plugins.iter()
+                .find(|p| &p.name == plugin_name)
+                .map(|p| std::path::PathBuf::from(&p.path));
+
+            // 2. Try auto-discovery in ~/.cowen/plugins if not found or path doesn't exist
+            if plugin_path.as_ref().map(|p| !p.exists()).unwrap_or(true) {
+                let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
+                let discovered = cowen_infra::discover_plugins(&plugins_dir);
+                
+                // Strict match: The config name must be fully represented in the filename.
+                // We only auto-prepend 'libcowen_' as the system namespace.
+                let target_name = plugin_name.replace('-', "_");
+                let expected_lib_name = format!("libcowen_{}", target_name);
+                let expected_bin_name = format!("cowen_{}", target_name);
+                
+                if let Some(path) = discovered.into_iter().find(|p| {
+                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                    stem == expected_lib_name || stem == expected_bin_name
+                }) {
+                    plugin_path = Some(path);
+                }
+            }
+
+            if let Some(path) = plugin_path {
+                unsafe {
+                    match DynamicSearchProvider::new(plugin_name, &path) {
+                        Ok(p) => {
+                            println!("🔌 Using search plugin: {} ({})", plugin_name, path.display());
+                            let provider: Box<dyn SearchProvider> = Box::new(p);
+                            
+                            // 🚀 LIFE CYCLE: Push documents to plugin for indexing/vectorization
+                            println!("🧠 Initializing AI vector index for {} APIs...", search_docs.len());
+                            provider.update_index(&search_docs);
+                            
+                            primary = Some(provider);
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️  Failed to load search plugin '{}' at {}: {}", plugin_name, path.display(), e);
+                        }
+                    }
+                }
+            } else {
+                eprintln!("⚠️  Search plugin '{}' is enabled but not found in config or ~/.cowen/plugins/", plugin_name);
+            }
+        }
 
         let fallback = Box::new(StringMatchProvider { docs: search_docs });
         let provider = FallbackProvider { primary, fallback };

@@ -207,11 +207,9 @@ impl DiagnosticTask for CredentialsCheck {
                 }
             }
         } else {
-            if app_secret.is_empty() {
-                DiagnosticStatus::Error("App Secret 缺失".to_string())
-            } else {
-                DiagnosticStatus::Ok
-            }
+            // OAuth2 mode: No app_secret needed. Uses built-in client ID with PKCE.
+            // Credential validation is handled by the OAuth2 provider during token operations.
+            DiagnosticStatus::Ok
         };
 
         Ok(DiagnosticResult {

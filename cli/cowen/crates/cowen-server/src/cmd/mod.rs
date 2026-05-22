@@ -228,9 +228,21 @@ pub async fn stop(_profile: &str, _all: bool, _cfg_mgr: &ConfigManager) -> Resul
     
     if let Ok(content) = fs::read_to_string(&pid_file) {
         if let Some(pid_str) = content.lines().next() {
-            if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                eprintln!("🛑 Stopping master daemon (PID: {})...", pid);
-                kill_process(pid);
+            if let Ok(pid_u32) = pid_str.trim().parse::<u32>() {
+                eprintln!("🛑 Stopping master daemon (PID: {})...", pid_u32);
+                kill_process(pid_u32);
+
+                // 🚀 Wait for process to exit
+                use sysinfo::{System, Pid};
+                let mut sys = System::new();
+                let pid = Pid::from_u32(pid_u32);
+                for _ in 0..20 { // Max 4 seconds
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+                    if sys.process(pid).is_none() {
+                        break;
+                    }
+                }
             }
         }
     }

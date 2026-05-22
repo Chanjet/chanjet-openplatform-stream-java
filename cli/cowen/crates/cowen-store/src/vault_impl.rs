@@ -104,6 +104,20 @@ impl SessionDomain for StoreVault {
     async fn delete_session(&self, state: &str) -> CowenResult<()> {
         self.sensitive.delete_token("global", &format!("session:{}", state)).await
     }
+    async fn list_sessions(&self) -> CowenResult<Vec<cowen_common::models::AuthSession>> {
+        let keys = self.sensitive.list_tokens("global").await?;
+        let mut sessions = Vec::new();
+        for key in keys {
+            if key.starts_with("session:") {
+                if let Ok(json) = self.sensitive.get_token("global", &key).await {
+                    if let Ok(session) = serde_json::from_str(&json) {
+                        sessions.push(session);
+                    }
+                }
+            }
+        }
+        Ok(sessions)
+    }
 }
 
 #[async_trait]
