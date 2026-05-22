@@ -618,10 +618,17 @@ impl Client for AuthClient {
             let resp = self.http_sender.get(&url, headers).await?;
 
             if !resp.is_success() {
-                return Err(CowenError::Api(format!(
+                let status = resp.status;
+                let mut err_msg = format!(
                     "Failed to fetch interface list page {}: HTTP {}",
-                    current_page, resp.status
-                )));
+                    current_page, status
+                );
+                
+                if status == 500 {
+                    err_msg.push_str("\n\n💡 提示 (Hint): 服务端返回 500 内部错误 (Internal Server Error)。\n如果您使用的是新创建的【自建应用 (Self-Built)】，此错误通常是因为该应用尚未在任何企业（账套）中完成实质性安装或启用，导致服务端查询不到关联的授权数据。\n请前往开放平台确保该应用已至少关联一个企业账套。");
+                }
+                
+                return Err(CowenError::Api(err_msg));
             }
 
             let body: serde_json::Value = resp.json().await?;

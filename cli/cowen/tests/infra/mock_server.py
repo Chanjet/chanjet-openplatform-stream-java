@@ -186,6 +186,17 @@ async def handle_openapi_spec(request):
     })
 
 async def handle_get_interface_list(request):
+    open_token = request.headers.get("openToken")
+    app_key = request.headers.get("appKey")
+    
+    # Require these headers for all getInterfaceList calls to mirror platform behavior
+    if not open_token or not app_key:
+        print("❌ [MOCK ERROR] getInterfaceList called without openToken or appKey")
+        return web.json_response({
+            "code": "500",
+            "message": "Internal Server Error (missing auth headers)"
+        }, status=500)
+
     return web.json_response({
         "value": {
             "currentPage": 1,

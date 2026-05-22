@@ -362,10 +362,16 @@ impl SelfBuiltProvider {
     fn decorate_openapi_request_internal(
         &self,
         _url: &mut String,
-        _headers: &mut HeaderMap,
-        _token: &cowen_common::models::Token,
-        _config: &Config,
+        headers: &mut HeaderMap,
+        token: &cowen_common::models::Token,
+        config: &Config,
     ) {
+        if let Ok(val) = token.value.parse() {
+            headers.insert("openToken", val);
+        }
+        if let Ok(val) = config.app_key.trim().parse() {
+            headers.insert("appKey", val);
+        }
     }
 }
 
