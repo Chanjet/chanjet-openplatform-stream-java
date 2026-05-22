@@ -57,14 +57,14 @@ cowen doctor --profile corp-dev
 - **默认行为**：初始化后，代理服务默认处于 **开启** 状态。
 - **端口机制**：系统在初始化时会**自动寻找一个可用端口**。您不再需要担心默认 8000 端口冲突。
     - **如何查看**：运行 `cowen status` 查看 `Proxy:` 这一行标注的实际端口。
-    - **如何手动指定**：如果您有固定端口需求，可以通过全局修改指令进行调整：
+    - **如何手动指定**：如果您有固定端口需求，可以通过修改指令进行调整：
       ```bash
-      cowen config set proxy.port <PORT> --global
+      cowen config set proxy.port <PORT>
       ```
 - **开启/关闭控制**：
     - **持久化关闭**：
       ```bash
-      cowen config set proxy.enabled false --global
+      cowen config set proxy.enabled false
       ```
     - **临时关闭启动**：`cowen daemon start --disable-proxy`
 - **发起调用**：
@@ -79,9 +79,9 @@ cowen doctor --profile corp-dev
 `cowen` 可以将接收到的实时业务消息（如：订单变更、审批流提醒）自动转发给您的业务系统。
 
 - **配置转发地址**：
-  在初始化时或通过全局配置命令设置目标 URL：
+  在初始化时或通过配置命令设置目标 URL：
   ```bash
-  cowen config set security.webhook_target http://127.0.0.1:3000/api/callback --global
+  cowen config set webhook_target http://127.0.0.1:3000/api/callback
   ```
   > [!CAUTION]
   > **安全约束 (SSRF 防护)**：出于安全合规要求，`webhook-target` **仅支持本地回环地址** (`127.0.0.1` / `localhost` / `[::1]`)。严禁指向任何外部域名或非本机的内网 IP。
