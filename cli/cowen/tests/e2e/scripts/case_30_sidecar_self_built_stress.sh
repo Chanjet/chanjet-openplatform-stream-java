@@ -115,4 +115,9 @@ for pid in "${PIDS[@]}"; do
     kill -9 $pid 2>/dev/null || true
 done
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile main 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 30 Passed! (Self-Built Sidecar Scaling Resilience Verified)${NC}"

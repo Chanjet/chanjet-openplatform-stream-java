@@ -14,41 +14,12 @@ else
 fi
 
 # Configuration
-MYSQL_PORT=3306
 DB_NAME=$(get_case_db_name "case_31")
-
-# Ensure MySQL is ready
-if ! wait_for_mysql "$DB_HOST" "$MYSQL_PORT"; then
-    exit 1
-fi
-
-# Detect Auth Credentials
-if mysql -u root -h $DB_HOST -e "select 1" < /dev/null &> /dev/null; then
-    MYSQL_BASE_URL="mysql://root@$DB_HOST:$MYSQL_PORT"
-    MYSQL_CMD="mysql -u root -h $DB_HOST"
-elif mysql -u root -proot -h $DB_HOST -e "select 1" < /dev/null &> /dev/null; then
-    MYSQL_BASE_URL="mysql://root:root@$DB_HOST:$MYSQL_PORT"
-    MYSQL_CMD="mysql -u root -proot -h $DB_HOST"
-else
-    # Fallback to default
-    MYSQL_BASE_URL="mysql://root:root@$DB_HOST:$MYSQL_PORT"
-    MYSQL_CMD="mysql -u root -proot -h $DB_HOST"
-fi
-
-MYSQL_URL="$MYSQL_BASE_URL/$DB_NAME"
 
 echo -e "${BOLD}1. Setup MySQL Isolation and Node 1${NC}"
 setup_workspace "case_31"
+MYSQL_URL=$(setup_mysql_db "$DB_NAME")
 
-# Ensure MySQL is up and create isolated DB
-echo -n "  Preparing isolated MySQL database '$DB_NAME'..."
-if ! command -v mysql &> /dev/null; then
-    echo -e " ${YELLOW}[WARNING] mysql client not found, falling back to podman exec${NC}"
-    podman exec cowen-mysql mysql -u root -proot -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;" 2>/dev/null || true
-else
-    $MYSQL_CMD -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;"
-    echo -e " ${GREEN}[OK]${NC}"
-fi
 
 # Define nodes
 export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
@@ -140,14 +111,9 @@ echo -e "${BOLD}3. Verify Token Synchronization${NC}"
 export COWEN_HOME="$HOME_1"
 TOKEN_1="$INITIAL_TOKEN"
 if [[ -z "$TOKEN_1" || "$TOKEN_1" == *"Authentication failed"* ]]; then
-    for i in {1..10}; do
-        TOKEN_1=$(extract_token "main")
-        if [[ -n "$TOKEN_1" && "$TOKEN_1" != *"Authentication failed"* ]]; then
-            break
-        fi
-        sleep 1
-    done
+    TOKEN_1=$(wait_for_token "main" "tok_")
 fi
+assert_sanitized "$TOKEN_1" "Node 1 Initial Token sanitization"
 echo -e "   Node 1 Initial Token: ${BLUE}${TOKEN_1:0:15}...${NC}"
 
 # 2. Get token from Node 2 (should read from DB)
@@ -174,12 +140,14 @@ fi
 
 echo -e "${BOLD}4. Refresh Token on Node 1${NC}"
 export COWEN_HOME="$HOME_1"
-TOKEN_V2=$("$COWEN_BIN" auth token --profile main --refresh --format json | python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token'))")
+TOKEN_V2=$(extract_token "main" --refresh)
+assert_sanitized "$TOKEN_V2" "Node 1 Refreshed Token sanitization"
 echo -e "   Node 1 New Token:     ${BLUE}${TOKEN_V2:0:15}...${NC}"
 
 echo -e "${BOLD}5. Verify Node 2 Sync${NC}"
 export COWEN_HOME="$HOME_2"
 TOKEN_2_V2=$(extract_token "main")
+assert_sanitized "$TOKEN_2_V2" "Node 2 Synced Token sanitization"
 echo -e "   Node 2 New Token:     ${BLUE}${TOKEN_2_V2:0:15}...${NC}"
 
 if [ "$TOKEN_V2" == "$TOKEN_2_V2" ]; then
@@ -199,3 +167,4 @@ export COWEN_HOME="$HOME_2"
 cleanup_suite
 
 echo -e "\n${GREEN}🎊 Case 31 Passed!${NC}"
+

@@ -26,28 +26,25 @@ assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Daemon Startup${NC}"
 "$COWEN_BIN" daemon start --profile sidecar >/dev/null
-sleep 2
-"$COWEN_BIN" status --profile sidecar | grep -q "ACTIVE\|RUNNING"
+assert_pass "Daemon start command sent"
+wait_for_daemon sidecar 10
 assert_pass "Daemon is running"
 
 echo -e "  Triggering AppTicket push..."
 curl -s -X POST -H "appKey: AK_SA" "$MOCK_URL/auth/appTicket/resend" >/dev/null
 
 echo -e "${BOLD}3. Token Validation${NC}"
-# StoreApp acquires App Access Token dynamically via Daemon, not via manual login.
-# We wait for the daemon to process the push and acquire it.
-for i in {1..20}; do
-    T=$(extract_token sidecar)
-    if [ -n "$T" ] && [[ "$T" == mock_at_sa* ]]; then
-        echo -e "  ${GREEN}✓${NC} Token acquired: $T"
-        break
-    fi
-    sleep 1
-done
-
-if [ "$i" -eq 20 ]; then
+T=$(wait_for_token sidecar mock_at_sa 20)
+if [ -z "$T" ]; then
     echo -e "  ${RED}✗${NC} Token acquisition failed or still waiting"
     exit 1
 fi
+echo -e "  ${GREEN}✓${NC} Token acquired: $T"
+
+# 4. Mandatory Sanitization Check
+echo -e "${BOLD}4. Mandatory Sanitization Check${NC}"
+CONFIG_OUT=$("$COWEN_BIN" config --profile sidecar 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
 
 echo -e "\n${GREEN}🎊 Case 02 Passed!${NC}"
+

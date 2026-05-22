@@ -38,4 +38,9 @@ else
     exit 1
 fi
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile mig_prof 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 04 Passed!${NC}"

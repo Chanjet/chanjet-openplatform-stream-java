@@ -20,7 +20,7 @@ assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Start Daemon${NC}"
 "$COWEN_BIN" daemon start --profile life >/dev/null
-sleep 2
+wait_for_daemon life 10
 assert_pass "Daemon is running"
 
 echo -e "${BOLD}3. Initial Token Acquisition${NC}"
@@ -46,5 +46,10 @@ else
     echo -e "  ${RED}✗${NC} Token rotation failed"
     exit 1
 fi
+
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile life 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
 
 echo -e "\n${GREEN}🎊 Case 07 Passed!${NC}"

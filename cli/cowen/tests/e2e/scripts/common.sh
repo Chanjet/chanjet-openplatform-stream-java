@@ -223,7 +223,11 @@ log:
 telemetry_enabled: false
 ai_enabled: false
 EOF
+
+    # 🚀 OCP Enforcement: Automatically register cleanups on exit for all suites using setup_workspace
+    trap cleanup_suite EXIT
 }
+
 
 apply_fixture() {
     local name=$1
@@ -345,7 +349,7 @@ extract_token() {
     local prof=$1
     shift
     local extra_args="$@"
-    RUST_LOG=info "$COWEN_BIN" auth token --profile "$prof" $extra_args --format json 2>&1 | python3 -c "
+    local T=$(RUST_LOG=info "$COWEN_BIN" auth token --profile "$prof" $extra_args --format json 2>&1 | python3 -c "
 import sys, json, re
 raw_input = sys.stdin.read()
 # Remove log lines (timestamps or DEBUG: prefixes)
@@ -365,8 +369,13 @@ try:
                 break
 except:
     print('')
-"
+")
+    if [ -n "$T" ]; then
+        assert_sanitized "$T" "Token ($prof) security compliance check"
+    fi
+    echo "$T"
 }
+
 
 # Global Cleanup
 cleanup_all_workspaces() {
@@ -434,11 +443,11 @@ safe_psql_exec() {
             
             # Exponential backoff with jitter
             local wait_time=$(( (RANDOM % 3) + attempt * 2 ))
-            echo -e "  ${YELLOW}[RETRY] Postgres busy/recovering (Attempt $attempt/$max_retries), waiting ${wait_time}s...${NC}"
+            echo -e "  ${YELLOW}[RETRY] Postgres busy/recovering (Attempt $attempt/$max_retries), waiting ${wait_time}s...${NC}" >&2
             sleep $wait_time
             ((attempt++))
         else
-            echo -e "  ${RED}[FATAL] Postgres error not retryable:${NC} $err"
+            echo -e "  ${RED}[FATAL] Postgres error not retryable:${NC} $err" >&2
             rm -f "$out_file"
             return 1
         fi
@@ -451,7 +460,7 @@ safe_psql_exec() {
 wait_for_postgres() {
     local host="${1:-$DB_HOST}"
     local port="${2:-5432}"
-    echo -n "  Waiting for PostgreSQL at $host:$port to be ready..."
+    echo -n "  Waiting for PostgreSQL at $host:$port to be ready..." >&2
     for i in {1..15}; do
         # 🚀 Cross-platform TCP check fallback
         local tcp_ok=false
@@ -465,14 +474,14 @@ wait_for_postgres() {
             if psql -h "$host" -p "$port" -U postgres -d postgres -c "select 1" >/dev/null 2>&1 || \
                psql -h "$host" -p "$port" -d postgres -c "select 1" >/dev/null 2>&1 || \
                PGPASSWORD=password psql -h "$host" -p "$port" -U postgres -d postgres -c "select 1" >/dev/null 2>&1; then
-                echo -e " ${GREEN}[READY]${NC}"
+                echo -e " ${GREEN}[READY]${NC}" >&2
                 return 0
             fi
         fi
-        echo -n "."
+        echo -n "." >&2
         sleep 2
     done
-    echo -e " ${RED}[TIMEOUT]${NC}"
+    echo -e " ${RED}[TIMEOUT]${NC}" >&2
     return 1
 }
 
@@ -480,7 +489,7 @@ wait_for_postgres() {
 wait_for_mysql() {
     local host="${1:-$DB_HOST}"
     local port="${2:-3306}"
-    echo -n "  Waiting for MySQL at $host:$port to be ready..."
+    echo -n "  Waiting for MySQL at $host:$port to be ready..." >&2
     for i in {1..15}; do
         local tcp_ok=false
         if command -v timeout >/dev/null 2>&1; then
@@ -492,14 +501,14 @@ wait_for_mysql() {
         if [ "$tcp_ok" = true ]; then
             if mysql -h "$host" -P "$port" -u root -e "select 1" >/dev/null 2>&1 || \
                mysql -h "$host" -P "$port" -u root -proot -e "select 1" >/dev/null 2>&1; then
-                echo -e " ${GREEN}[READY]${NC}"
+                echo -e " ${GREEN}[READY]${NC}" >&2
                 return 0
             fi
         fi
-        echo -n "."
+        echo -n "." >&2
         sleep 2
     done
-    echo -e " ${RED}[TIMEOUT]${NC}"
+    echo -e " ${RED}[TIMEOUT]${NC}" >&2
     return 1
 }
 
@@ -525,3 +534,107 @@ get_daemon_pid() {
         fi
     fi
 }
+
+# Verify if sensitive data is sanitized / masked properly in CLI outputs or documents
+assert_sanitized() {
+    local text="$1"
+    local desc="${2:-Sensitive data sanitization check}"
+    local leak=false
+    if echo "$text" | grep -qE "AS_[A-Z]{2}|AS_SB|AS_SA|CERT_SB|CERT_SA|1234567890123456"; then
+        if ! echo "$text" | grep -qE "<[A-Z0-9_]+>"; then
+            leak=true
+        fi
+    fi
+
+    if [ "$leak" = true ]; then
+        echo -e "  ${RED}✗${NC} $desc: FAILED! Sensitive data leakage detected." >&2
+        echo "    Offending text: $text" >&2
+        exit 1
+    else
+        echo -e "  ${GREEN}✓${NC} $desc: Passed (Sanitized)" >&2
+    fi
+}
+
+# Wait for token to be acquired by profile with an expected prefix
+wait_for_token() {
+    local profile="$1"
+    local expected_prefix="$2"
+    local max_retries="${3:-10}"
+    
+    for i in $(seq 1 "$max_retries"); do
+        local T=$(extract_token "$profile")
+        if [ -n "$T" ] && [[ "$T" == $expected_prefix* ]]; then
+            echo "$T"
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# Wait for daemon status to be ACTIVE or RUNNING
+wait_for_daemon() {
+    local profile="$1"
+    local max_retries="${2:-10}"
+    
+    for i in $(seq 1 "$max_retries"); do
+        if "$COWEN_BIN" status --profile "$profile" 2>&1 | grep -q "ACTIVE\|RUNNING"; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# Setup and isolate PostgreSQL database
+setup_postgres_db() {
+    local db_name="$1"
+    local host="${2:-$DB_HOST}"
+    local port="${3:-5432}"
+    
+    wait_for_postgres "$host" "$port" || exit 1
+    
+    if PGPASSWORD=password psql -h "$host" -U postgres -d postgres -c "select 1" &> /dev/null; then
+        export PG_BASE_URL="postgres://postgres:password@$host:$port"
+        export PGPASSWORD=password
+    elif psql -h "$host" -d postgres -c "select 1" &> /dev/null; then
+        export PG_BASE_URL="postgres://$host:$port"
+        unset PGPASSWORD
+    else
+        export PG_BASE_URL="postgres://postgres:password@$host:$port"
+        export PGPASSWORD=password
+    fi
+    safe_psql_exec "DROP DATABASE IF EXISTS $db_name;" "postgres" >/dev/null 2>&1 || true
+    safe_psql_exec "CREATE DATABASE $db_name;" "postgres" >/dev/null
+    
+    echo "$PG_BASE_URL/$db_name?sslmode=disable"
+}
+
+# Setup and isolate MySQL database
+setup_mysql_db() {
+    local db_name="$1"
+    local host="${2:-$DB_HOST}"
+    local port="${3:-3306}"
+    
+    wait_for_mysql "$host" "$port" || exit 1
+    
+    if mysql -u root -h "$host" -e "select 1" &>/dev/null; then
+        export MYSQL_BASE_URL="mysql://root@$host:$port"
+        export MYSQL_CMD="mysql -u root -h $host"
+    elif mysql -u root -proot -h "$host" -e "select 1" &>/dev/null; then
+        export MYSQL_BASE_URL="mysql://root:root@$host:$port"
+        export MYSQL_CMD="mysql -u root -proot -h $host"
+    else
+        export MYSQL_BASE_URL="mysql://root:root@$host:$port"
+        export MYSQL_CMD="mysql -u root -proot -h $host"
+    fi
+    
+    if ! command -v mysql &> /dev/null; then
+        podman exec cowen-mysql mysql -u root -proot -e "DROP DATABASE IF EXISTS $db_name; CREATE DATABASE $db_name;" >/dev/null 2>&1 || true
+    else
+        $MYSQL_CMD -e "DROP DATABASE IF EXISTS $db_name; CREATE DATABASE $db_name;" >/dev/null 2>&1
+    fi
+    
+    echo "$MYSQL_BASE_URL/$db_name"
+}
+

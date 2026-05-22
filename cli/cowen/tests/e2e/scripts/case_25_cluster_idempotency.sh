@@ -109,4 +109,9 @@ else
     echo "   (This is a known blind spot. The cluster lacks a distributed lock for msgId deduplication.)"
 fi
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile main 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 25 Passed!${NC}"

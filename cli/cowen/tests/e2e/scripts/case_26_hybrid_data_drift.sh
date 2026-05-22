@@ -119,4 +119,9 @@ else
     echo "   (This is a known blind spot. Hybrid Store relies purely on cache expiration and lacks active reconciliation.)"
 fi
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile main 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 26 Passed!${NC}"

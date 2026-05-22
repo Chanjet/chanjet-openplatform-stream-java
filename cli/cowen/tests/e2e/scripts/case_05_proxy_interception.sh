@@ -20,7 +20,7 @@ assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Start Daemon${NC}"
 "$COWEN_BIN" daemon start --profile pxt >/dev/null
-sleep 3
+wait_for_daemon pxt 10
 assert_pass "Daemon is running"
 
 echo -e "${BOLD}3. Transparent Token Injection${NC}"
@@ -41,6 +41,11 @@ else
     echo -e "  ${RED}✗${NC} Unexpected response for path (Got $RESP_FAIL)"
     exit 1
 fi
+
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile pxt 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
 
 echo -e "\n${GREEN}🎊 Case 05 Passed!${NC}"
 exit 0

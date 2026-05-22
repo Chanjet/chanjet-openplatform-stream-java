@@ -20,7 +20,7 @@ assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Start Daemon${NC}"
 "$COWEN_BIN" daemon start --profile stress >/dev/null
-sleep 2
+wait_for_daemon stress 10
 assert_pass "Daemon is running"
 
 echo -e "${BOLD}3. Concurrent Proxy Requests (Stress)${NC}"
@@ -44,5 +44,10 @@ sleep 2
 # Verify audit log shows successful proxying
 "$COWEN_BIN" log view audit --profile stress -n 50 | grep -q "Request successfully proxied"
 assert_pass "Audit log verified"
+
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile stress 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
 
 echo -e "\n${GREEN}🎊 Case 08 Passed!${NC}"

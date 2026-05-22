@@ -131,6 +131,11 @@ else
     exit 1
 fi
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile main 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 50 Passed!${NC}"
 cleanup_suite
 exit 0

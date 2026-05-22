@@ -91,4 +91,9 @@ RESP=$(curl -s -H "x-org-id: $TEST_ORG_ID" "http://127.0.0.1:$PROXY_PORT/v1/mock
 assert_match "$RESP" "mock_at_oa2_permanent_code_" "Proxy used Org Access Token"
 assert_match "$RESP" "verified" "API call successful"
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile sidecar 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 36 Passed! (StoreApp Activation & Org Token Usage)${NC}"

@@ -104,5 +104,10 @@ LIST=$("$COWEN_BIN" profile list)
 # If the file is deleted, it might not show up in list.
 # Let's see behavior.
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile prof_a 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 10 Passed!${NC}"
 exit 0

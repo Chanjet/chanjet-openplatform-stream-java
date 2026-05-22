@@ -151,5 +151,10 @@ else
     exit 1
 fi
 
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile main 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 stop_test_redis
+
 echo -e "\n${GREEN}🎊 Case 17 Passed!${NC}"

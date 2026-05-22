@@ -129,18 +129,12 @@ assert_pass "Expired token injected"
 # Start daemon (it should detect the expired token and refresh it)
 "$COWEN_BIN" daemon start --profile "$PROF" >/dev/null
 echo -n "  Waiting for background refresh..."
-for i in {1..30}; do
-    T=$(extract_token "$PROF")
-    if [ -n "$T" ] && [[ "$T" == mock_at_oa2* ]]; then
-        echo -e " ${GREEN}[OK]${NC}"
-        echo "   Refreshed Token: $T"
-        break
-    fi
-    echo -n "."
-    sleep 0.5
-done
-
-if [ "$i" -eq 30 ]; then
+T=$(wait_for_token "$PROF" "mock_at_oa2" 30)
+if [ -n "$T" ]; then
+    echo -e " ${GREEN}[OK]${NC}"
+    assert_sanitized "$T" "Refreshed Token sanitization"
+    echo "   Refreshed Token: $T"
+else
     echo -e " ${RED}[FAIL]${NC}"
     exit 1
 fi

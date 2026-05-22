@@ -14,47 +14,12 @@ else
 fi
 
 # Configuration
-PG_PORT=5432
-DB_HOST=${DB_HOST:-127.0.0.1}
 DB_NAME=$(get_case_db_name "case_32")
-
-# Ensure PostgreSQL is ready
-if ! wait_for_postgres "$DB_HOST" "$PG_PORT"; then
-    exit 1
-fi
-
-# Detect Auth Credentials
-if PGPASSWORD=password psql -h "$DB_HOST" -U postgres -d postgres -c "select 1" &> /dev/null; then
-    PG_BASE_URL="postgres://postgres:password@$DB_HOST:$PG_PORT"
-    export PGPASSWORD=password
-elif psql -h "$DB_HOST" -d postgres -c "select 1" &> /dev/null; then
-    PG_BASE_URL="postgres://$DB_HOST:$PG_PORT"
-else
-    # Fallback to default postgres/password if unsure
-    PG_BASE_URL="postgres://postgres:password@$DB_HOST:$PG_PORT"
-    export PGPASSWORD=password
-fi
-
-PG_URL="$PG_BASE_URL/$DB_NAME?sslmode=disable"
 
 echo -e "${BOLD}1. Setup PostgreSQL Isolation and Node 1${NC}"
 setup_workspace "case_32"
+PG_URL=$(setup_postgres_db "$DB_NAME")
 
-# Ensure PostgreSQL is up and create isolated DB
-echo -n "  Preparing isolated PostgreSQL database '$DB_NAME'..."
-if ! command -v psql &> /dev/null; then
-    echo -e " ${RED}[ERROR] psql command not found.${NC}"
-    exit 1
-else
-    safe_psql_exec "DROP DATABASE IF EXISTS $DB_NAME;" "postgres" >/dev/null 2>&1 || true
-    if safe_psql_exec "CREATE DATABASE $DB_NAME;" "postgres"; then
-        echo -e " ${GREEN}[OK]${NC}"
-        sleep 2
-    else
-        echo -e " ${RED}[FAILED]${NC} Could not create database $DB_NAME"
-        exit 1
-    fi
-fi
 
 # Define nodes
 export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
@@ -120,6 +85,7 @@ echo -e "${BOLD}3. Verify Token Synchronization${NC}"
 # 1. Get initial token from Node 1
 export COWEN_HOME="$HOME_1"
 TOKEN_1=$(extract_token "main")
+assert_sanitized "$TOKEN_1" "Node 1 Initial Token sanitization"
 echo -e "   Node 1 Initial Token: ${BLUE}${TOKEN_1:0:15}...${NC}"
 
 # 2. Get token from Node 2 (should read from DB)
@@ -147,18 +113,30 @@ fi
 echo -e "${BOLD}4. Refresh Token on Node 1${NC}"
 export COWEN_HOME="$HOME_1"
 TOKEN_V2=$(extract_token "main" --refresh)
+assert_sanitized "$TOKEN_V2" "Node 1 Refreshed Token sanitization"
 echo -e "   Node 1 New Token:     ${BLUE}${TOKEN_V2:0:15}...${NC}"
 
 echo -e "${BOLD}5. Verify Node 2 Sync${NC}"
 export COWEN_HOME="$HOME_2"
 TOKEN_2_V2=$(extract_token "main")
+assert_sanitized "$TOKEN_2_V2" "Node 2 Synced Token sanitization"
 echo -e "   Node 2 New Token:     ${BLUE}${TOKEN_2_V2:0:15}...${NC}"
 
 if [ "$TOKEN_V2" == "$TOKEN_2_V2" ]; then
     echo -e "   ✓ Node 2 picked up refreshed token from Node 1 via PostgreSQL"
 else
     echo -e "   ${RED}[FAILED]${NC} Node 2 token not synchronized after refresh"
+    export COWEN_HOME="$HOME_1"
+    cleanup_suite
+    export COWEN_HOME="$HOME_2"
+    cleanup_suite
     exit 1
 fi
 
+export COWEN_HOME="$HOME_1"
+cleanup_suite
+export COWEN_HOME="$HOME_2"
+cleanup_suite
+
 echo -e "\n${GREEN}🎊 Case 32 Passed!${NC}"
+

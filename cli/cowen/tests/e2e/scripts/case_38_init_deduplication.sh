@@ -57,5 +57,10 @@ assert_match "$CURRENT" "prof_a" "Current profile should be 'prof_a'"
 # 5. Verify the output mentions duplication
 assert_match "$OUTPUT" "already exists" "Output should mention existing profile"
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile prof_a 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 38 Passed!${NC}"
 exit 0

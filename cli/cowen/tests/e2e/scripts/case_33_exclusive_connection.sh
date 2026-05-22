@@ -31,7 +31,7 @@ assert_pass "Profile P1 initialized"
 
 echo -e "${BOLD}2. Start First Daemon (P1)${NC}"
 "$COWEN_BIN" daemon start --profile p1 >/dev/null
-sleep 5
+wait_for_daemon p1 10
 "$COWEN_BIN" auth login --profile p1 --force >/dev/null
 sleep 2
 
@@ -62,7 +62,7 @@ cp "$HOME_P1/app.yaml" "$HOME_P2/app.yaml"
 
 # Start P2
 "$COWEN_BIN" daemon start --profile p2 >/dev/null
-sleep 5
+wait_for_daemon p2 10
 export COWEN_HOME="$HOME_P2"
 "$COWEN_BIN" auth login --profile p2 --force >/dev/null
 sleep 2
@@ -89,5 +89,10 @@ fi
 export COWEN_HOME="$HOME_P2"
 cleanup_suite
 export COWEN_HOME="$HOME_P1"
+
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile p1 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
 
 echo -e "\n${GREEN}🎊 Case 33 Passed!${NC}"

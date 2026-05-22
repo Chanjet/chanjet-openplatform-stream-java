@@ -23,7 +23,7 @@ assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Start Daemon${NC}"
 "$COWEN_BIN" daemon start --profile fwd >/dev/null
-sleep 3
+wait_for_daemon fwd 10
 assert_pass "Daemon is running and connected to WS"
 
 echo -e "${BOLD}3. Trigger External Broadcast${NC}"
@@ -45,5 +45,10 @@ else
     echo -e "  ${RED}✗${NC} Webhook NOT found at sink"
     exit 1
 fi
+
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile fwd 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
 
 echo -e "\n${GREEN}🎊 Case 06 Passed!${NC}"

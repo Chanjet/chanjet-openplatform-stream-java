@@ -27,26 +27,24 @@ assert_pass "Profile initialized"
 
 echo -e "${BOLD}2. Daemon Startup${NC}"
 "$COWEN_BIN" daemon start --profile main >/dev/null
-echo "   [WAIT] Waiting for WS handshake..."
-sleep 5
-"$COWEN_BIN" status --profile main | grep -q "ACTIVE\|RUNNING"
+assert_pass "Daemon start command sent"
+wait_for_daemon main 10
 assert_pass "Daemon is running"
 
 echo -e "${BOLD}3. Token Acquisition (WS Push)${NC}"
 # Login triggers the proactive push, but we need to wait for the background daemon to process it
 "$COWEN_BIN" auth login --profile main --force >/dev/null
-for i in {1..10}; do
-    T=$(extract_token main)
-    if [ -n "$T" ] && [[ "$T" == mock_at_sb* ]]; then
-        echo -e "  ${GREEN}✓${NC} Token acquired: $T"
-        break
-    fi
-    sleep 1
-done
-
-if [ "$i" -eq 10 ]; then
+T=$(wait_for_token main mock_at_sb 10)
+if [ -z "$T" ]; then
     echo -e "  ${RED}✗${NC} Token acquisition failed"
     exit 1
 fi
+echo -e "  ${GREEN}✓${NC} Token acquired: $T"
+
+# 4. Mandatory Sanitization Check
+echo -e "${BOLD}4. Mandatory Sanitization Check${NC}"
+CONFIG_OUT=$("$COWEN_BIN" config --profile main 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
 
 echo -e "\n${GREEN}🎊 Case 01 Passed!${NC}"
+

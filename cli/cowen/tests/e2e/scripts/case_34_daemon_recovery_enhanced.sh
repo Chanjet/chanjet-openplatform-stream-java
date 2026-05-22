@@ -213,4 +213,9 @@ else
 fi
 check_crash_log_clean "oa2" "after_recovery"
 
+
+# Mandatory Sanitization Check
+CONFIG_OUT=$("$COWEN_BIN" config --profile sb 2>&1)
+assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
 echo -e "\n${GREEN}🎊 Case 34 Passed!${NC}"
