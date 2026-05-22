@@ -46,13 +46,13 @@ cowen doctor
    cowen daemon start --enable-proxy
 
    # 方式 B：持久化开启（推荐）
-   cowen config --proxy-enabled true
+   cowen config set proxy.enabled true --global
    cowen daemon start
    ```
 2. **检查端口状态**：运行 `cowen status`。系统会自动分配一个空闲端口，请以 `status` 命令输出的实际端口为准。
    > **提示：如何手动指定端口？**
    > - **初始化时指定**：`cowen init --app-mode oauth2 --proxy-port 9090`
-   > - **后期修改配置**：`cowen config --proxy-port 9090`
+   > - **后期修改配置**：`cowen config set proxy.port 9090 --global`
 
 3. **发起调用**：
    ```bash

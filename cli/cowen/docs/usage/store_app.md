@@ -47,7 +47,7 @@ cowen init --profile isv-prod \
 
 - **配置转发地址**：
   ```bash
-  cowen config --webhook-target http://127.0.0.1:5000/callback
+  cowen config set security.webhook_target http://127.0.0.1:5000/callback --global
   ```
 - **多租户识别**：转发时，消息体中通常包含租户信息（如 `org_id`）。您可以解析消息体来识别租户归属。
 - **安全约束**：出于 SSRF 防护要求，转发目标仅限本地回环地址 (`127.0.0.1` / `localhost` / `[::1]`)。

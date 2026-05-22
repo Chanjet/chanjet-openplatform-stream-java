@@ -19,6 +19,9 @@ cowen init --profile corp-dev \
            --certificate <YOUR_CERTIFICATE> \
            --encrypt-key <YOUR_ENCRYPT_KEY>
 ```
+> [!NOTE]
+> **构建期内置 AppKey 简化方案 (v0.3.5+)**：
+> 如果您使用了通过构建期静态注入（基于 `COWEN_BUILD_CLIENT_ID` 环境变量）预编译的特定企业级版本包，则在执行 `cowen init` 时可以无需显式提供 `--app-key` 参数，系统将自动使用编译期校验并注入的内置应用标识进行安全引导。
 > [!IMPORTANT]
 > **安全性与存储模式 (Vault)**：
 > 您的 `AppSecret` 和 `EncryptKey` 将存储在 **Vault** 中。系统采用 **设备指纹加密 (Machine-Fingerprint Encryption)** 方案，基于主机名、系统版本等硬件信息派生密钥，确保凭据在物理层面被隔离保护。
@@ -54,9 +57,15 @@ cowen doctor --profile corp-dev
 - **默认行为**：初始化后，代理服务默认处于 **开启** 状态。
 - **端口机制**：系统在初始化时会**自动寻找一个可用端口**。您不再需要担心默认 8000 端口冲突。
     - **如何查看**：运行 `cowen status` 查看 `Proxy:` 这一行标注的实际端口。
-    - **如何手动指定**：如果您有固定端口需求，可以通过 `cowen config --proxy-port <PORT>` 进行修改。
+    - **如何手动指定**：如果您有固定端口需求，可以通过全局修改指令进行调整：
+      ```bash
+      cowen config set proxy.port <PORT> --global
+      ```
 - **开启/关闭控制**：
-    - **持久化关闭**：`cowen config --proxy-enabled false`
+    - **持久化关闭**：
+      ```bash
+      cowen config set proxy.enabled false --global
+      ```
     - **临时关闭启动**：`cowen daemon start --disable-proxy`
 - **发起调用**：
   ```bash
@@ -70,9 +79,9 @@ cowen doctor --profile corp-dev
 `cowen` 可以将接收到的实时业务消息（如：订单变更、审批流提醒）自动转发给您的业务系统。
 
 - **配置转发地址**：
-  在初始化时或通过 `config` 命令设置目标 URL：
+  在初始化时或通过全局配置命令设置目标 URL：
   ```bash
-  cowen config --webhook-target http://127.0.0.1:3000/api/callback
+  cowen config set security.webhook_target http://127.0.0.1:3000/api/callback --global
   ```
   > [!CAUTION]
   > **安全约束 (SSRF 防护)**：出于安全合规要求，`webhook-target` **仅支持本地回环地址** (`127.0.0.1` / `localhost` / `[::1]`)。严禁指向任何外部域名或非本机的内网 IP。

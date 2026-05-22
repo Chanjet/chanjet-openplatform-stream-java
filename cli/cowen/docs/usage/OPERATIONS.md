@@ -40,15 +40,16 @@ cowen store status
 ### 1. 动态调整日志级别
 无需重启 Daemon 进程，即可即时改变日志输出深度（用于在线排查）：
 ```bash
-# 将日志级别动态提升至 debug
-cowen config set log.level debug
+# 将日志级别动态提升至 debug (v0.3.5+ 全局配置)
+cowen config set log.level debug --global
 ```
 *注：系统会通过 `SIGHUP` 信号或内部监听器通知 Daemon 进程，变更会在 1 秒内生效。*
 
 ### 2. 指标监控端口
 您可以动态修改监控端口，以适配不同的集群安全组：
 ```bash
-cowen config set monitor.port 9091
+# 动态修改全局监控端口
+cowen config set monitor.port 9091 --global
 ```
 
 ---
@@ -140,6 +141,29 @@ cowen status --all
 
 ---
 
+## 🧹 系统一键重置与状态清理 (System Reset) (v0.3.5+)
+
+在运维升级、迁移环境或发生重大本地存储故障时，您可能需要彻底清理本地缓存和状态，以便“恢复出厂设置”重新初始化。
+
+`cowen` 支持插件化的二相重置清理机制，确保各组件状态的原子擦除：
+
+### 1. 预览重置计划 (Dry Run)
+在执行破坏性清除之前，强烈建议先运行 `--dry-run` 选项以获得确定性预览：
+```bash
+# 仅生成并输出将要删除的物理文件（数据库、日志、模型、锁）和资源清单，零副作用
+cowen reset --dry-run
+```
+
+### 2. 正式执行重置
+当确认无误后，即可执行无参数重置以物理抹除所有状态介质：
+```bash
+# 物理删除所有已注册状态，恢复出厂设置
+cowen reset
+```
+*注：系统重置后，本地所有 Profile 将全部丢失，您需要重新运行 `cowen init` 以恢复工作能力。*
+
+---
+
 ## ⌨️ 效率工具 (Efficiency)
 
 ### 1. 命令补全 (Shell Completion)
@@ -148,9 +172,6 @@ cowen status --all
 # 以 Zsh 为例，安装补全脚本
 cowen completion --install
 ```
-
----
-© 2026 Chanjet Advanced Agentic Coding Team.
 
 ---
 © 2026 Chanjet Advanced Agentic Coding Team.
