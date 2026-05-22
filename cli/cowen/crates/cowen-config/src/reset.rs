@@ -26,11 +26,17 @@ impl ResetTask for ConfigResetTask {
     async fn dry_run(&self) -> Result<Vec<String>> {
         let mut actions = Vec::new();
         
-        // Profiles (Vaults)
+        // Profiles (Vaults) and configs
         for entry in std::fs::read_dir(&self.app_dir)?.flatten() {
             if let Some(name) = entry.file_name().to_str() {
                 if name.ends_with(".db") {
                     actions.push(format!("Delete Vault DB: {}", entry.path().display()));
+                } else if name.ends_with(".db-wal") {
+                    actions.push(format!("Delete Vault DB WAL: {}", entry.path().display()));
+                } else if name.ends_with(".db-shm") {
+                    actions.push(format!("Delete Vault DB SHM: {}", entry.path().display()));
+                } else if name.ends_with(".ddl.lock") {
+                    actions.push(format!("Delete DDL Lock: {}", entry.path().display()));
                 } else if name.ends_with(".yaml") {
                     actions.push(format!("Delete Config YAML: {}", entry.path().display()));
                 } else if name == "profiles" {
@@ -50,7 +56,12 @@ impl ResetTask for ConfigResetTask {
 
         for entry in std::fs::read_dir(&self.app_dir)?.flatten() {
             if let Some(name) = entry.file_name().to_str() {
-                if name.ends_with(".db") || name.ends_with(".yaml") {
+                if name.ends_with(".db") 
+                    || name.ends_with(".db-wal") 
+                    || name.ends_with(".db-shm") 
+                    || name.ends_with(".ddl.lock") 
+                    || name.ends_with(".yaml") 
+                {
                     let _ = std::fs::remove_file(entry.path());
                 } else if name == "profiles" {
                     let _ = std::fs::remove_dir_all(entry.path());

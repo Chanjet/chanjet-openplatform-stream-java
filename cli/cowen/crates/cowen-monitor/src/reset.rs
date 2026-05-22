@@ -30,6 +30,14 @@ impl ResetTask for TelemetryResetTask {
         if telemetry_db.exists() {
             actions.push(format!("Delete Telemetry DB: {}", telemetry_db.display()));
         }
+        let telemetry_wal = self.app_dir.join("telemetry.db-wal");
+        if telemetry_wal.exists() {
+            actions.push(format!("Delete Telemetry DB WAL: {}", telemetry_wal.display()));
+        }
+        let telemetry_shm = self.app_dir.join("telemetry.db-shm");
+        if telemetry_shm.exists() {
+            actions.push(format!("Delete Telemetry DB SHM: {}", telemetry_shm.display()));
+        }
 
         for entry in std::fs::read_dir(&self.app_dir)?.flatten() {
             if let Some(name) = entry.file_name().to_str() {
@@ -53,6 +61,14 @@ impl ResetTask for TelemetryResetTask {
         let telemetry_db = self.app_dir.join("telemetry.db");
         if telemetry_db.exists() {
             let _ = std::fs::remove_file(telemetry_db);
+        }
+        let telemetry_wal = self.app_dir.join("telemetry.db-wal");
+        if telemetry_wal.exists() {
+            let _ = std::fs::remove_file(telemetry_wal);
+        }
+        let telemetry_shm = self.app_dir.join("telemetry.db-shm");
+        if telemetry_shm.exists() {
+            let _ = std::fs::remove_file(telemetry_shm);
         }
 
         for entry in std::fs::read_dir(&self.app_dir)?.flatten() {
