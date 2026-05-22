@@ -44,7 +44,11 @@ pub async fn token(
                 println!("  Status:     \x1b[32mActive\x1b[0m");
             }
             println!("\nFull Token Value:");
-            println!("\x1b[1;36m{}\x1b[0m", t.value);
+            if std::env::var("COWEN_RAW_OUTPUT").unwrap_or_default() == "true" {
+                println!("\x1b[1;36m{}\x1b[0m", t.value);
+            } else {
+                println!("\x1b[1;36m{}\x1b[0m", cowen_common::utils::mask_string(&t.value));
+            }
             println!();
         }
         Err(e) => {

@@ -8,6 +8,11 @@ pub trait ConfigStrategy: Send + Sync {
     /// Indicates whether this config belongs to the global `AppConfig` or profile `Config`.
     fn is_global(&self) -> bool;
     
+    /// Indicates whether the given key is read-only and should be locked from manual modification.
+    fn is_readonly(&self, _key: &str) -> bool {
+        false
+    }
+    
     fn handle_get(&self, key: &str, current_json: &Value) -> CowenResult<Value> {
         crate::path_parser::get_by_path(current_json, key)
             .ok_or_else(|| CowenError::Config(format!("Key not found: {}", key)))
@@ -41,6 +46,11 @@ impl ConfigStrategy for GlobalAppConfigStrategy {
     fn is_global(&self) -> bool {
         true
     }
+
+    fn is_readonly(&self, key: &str) -> bool {
+        // Search fields are managed by plugins command, not direct set
+        key.starts_with("search.") || key == "version" || key == "exclusive"
+    }
 }
 
 pub struct ProfileLockedStrategy;
@@ -52,6 +62,10 @@ impl ConfigStrategy for ProfileLockedStrategy {
 
     fn is_global(&self) -> bool {
         false
+    }
+    
+    fn is_readonly(&self, _key: &str) -> bool {
+        true
     }
     
     fn handle_set(&self, key: &str, _val: &str, _current_json: &mut Value) -> CowenResult<()> {
@@ -72,5 +86,9 @@ impl ConfigStrategy for ProfileDefaultStrategy {
 
     fn is_global(&self) -> bool {
         false
+    }
+
+    fn is_readonly(&self, key: &str) -> bool {
+        key == "version" || key == "exclusive"
     }
 }

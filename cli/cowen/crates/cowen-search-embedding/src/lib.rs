@@ -126,3 +126,13 @@ pub extern "C" fn v1_search(query_ptr: *const c_char, top: usize) -> *const c_ch
 pub extern "C" fn v1_free() {
     *PROVIDER.lock().unwrap() = None;
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn v1_name() -> *const c_char {
+    c"AI Embedding Matcher".as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn v1_desc() -> *const c_char {
+    c"Local ONNX-based semantic search provider".as_ptr()
+}

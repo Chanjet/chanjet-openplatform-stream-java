@@ -28,7 +28,7 @@ echo "Daemon started with PID: $DAEMON_PID"
 
 # 4. Verify initial log level (debug)
 # We expect to see 'debug' level logs if set correctly, or verify via config check
-$COWEN_BIN config --profile "$TEST_PROFILE" | grep "Log Level" | grep -q "debug"
+$COWEN_BIN config --profile "$TEST_PROFILE" | grep "log.level" | grep -q "debug"
 echo "Initial config verified."
 
 # 5. Hot-reload log level to 'info'
@@ -44,7 +44,7 @@ fi
 echo "PID preserved: $CURRENT_PID"
 
 # 7. Verify config level updated
-$COWEN_BIN config --profile "$TEST_PROFILE" | grep "Log Level" | grep -q "info"
+$COWEN_BIN config --profile "$TEST_PROFILE" | grep "log.level" | grep -q "info"
 echo "Config updated to info."
 
 # 8. Cleanup

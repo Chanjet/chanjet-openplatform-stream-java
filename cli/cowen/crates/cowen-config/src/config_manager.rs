@@ -21,6 +21,13 @@ pub trait ConfigInterceptor: Send + Sync {
     fn validate(&self, key: &str, value: &str) -> CowenResult<()>;
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct ConfigFieldDisplay {
+    pub key: String,
+    pub value: String,
+    pub readonly: bool,
+}
+
 #[derive(Clone)]
 pub struct ConfigManager {
     pub app_dir: PathBuf,
@@ -627,6 +634,99 @@ impl ConfigManager {
         self.mask_value(&mut val, &sensitive_fields);
         
         Ok(val)
+    }
+
+    pub async fn list_all_values(&self) -> CowenResult<serde_json::Value> {
+        let app_cfg = self.load_app_config().await?;
+        
+        let mut profiles_map = serde_json::Map::new();
+        if let Ok(profiles) = self.list_local_profiles() {
+            for p in profiles {
+                if let Ok(config) = self.load(&p).await {
+                    profiles_map.insert(p, serde_json::to_value(&config)?);
+                }
+            }
+        }
+        
+        let mut val = serde_json::json!({
+            "global": app_cfg,
+            "profiles": profiles_map
+        });
+        
+        let sensitive_fields = ["app_secret", "certificate", "encrypt_key", "db_url"];
+        self.mask_value(&mut val, &sensitive_fields);
+        
+        Ok(val)
+    }
+
+    fn flatten_json(prefix: &str, val: &serde_json::Value, result: &mut std::collections::BTreeMap<String, serde_json::Value>) {
+        if let Some(obj) = val.as_object() {
+            for (k, v) in obj {
+                let new_key = if prefix.is_empty() { k.clone() } else { format!("{}.{}", prefix, k) };
+                if v.is_object() {
+                    Self::flatten_json(&new_key, v, result);
+                } else {
+                    result.insert(new_key, v.clone());
+                }
+            }
+        }
+    }
+
+    pub async fn get_global_display(&self) -> CowenResult<Vec<ConfigFieldDisplay>> {
+        let app_cfg = self.load_app_config().await?;
+        let mut global_json = serde_json::to_value(&app_cfg)?;
+
+        let sensitive_fields = ["app_secret", "certificate", "encrypt_key"];
+        self.mask_value(&mut global_json, &sensitive_fields);
+
+        let mut global_map = std::collections::BTreeMap::new();
+        Self::flatten_json("", &global_json, &mut global_map);
+
+        let mut global_fields = Vec::new();
+        for (k, v) in global_map {
+            if v.is_null() { continue; }
+            let mut val_str = match v {
+                serde_json::Value::String(s) => s,
+                _ => v.to_string(),
+            };
+            if k.ends_with("_url") && !val_str.is_empty() {
+                val_str = cowen_common::utils::mask_url_query(&val_str);
+            }
+            if k == "log.max_size_mb" {
+                val_str = format!("{} MB", val_str);
+            }
+            let readonly = self.get_strategy(&k).is_readonly(&k);
+            global_fields.push(ConfigFieldDisplay { key: k, value: val_str, readonly });
+        }
+
+        Ok(global_fields)
+    }
+
+    pub async fn get_profile_display(&self, profile: &str) -> CowenResult<Vec<ConfigFieldDisplay>> {
+        let config = self.load(profile).await?;
+        let mut profile_json = serde_json::to_value(&config)?;
+
+        let sensitive_fields = ["app_secret", "certificate", "encrypt_key"];
+        self.mask_value(&mut profile_json, &sensitive_fields);
+
+        let mut profile_map = std::collections::BTreeMap::new();
+        Self::flatten_json("", &profile_json, &mut profile_map);
+
+        let mut profile_fields = Vec::new();
+        for (k, v) in profile_map {
+            if v.is_null() { continue; }
+            let mut val_str = match v {
+                serde_json::Value::String(s) => s,
+                _ => v.to_string(),
+            };
+            if k.ends_with("_url") && !val_str.is_empty() {
+                val_str = cowen_common::utils::mask_url_query(&val_str);
+            }
+            let readonly = self.get_strategy(&k).is_readonly(&k);
+            profile_fields.push(ConfigFieldDisplay { key: k, value: val_str, readonly });
+        }
+
+        Ok(profile_fields)
     }
 
     fn mask_value(&self, val: &mut serde_json::Value, sensitive_fields: &[&str]) {

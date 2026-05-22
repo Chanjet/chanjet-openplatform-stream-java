@@ -588,6 +588,11 @@ impl SqlBuilder for SqliteBuilder {
             }
         }
 
+        // 🚀 CRITICAL: Use a file lock to ensure ONLY ONE process initializes SQLite and runs DDL at a time
+        let lock_path = db_path.with_extension("ddl.lock");
+        let lock_file = OpenOptions::new().read(true).write(true).create(true).open(&lock_path).map_err(|e| CowenError::Store(e.to_string()))?;
+        let _ = lock_file.lock_exclusive();
+
         let options = SqliteConnectOptions::from_str(&normalized_url).map_err(|e| CowenError::Store(e.to_string()))?
             .create_if_missing(true)
             .busy_timeout(std::time::Duration::from_secs(5))
@@ -611,11 +616,6 @@ impl SqlBuilder for SqliteBuilder {
             "CREATE TABLE IF NOT EXISTS cowen_audit (id TEXT PRIMARY KEY, profile TEXT NOT NULL, timestamp DATETIME NOT NULL, level TEXT NOT NULL, target TEXT NOT NULL, message TEXT NOT NULL, fields TEXT)",
             "CREATE TABLE IF NOT EXISTS cowen_dlq (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, topic TEXT NOT NULL, payload TEXT NOT NULL, retry_count INTEGER DEFAULT 0, error TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
         ];
-
-        // 🚀 CRITICAL: Use a file lock to ensure ONLY ONE process runs DDL at a time
-        let lock_path = db_path.with_extension("ddl.lock");
-        let lock_file = OpenOptions::new().read(true).write(true).create(true).open(&lock_path).map_err(|e| CowenError::Store(e.to_string()))?;
-        let _ = lock_file.lock_exclusive();
 
         let mut last_err = None;
         for _i in 0..30 {

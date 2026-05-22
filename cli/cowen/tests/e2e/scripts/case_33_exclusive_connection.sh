@@ -51,8 +51,10 @@ rm -rf "$HOME_P2"
 mkdir -p "$HOME_P2"
 
 export COWEN_HOME="$HOME_P2"
-# Reuse same config but in different workspace
+# Reuse same config but in different workspace, allocating a new monitor port
 cp "$HOME_P1/app.yaml" "$HOME_P2/app.yaml"
+P2_MONITOR_PORT=$(get_unused_port)
+sed -i.bak "s/monitor_port:.*/monitor_port: $P2_MONITOR_PORT/" "$HOME_P2/app.yaml"
 "$COWEN_BIN" init --profile p2 \
     --app-mode self-built --app-key AK_EXCLUSIVE --app-secret AS_EXC \
     --encrypt-key 1234567890123456 --certificate CERT_EXC \

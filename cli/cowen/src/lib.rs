@@ -91,6 +91,10 @@ pub enum Commands {
     },
     /// 管理当前环境的配置
     Config {
+        /// 展示所有 profile 的配置
+        #[arg(short, long)]
+        all: bool,
+
         #[command(subcommand)]
         action: Option<ConfigCommands>,
     },
@@ -147,6 +151,11 @@ pub enum Commands {
         /// 尝试自动修复发现的问题 (如存储 Schema 更新)
         #[arg(long)]
         fix: bool,
+    },
+    /// 管理本地动态搜索与扩展插件 (扫描、启用与禁用)
+    Plugins {
+        #[command(subcommand)]
+        action: PluginsCommands,
     },
     /// 查看过去的系统事件流与故障轨迹 (诊断回溯)
     Events(cmd::events::EventsArgs),
@@ -208,6 +217,22 @@ pub enum ProfileCommands {
         old_name: String,
         /// 新的环境 Profile 名称
         new_name: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum PluginsCommands {
+    /// 扫描并列出 ~/.cowen/plugins/ 目录下的可用扩展插件
+    List,
+    /// 启用指定的插件并将其注册到全局配置中
+    Enable {
+        /// 要启用的插件名称 (支持去扩展名的文件名，如 libcowen_search_embedding)
+        name: String,
+    },
+    /// 禁用指定的插件
+    Disable {
+        /// 要禁用的插件名称
+        name: String,
     },
 }
 
@@ -513,6 +538,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Log { .. } => "log",
         Commands::Store { .. } => "store",
         Commands::Doctor { .. } => "doctor",
+        Commands::Plugins { .. } => "plugins",
         Commands::Events(..) => "events",
         Commands::System { .. } => "system",
         Commands::Version { .. } => "version",
@@ -694,8 +720,13 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Commands::Events(args) => cmd::events::execute(args).await?,
         Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await?,
-        Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? }
-        Commands::Config { action } => match action {
+        Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, *all).await? },
+        Commands::Plugins { action } => match action {
+            PluginsCommands::List => cmd::plugins::list(&cfg_mgr).await?,
+            PluginsCommands::Enable { name } => cmd::plugins::enable(&cfg_mgr, name).await?,
+            PluginsCommands::Disable { name } => cmd::plugins::disable(&cfg_mgr, name).await?,
+        },
+        Commands::Config { action, all } => match action {
             Some(ConfigCommands::Set { key, value, global }) => {
                 if *global {
                     let global_strategy = cowen_config::strategy::GlobalAppConfigStrategy;
@@ -723,7 +754,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                     println!("{}", serde_yaml::to_string(&val).unwrap());
                 }
             }
-            None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?,
+            None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format, *all).await?,
         },
         Commands::Reset { dry_run } => cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus()), *dry_run).await?,
         Commands::Completion { shell, install, uninstall } => {

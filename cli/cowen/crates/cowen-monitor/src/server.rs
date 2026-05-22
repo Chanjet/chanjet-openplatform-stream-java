@@ -23,7 +23,7 @@ impl MonitorServer {
         }
     }
 
-    pub async fn start(&self, port_tx: Option<oneshot::Sender<u16>>) -> anyhow::Result<()> {
+    pub async fn start(&self, port_tx: Option<oneshot::Sender<u16>>, allow_fallback: bool) -> anyhow::Result<()> {
         let app = Router::new()
             .route("/health", get(health_handler))
             .route("/metrics", get(metrics_handler))
@@ -32,19 +32,27 @@ impl MonitorServer {
             .route("/v1/mgmt/auth/progress", get(progress_handler))
             .with_state((self.daemon_svc.clone(), self.auth_mgr.clone()));
 
-        let addr = SocketAddr::from(([127, 0, 0, 1], self.port));
-        
-        // 🚀 RELIABILITY: Retry binding if port is temporarily occupied
+        // 🚀 RELIABILITY: Retry binding if port is temporarily occupied, then fallback to random port
+        let mut current_port = self.port;
+        let mut addr = SocketAddr::from(([127, 0, 0, 1], current_port));
         let mut retry_count = 0;
         let listener = loop {
             match tokio::net::TcpListener::bind(addr).await {
                 Ok(l) => break l,
-                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && retry_count < 5 => {
-                    tracing::warn!(target: "sys", "Monitor port {} in use, retrying in 500ms... ({} / 5)", self.port, retry_count + 1);
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    retry_count += 1;
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                    if current_port != 0 && retry_count < 2 {
+                        tracing::warn!(target: "sys", "Monitor port {} in use, retrying in 500ms... ({} / 2)", current_port, retry_count + 1);
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        retry_count += 1;
+                    } else if allow_fallback {
+                        tracing::warn!(target: "sys", "Monitor port {} in use after retries, falling back to random port.", current_port);
+                        current_port = 0;
+                        addr.set_port(0);
+                    } else {
+                        return Err(anyhow::anyhow!("Monitor port {} is in use. Please manually configure a new monitor_port in app.yaml or use `cowen config set monitor_port <PORT>`.", current_port));
+                    }
                 }
-                Err(e) => return Err(anyhow::anyhow!("Failed to bind to monitor port {}: {}", self.port, e)),
+                Err(e) => return Err(anyhow::anyhow!("Failed to bind to monitor port {}: {}", current_port, e)),
             }
         };
 

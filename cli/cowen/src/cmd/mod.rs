@@ -10,3 +10,4 @@ pub mod log;
 pub mod dlq;
 pub mod doctor;
 pub mod events;
+pub mod plugins;

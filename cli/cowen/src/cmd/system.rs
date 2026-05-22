@@ -138,58 +138,48 @@ pub async fn status(
     Ok(())
 }
 
-pub async fn config(profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Result<()> {
-    let cfg = cfg_mgr
-        .load(profile)
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
-    let app_cfg = cfg_mgr
-        .load_app_config()
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+pub async fn config(profile: &str, cfg_mgr: &ConfigManager, format: &str, all: bool) -> Result<()> {
+    if format == "json" || format == "yaml" {
+        let val = if all {
+            cfg_mgr.list_all_values().await.map_err(|e| anyhow::anyhow!(e))?
+        } else {
+            cfg_mgr.list_values(profile).await.map_err(|e| anyhow::anyhow!(e))?
+        };
 
-    #[derive(Serialize)]
-    struct CombinedConfig {
-        global: cowen_common::AppConfig,
-        profile: cowen_common::Config,
+        if format == "json" {
+            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+        } else {
+            println!("{}", serde_yaml::to_string(&val).unwrap());
+        }
+        return Ok(());
     }
 
-    let report = CombinedConfig {
-        global: app_cfg,
-        profile: cfg,
+    let profiles_to_show = if all {
+        let mut list = cfg_mgr.list_local_profiles().map_err(|e| anyhow::anyhow!(e))?;
+        list.sort();
+        list
+    } else {
+        vec![profile.to_string()]
     };
 
-    if format == "json" || format == "yaml" {
-        cowen_common::utils::render(&report, format).map_err(|e| anyhow::anyhow!(e))?;
-    } else {
-        println!("\n🌐 Global Configuration (app.yaml)");
-        println!("----------------------------------");
-        println!("Storage Type:  {}", report.global.storage.store);
-        if let Some(url) = &report.global.storage.db_url {
-            println!(
-                "Storage URL:   {}",
-                cowen_common::utils::mask_url_query(url)
-            );
+    let print_block = |title: &str, fields: Vec<cowen_config::config_manager::ConfigFieldDisplay>| {
+        println!("\n{}", title);
+        println!("-------------------------------------------------------------------------");
+        for field in fields {
+            let key = if field.readonly { format!("{} 🔒", field.key) } else { field.key };
+            println!("{:<20} : {}", key, field.value);
         }
-        println!("Cache Type:    {}", report.global.storage.cache);
-        if let Some(url) = &report.global.storage.cache_url {
-            println!(
-                "Cache URL:     {}",
-                cowen_common::utils::mask_url_query(url)
-            );
-        }
+    };
 
-        println!("\n👤 Profile Configuration ({}.yaml)", profile);
-        println!("----------------------------------");
-        println!("AppKey:        {}", report.profile.app_key);
-        println!("AppMode:       {:?}", report.profile.app_mode);
-        println!("OpenAPI URL:   {}", report.global.openapi_url);
-        println!("Stream URL:    {}", report.global.stream_url);
-        println!("Webhook:       {}", report.profile.webhook_target);
-        println!("Proxy Port:    {}", report.profile.proxy_port);
-        println!("Log Level:     {}", report.global.log.level);
-        println!();
+    let global_fields = cfg_mgr.get_global_display().await.map_err(|e| anyhow::anyhow!(e))?;
+    print_block("🌐 Global Configuration (app.yaml) - `cowen config set <key> <value> --global`", global_fields);
+
+    for p in profiles_to_show {
+        let profile_fields = cfg_mgr.get_profile_display(&p).await.map_err(|e| anyhow::anyhow!(e))?;
+        print_block(&format!("👤 Profile Configuration ({}.yaml) - `cowen config set <key> <value>`", p), profile_fields);
     }
+    
+    println!("\n  (🔒 Indicates fields that are read-only or managed via other commands)\n");
 
     Ok(())
 }

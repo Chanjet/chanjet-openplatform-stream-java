@@ -40,7 +40,12 @@ mkdir -p "$PLUGIN_DIR"
 
 # 3. Test Plugin Loading
 echo "Test 2: Loading plugin"
-cp "$COWEN_BUILD_DIR/$PLUGIN_NAME" "$PLUGIN_PATH"
+# Find plugin (could be in debug or debug/deps depending on cargo version/cache)
+if [ -f "$COWEN_BUILD_DIR/$PLUGIN_NAME" ]; then
+    cp "$COWEN_BUILD_DIR/$PLUGIN_NAME" "$PLUGIN_PATH"
+else
+    cp "$COWEN_BUILD_DIR/deps/$PLUGIN_NAME" "$PLUGIN_PATH"
+fi
 
 # Run search
 "$COWEN_BIN" api list --profile main --search "Order"

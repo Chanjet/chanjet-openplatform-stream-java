@@ -4,8 +4,6 @@ services:
   # The ISV Main Application
   app:
     build: .
-    ports:
-      - "5000:5000"
     environment:
       - COWEN_APP_KEY=${COWEN_APP_KEY:-<APP_KEY>}
       - REDIRECT_URI=http://localhost:5000/callback
@@ -20,6 +18,7 @@ services:
   cowen:
     image: chanjet/cowen:latest
     ports:
+      - "5000:5000" # Expose app port
       - "8080:8080" # Expose proxy to host for debugging if needed
     environment:
       - COWEN_APP_MODE=store_app

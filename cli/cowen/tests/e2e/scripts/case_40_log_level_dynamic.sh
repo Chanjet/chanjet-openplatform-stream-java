@@ -34,7 +34,7 @@ version: 1
 EOF
 
 # Check default level in config output
-DEFAULT_LEVEL=$("$COWEN_BIN" config --profile main | grep "Log Level:" | awk '{print $NF}')
+DEFAULT_LEVEL=$("$COWEN_BIN" config --profile main | grep "log.level" | awk '{print $NF}')
 if [ "$DEFAULT_LEVEL" == "info" ]; then
     echo -e "   ${GREEN}✓${NC} Default log level is 'info'"
 else
@@ -43,7 +43,7 @@ fi
 
 echo "2. Dynamically Change Log Level to DEBUG"
 "$COWEN_BIN" config set log.level debug --profile main
-NEW_LEVEL=$("$COWEN_BIN" config --profile main | grep "Log Level:" | awk '{print $NF}')
+NEW_LEVEL=$("$COWEN_BIN" config --profile main | grep "log.level" | awk '{print $NF}')
 if [ "$NEW_LEVEL" == "debug" ]; then
     echo -e "   ${GREEN}✓${NC} Log level updated to 'debug' in config"
 else
@@ -60,7 +60,7 @@ fi
 
 echo "4. Test Case-Insensitivity and Restoration"
 "$COWEN_BIN" config set log.level INFO --profile main
-FINAL_LEVEL=$("$COWEN_BIN" config --profile main | grep "Log Level:" | awk '{print $NF}')
+FINAL_LEVEL=$("$COWEN_BIN" config --profile main | grep "log.level" | awk '{print $NF}')
 if [ "$FINAL_LEVEL" == "info" ]; then
     echo -e "   ${GREEN}✓${NC} Log level restored to 'info' (case-insensitive set works)"
 else

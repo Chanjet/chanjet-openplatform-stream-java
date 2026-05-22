@@ -99,14 +99,38 @@ async fn main() -> Result<()> {
         
         let daemon_svc = Arc::new(ServerDaemonService::new(cfg_mgr.clone(), Some(telemetry_db.clone())));
 
-        let m_port = cfg_mgr.find_free_port().await;
+        let mut m_port = app_cfg.monitor_port;
+        let mut allow_fallback = false;
+        if m_port == 0 {
+            m_port = 1588;
+            allow_fallback = true;
+        }
         let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone());
+        let (port_tx, port_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
-            if let Err(e) = m_server.start(None).await {
+            if let Err(e) = m_server.start(Some(port_tx), allow_fallback).await {
                 tracing::error!("Monitor server error: {}", e);
             }
         });
-        let _ = std::fs::write(&pid_file, format!("{}\nMONITOR_PORT={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, m_port, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+        
+        let actual_m_port = match tokio::time::timeout(tokio::time::Duration::from_secs(5), port_rx).await {
+            Ok(Ok(p)) => p,
+            Ok(Err(_)) => {
+                tracing::error!("Monitor server failed to start (e.g., port occupied). Aborting.");
+                return Err(anyhow::anyhow!("Monitor server failed to start. Port may be occupied."));
+            }
+            Err(_) => {
+                tracing::error!("Timed out waiting for monitor server to start. Aborting.");
+                return Err(anyhow::anyhow!("Monitor server start timeout"));
+            }
+        };
+
+        if actual_m_port > 0 && actual_m_port != app_cfg.monitor_port {
+            app_cfg.monitor_port = actual_m_port;
+            let _ = cfg_mgr.save_app_config(&app_cfg).await;
+        }
+
+        let _ = std::fs::write(&pid_file, format!("{}\nMONITOR_PORT={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, actual_m_port, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
 
         // Signal-aware accept loop
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;

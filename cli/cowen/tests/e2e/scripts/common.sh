@@ -213,8 +213,10 @@ setup_workspace() {
     # Ensure it is executable
     chmod +x "$COWEN_BIN"
     
+    local monitor_port=$(get_unused_port)
     # Create isolated app.yaml with absolute DB path
     cat > "$COWEN_HOME/app.yaml" <<EOF
+monitor_port: $monitor_port
 storage:
   store: innerdb
   db_url: "sqlite://$COWEN_HOME/cowen.db"

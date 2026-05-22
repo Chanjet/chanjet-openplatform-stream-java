@@ -88,22 +88,34 @@ pub async fn start(
             child_cmd.process_group(0);
         }
 
-        let spawned = child_cmd.spawn()?;
-        let pid = spawned.id();
+        let mut child_proc = child_cmd.spawn()?;
+        let pid = child_proc.id();
         eprintln!("🚀 Launching master daemon (PID: {})...", pid);
         
-        // Wait for PID file
+        // Wait for PID file to have content
         let mut ready = false;
         for _ in 0..50 {
             std::thread::sleep(std::time::Duration::from_millis(100));
-            if pid_file.exists() { ready = true; break; }
+            if let Ok(content) = fs::read_to_string(&pid_file) {
+                if !content.trim().is_empty() {
+                    ready = true;
+                    break;
+                }
+            }
+            // If child exited, stop waiting
+            if let Ok(Some(status)) = child_proc.try_wait() {
+                if !status.success() {
+                    anyhow::bail!("Master daemon exited with error.");
+                }
+                break;
+            }
         }
         
         if ready {
             eprintln!("✅ Master daemon started successfully.");
             return Ok(());
         } else {
-            anyhow::bail!("Master daemon failed to start within timeout.");
+            anyhow::bail!("Master daemon failed to start within timeout or exited.");
         }
     }
 
@@ -119,33 +131,32 @@ pub async fn start(
         return Ok(());
     }
 
-    fs::write(
-        &pid_file, 
-        format!(
-            "{}\nBUILD_ID={}\nBUILD_TIME={}", 
-            std::process::id(), 
-            cowen_common::BUILD_ID, 
-            cowen_common::BUILD_TIME
-        )
-    )?;
-
     // Set process name
     cowen_common::utils::set_process_name("cowen:master");
 
     // Start Monitor Server
     let app_cfg = cfg_mgr.load_app_config().await?;
-    let m_port = app_cfg.monitor_port; // might be 0
+    let mut m_port = app_cfg.monitor_port; // might be 0
+    let mut allow_fallback = false;
+    if m_port == 0 {
+        m_port = 1588;
+        allow_fallback = true;
+    }
     let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone());
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        let _ = m_server.start(Some(port_tx)).await;
+        let _ = m_server.start(Some(port_tx), allow_fallback).await;
     });
     
     let actual_m_port = match tokio::time::timeout(tokio::time::Duration::from_secs(5), port_rx).await {
         Ok(Ok(p)) => p,
-        _ => {
-            error!(target: "sys", "Timed out or failed waiting for monitor server to start");
-            0
+        Ok(Err(_)) => {
+            error!(target: "sys", "Monitor server failed to start (e.g., port occupied). Aborting.");
+            return Err(anyhow::anyhow!("Monitor server failed to start. Port may be occupied."));
+        }
+        Err(_) => {
+            error!(target: "sys", "Timed out waiting for monitor server to start. Aborting.");
+            return Err(anyhow::anyhow!("Monitor server start timeout"));
         }
     };
     
