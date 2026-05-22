@@ -44,7 +44,7 @@ for i in {1..4}; do
 done
 
 echo -e "  Waiting for pods to stabilize (15s)..."
-sleep 15
+wait_for_pods_active "$BASE_HOME" 1 4 "ACTIVE\|RUNNING" 15
 
 # Verify all 4 are running
 RUNNING_COUNT=0
@@ -79,7 +79,7 @@ for i in {5..8}; do
 done
 
 echo -e "  Waiting for scaling stabilization (15s)..."
-sleep 15
+wait_for_pods_active "$BASE_HOME" 1 8 "ACTIVE\|RUNNING" 15
 
 RUNNING_COUNT=0
 for i in {1..8}; do
@@ -114,6 +114,11 @@ fi
 for pid in "${PIDS[@]}"; do
     kill -9 $pid 2>/dev/null || true
 done
+POD_HOMES=()
+for i in {1..8}; do
+    POD_HOMES+=("$BASE_HOME/pod_$i")
+done
+kill_daemons_in_dirs "${POD_HOMES[@]}"
 
 
 # Mandatory Sanitization Check

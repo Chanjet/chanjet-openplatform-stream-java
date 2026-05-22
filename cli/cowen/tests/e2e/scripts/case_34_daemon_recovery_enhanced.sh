@@ -48,21 +48,7 @@ check_crash_log_clean() {
     fi
 }
 
-# Poll until daemon for profile is running. Timeout after $2 seconds (default 15).
-wait_for_daemon_running() {
-    local prof=$1
-    local timeout=${2:-15}
-    local elapsed=0
-    while [ $elapsed -lt $timeout ]; do
-        if check_daemon_alive "$prof"; then
-            return 0
-        fi
-        sleep 0.5
-        elapsed=$((elapsed + 1))
-    done
-    echo -e "   ${RED}✗${NC} Timed out waiting for daemon '$prof' to start (${timeout}s)"
-    return 1
-}
+
 
 # Poll until a specific PID is no longer alive. Timeout after $2 seconds (default 10).
 wait_for_process_gone() {
@@ -91,7 +77,7 @@ assert_pass "Self-built profile initialized"
 
 # Trigger start via a command (auto-recovery)
 "$COWEN_BIN" status --profile sb >/dev/null
-wait_for_daemon_running "sb" 15
+wait_for_daemon_status "sb" "ACTIVE\|RUNNING" 15
 
 PID_SB1=$(get_daemon_pid "sb")
 if [ -n "$PID_SB1" ]; then 
@@ -116,7 +102,7 @@ STATUS_OUT=$("$COWEN_BIN" status --profile sb)
 echo "$STATUS_OUT" | grep -q "automatically restarting" || echo "   (Note: Recovery message might be in stderr)"
 
 # Poll for recovered daemon instead of immediate check
-wait_for_daemon_running "sb" 15
+wait_for_daemon_status "sb" "ACTIVE\|RUNNING" 15
 PID_SB2=$(get_daemon_pid "sb")
 
 if [ -n "$PID_SB2" ] && [ "$PID_SB1" != "$PID_SB2" ]; then
@@ -163,8 +149,8 @@ if [ -z "$SESSION_JSON" ]; then
     exit 1
 fi
 
-REDIRECT_PORT=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['redirect_port'])")
-STATE=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['state'])")
+REDIRECT_PORT=$(get_json_field "$SESSION_JSON" "redirect_port")
+STATE=$(get_json_field "$SESSION_JSON" "state")
 
 # Poll until the redirect callback port is listening instead of fixed sleep
 for i in {1..20}; do
@@ -181,7 +167,7 @@ wait $INIT_PID 2>/dev/null || true
 echo "   Running 'cowen status' to trigger initial daemon start..."
 "$COWEN_BIN" status --profile oa2 >/dev/null
 # Poll until daemon is running instead of fixed sleep
-wait_for_daemon_running "oa2" 15
+wait_for_daemon_status "oa2" "ACTIVE\|RUNNING" 15
 
 PID_OA1=$(get_daemon_pid "oa2")
 if [ -n "$PID_OA1" ]; then 
@@ -202,7 +188,7 @@ echo "   Running 'cowen status' to trigger recovery..."
 "$COWEN_BIN" status --profile oa2 >/dev/null
 
 # Poll for recovered daemon instead of immediate check
-wait_for_daemon_running "oa2" 15
+wait_for_daemon_status "oa2" "ACTIVE\|RUNNING" 15
 PID_OA2=$(get_daemon_pid "oa2")
 
 if [ -n "$PID_OA2" ] && [ "$PID_OA1" != "$PID_OA2" ]; then

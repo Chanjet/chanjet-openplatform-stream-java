@@ -51,8 +51,8 @@ done
 [ -z "$SESSION_JSON" ] && { echo "Timeout"; exit 1; }
 echo -e " ${GREEN}[FOUND]${NC}"
 
-REDIRECT_PORT=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['redirect_port'])")
-STATE=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['state'])")
+REDIRECT_PORT=$(get_json_field "$SESSION_JSON" "redirect_port")
+STATE=$(get_json_field "$SESSION_JSON" "state")
 
 # Wait/Retry Callback to avoid port binding race condition
 echo -n "   Simulating browser callback to port ${REDIRECT_PORT}..."

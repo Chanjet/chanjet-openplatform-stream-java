@@ -29,22 +29,8 @@ fi
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 13 environment...${NC}"
-    for h in "$HOME_A" "$HOME_B"; do
-        if [ -d "$h" ]; then
-            # Find both legacy and master daemon pid files
-            for pattern in "*_daemon.pid" "master_daemon.pid"; do
-                find "$h" -name "$pattern" 2>/dev/null | while read pid_file; do
-                    PID=$(cat "$pid_file" 2>/dev/null)
-                    if [ -n "$PID" ]; then
-                        echo "     Killing daemon PID $PID in $h..."
-                        kill -9 "$PID" >/dev/null 2>&1 || true
-                    fi
-                done
-            done
-        fi
-    done
+    kill_daemons_in_dirs "$HOME_A" "$HOME_B"
     cleanup_suite
-    # rm -rf "$HOME_A" "$HOME_B"
 }
 trap final_cleanup EXIT
 
@@ -97,16 +83,12 @@ echo -e "   Node B started (PID: $(get_daemon_pid 'main'))"
 
 # Wait for EXACTLY 2 connections
 echo -n "   Waiting for 2 WS connections..."
-CONN=0
-for i in {1..15}; do
-    CONN=$(curl -s "$MOCK_URL/control/connection_count" | python3 -c "import sys, json; print(json.load(sys.stdin).get('count', 0))")
-    if [ "$CONN" -ge 2 ]; then
-        echo -e " ${GREEN}[$CONN connections]${NC}"
-        break
-    fi
-    sleep 1
-    echo -n "."
-done
+CONN=$(wait_for_connections 2)
+if [ -z "$CONN" ] || [ "$CONN" -lt 2 ]; then
+    echo -e " ${RED}[FAILED waiting for 2 connections, got: $CONN]${NC}"
+    exit 1
+fi
+echo -e " ${GREEN}[$CONN connections]${NC}"
 
 echo -e "${BOLD}4. Verify Load Balancing${NC}"
 # Send 10 messages in LB mode
@@ -122,23 +104,13 @@ echo -e " [DONE]"
 
 # Wait for all 10 to reach the sink
 echo -n "   Waiting for webhook delivery..."
-RECV_COUNT=0
-for i in {1..25}; do
-    MESSAGES=$(curl -s "$MOCK_URL/control/webhooks")
-    RECV_COUNT=$(echo "$MESSAGES" | python3 -c "import sys, json; d=json.load(sys.stdin); print(len([m for m in d if (m.get('body') or m).get('msg_type') == 'DIST_TEST']))")
-    if [ "$RECV_COUNT" -eq 10 ]; then
-        echo -e " ${GREEN}[10/10]${NC}"
-        break
-    fi
-    sleep 1
-    echo -n "."
-done
-
-if [ "$RECV_COUNT" -ne 10 ]; then
+RECV_COUNT=$(wait_for_webhook_count "DIST_TEST" 10)
+if [ -z "$RECV_COUNT" ] || [ "$RECV_COUNT" -ne 10 ]; then
     echo -e " ${RED}[$RECV_COUNT/10]${NC}"
     curl -s "$MOCK_URL/control/connection_count" | python3 -m json.tool
     exit 1
 fi
+echo -e " ${GREEN}[10/10]${NC}"
 
 echo -e "${BOLD}5. Distribution Analysis${NC}"
 COUNT_A=$(cat "$HOME_A/logs/"*.log 2>/dev/null | grep -c "DIST_TEST" || true)

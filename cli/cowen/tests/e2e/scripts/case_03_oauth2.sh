@@ -70,8 +70,8 @@ if [ -z "$SESSION_JSON" ]; then
 fi
 
 # Extract redirect_port and state from session JSON
-REDIRECT_PORT=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['redirect_port'])")
-STATE=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['state'])")
+REDIRECT_PORT=$(get_json_field "$SESSION_JSON" "redirect_port")
+STATE=$(get_json_field "$SESSION_JSON" "state")
 echo "   Extracted: port=$REDIRECT_PORT, state=${STATE:0:8}..."
 
 # Wait a moment for the finalizer listener to be ready

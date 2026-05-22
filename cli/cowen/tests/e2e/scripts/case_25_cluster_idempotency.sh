@@ -57,24 +57,13 @@ NODE_B_PID=$!
 export COWEN_HOME="$HOME_NODE_A"
 
 echo -n "   Waiting for both nodes to connect to WebSocket..."
-CONNECTED=false
-for i in {1..20}; do
-    # We expect 2 connections minimum (actually 4 since each sdk creates 2 multiplexed conns by default)
-    COUNT=$(curl -s "$MOCK_URL/control/connection_count" | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])")
-    if [ "$COUNT" -ge 2 ]; then
-        echo -e " ${GREEN}[CONNECTED: $COUNT]${NC}"
-        CONNECTED=true
-        break
-    fi
-    echo -n "."
-    sleep 1
-done
-
-if [ "$CONNECTED" = false ]; then
+COUNT=$(wait_for_connections 2 20)
+if [ -z "$COUNT" ] || [ "$COUNT" -lt 2 ]; then
     echo -e " ${RED}[FAILED]${NC} Nodes failed to connect"
     kill -9 $NODE_A_PID $NODE_B_PID 2>/dev/null || true
     exit 1
 fi
+echo -e " ${GREEN}[CONNECTED: $COUNT]${NC}"
 
 # Clear sink
 curl -s -X POST "$MOCK_URL/control/clear_webhooks" > /dev/null

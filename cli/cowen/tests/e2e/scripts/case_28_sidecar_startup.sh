@@ -30,13 +30,10 @@ PROFILE="env-auto-init"
 DAEMON_PID=$!
 
 echo -e "  Waiting for auto-initialization..."
-sleep 5
-
-# 1. Verify Profile Creation via status command
-if "$COWEN_BIN" --profile $PROFILE status > /dev/null 2>&1; then
+if wait_for_daemon_status "$PROFILE" "ACTIVE\|RUNNING" 8; then
     echo -e "  ${GREEN}✓${NC} Profile '$PROFILE' verified via status"
 else
-    echo -e "  ${RED}✗${NC} Profile '$PROFILE' NOT found"
+    echo -e "  ${RED}✗${NC} Profile '$PROFILE' NOT found or not running"
     cat "$COWEN_HOME/daemon.log"
     kill $DAEMON_PID 2>/dev/null
     exit 1

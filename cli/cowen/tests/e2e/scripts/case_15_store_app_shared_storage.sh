@@ -40,19 +40,7 @@ fi
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 15 environment...${NC}"
-    for h in "$HOME_1" "$HOME_2"; do
-        if [ -d "$h" ]; then
-            for pattern in "*_daemon.pid" "master_daemon.pid"; do
-                find "$h" -name "$pattern" 2>/dev/null | while read pid_file; do
-                    PID=$(cat "$pid_file" 2>/dev/null)
-                    if [ -n "$PID" ]; then
-                        echo "     Killing daemon PID $PID in $h..."
-                        kill -9 "$PID" >/dev/null 2>&1 || true
-                    fi
-                done
-            done
-        fi
-    done
+    kill_daemons_in_dirs "$HOME_1" "$HOME_2"
     cleanup_suite
     rm -rf "$HOME_1" "$HOME_2"
 }
@@ -175,7 +163,8 @@ fi
 # 5. Verify AppAccessToken Generation on Node 2
 echo -e "${BOLD}5. Verify AppAccessToken Generation on Node 2${NC}"
 export COWEN_HOME="$HOME_2"
-TOKEN=$("$COWEN_BIN" auth token --profile main --format json | python3 -c "import sys, json; print(json.load(sys.stdin).get('access_token', 'None'))")
+RAW_TOKEN=$("$COWEN_BIN" auth token --profile main --format json)
+TOKEN=$(get_json_field "$RAW_TOKEN" "access_token")
 
 if [[ "$TOKEN" == mock_at_sa_* ]]; then
     echo -e "   ${GREEN}✓${NC} Node 2 successfully generated AppAccessToken using shared credentials"

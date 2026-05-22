@@ -45,19 +45,7 @@ PROXY_PORT_2=$(get_unused_port)
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 14 environment...${NC}"
-    for h in "$HOME_1" "$HOME_2"; do
-        if [ -d "$h" ]; then
-            for pattern in "*_daemon.pid" "master_daemon.pid"; do
-                find "$h" -name "$pattern" 2>/dev/null | while read pid_file; do
-                    PID=$(cat "$pid_file" 2>/dev/null)
-                    if [ -n "$PID" ]; then
-                        echo "     Killing daemon PID $PID in $h..."
-                        kill -9 "$PID" >/dev/null 2>&1 || true
-                    fi
-                done
-            done
-        fi
-    done
+    kill_daemons_in_dirs "$HOME_1" "$HOME_2"
     cleanup_suite
     rm -rf "$HOME_1" "$HOME_2"
 }

@@ -638,3 +638,120 @@ setup_mysql_db() {
     echo "$MYSQL_BASE_URL/$db_name"
 }
 
+# 统一终止并回收传入的多个工作目录下的所有 master 和 profile 守护进程
+kill_daemons_in_dirs() {
+    for dir in "$@"; do
+        if [ -d "$dir" ]; then
+            for pattern in "*_daemon.pid" "master_daemon.pid"; do
+                find "$dir" -name "$pattern" 2>/dev/null | while read pid_file; do
+                    local PID=$(cat "$pid_file" 2>/dev/null)
+                    if [ -n "$PID" ]; then
+                        echo "     Killing daemon PID $PID in $dir..." >&2
+                        kill -9 "$PID" >/dev/null 2>&1 || true
+                    fi
+                done
+            done
+        fi
+    done
+}
+
+# 从给定的 JSON 字符串中安全提取指定的 Key 值，避免各脚本拼装重复的 inline python 管道
+get_json_field() {
+    local json_str="$1"
+    local field_name="$2"
+    echo "$json_str" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('$field_name', ''))" 2>/dev/null
+}
+
+# 轮询检测 Mock 服务上的 WS 活跃连接数是否达到预期的数值
+wait_for_connections() {
+    local expected="$1"
+    local max_retries="${2:-15}"
+    local conn=0
+    local mock_url="${MOCK_URL:-http://127.0.0.1:9299}"
+    for i in $(seq 1 "$max_retries"); do
+        local raw_json=$(curl -s "$mock_url/control/connection_count" || echo "{}")
+        conn=$(get_json_field "$raw_json" "count")
+        if [ -n "$conn" ] && [ "$conn" -ge "$expected" ]; then
+            echo "$conn"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "$conn"
+    return 1
+}
+
+# 轮询检测 Webhook Sink 中指定 msg_type 的接收计数是否达到预期的数值
+wait_for_webhook_count() {
+    local expected_msg_type="$1"
+    local expected_count="$2"
+    local max_retries="${3:-25}"
+    local recv_count=0
+    local mock_url="${MOCK_URL:-http://127.0.0.1:9299}"
+    for i in $(seq 1 "$max_retries"); do
+        local raw_webhooks=$(curl -s "$mock_url/control/webhooks" || echo "[]")
+        recv_count=$(echo "$raw_webhooks" | python3 -c "import sys, json; d=json.load(sys.stdin); print(len([m for m in d if (m.get('body') or m).get('msg_type') == '$expected_msg_type']))" 2>/dev/null)
+        if [ -n "$recv_count" ] && [ "$recv_count" -ge "$expected_count" ]; then
+            echo "$recv_count"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "$recv_count"
+    return 1
+}
+
+# 轮询检测指定 profile 的守护进程是否已经启动（通过进程 PID 存活来判断）
+# 参数：
+#   $1 - profile 名字 (可选，默认为 main)
+#   $2 - 预期匹配的状态关键字/正则 (可选，为了兼容性保留该参数占位，但不作为判断依据)
+#   $3 - 最大尝试次数 (可选，默认为 15)
+wait_for_daemon_status() {
+    local profile="${1:-main}"
+    local pattern="$2"
+    local max_retries="${3:-15}"
+    
+    for i in $(seq 1 "$max_retries"); do
+        local pid
+        pid=$(get_daemon_pid "$profile")
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+# 轮询直到指定区间的所有并发 Pods 全部就绪（状态匹配特定模式）
+# 参数：
+#   $1 - 基础测试路径 (如 $BASE_HOME)
+#   $2 - pod 范围起始值 (如 1)
+#   $3 - pod 范围结束值 (如 4)
+#   $4 - 预期匹配的状态模式 (可选，默认为 "ACTIVE\|RUNNING")
+#   $5 - 最大尝试秒数 (可选，默认为 15)
+wait_for_pods_active() {
+    local base_home="$1"
+    local start="$2"
+    local end="$3"
+    local pattern="${4:-ACTIVE\|RUNNING}"
+    local timeout="${5:-15}"
+    
+    local expected=$((end - start + 1))
+    for elapsed in $(seq 1 "$timeout"); do
+        local active_count=0
+        for i in $(seq "$start" "$end"); do
+            local POD_HOME="$base_home/pod_$i"
+            if COWEN_HOME="$POD_HOME" "$COWEN_BIN" status 2>/dev/null | grep -q "$pattern"; then
+                ((active_count++))
+            fi
+        done
+        if [ "$active_count" -eq "$expected" ]; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+
+

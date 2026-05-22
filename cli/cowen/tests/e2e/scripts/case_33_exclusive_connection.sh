@@ -36,7 +36,7 @@ wait_for_daemon p1 10
 sleep 2
 
 # Verify P1 is connected
-CONN_COUNT=$(curl -s "$MOCK_URL/control/connection_count" | python3 -c "import sys, json; print(json.load(sys.stdin).get('count', 0))")
+CONN_COUNT=$(wait_for_connections 1 5)
 if [ "$CONN_COUNT" -eq 1 ]; then
     echo -e "   ${GREEN}✓${NC} First connection established"
 else
@@ -75,7 +75,7 @@ grep -q "Exclusive Eviction" "$TEST_BASE/mock_server_$MOCK_PORT.log"
 assert_pass "Server log confirms exclusive eviction"
 
 # Check connection count
-CONN_COUNT=$(curl -s "$MOCK_URL/control/connection_count" | python3 -c "import sys, json; print(json.load(sys.stdin).get('count', 0))")
+CONN_COUNT=$(wait_for_connections 1 5)
 if [ "$CONN_COUNT" -eq 1 ]; then
     echo -e "   ${GREEN}✓${NC} Only one connection remains active (Exclusive mode working)"
 else
