@@ -7,6 +7,7 @@ async fn test_empty_app_key_fails_fast() {
         app_secret: "secret".to_string(),
         encrypt_key: None,
         gateway_url: "ws://localhost:8080".to_string(),
+        ..Default::default()
     };
 
     let client = GatewayClient::new(options);
@@ -24,6 +25,7 @@ async fn test_empty_app_secret_fails_fast() {
         app_secret: "".to_string(),
         encrypt_key: None,
         gateway_url: "ws://localhost:8080".to_string(),
+        ..Default::default()
     };
 
     let client = GatewayClient::new(options);

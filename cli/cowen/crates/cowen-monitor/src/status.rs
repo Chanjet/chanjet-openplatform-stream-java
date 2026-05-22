@@ -254,6 +254,7 @@ pub async fn collect_daemon_status(
                 }
                 
                 let conn_state = json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
+                let error_val = json.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
                 
                 // Freshness check: If the status file is older than 1 minute, it's considered stale
                 let is_fresh = if let Some(ts_str) = json.get("updated_at").and_then(|v| v.as_str()) {
@@ -262,7 +263,7 @@ pub async fn collect_daemon_status(
                     } else { false }
                 } else { false };
 
-                let (conn_level, conn_icon_override, final_state) = if supports_webhooks && !is_fresh {
+                let (mut conn_level, conn_icon_override, mut final_state) = if supports_webhooks && !is_fresh {
                     (StatusLevel::ERROR, Some("💤"), format!("{} (Stale)", conn_state))
                 } else {
                     match conn_state.as_str() {
@@ -275,6 +276,13 @@ pub async fn collect_daemon_status(
                     }
                 };
 
+                if let Some(ref err) = error_val {
+                    if err.contains("404") || err.contains("Nonce") || err.contains("401") || err.contains("403") {
+                        conn_level = StatusLevel::ERROR;
+                    }
+                    final_state = format!("{} (Error: {})", final_state, err);
+                }
+
                 if conn_level as i32 > level as i32 && conn_level != StatusLevel::WARN {
                     level = conn_level;
                 }
@@ -283,6 +291,9 @@ pub async fn collect_daemon_status(
                     let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state);
                     if let Some(icon) = conn_icon_override {
                         entry.icon = icon.to_string();
+                    }
+                    if let Some(err) = &error_val {
+                        entry.details.push(format!("Error Details: {}", err));
                     }
                     if let Some(cid) = json.get("client_id").and_then(|v| v.as_str()) {
                         entry.details.push(format!("Client ID: {}", cid));

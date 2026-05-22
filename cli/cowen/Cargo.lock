@@ -1072,6 +1072,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sysinfo",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tracing",

@@ -20,7 +20,7 @@ pub async fn status(
     format: &str,
     all: bool,
 ) -> Result<()> {
-    let profiles = if all {
+    let mut profiles = if all {
         cfg_mgr
             .list_profiles()
             .await
@@ -28,6 +28,16 @@ pub async fn status(
     } else {
         vec![active_profile.to_string()]
     };
+
+    if !all && profiles.len() == 1 {
+        let p = &profiles[0];
+        if !cfg_mgr.exists(p).await {
+            let all_p = cfg_mgr.list_profiles().await.unwrap_or_default();
+            if all_p.is_empty() {
+                profiles.clear();
+            }
+        }
+    }
 
     let mut results = Vec::new();
     let mut broken_profiles = Vec::new();
@@ -90,22 +100,32 @@ pub async fn status(
     println!("Build ID:      {}", cowen_common::BUILD_ID);
     println!("Build Time:    {}", cowen_common::BUILD_TIME);
     
-    // Get storage info from the first successful profile (storage is global)
-    if let Some(s) = results.first() {
-        if let Some(storage_entry) = s.entries.iter().find(|e| e.name == "Storage") {
-             render_entry(storage_entry, 0);
-        }
-    }
+    let store = vault.primary_store();
+    let storage_entry = StatusEntry {
+        name: "Storage".to_string(),
+        icon: "📦".to_string(),
+        level: StatusLevel::OK,
+        message: format!("Mode: {}", store.name()),
+        reason: None,
+        details: vec![store.description()],
+        children: vec![],
+    };
+    render_entry(&storage_entry, 0);
     println!();
 
-    for s in results {
-        println!("👤 Profile: '{}'", s.profile);
+    if results.is_empty() {
+        println!("👤 Profile: Not Initialized");
         println!("----------------------------------");
-        for entry in s.entries {
-            if entry.name == "Storage" { continue; } // Already shown globally
-            render_entry(&entry, 0);
+        println!("⚙️  System is not initialized. Please run `cowen auth login` or `cowen init` to configure a profile.\n");
+    } else {
+        for s in results {
+            println!("👤 Profile: '{}'", s.profile);
+            println!("----------------------------------");
+            for entry in s.entries {
+                render_entry(&entry, 0);
+            }
+            println!();
         }
-        println!();
     }
 
     if !broken_profiles.is_empty() {
@@ -215,11 +235,13 @@ async fn get_system_status(
         vault: vault.clone(),
     };
 
-    let collectors: Vec<Box<dyn StatusCollector>> = vec![
+    let mut collectors: Vec<Box<dyn StatusCollector>> = vec![
         Box::new(ConfigCollector),
-        Box::new(StorageCollector),
-        Box::new(ProviderCollector),
     ];
+
+    if !cfg.app_key.trim().is_empty() {
+        collectors.push(Box::new(ProviderCollector));
+    }
 
     let mut entries = Vec::new();
     for c in collectors {
@@ -275,26 +297,7 @@ impl StatusCollector for ConfigCollector {
     }
 }
 
-struct StorageCollector;
-#[async_trait::async_trait]
-impl StatusCollector for StorageCollector {
-    fn name(&self) -> &str {
-        "Storage"
-    }
-    async fn collect(&self, ctx: &StatusContext<'_>) -> CowenResult<StatusEntry> {
-        use cowen_monitor::status::CommonTemplate;
-        let store = ctx.vault.primary_store();
-        let name = store.name();
-        let desc = store.description();
 
-        Ok(StatusEntry::new(
-            CommonTemplate::Custom("Storage".to_string(), "📦".to_string()),
-            StatusLevel::OK,
-            format!("Mode: {}", name),
-        )
-        .with_details(vec![desc]))
-    }
-}
 
 struct ProviderCollector;
 #[async_trait::async_trait]

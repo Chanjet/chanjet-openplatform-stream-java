@@ -43,3 +43,13 @@ fn test_proper_url_construction() {
     assert!(final_url.contains("sign%3D2"));
     assert!(final_url.contains("app%26key%40host+space") || final_url.contains("app%26key%40host%20space"));
 }
+
+#[test]
+fn test_disconnected_with_error_variant() {
+    let state = connector_sdk::ConnectionState::DisconnectedWithError("404 Not Found".to_string());
+    if let connector_sdk::ConnectionState::DisconnectedWithError(err) = state {
+        assert_eq!(err, "404 Not Found");
+    } else {
+        panic!("Incorrect variant");
+    }
+}

@@ -343,6 +343,17 @@ assert_match() {
     fi
 }
 
+assert_not_match() {
+    if echo "$1" | grep -q "$2"; then
+        echo -e "  ${RED}✗${NC} $3"
+        echo "    Did not expect pattern: $2"
+        echo "    Actual output:          $1"
+        exit 1
+    else
+        echo -e "  ${GREEN}✓${NC} $3"
+    fi
+}
+
 # Mock Server Management
 start_mock() {
     if [ "$COWEN_MOCK_MANAGED" == "true" ]; then
