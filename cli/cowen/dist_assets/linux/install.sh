@@ -12,6 +12,11 @@ mkdir -p "$INSTALL_DIR"
 # 2. Copy binary
 cp "$BINARY" "$INSTALL_DIR/"
 chmod +x "$INSTALL_DIR/$BINARY"
+if [ -f "cowen-daemon" ]; then
+    echo "🚀 Installing cowen-daemon to $INSTALL_DIR..."
+    cp "cowen-daemon" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/cowen-daemon"
+fi
 echo "✅ Binary installed successfully."
 
 # 3. Add to PATH if not already there

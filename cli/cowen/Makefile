@@ -110,10 +110,12 @@ build-plugins:
 macos-aarch64: build-plugins
 	@echo "🍎 Building macOS Apple Silicon v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/macos-aarch64
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release -p cowen -p cowen-daemon
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/macos-aarch64/$(BINARY)
+	cp target/release/cowen-daemon $(OUTPUT_DIR)/macos-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding.dylib $(OUTPUT_DIR)/macos-aarch64/ || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
+	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
@@ -121,9 +123,11 @@ macos-aarch64: build-plugins
 test-macos-aarch64:
 	@echo "🧪 Building macOS Apple Silicon (TEST ENV) v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/test
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) BUILTIN_CLIENT_ID=$(PREVIEW_APP_KEY) cargo build --release --features inte
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) BUILTIN_CLIENT_ID=$(PREVIEW_APP_KEY) cargo build --release --features inte -p cowen -p cowen-daemon
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/test/$(BINARY)
+	cp target/release/cowen-daemon $(OUTPUT_DIR)/test/cowen-daemon
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/$(BINARY) 2>/dev/null || true
+	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/test/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/test/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/test/$(BINARY))
@@ -131,10 +135,12 @@ test-macos-aarch64:
 macos-x86_64: build-plugins
 	@echo "🍎 Building macOS Intel v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/macos-x86_64
-	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-apple-darwin --no-default-features
+	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-apple-darwin --no-default-features -p cowen -p cowen-daemon
 	cp target/x86_64-apple-darwin/release/$(BINARY) $(OUTPUT_DIR)/macos-x86_64/$(BINARY)
+	cp target/x86_64-apple-darwin/release/cowen-daemon $(OUTPUT_DIR)/macos-x86_64/cowen-daemon
 	cp target/release/libcowen_search_embedding.dylib $(OUTPUT_DIR)/macos-x86_64/ || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/$(BINARY) 2>/dev/null || true
+	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
@@ -143,8 +149,9 @@ linux-x86_64: build-plugins
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] natively v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-unknown-linux-gnu
+	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
+	cp target/x86_64-unknown-linux-gnu/release/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	cp target/release/libcowen_search_embedding.so $(OUTPUT_DIR)/linux-x86_64/ || true
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -203,8 +210,9 @@ linux-x86_64-with-podman: prepare-podman-image
 			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 			BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
-			cargo build --release --target x86_64-unknown-linux-gnu && \
-			cp target/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY)" && \
+			cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon && \
+			cp target/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
+			cp target/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon" && \
 	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -212,8 +220,9 @@ linux-x86_64-with-podman: prepare-podman-image
 linux-aarch64: build-plugins
 	@echo "🐧 Building Linux aarch64 v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64
-	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features
+	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features -p cowen -p cowen-daemon
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)
+	cp target/aarch64-unknown-linux-musl/release/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
@@ -221,8 +230,9 @@ linux-aarch64: build-plugins
 windows-x86_64: build-plugins
 	@echo "🪟 Building Windows x86_64 v$(VERSION)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
-	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc"
+	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc -p cowen -p cowen-daemon"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
+	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen-daemon.exe -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-daemon.exe -Force"
 	powershell -NoProfile -Command "if (Test-Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll) { Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force }"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
@@ -233,6 +243,7 @@ package-macos-aarch64: clean macos-aarch64
 	@echo "📦 Packaging macOS Apple Silicon..."
 	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/lib/cowen pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-aarch64/release
 	cp $(OUTPUT_DIR)/macos-aarch64/$(BINARY) pkg_root/usr/local/bin/$(BINARY)
+	cp $(OUTPUT_DIR)/macos-aarch64/cowen-daemon pkg_root/usr/local/bin/cowen-daemon
 	cp target/release/libcowen_search_embedding.dylib pkg_root/usr/local/lib/cowen/ || true
 	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
 	@chmod +x dist_assets/macos/scripts/postinstall
@@ -245,6 +256,7 @@ package-macos-x86_64: clean macos-x86_64
 	@echo "📦 Packaging macOS Intel..."
 	mkdir -p pkg_root/usr/local/bin pkg_root/usr/local/lib/cowen pkg_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-x86_64/release
 	cp $(OUTPUT_DIR)/macos-x86_64/$(BINARY) pkg_root/usr/local/bin/$(BINARY)
+	cp $(OUTPUT_DIR)/macos-x86_64/cowen-daemon pkg_root/usr/local/bin/cowen-daemon
 	cp target/release/libcowen_search_embedding.dylib pkg_root/usr/local/lib/cowen/ || true
 	cp CHANGELOG.md pkg_root/usr/local/share/doc/cowen/
 	@chmod +x dist_assets/macos/scripts/postinstall
@@ -265,11 +277,12 @@ package-linux-aarch64: clean linux-aarch64
 	@echo "📦 Packaging Linux aarch64..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release
 	cp $(OUTPUT_DIR)/linux-aarch64/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)-v$(VERSION)-linux-aarch64
+	cp $(OUTPUT_DIR)/linux-aarch64/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-aarch64/
-	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY)-v$(VERSION)-linux-aarch64 install.sh README.txt CHANGELOG.md
-	rm -f $(OUTPUT_DIR)/linux-aarch64/$(BINARY)-v$(VERSION)-linux-aarch64
+	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY)-v$(VERSION)-linux-aarch64 cowen-daemon install.sh README.txt CHANGELOG.md
+	rm -f $(OUTPUT_DIR)/linux-aarch64/$(BINARY)-v$(VERSION)-linux-aarch64 $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
 
@@ -290,12 +303,13 @@ package-windows-x86_64: clean windows-x86_64
 impl-package-linux-x86_64:
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
 	cp $(OUTPUT_DIR)/linux-x86_64/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64
+	cp $(OUTPUT_DIR)/linux-x86_64/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	cp target/release/libcowen_search_embedding.so pkg_root/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64/
-	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64 install.sh README.txt CHANGELOG.md -C ../../../cli/cowen/pkg_root lib
-	rm -f $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64
+	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64 cowen-daemon install.sh README.txt CHANGELOG.md -C ../../../cli/cowen/pkg_root lib
+	rm -f $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64 $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
@@ -445,7 +459,8 @@ clean:
 install:
 	@$(MAKE) macos-aarch64
 	cp $(OUTPUT_DIR)/macos-aarch64/$(BINARY) /usr/local/bin/$(BINARY)
-	@echo "🚀 Installed to /usr/local/bin/$(BINARY)"
+	cp $(OUTPUT_DIR)/macos-aarch64/cowen-daemon /usr/local/bin/cowen-daemon
+	@echo "🚀 Installed to /usr/local/bin/$(BINARY) and /usr/local/bin/cowen-daemon"
 
 run:
 	cargo run -- --help
