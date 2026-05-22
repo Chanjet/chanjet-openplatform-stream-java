@@ -13,6 +13,7 @@ pub mod openapi;
 pub mod error;
 pub mod daemon;
 pub mod ipc;
+pub mod reset;
 
 
 pub use error::{CowenError, CowenResult};

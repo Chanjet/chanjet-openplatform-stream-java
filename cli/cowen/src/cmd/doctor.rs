@@ -117,11 +117,12 @@ impl DiagnosticTask for StreamUrlCheck {
     fn name(&self) -> &str { "网络连通性 (Stream)" }
     async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
         let start = Instant::now();
+        let app_cfg = ctx.cfg_mgr.load_app_config().await.unwrap_or_default();
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
 
-        let status = match client.get(&ctx.config.stream_url).send().await {
+        let status = match client.get(&app_cfg.stream_url).send().await {
             Ok(_) => DiagnosticStatus::Ok,
             Err(e) => DiagnosticStatus::Error(format!("Stream URL 连接失败: {}", e)),
         };
@@ -141,11 +142,12 @@ impl DiagnosticTask for OpenApiCheck {
     fn name(&self) -> &str { "网络连通性 (OpenAPI)" }
     async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
         let start = Instant::now();
+        let app_cfg = ctx.cfg_mgr.load_app_config().await.unwrap_or_default();
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
 
-        let status = match client.get(&ctx.config.openapi_url).send().await {
+        let status = match client.get(&app_cfg.openapi_url).send().await {
             Ok(_) => DiagnosticStatus::Ok,
             Err(e) => DiagnosticStatus::Error(format!("OpenAPI 连接失败: {}", e)),
         };

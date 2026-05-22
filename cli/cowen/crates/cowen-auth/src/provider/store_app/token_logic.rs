@@ -36,8 +36,19 @@ pub(crate) async fn get_token(
                             Ok(t)
                         }
                         _ => {
-                            // If we can't get even the AppAccessToken, then return the 401 error
-                            Err(CowenError::Auth(format!("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).")))
+                            // 🚀 Slow path recovery: Proactively exchange the AppAccessToken using the appTicket in the Vault.
+                            // This guarantees that any CLI status checks or secondary nodes can successfully recover when
+                            // the AppAccessToken is missing but the AppTicket is present in the shared database.
+                            match client::get_app_access_token(pool, http_sender, profile, cfg).await {
+                                Ok(t) => {
+                                    pool.set_app_access_token(&cfg.app_key, &t).await?;
+                                    Ok(t)
+                                }
+                                Err(err) => {
+                                    tracing::error!(target: "sys", error = %err, "Proactive AppAccessToken exchange failed");
+                                    Err(CowenError::Auth(format!("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).")))
+                                }
+                            }
                         }
                     }
                 }

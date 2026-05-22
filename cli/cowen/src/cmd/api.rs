@@ -47,13 +47,14 @@ pub async fn list(
     all_ops.sort_by(|a, b| a.path.cmp(&b.path).then(a.method.cmp(&b.method)));
 
     if let Some(query) = search {
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         // Initialize composite search provider
         let mut primary: Option<Box<dyn SearchProvider>> = None;
         
         // Try to load the enabled plugin from config
-        if !cfg.search.enabled.is_empty() {
-            let plugin_name = &cfg.search.enabled[0]; // For now, support one primary
-            if let Some(plugin_info) = cfg.search.plugins.iter().find(|p| &p.name == plugin_name) {
+        if !app_cfg.search.enabled.is_empty() {
+            let plugin_name = &app_cfg.search.enabled[0]; // For now, support one primary
+            if let Some(plugin_info) = app_cfg.search.plugins.iter().find(|p| &p.name == plugin_name) {
                 unsafe {
                     match DynamicSearchProvider::new(&plugin_info.name, &plugin_info.path) {
                         Ok(p) => {
@@ -420,12 +421,13 @@ pub async fn call(
     let token = auth_cli.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await.map_err(|e| anyhow::anyhow!(e))?;
 
     // 3. Build & Execute Request
+    let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
     let ua = cowen_infra::get_user_agent(env!("CARGO_PKG_VERSION"));
     let client = cowen_infra::create_client(&ua).map_err(|e| anyhow::anyhow!(e))?;
     let url = if path.starts_with("http") {
         path.to_string()
     } else {
-        let base = cfg.openapi_url.trim_end_matches('/');
+        let base = app_cfg.openapi_url.trim_end_matches('/');
         format!("{}{}", base, path)
     };
 

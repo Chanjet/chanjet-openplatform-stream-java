@@ -133,12 +133,12 @@ pub fn init_telemetry(
 }
 
 /// 发送遥测请求 (添加 500ms 超时控制)
-pub async fn send_telemetry_request(config: &cowen_common::Config, event_name: String, payload: serde_json::Value) -> Result<()> {
+pub async fn send_telemetry_request(config: &cowen_common::Config, app_cfg: &cowen_common::config::AppConfig, event_name: String, payload: serde_json::Value) -> Result<()> {
     let ua = cowen_infra::get_user_agent(env!("CARGO_PKG_VERSION"));
     let client = cowen_infra::create_client(&ua).map_err(|e| anyhow::anyhow!(e))?;
     let fingerprint = cowen_common::security::get_machine_fingerprint()?;
     
-    let url = format!("{}{}", config.stream_url.trim_end_matches('/'), obfs!("/v1/telemetry/events"));
+    let url = format!("{}{}", app_cfg.stream_url.trim_end_matches('/'), obfs!("/v1/telemetry/events"));
     
     let event = TelemetryEvent {
         event: event_name,
@@ -160,14 +160,15 @@ pub async fn send_telemetry_request(config: &cowen_common::Config, event_name: S
 }
 
 /// 异步上报遥测事件 (静默失败，非阻塞)
-pub fn report_event(config: &cowen_common::Config, event_name: String, payload: serde_json::Value) {
-    if !config.telemetry_enabled {
+pub fn report_event(config: &cowen_common::Config, app_cfg: &cowen_common::config::AppConfig, event_name: String, payload: serde_json::Value) {
+    if !app_cfg.telemetry_enabled {
         return;
     }
     let config = config.clone();
+    let app_cfg = app_cfg.clone();
     
     tokio::spawn(async move {
-        if let Err(e) = send_telemetry_request(&config, event_name, payload).await {
+        if let Err(e) = send_telemetry_request(&config, &app_cfg, event_name, payload).await {
             tracing::debug!(target: "sys", "Telemetry report failed (silently ignored): {}", e);
         }
     });
@@ -182,9 +183,10 @@ mod tests {
     fn test_profile_specific_log_creation() {
         let temp_dir = std::env::temp_dir().join(format!("telemetry_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros()));
         let config = cowen_common::Config::default_with_profile("testprof");
+        let app_cfg = cowen_common::config::AppConfig::default();
         
         let (_, rx) = tokio::sync::watch::channel(None);
-        let _control = init_telemetry(temp_dir.clone(), "testprof", &config.log, rx).unwrap();
+        let _control = init_telemetry(temp_dir.clone(), "testprof", &app_cfg.log, rx).unwrap();
         
         // Tracing appender creates files lazily upon first write OR immediately depending on the exact LogRoller configuration
         // In logroller, they are usually created right away if the builder creates the file.
@@ -218,15 +220,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_report_event_timeout_and_spin_prevention() {
-        let mut config = cowen_common::Config::default_with_profile("testprof");
-        config.telemetry_enabled = true;
+        let config = cowen_common::Config::default_with_profile("testprof");
+        let mut app_cfg = cowen_common::config::AppConfig::default();
+        app_cfg.telemetry_enabled = true;
         // Use an unroutable IP to simulate a network blackhole / connection block
-        config.stream_url = "http://10.255.255.1:9999".to_string();
+        app_cfg.stream_url = "http://10.255.255.1:9999".to_string();
 
         let start = std::time::Instant::now();
         
         // This will block or fail, and we want to verify it does not take too long
-        let res = send_telemetry_request(&config, "test_timeout".to_string(), json!({})).await;
+        let res = send_telemetry_request(&config, &app_cfg, "test_timeout".to_string(), json!({})).await;
         
         let duration = start.elapsed();
         

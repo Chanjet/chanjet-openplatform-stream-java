@@ -18,6 +18,9 @@ echo -e "${BOLD}1. Setup Shared Storage and Node 1${NC}"
 
 # Define nodes
 export TEST_BASE="${TEST_BASE:-$(pwd)/target/cowen_tests}"
+if [[ "$TEST_BASE" != /* ]]; then
+    export TEST_BASE="$(pwd)/$TEST_BASE"
+fi
 HOME_1="$TEST_BASE/.cowen_test_store_app_node_1"
 HOME_2="$TEST_BASE/.cowen_test_store_app_node_2"
 SHARED_DB="$TEST_BASE/.cowen_test_store_app_shared.db"
@@ -69,6 +72,8 @@ storage:
   db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
+openapi_url: "$MOCK_URL"
+stream_url: "$MOCK_WS"
 telemetry_enabled: false
 ai_enabled: false
 EOF
@@ -94,9 +99,13 @@ storage:
   db_url: "sqlite://$SHARED_DB"
 log:
   level: debug
+openapi_url: "$MOCK_URL"
+stream_url: "$MOCK_WS"
 telemetry_enabled: false
 ai_enabled: false
 EOF
+
+
 
 # Node 2 starts daemon
 "$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 &

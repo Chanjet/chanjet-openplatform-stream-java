@@ -100,11 +100,17 @@ fn setup_auth_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile::Te
     let config = json!({
         "app_key": "test_key",
         "app_mode": mode,
-        "openapi_url": openapi_url,
-        "stream_url": openapi_url,
         "webhook_target": "http://localhost:8080",
         "auto_start": false,
-        "version": 1,
+        "version": 1
+    });
+    fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+
+    let app_config_path = cowen_home.join("app.yaml");
+    let app_config = json!({
+        "openapi_url": openapi_url,
+        "stream_url": openapi_url,
+        "telemetry_enabled": false,
         "log": {
             "level": "info",
             "rotation": "daily",
@@ -112,7 +118,7 @@ fn setup_auth_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile::Te
             "max_files": 7
         }
     });
-    fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+    fs::write(app_config_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
 
     (dir, cowen_home_str)
 }
@@ -123,7 +129,7 @@ async fn test_auth_login_self_built() {
     let openapi_url = format!("http://{}", addr);
     let (dir, home) = setup_auth_env("sb_profile", "self-built", &openapi_url);
     
-    let app_cfg = cowen_common::config::AppConfig::default();
+    let app_cfg = cowen_common::config::AppConfig { openapi_url: openapi_url.clone(), stream_url: openapi_url.clone(), ..Default::default() };
     let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
     
     vault.set_config("sb_profile", "app_key", "test_key").await.unwrap();
@@ -193,7 +199,7 @@ async fn test_auth_login_complex_error_serialization() {
     let openapi_url = format!("http://{}", addr);
     let (dir, home) = setup_auth_env("error_profile", "self-built", &openapi_url);
     
-    let app_cfg = cowen_common::config::AppConfig::default();
+    let app_cfg = cowen_common::config::AppConfig { openapi_url: openapi_url.clone(), stream_url: openapi_url.clone(), ..Default::default() };
     let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
     
     vault.set_config("error_profile", "app_key", "test_key").await.unwrap();
@@ -233,7 +239,7 @@ async fn test_auth_logout_login_sequence() {
     let openapi_url = format!("http://{}", addr);
     let (dir, home) = setup_auth_env("seq_profile", "self-built", &openapi_url);
     
-    let app_cfg = cowen_common::config::AppConfig::default();
+    let app_cfg = cowen_common::config::AppConfig { openapi_url: openapi_url.clone(), stream_url: openapi_url.clone(), ..Default::default() };
     let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
     
     vault.set_config("seq_profile", "app_key", "test_key").await.unwrap();
@@ -287,7 +293,7 @@ async fn test_auth_login_oauth2() {
     let openapi_url = format!("http://{}", addr);
     let (dir, home) = setup_auth_env("oa2_profile", "oauth2", &openapi_url);
     
-    let app_cfg = cowen_common::config::AppConfig::default();
+    let app_cfg = cowen_common::config::AppConfig { openapi_url: openapi_url.clone(), stream_url: openapi_url.clone(), ..Default::default() };
     let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
     
     vault.set_config("oa2_profile", "app_key", "test_key").await.unwrap();
@@ -330,7 +336,7 @@ async fn test_auth_logout() {
     let openapi_url = format!("http://{}", addr);
     let (_dir, home) = setup_auth_env("logout_profile", "self-built", &openapi_url);
     
-    let app_cfg = cowen_common::config::AppConfig::default();
+    let app_cfg = cowen_common::config::AppConfig { openapi_url: openapi_url.clone(), stream_url: openapi_url.clone(), ..Default::default() };
     let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
     
     // 1. Setup active token and ticket

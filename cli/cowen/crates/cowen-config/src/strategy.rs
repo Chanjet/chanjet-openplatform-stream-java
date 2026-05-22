@@ -22,11 +22,20 @@ pub trait ConfigStrategy: Send + Sync {
     }
 }
 
-pub struct GlobalStorageStrategy;
-impl ConfigStrategy for GlobalStorageStrategy {
+pub struct GlobalAppConfigStrategy;
+impl ConfigStrategy for GlobalAppConfigStrategy {
     fn matches(&self, key: &str) -> bool {
-        let global_fields = ["storage.store", "storage.db_url", "storage.cache", "storage.cache_url", "monitor_port"];
-        global_fields.contains(&key) || key.starts_with("storage.")
+        let global_fields = [
+            "monitor_port", 
+            "openapi_url", 
+            "stream_url", 
+            "telemetry_enabled"
+        ];
+        global_fields.contains(&key) || 
+        key.starts_with("storage.") || 
+        key.starts_with("log.") || 
+        key.starts_with("security.") || 
+        key.starts_with("search.")
     }
 
     fn is_global(&self) -> bool {
@@ -37,7 +46,7 @@ impl ConfigStrategy for GlobalStorageStrategy {
 pub struct ProfileLockedStrategy;
 impl ConfigStrategy for ProfileLockedStrategy {
     fn matches(&self, key: &str) -> bool {
-        let locked_fields = ["openapi_url", "stream_url", "app_key", "app_mode"];
+        let locked_fields = ["app_key", "app_mode"];
         locked_fields.contains(&key)
     }
 

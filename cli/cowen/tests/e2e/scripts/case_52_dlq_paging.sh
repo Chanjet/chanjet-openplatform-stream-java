@@ -85,7 +85,7 @@ fi
 
 # Verify it's gone from DLQ
 LIST_OUTPUT_P2_AFTER=$("$COWEN_BIN" dlq list --page 2)
-if echo "$LIST_OUTPUT_P2_AFTER" | grep -q "ID: $FIRST_ID_P2"; then
+if echo "$LIST_OUTPUT_P2_AFTER" | grep -q "ID: ${FIRST_ID_P2}\b"; then
     echo -e "${RED}FAILED: Item $FIRST_ID_P2 still in DLQ after retry${NC}"
     exit 1
 fi

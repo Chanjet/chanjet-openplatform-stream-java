@@ -49,9 +49,10 @@ impl OAuth2Provider {
         verifier: &str,
         redirect_uri: &str,
     ) -> CowenResult<cowen_common::models::Token> {
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         let url = format!(
             "{}{}",
-            cfg.openapi_url.trim_end_matches('/'),
+            app_cfg.openapi_url.trim_end_matches('/'),
             obfs!("/oauth2/token")
         );
         let body = serde_json::json!({
@@ -71,9 +72,10 @@ impl OAuth2Provider {
         cfg: &Config,
         refresh_token: &str,
     ) -> CowenResult<cowen_common::models::Token> {
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         let url = format!(
             "{}{}",
-            cfg.openapi_url.trim_end_matches('/'),
+            app_cfg.openapi_url.trim_end_matches('/'),
             obfs!("/oauth2/token")
         );
         let body = serde_json::json!({
@@ -228,23 +230,23 @@ impl OAuth2Provider {
             Ok(t) => Ok(t),
             Err(_) => {
                 // LEGACY FALLBACK: Try to recover from old JSON blob
-                if let Ok(pair_str) = vault.get_config(profile, "oauth2_token_pair").await {
+                match vault.get_config(profile, "oauth2_token_pair").await { Ok(pair_str) => {
                     let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
                     Ok(cowen_common::models::Token {
                         value: pair.refresh_token,
                         expires_at: pair.refresh_expires_at,
                         created_at: pair.created_at,
                     })
-                } else if let Ok(pair_str) = vault.get_secret(profile, "oauth2_token_pair").await {
+                } _ => { match vault.get_secret(profile, "oauth2_token_pair").await { Ok(pair_str) => {
                     let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
                     Ok(cowen_common::models::Token {
                         value: pair.refresh_token,
                         expires_at: pair.refresh_expires_at,
                         created_at: pair.created_at,
                     })
-                } else {
+                } _ => {
                     Err(CowenError::Auth(format!("OAuth2 session missing or expired for profile '{}'. Please run 'owenc auth login'.", profile)))
-                }
+                }}}}
             }
         }
     }
@@ -380,6 +382,7 @@ impl AuthProvider for OAuth2Provider {
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
+        let _app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         // 1. Fast path: check current memory/local cache
         if let Ok(token) = self.pool.get_access_token(profile).await {
             if !token.is_expired() {
@@ -450,6 +453,7 @@ impl AuthProvider for OAuth2Provider {
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
+        let _app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         let rt = self.get_refresh_token_with_fallback(profile).await?;
         self.refresh_token(profile, cfg, &rt.value).await
     }
@@ -520,12 +524,7 @@ impl AuthProvider for OAuth2Provider {
         config.app_key = crate::models::BUILTIN_CLIENT_ID.to_string();
         config.app_secret = "".to_string();
 
-        if let Some(url) = params.openapi_url {
-            config.openapi_url = url;
-        }
-        if let Some(url) = params.stream_url {
-            config.stream_url = url;
-        }
+
         if let Some(target) = params.webhook_target {
             config.webhook_target = target;
         }

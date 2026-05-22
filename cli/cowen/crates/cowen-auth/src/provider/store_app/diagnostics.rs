@@ -107,7 +107,7 @@ pub(crate) async fn get_diagnostics_entries(
     }
 
     // 3. AppTicket (Global)
-    if let Ok(ticket) = vault.get_app_ticket(&config.app_key).await {
+    match vault.get_app_ticket(&config.app_key).await { Ok(ticket) => {
         let created_at = ticket.created_at;
         entries.push(StatusEntry::new(
             StoreAppTemplate::AppTicket,
@@ -117,13 +117,13 @@ pub(crate) async fn get_diagnostics_entries(
                 created_at.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S")
             ),
         ));
-    } else {
+    } _ => {
         entries.push(StatusEntry::new(
             StoreAppTemplate::AppTicket,
             StatusLevel::NONE,
             "[NONE] (等待 Daemon 接收推送)".to_string(),
         ));
-    }
+    }}
 
     Ok(entries)
 }

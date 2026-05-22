@@ -104,14 +104,6 @@ async fn handle_proxy(
     // 0. Extract Parts
     let (parts, body) = req.into_parts();
     
-    let base_url = state.config.openapi_url.trim_end_matches('/');
-    let req_path_and_query = parts.uri.path_and_query().map(|x| x.as_str()).unwrap_or("/");
-    let target_url = format!("{}{}", base_url, if req_path_and_query.starts_with('/') { req_path_and_query.to_string() } else { format!("/{}", req_path_and_query) });
-    
-    tracing::info!(target: "audit", profile = %state.profile, "Proxying {} request to: {}", parts.method, target_url);
-
-    let req_path = parts.uri.path().to_string();
-
     // Helper for CORS-enabled error responses
     let cors_error = |status: axum::http::StatusCode, msg: String| {
         axum::response::Response::builder()
@@ -120,6 +112,23 @@ async fn handle_proxy(
             .body(axum::body::Body::from(msg))
             .unwrap()
     };
+
+    let app_cfg = match cowen_config::ConfigManager::new() {
+        Ok(mgr) => match mgr.load_app_config().await {
+            Ok(cfg) => cfg,
+            Err(e) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        },
+        Err(e) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+
+    let base_url = app_cfg.openapi_url.trim_end_matches('/');
+    let req_path_and_query = parts.uri.path_and_query().map(|x| x.as_str()).unwrap_or("/");
+    let target_url = format!("{}{}", base_url, if req_path_and_query.starts_with('/') { req_path_and_query.to_string() } else { format!("/{}", req_path_and_query) });
+    
+    tracing::info!(target: "audit", profile = %state.profile, "Proxying {} request to: {}", parts.method, target_url);
+
+    let req_path = parts.uri.path().to_string();
+
 
     // 1. Resolve Auth directly reusing the shared Vault O(1)
     let auth_cli = cowen_auth::create_auth_client_with_vault(state.vault.clone());
@@ -258,8 +267,8 @@ mod tests {
         let mut config = Config::default_with_profile("test_profile");
         config.app_key = "test_key".to_string();
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
-        config.openapi_url = format!("http://{}", mock_addr);
-        config.stream_url = format!("http://{}", mock_addr);
+        std::env::set_var("COWEN_OPENAPI_URL", format!("http://{}", mock_addr));
+        std::env::set_var("COWEN_STREAM_URL", format!("http://{}", mock_addr));
         config.webhook_target = "http://localhost:8080".to_string();
 
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();

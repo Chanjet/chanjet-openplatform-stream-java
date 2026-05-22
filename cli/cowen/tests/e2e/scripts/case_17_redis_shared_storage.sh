@@ -108,6 +108,8 @@ storage:
   db_url: "$REDIS_URL"
 log:
   level: debug
+openapi_url: "$MOCK_URL"
+stream_url: "$MOCK_WS"
 telemetry_enabled: false
 ai_enabled: false
 EOF

@@ -86,7 +86,7 @@ pub struct InitContext {
 pub async fn execute(
     profile: &str,
     cfg_mgr: &ConfigManager,
-    _app_config: &mut cowen_common::AppConfig,
+    app_config: &mut cowen_common::AppConfig,
     vault: Arc<dyn Vault>,
     ctx: InitContext,
     daemon_svc: Option<Arc<dyn cowen_common::daemon::DaemonService>>,
@@ -157,12 +157,25 @@ pub async fn execute(
         certificate: resolved_ctx.certificate,
         encrypt_key: resolved_ctx.encrypt_key,
         webhook_target: resolved_ctx.webhook_target,
-        openapi_url: resolved_ctx.openapi_url,
-        stream_url: resolved_ctx.stream_url,
+        openapi_url: resolved_ctx.openapi_url.clone(),
+        stream_url: resolved_ctx.stream_url.clone(),
         proxy_port: resolved_ctx.proxy_port,
         auto_start: resolved_ctx.auto_start,
         is_new,
     };
+
+    let mut app_config_changed = false;
+    if let Some(url) = &resolved_ctx.openapi_url {
+        app_config.openapi_url = url.clone();
+        app_config_changed = true;
+    }
+    if let Some(url) = &resolved_ctx.stream_url {
+        app_config.stream_url = url.clone();
+        app_config_changed = true;
+    }
+    if app_config_changed {
+        let _ = cfg_mgr.save_app_config(app_config).await;
+    }
 
     if let Err(e) = provider.initialize(profile, &mut config, vault.clone(), cfg_mgr, params, daemon_svc).await {
         eprintln!("❌ Initialization failed: {}", e);

@@ -65,8 +65,12 @@ pkill -9 cowen-daemon >/dev/null 2>&1 || true
 echo -e "${BLUE}🧹 Cleaning up previous test artifacts in $TEST_BASE...${NC}"
 rm -rf "$TEST_BASE"
 mkdir -p "$RESULTS_DIR/tmp_scripts"
+cp tests/e2e/scripts/common.sh "$RESULTS_DIR/tmp_scripts/"
+cp tests/e2e/scripts/verify-binary.sh "$RESULTS_DIR/tmp_scripts/" 2>/dev/null || true
+
 
 echo -n "  Building cowen binary (release)..."
+export COWEN_BUILD_CLIENT_ID="dummy-parallel-client-id"
 BUILD_ARGS="--release"
 BINARY_PATH="target/release/cowen"
 if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
@@ -120,6 +124,7 @@ EOF
     export TEST_BASE="$workspace"
     export COWEN_HOME="$workspace"
     export MOCK_PORT=$mock_port
+    export COWEN_PORT_RANGE_START=$((mock_port + 10))
     
     bash "$suite" > "$log_file" 2>&1
     

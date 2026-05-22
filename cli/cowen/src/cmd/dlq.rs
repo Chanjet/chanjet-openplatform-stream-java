@@ -45,7 +45,9 @@ pub async fn retry(profile: &str, config: &Config, id: String, vault: Arc<dyn co
     let dlq_store = DlqStore::new(profile, vault).map_err(|e| anyhow::anyhow!(e))?;
     let entry_id = id.parse::<i64>().map_err(|_| anyhow::anyhow!("Invalid DLQ entry ID"))?;
     
-    let forwarder = cowen_server::daemon::forwarder::Forwarder::new(profile, config.clone(), dlq_store.vault().clone())
+    let app_cfg = cowen_config::ConfigManager::new().map_err(|e| anyhow::anyhow!(e))?.load_app_config().await.map_err(|e| anyhow::anyhow!(e))?;
+    
+    let forwarder = cowen_server::daemon::forwarder::Forwarder::new(profile, config.clone(), &app_cfg, dlq_store.vault().clone())
         .map_err(|e| anyhow::anyhow!("Failed to initialize forwarder: {}", e))?;
     
     println!("🔄 Retrying DLQ message {}...", id);

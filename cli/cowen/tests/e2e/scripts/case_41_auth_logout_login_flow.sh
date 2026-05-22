@@ -54,8 +54,25 @@ echo -e " ${GREEN}[FOUND]${NC}"
 REDIRECT_PORT=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['redirect_port'])")
 STATE=$(echo "$SESSION_JSON" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d['state'])")
 
-# Callback
-curl -s "http://127.0.0.1:${REDIRECT_PORT}/callback?code=mock_code&state=${STATE}" > /dev/null
+# Wait/Retry Callback to avoid port binding race condition
+echo -n "   Simulating browser callback to port ${REDIRECT_PORT}..."
+MAX_RETRIES=20
+SUCCESS=0
+for i in $(seq 1 $MAX_RETRIES); do
+    if curl -s -f "http://127.0.0.1:${REDIRECT_PORT}/callback?code=mock_code&state=${STATE}" > /dev/null; then
+        SUCCESS=1
+        break
+    fi
+    echo -n "."
+    sleep 0.5
+done
+
+if [ $SUCCESS -eq 0 ]; then
+    echo -e " ${RED}[FAILED]${NC} - Redirect port ${REDIRECT_PORT} unreachable after $MAX_RETRIES attempts"
+    kill "$INIT_PID" 2>/dev/null
+    exit 1
+fi
+echo -e " ${GREEN}[OK]${NC}"
 wait "$INIT_PID"
 
 # Verify initial login success

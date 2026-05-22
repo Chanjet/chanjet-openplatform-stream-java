@@ -263,7 +263,7 @@ async fn run_profile_worker(
     let auth = cowen_auth::create_auth_client(Arc::new(cowen_auth::VaultTokenPool::new(vault.clone())));
     let _ = auth.provider(&config.app_mode).hydrate_config(profile, &mut config, vault.clone()).await;
 
-    let _forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), vault.clone())?);
+    let _forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), &app_cfg, vault.clone())?);
     
     let shutdown_gate = crate::utils::shutdown::ShutdownGate::new();
 

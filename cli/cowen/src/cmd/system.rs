@@ -163,11 +163,11 @@ pub async fn config(profile: &str, cfg_mgr: &ConfigManager, format: &str) -> Res
         println!("----------------------------------");
         println!("AppKey:        {}", report.profile.app_key);
         println!("AppMode:       {:?}", report.profile.app_mode);
-        println!("OpenAPI URL:   {}", report.profile.openapi_url);
-        println!("Stream URL:    {}", report.profile.stream_url);
+        println!("OpenAPI URL:   {}", report.global.openapi_url);
+        println!("Stream URL:    {}", report.global.stream_url);
         println!("Webhook:       {}", report.profile.webhook_target);
         println!("Proxy Port:    {}", report.profile.proxy_port);
-        println!("Log Level:     {}", report.profile.log.level);
+        println!("Log Level:     {}", report.global.log.level);
         println!();
     }
 
@@ -252,8 +252,8 @@ impl StatusCollector for ConfigCollector {
         let mut details = vec![];
         details.push(format!("Build ID:   {}", cowen_common::BUILD_ID));
         details.push(format!("Build Time: {}", cowen_common::BUILD_TIME));
-        details.push(format!("OpenAPI:    {}", ctx.config.openapi_url));
-        details.push(format!("Stream:     {}", ctx.config.stream_url));
+        details.push(format!("OpenAPI:    {}", ctx.app_config.openapi_url));
+        details.push(format!("Stream:     {}", ctx.app_config.stream_url));
 
         let ak_level = if ctx.config.app_key.trim().is_empty() {
             StatusLevel::ERROR
@@ -329,30 +329,31 @@ impl StatusCollector for ProviderCollector {
 
 pub async fn reset(
     profile: &str,
-    vault: Option<&dyn Vault>,
-    cfg_mgr: &ConfigManager,
+    _vault: Option<&dyn Vault>,
+    _cfg_mgr: &ConfigManager,
     event_bus: Option<&cowen_common::events::EventBus>,
+    dry_run: bool,
 ) -> Result<()> {
-    if let Some(v) = vault {
-        v.clear_profile(profile)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-    }
-    cfg_mgr
-        .delete(profile)
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
+    use cowen_common::reset::ResetEngine;
+    use cowen_config::reset::ConfigResetTask;
+    use cowen_monitor::reset::TelemetryResetTask;
+    
+    let app_dir = cowen_common::config::get_app_dir();
+    
+    let engine = ResetEngine::new()
+        .with(Box::new(ConfigResetTask::new(app_dir.clone())))
+        .with(Box::new(TelemetryResetTask::new(app_dir.clone())));
 
-    if let Some(bus) = event_bus {
-        bus.publish(cowen_common::events::GlobalEvent::ProfileDeleted {
-            name: profile.to_string(),
-        });
+    engine.run(dry_run).await?;
+
+    if !dry_run {
+        if let Some(bus) = event_bus {
+            bus.publish(cowen_common::events::GlobalEvent::ProfileDeleted {
+                name: profile.to_string(),
+            });
+        }
     }
 
-    println!(
-        "✅ Profile '{}' and all associated data have been physically removed.",
-        profile
-    );
     Ok(())
 }
 

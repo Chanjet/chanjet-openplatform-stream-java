@@ -2,7 +2,7 @@
 members = [
     ".",
     "crates/*"
-]
+, "target/parse_test"]
 
 [package]
 name = "cowen"

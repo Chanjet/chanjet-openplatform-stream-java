@@ -103,6 +103,8 @@ storage:
   db_url: "sqlite://$(pwd)/$SHARED_DB"
 log:
   level: debug
+openapi_url: "$MOCK_URL"
+stream_url: "$MOCK_WS"
 telemetry_enabled: false
 ai_enabled: false
 EOF

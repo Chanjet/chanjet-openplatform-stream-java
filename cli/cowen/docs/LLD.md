@@ -213,5 +213,22 @@ pub fn get_uds_path() -> PathBuf {
 
 ## 7. LLD 执行边界
 
-*   **命名规范**: 环境变量前缀严格遵循 `COWEN_BUILD_*` 和 `COWEN_GLOBAL_*`。
+*   **命名规范**: 环境变量前缀严格遵循 `COWEN_BUILD_*` 和 `COWEN_*`。
 *   **重置清理**: Vault 模块的 `reset` 必须包含彻底擦除存储介质的操作。
+
+---
+
+## 8. 实施可行性与 E2E 影响评估 (Feasibility & E2E Impact)
+
+### 8.1 实施可行性 (Code Feasibility)
+基于现有代码架构走查，本设计方案具有 100% 的落地可行性：
+1. **配置隔离**：将 `openapi_url` 等全局字段移至 `AppConfig` 并利用 Serde 处理反序列化在现有 `cowen-common` 架构中完全可行。
+2. **参数注入**：`config.rs` 中已存在 `BUILTIN_CLIENT_ID` 等硬编码 TODO 标记。引入 `build.rs` 捕获必需的 `COWEN_BUILD_*` 环境变量并替换为 `env!()` 宏调用，是标准且可行的 Rust 工程实践。
+3. **OCP 模块化重置**：利用 Rust `async-trait` 结合 `inventory` 宏进行静态注册，可优雅地实现阶段性 `dry_run` 与真实的 `reset` 逻辑，消除过程化清理的弊端。
+
+### 8.2 E2E 测试影响与变更策略 (E2E Test Impact)
+由于本次升级包含 **Breaking Changes**，将对现有的 E2E 体系产生以下显著影响，并授权进行如下调整：
+1. **测试脚本环境变量兼容**：为了保证向下兼容性并减少 E2E 脚本的破坏性修改，代码层面将完全保留对 `COWEN_OPENAPI_URL` 和 `COWEN_STREAM_URL` 等遗留环境变量的支持，将它们自动映射到全局配置上。这使得现有自动化脚本**无需**进行全局替换。
+2. **Fixtures 环境净化**：必须从 `tests/infra/fixtures/`（如 `self-built.yaml`, `store-app.yaml`）中彻底剥离 `openapi_url` 等全局基础设施配置。这些测试所需的全局参数将统一由 `common.sh` 中的 `setup_workspace` 函数生成至孤立的 `app.yaml`。
+3. **构建强制校验适配**：由于 `build.rs` 引入了对 `COWEN_BUILD_CLIENT_ID` 等变量的强依赖（缺失即 `panic!`），必须在测试构建脚手架 (如 Makefile 或 CI 脚本) 中默认注入用于测试的 Dummy 变量。
+4. **Dry Run 断言增加**：需补充针对 `cowen reset --dry-run` 的回归测试用例，断言该命令不仅输出资源清单，且必须确保没有任何物理文件或数据库记录被意外清除。

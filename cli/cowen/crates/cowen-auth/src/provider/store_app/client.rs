@@ -15,7 +15,8 @@ pub(crate) async fn refresh_token(
     cfg: &Config,
     refresh_token: &str,
 ) -> CowenResult<cowen_common::models::Token> {
-    let url = format!("{}/oauth2/token", cfg.openapi_url.trim_end_matches('/'));
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+    let url = format!("{}/oauth2/token", app_cfg.openapi_url.trim_end_matches('/'));
     let body = serde_json::json!({
         "grant_type": "refresh_token",
         "client_id": cfg.app_key.trim(),
@@ -33,7 +34,8 @@ pub(crate) async fn intercept_exchange(
     cfg: &Config,
     body_bytes: &[u8],
 ) -> CowenResult<serde_json::Value> {
-    let url = format!("{}/oauth2/token", cfg.openapi_url.trim_end_matches('/'));
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+    let url = format!("{}/oauth2/token", app_cfg.openapi_url.trim_end_matches('/'));
 
     // Parse incoming URL-encoded body
     let mut params: std::collections::HashMap<String, String> =
@@ -159,6 +161,7 @@ pub(crate) async fn get_app_access_token(
     _profile: &str,
     cfg: &Config,
 ) -> CowenResult<cowen_common::models::Token> {
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
     // 1. 优先尝试从持久化池中获取
     if let Ok(token) = pool.as_vault().get_app_access_token(&cfg.app_key).await {
         // 如果没过期（留出 5 分钟缓冲），直接返回
@@ -182,7 +185,7 @@ pub(crate) async fn get_app_access_token(
                         tracing::info!(target: "sys", app_key = %cfg.app_key, "AppTicket missing for StoreApp. Proactively triggering a platform push...");
                         let url = format!(
                             "{}/auth/appTicket/resend",
-                            cfg.openapi_url.trim_end_matches('/')
+                            app_cfg.openapi_url.trim_end_matches('/')
                         );
                         let mut headers = reqwest::header::HeaderMap::new();
                         headers.insert("appKey", cfg.app_key.trim().parse()?);
@@ -206,7 +209,7 @@ pub(crate) async fn get_app_access_token(
 
         let url = format!(
             "{}/auth/appAuth/getAppAccessToken",
-            cfg.openapi_url.trim_end_matches('/')
+            app_cfg.openapi_url.trim_end_matches('/')
         );
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("appKey", cfg.app_key.trim().parse()?);
@@ -270,12 +273,13 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
     cfg: &Config,
     temp_auth_code: &str,
 ) -> CowenResult<String> {
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
     let app_at = get_app_access_token(pool, http_sender, profile, cfg)
         .await?
         .value;
     let url = format!(
         "{}/auth/orgAuth/getPermanentAuthCode",
-        cfg.openapi_url.trim_end_matches('/')
+        app_cfg.openapi_url.trim_end_matches('/')
     );
 
     let mut headers = reqwest::header::HeaderMap::new();
@@ -334,12 +338,13 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
     org_id: &str,
     permanent_code: &str,
 ) -> CowenResult<cowen_common::models::Token> {
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
     let app_at = get_app_access_token(pool, http_sender, profile, cfg)
         .await?
         .value;
     let url = format!(
         "{}/auth/orgAuth/getOrgAccessToken",
-        cfg.openapi_url.trim_end_matches('/')
+        app_cfg.openapi_url.trim_end_matches('/')
     );
 
     let mut headers = reqwest::header::HeaderMap::new();
@@ -404,12 +409,13 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
     user_id: &str,
     permanent_code: &str,
 ) -> CowenResult<cowen_common::models::Token> {
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
     let app_at = get_app_access_token(pool, http_sender, profile, cfg)
         .await?
         .value;
     let url = format!(
         "{}/auth/userAuth/getUserAccessToken",
-        cfg.openapi_url.trim_end_matches('/')
+        app_cfg.openapi_url.trim_end_matches('/')
     );
 
     let mut headers = reqwest::header::HeaderMap::new();

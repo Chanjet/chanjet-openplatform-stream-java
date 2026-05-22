@@ -5,7 +5,7 @@ use tempfile::tempdir;
 #[tokio::test]
 async fn test_file_store_basic_crud() {
     let tmp = tempdir().unwrap();
-    let store = FileStore::new(tmp.path(), "fingerprint").unwrap();
+    let store = FileStore::new(tmp.path(), Some("fingerprint")).unwrap();
     
     // Config
     store.set_config("test_profile", "key1", "val1").await.unwrap();
@@ -22,7 +22,7 @@ async fn test_file_store_basic_crud() {
 #[tokio::test]
 async fn test_file_store_secret() {
     let tmp = tempdir().unwrap();
-    let store = FileStore::new(tmp.path(), "fingerprint").unwrap();
+    let store = FileStore::new(tmp.path(), Some("fingerprint")).unwrap();
     
     store.set_secret("p1", "s1", "v1").await.unwrap();
     assert_eq!(store.get_secret("p1", "s1").await.unwrap(), "v1");
@@ -31,7 +31,7 @@ async fn test_file_store_secret() {
 #[tokio::test]
 async fn test_file_store_profiles() {
     let tmp = tempdir().unwrap();
-    let store = FileStore::new(tmp.path(), "fingerprint").unwrap();
+    let store = FileStore::new(tmp.path(), Some("fingerprint")).unwrap();
     
     store.set_config("p1", "k1", "v1").await.unwrap();
     store.set_config("p2", "k2", "v2").await.unwrap();

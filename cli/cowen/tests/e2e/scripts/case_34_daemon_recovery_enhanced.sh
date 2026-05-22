@@ -129,7 +129,7 @@ check_crash_log_clean "sb" "after_recovery"
 
 # --- Cleanup Part 1 before Part 2 ---
 echo -e "\n   Stopping Part 1 daemon before Part 2..."
-"$COWEN_BIN" daemon stop --profile sb >/dev/null 2>&1 || kill -9 "$PID_SB2" 2>/dev/null || true
+kill -9 "$PID_SB2" 2>/dev/null || true
 # Poll until Part 1 daemon is fully gone before proceeding
 wait_for_process_gone "$PID_SB2" 10 || true
 

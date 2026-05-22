@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-//TODO 这里有一个bug BUILTIN_CLIENT_ID没有从构建时传入 BUILTIN_CLIENT_ID，DEF_MARKET_URL
-//TODO 需要检查代码里是否还有其他在代码中写死的默认值，这是不允许的必须通过构建脚本传递 build.rs 或 MAKEFILE
-pub const BUILTIN_CLIENT_ID: &str = "3x45dOtt";
-pub const DEF_MARKET_URL: &str = "https://market.chanjet.com";
+pub const BUILTIN_CLIENT_ID: &str = env!("BUILTIN_CLIENT_ID");
+pub const DEF_MARKET_URL: &str = env!("DEF_MARKET_URL");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppConfig {
@@ -11,6 +9,26 @@ pub struct AppConfig {
     pub storage: StorageConfig,
     #[serde(default = "default_zero")]
     pub monitor_port: u16,
+    #[serde(default)]
+    pub security: SecurityConfig,
+    #[serde(default = "default_log")]
+    pub log: LogConfig,
+    #[serde(default = "default_openapi_url")]
+    pub openapi_url: String,
+    #[serde(default = "default_stream_url")]
+    pub stream_url: String,
+    #[serde(default)]
+    pub search: SearchConfig,
+    #[serde(default = "default_true")]
+    pub telemetry_enabled: bool,
+}
+
+fn default_openapi_url() -> String {
+    env!("DEF_OPENAPI_URL").to_string()
+}
+
+fn default_stream_url() -> String {
+    env!("DEF_STREAM_URL").to_string()
 }
 
 impl Default for AppConfig {
@@ -18,6 +36,26 @@ impl Default for AppConfig {
         Self {
             storage: StorageConfig::default(),
             monitor_port: 0,
+            security: SecurityConfig::default(),
+            log: default_log(),
+            openapi_url: default_openapi_url(),
+            stream_url: default_stream_url(),
+            search: SearchConfig::default(),
+            telemetry_enabled: true,
+        }
+    }
+}
+
+impl AppConfig {
+    pub fn apply_env_overrides(&mut self) {
+        if let Ok(url) = std::env::var("COWEN_OPENAPI_URL") {
+            self.openapi_url = url;
+        }
+        if let Ok(url) = std::env::var("COWEN_STREAM_URL") {
+            self.stream_url = url;
+        }
+        if let Ok(val) = std::env::var("COWEN_TELEMETRY_ENABLED") {
+            self.telemetry_enabled = val == "true" || val == "1";
         }
     }
 }
@@ -72,17 +110,7 @@ pub struct SecurityConfig {
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
     pub app_key: String,
-    pub openapi_url: String,
-    pub stream_url: String,
     pub webhook_target: String,
-    #[serde(default)]
-    pub security: SecurityConfig,
-    #[serde(default = "default_log")]
-    pub log: LogConfig,
-    #[serde(default = "default_true")]
-    pub telemetry_enabled: bool,
-    #[serde(default)]
-    pub search: SearchConfig,
     #[serde(default = "default_zero")]
     pub proxy_port: u16,
     #[serde(default = "default_true")]
@@ -161,18 +189,7 @@ impl Config {
     pub fn default_with_profile(_p: &str) -> Self {
         Self {
             app_key: "".to_string(),
-            openapi_url: "https://openapi.chanjet.com".to_string(),
-            stream_url: "https://stream-open.chanapp.chanjet.com".to_string(),
             webhook_target: "http://localhost:8080".to_string(),
-            security: SecurityConfig::default(),
-            log: LogConfig {
-                level: "info".to_string(),
-                rotation: default_rotation(),
-                max_size_mb: default_max_size(),
-                max_files: default_max_files(),
-            },
-            telemetry_enabled: true,
-            search: SearchConfig::default(),
             proxy_port: 0,
             proxy_enabled: true,
             app_mode: crate::models::AuthMode::Oauth2,
@@ -196,12 +213,6 @@ impl Config {
         }
         if let Ok(target) = std::env::var("COWEN_WEBHOOK_TARGET") {
             self.webhook_target = target;
-        }
-        if let Ok(url) = std::env::var("COWEN_OPENAPI_URL") {
-            self.openapi_url = url;
-        }
-        if let Ok(url) = std::env::var("COWEN_STREAM_URL") {
-            self.stream_url = url;
         }
         if let Ok(port) = std::env::var("COWEN_PROXY_PORT") {
             if let Ok(p) = port.parse::<u16>() {

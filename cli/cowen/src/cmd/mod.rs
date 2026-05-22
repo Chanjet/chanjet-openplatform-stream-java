@@ -1,5 +1,6 @@
 pub mod init;
 pub mod system;
+pub mod version;
 pub mod api;
 pub mod auth;
 pub mod daemon;

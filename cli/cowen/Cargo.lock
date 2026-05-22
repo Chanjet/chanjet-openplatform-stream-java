@@ -927,6 +927,7 @@ name = "cowen-config"
 version = "0.3.3"
 dependencies = [
  "anyhow",
+ "async-trait",
  "cowen-common",
  "cowen-infra",
  "fs2",
@@ -3178,6 +3179,14 @@ dependencies = [
  "redox_syscall 0.5.18",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "parse_test"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_yaml",
 ]
 
 [[package]]

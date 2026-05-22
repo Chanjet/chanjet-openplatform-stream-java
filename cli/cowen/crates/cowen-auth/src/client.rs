@@ -511,11 +511,12 @@ impl Client for AuthClient {
             tracing::info!(target: "sys", "Force refresh requested, bypassing local cache.");
         }
 
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         // 2. Fetch fresh spec from Platform
-        if !cfg.openapi_url.is_empty() {
+        if !app_cfg.openapi_url.is_empty() {
             let mut spec_url = format!(
                 "{}{}",
-                cfg.openapi_url.trim_end_matches('/'),
+                app_cfg.openapi_url.trim_end_matches('/'),
                 obfs!("/v1/common/openapi/spec")
             );
             if let Ok(token) = self
@@ -583,9 +584,10 @@ impl Client for AuthClient {
         let token = self
             .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
             .await?;
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         let base_url = format!(
             "{}{}",
-            cfg.openapi_url.trim_end_matches('/'),
+            app_cfg.openapi_url.trim_end_matches('/'),
             obfs!("/developer/api/apiPermissions/isv/open/getInterfaceList")
         );
 

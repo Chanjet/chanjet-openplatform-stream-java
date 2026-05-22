@@ -15,7 +15,7 @@ setup_workspace "log_level_dynamic"
 echo "1. Verify Default Log Level"
 # Manually create a minimal config to avoid init/auth issues
 mkdir -p "$COWEN_HOME"
-cat <<EOF > "$COWEN_HOME/main.yaml"
+cat <<EOF > "$COWEN_HOME/app.yaml"
 app_key: AK_LOG
 app_mode: oauth2
 openapi_url: http://127.0.0.1:9299
@@ -54,7 +54,7 @@ fi
 
 echo "3. Verify Config Set Persistence"
 # Check the file content directly
-if grep -q "level: debug" "$COWEN_HOME/main.yaml"; then
+if grep -q "level: debug" "$COWEN_HOME/app.yaml"; then
     echo -e "   ${GREEN}✓${NC} 'debug' level persisted to YAML file"
 else
     echo -e "   ${RED}✗${NC} Log level not persisted in YAML file"

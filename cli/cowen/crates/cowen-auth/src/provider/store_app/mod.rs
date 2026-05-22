@@ -413,12 +413,7 @@ impl AuthProvider for StoreAppProvider {
         if let Some(ek) = params.encrypt_key {
             config.encrypt_key = ek;
         }
-        if let Some(url) = params.openapi_url {
-            config.openapi_url = url;
-        }
-        if let Some(url) = params.stream_url {
-            config.stream_url = url;
-        }
+
 
         if config.app_key.trim().is_empty() {
             return Err(CowenError::Config(
@@ -493,9 +488,10 @@ impl AuthProvider for StoreAppProvider {
     }
 
     async fn trigger_push(&self, _profile: &str, config: &Config, _force: bool) -> CowenResult<()> {
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         let url = format!(
             "{}/auth/appTicket/resend",
-            config.openapi_url.trim_end_matches('/')
+            app_cfg.openapi_url.trim_end_matches('/')
         );
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("appKey", config.app_key.trim().parse()?);
@@ -515,30 +511,30 @@ impl AuthProvider for StoreAppProvider {
         let app_key = config.app_key.trim();
         let global_profile = format!("app:{}", app_key);
 
-        if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await {
+        match vault.get_secret(&global_profile, "app_secret").await { Ok(s) => {
             config.app_secret = s;
-        } else if let Ok(s) = vault.get_secret(profile, "app_secret").await {
+        } _ => { match vault.get_secret(profile, "app_secret").await { Ok(s) => {
             config.app_secret = s;
-        }
+        } _ => {}}}}
 
-        if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await {
+        match vault.get_secret(&global_profile, "encrypt_key").await { Ok(ek) => {
             config.encrypt_key = ek;
-        } else if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await {
+        } _ => { match vault.get_secret(profile, "encrypt_key").await { Ok(ek) => {
             config.encrypt_key = ek;
-        }
+        } _ => {}}}}
         Ok(())
     }
 
     async fn requires_initial_push(&self, config: &Config) -> bool {
         // Check if ticket is missing or older than 50 minutes
-        if let Ok(ticket) = self.pool.get_app_ticket(&config.app_key).await {
+        match self.pool.get_app_ticket(&config.app_key).await { Ok(ticket) => {
             let age = chrono::Utc::now()
                 .signed_duration_since(ticket.created_at)
                 .num_minutes();
             age > 50
-        } else {
+        } _ => {
             true
-        }
+        }}
     }
 
     async fn handle_platform_event(

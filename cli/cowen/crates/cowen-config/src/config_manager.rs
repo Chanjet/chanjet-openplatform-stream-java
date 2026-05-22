@@ -10,7 +10,7 @@ use cowen_common::events::event_bus;
 use serde_yaml;
 use cowen_infra::path::get_app_dir;
 
-use crate::strategy::{ConfigStrategy, GlobalStorageStrategy, ProfileLockedStrategy, ProfileDefaultStrategy};
+use crate::strategy::{ConfigStrategy, GlobalAppConfigStrategy, ProfileLockedStrategy, ProfileDefaultStrategy};
 
 pub trait ConfigValidator: Send + Sync {
     fn validate_load(&self, profile: &str, config: &Config, is_distributed: bool, exists: bool) -> CowenResult<()>;
@@ -47,7 +47,7 @@ impl ConfigManager {
         default_interceptors.push(Arc::new(crate::interceptors::UrlInterceptor));
         
         let mut strategies: Vec<Box<dyn ConfigStrategy>> = Vec::new();
-        strategies.push(Box::new(GlobalStorageStrategy));
+        strategies.push(Box::new(GlobalAppConfigStrategy));
         strategies.push(Box::new(ProfileLockedStrategy));
         strategies.push(Box::new(ProfileDefaultStrategy));
 
@@ -73,18 +73,23 @@ impl ConfigManager {
     fn load_app_config_sync(app_dir: &std::path::Path) -> CowenResult<AppConfig> {
         // 🚀 SYNC: Environment variables have highest priority
         if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
-             return Ok(AppConfig { 
+             let mut cfg = AppConfig { 
                  storage: StorageConfig { store: st, db_url: Some(url), ..Default::default() }, 
                  ..Default::default() 
-             });
+             };
+             cfg.apply_env_overrides();
+             return Ok(cfg);
         }
 
         let path = app_dir.join("app.yaml");
-        if !path.exists() {
-            return Ok(AppConfig::default());
-        }
-        let content = fs::read_to_string(path)?;
-        Ok(serde_yaml::from_str(&content)?)
+        let mut config = if !path.exists() {
+            AppConfig::default()
+        } else {
+            let content = fs::read_to_string(path)?;
+            serde_yaml::from_str(&content)?
+        };
+        config.apply_env_overrides();
+        Ok(config)
     }
 
     pub fn subscribe_app_config(&self) -> tokio::sync::watch::Receiver<AppConfig> {
@@ -560,23 +565,20 @@ impl ConfigManager {
     }
 
     pub async fn load_app_config(&self) -> CowenResult<AppConfig> {
-        // 🚀 SYNC: Environment variables have highest priority to ensure multi-node tests can override local files
         if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
-             return Ok(AppConfig { storage: StorageConfig { store: st, db_url: Some(url), ..Default::default() }, ..Default::default() });
+             let mut cfg = AppConfig { storage: StorageConfig { store: st, db_url: Some(url), ..Default::default() }, ..Default::default() };
+             cfg.apply_env_overrides();
+             return Ok(cfg);
         }
 
-        let path = self.app_dir.join("app.yaml");
-        let mut config = if path.exists() {
-            let content = fs::read_to_string(path)?;
-            serde_yaml::from_str(&content)?
+        let app_file = self.app_dir.join("app.yaml");
+        let mut config = if app_file.exists() {
+            let content = tokio::fs::read_to_string(&app_file).await?;
+            serde_yaml::from_str(&content).map_err(|e| CowenError::Config(e.to_string()))?
         } else {
             AppConfig::default()
         };
-
-        if let Ok(store) = std::env::var("COWEN_STORE_TYPE") { config.storage.store = store; }
-        if let Ok(db_url) = std::env::var("COWEN_DB_URL") { config.storage.db_url = Some(db_url); }
-        if let Ok(cache) = std::env::var("COWEN_CACHE_TYPE") { config.storage.cache = cache; }
-        if let Ok(cache_url) = std::env::var("COWEN_CACHE_URL") { config.storage.cache_url = Some(cache_url); }
+        config.apply_env_overrides();
 
         Ok(config)
     }

@@ -22,16 +22,17 @@ pub async fn run(
     cancel_token: CancellationToken,
     shutdown_gate: ShutdownGate,
 ) -> Result<()> {
+    let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
     let opts = connector_sdk::ClientOptions {
         app_key: config.app_key.clone(),
         app_secret: config.app_secret.clone(),
-        gateway_url: config.openapi_url.clone(),
+        gateway_url: app_cfg.openapi_url.clone(),
         exclusive: config.exclusive.unwrap_or(false),
         ..Default::default()
     };
     let client = connector_sdk::GatewayClient::new(opts);
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
-    let forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), vault.clone())?);
+    let forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), &app_cfg, vault.clone())?);
 
     let supports_webhooks = !config.webhook_target.is_empty();
 

@@ -95,7 +95,11 @@ pub enum Commands {
         action: Option<ConfigCommands>,
     },
     /// 重置当前环境的配置状态
-    Reset,
+    Reset {
+        /// Dry run: 列出将要删除的文件，但不实际删除
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// 生成或自动安装命令行自动补全脚本 (Bash, Zsh, Fish)
     Completion {
         /// 指定 Shell 类型: bash, zsh, fish
@@ -150,6 +154,12 @@ pub enum Commands {
     System {
         #[command(subcommand)]
         action: SystemCommands,
+    },
+    /// 获取当前 CLI 构建版本信息
+    #[command(name = "version")]
+    Version {
+        #[arg(short = 'o', long, default_value = "text", help = "输出格式 (text, json)")]
+        format: String,
     },
 }
 
@@ -452,7 +462,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Ok(cfg) => cfg,
         Err(e) if e.to_string().contains("SKIPPED:") => return Err(anyhow::anyhow!(e)),
         Err(e) => {
-            let is_lifecycle_cmd = matches!(&cli.command, Commands::Reset | Commands::Init { .. } | Commands::Profile { .. });
+            let is_lifecycle_cmd = matches!(&cli.command, Commands::Reset { .. } | Commands::Init { .. } | Commands::Profile { .. });
             if cfg_mgr.exists(&active_profile).await && !is_lifecycle_cmd {
                 return Err(anyhow::anyhow!("Failed to load existing profile '{}': {}. Try 'cowen reset -p {}' if the config is corrupted.", active_profile, e, active_profile));
             }
@@ -462,10 +472,12 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     config.apply_env_overrides();
 
-    if cli.no_telemetry { config.telemetry_enabled = false; }
+    let mut app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+    
+    if cli.no_telemetry { app_cfg.telemetry_enabled = false; }
 
     let (vault_tx, vault_rx) = tokio::sync::watch::channel(None);
-    let telemetry_control = match core::telemetry::init_telemetry(log_dir, &active_profile, &config.log, vault_rx) {
+    let telemetry_control = match core::telemetry::init_telemetry(log_dir, &active_profile, &app_cfg.log, vault_rx) {
         Ok(control) => Some(Arc::new(control)),
         Err(e) => {
             eprintln!("⚠️ Warning: Telemetry system failed to initialize: {}. Continuing without structured logging.", e);
@@ -483,7 +495,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Init { .. } => "init",
         Commands::Status { .. } => "status",
         Commands::Config { .. } => "config",
-        Commands::Reset => "reset",
+        Commands::Reset { .. } => "reset",
         Commands::Completion { .. } => "completion",
         Commands::Profile { .. } => "profile",
         Commands::Dlq { .. } => "dlq",
@@ -492,8 +504,14 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Doctor { .. } => "doctor",
         Commands::Events(..) => "events",
         Commands::System { .. } => "system",
+        Commands::Version { .. } => "version",
     };
-    core::telemetry::report_event(&config, "command_run".to_string(), serde_json::json!({ "cmd": cmd_name }));
+    core::telemetry::report_event(&config, &app_config, "command_run".to_string(), serde_json::json!({ "cmd": cmd_name }));
+
+    if let Commands::Version { format } = &cli.command {
+        cmd::version::run(format).await?;
+        return Ok(());
+    }
 
     if let Commands::Store { action } = &cli.command {
         match action {
@@ -689,7 +707,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
             None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format).await?,
         },
-        Commands::Reset => cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus())).await?,
+        Commands::Reset { dry_run } => cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus()), *dry_run).await?,
         Commands::Completion { shell, install, uninstall } => {
             if *uninstall { cmd::completion::uninstall_completion()?; }
             else if *install { cmd::completion::install_completion(*shell)?; }
@@ -723,6 +741,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             LogCommands::View { domain, follow, lines } => cmd::log::view(&active_profile, domain, *follow, *lines, vault.clone()).await?,
         }
         Commands::Store { .. } => unreachable!(),
+        Commands::Version { .. } => unreachable!(),
     }
     Ok(())
 }

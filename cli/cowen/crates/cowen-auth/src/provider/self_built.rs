@@ -100,9 +100,10 @@ impl SelfBuiltProvider {
             }
 
             // 1. Build Request
+            let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
             let url = format!(
                 "{}{}",
-                cfg.openapi_url.trim_end_matches('/'),
+                app_cfg.openapi_url.trim_end_matches('/'),
                 obfs!("/v1/common/auth/selfBuiltApp/generateToken")
             );
             let mut headers = HeaderMap::new();
@@ -281,9 +282,10 @@ impl SelfBuiltProvider {
             .set_token(profile, &lock_key, &new_expire_ts.to_string(), 15)
             .await;
 
+        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         let url = format!(
             "{}{}",
-            cfg.openapi_url.trim_end_matches('/'),
+            app_cfg.openapi_url.trim_end_matches('/'),
             obfs!("/auth/appTicket/resend")
         );
         let mut headers = HeaderMap::new();
@@ -406,6 +408,7 @@ impl AuthProvider for SelfBuiltProvider {
         config: &Config,
         _headers: &HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
+        let _app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
         tracing::info!(target: "sys", profile = %profile, app_key = %config.app_key, "Attempting to retrieve token");
         // 1. Try Cache
         match self.pool.get_app_access_token(&config.app_key).await {
@@ -473,12 +476,7 @@ impl AuthProvider for SelfBuiltProvider {
         if let Some(wt) = params.webhook_target {
             config.webhook_target = wt;
         }
-        if let Some(ou) = params.openapi_url {
-            config.openapi_url = ou;
-        }
-        if let Some(su) = params.stream_url {
-            config.stream_url = su;
-        }
+
         if let Some(pp) = params.proxy_port {
             config.proxy_port = pp;
         }
@@ -544,14 +542,14 @@ impl AuthProvider for SelfBuiltProvider {
 
     async fn requires_initial_push(&self, _cfg: &Config) -> bool {
         // Check if ticket is missing or older than 50 minutes
-        if let Ok(ticket) = self.pool.as_vault().get_app_ticket(&_cfg.app_key).await {
+        match self.pool.as_vault().get_app_ticket(&_cfg.app_key).await { Ok(ticket) => {
             let age = chrono::Utc::now()
                 .signed_duration_since(ticket.created_at)
                 .num_minutes();
             age > 50
-        } else {
+        } _ => {
             true
-        }
+        }}
     }
 
     async fn handle_platform_event(

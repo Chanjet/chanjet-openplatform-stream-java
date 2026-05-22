@@ -13,11 +13,11 @@ pub struct Forwarder {
 }
 
 impl Forwarder {
-    pub fn new(profile: &str, config: cowen_common::config::Config, vault: Arc<dyn cowen_common::vault::Vault>) -> CowenResult<Self> {
+    pub fn new(profile: &str, config: cowen_common::config::Config, app_cfg: &cowen_common::config::AppConfig, vault: Arc<dyn cowen_common::vault::Vault>) -> CowenResult<Self> {
         cowen_common::security::ssrf::validate_ssrf(
             &config.webhook_target,
-            &config.security.level,
-            &config.security.allow_cidr,
+            &app_cfg.security.level,
+            &app_cfg.security.allow_cidr,
         )?;
 
         let client = Client::builder()
