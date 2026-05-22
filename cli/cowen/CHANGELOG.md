@@ -4,6 +4,51 @@
 
 ---
 
+## [0.3.5] - 2026-05-22
+
+### 🚀 新特性 (Features)
+- **全局配置分层重构与彻底隔离 (Global Config Migration)**:
+  - **分层寻址**: 成功将 `security`、`log`、`openapi_url`、`stream_url` 和 `search` 等公共基础设施配置移入全局 `app.yaml`。敏感业务数据（如 `app_secret`、`encrypt_key`）依然物理隔离在各自的 Profile 层。
+  - **强制隔离边界**: Profile 加载器强制执行隔离校验，在 Profile 中严禁定义任何已被上移至全局的配置项，从根本上杜绝了多环境的合并冲突。
+  - **平滑无感迁移**: 首次启动时自动静默触发平滑迁移，以当前激活的 Current Profile 配置为基准自动合并至全局 `app.yaml`，并物理清除各 Profile 中的冗余字段。
+- **编译参数注入与强校验拦截 (Build-time Injection)**:
+  - 移除了代码中硬编码的 `BUILTIN_CLIENT_ID` 等默认值。通过 `build.rs` 捕获环境变量并在编译期使用 `env!()` 固化。
+  - 引入强校验机制，若未在 Makefile / 编译命令行中提供必需的 `COWEN_BUILD_*` 环境变量，编译将直接触发 `panic!` 报错退出。
+  - 注入的编译元数据支持在 `cowen version --debug` 命令中统一公开展示，以提升运维诊断透明度。
+- **插件化系统重置与 Dry Run (OCP Modular Reset)**:
+  - 定义了 `Resettable` Trait 并结合 `inventory` 静态注册收集器（OCP），将 `reset` 命令重构为通用的两相调度器，新增任何状态化存储组件均可自动被收集参与重置。
+  - 支持 `--dry-run` 参数，可在执行正式擦除前安全地在控制台展示拟删除的物理文件、数据库表清单而不产生任何副作用。
+- **IPC / UDS 路径防溢出 (IPC Path Robustness)**:
+  - 针对自定义长工作区路径导致的操作系统 UDS 长度超限限制，引入 SHA-256 唯一哈希缩短机制，自动将套接字文件安全映射到 `/tmp/cowen_<HASH>.sock`，解决极端环境下的 IPC 绑定失败问题。
+
+### 🔧 改进与修复 (Improvements & Fixes)
+- **E2E 失败断言优雅标准化**: 将 52 个测试脚本中的 152 处非标准 inline `exit 1` 统一升级为规范的 `fail_suite` 标准断言 API，消除了测试控制流中的冗余与偶发性挂起，大幅度提高了 E2E 跑测的表达力。
+
+---
+
+## [0.3.3] - 2026-05-21
+
+### 🚀 新特性 (Features)
+- **Worker 生命周期状态机 (Worker State Machine)**: 
+  - 引入了 `ProfileWorker` 手写异步状态机，收拢控制流生命周期状态。
+  - 配套实现了基于指数退避算法的重试（最大退避 60s）和熔断机制（5 分钟内失败超 5 次则熔断）。处于 `Failed` 熔断状态的进程必须使用手写指令显式 `cowen daemon restart` 恢复，避免了后台无效自启震荡引发的 CPU/IO 爆仓。
+- **配置下标自治与物理坍缩 (Enhanced Config Engine)**:
+  - 实现了 `array.key:value.field` 的键值寻址及即时绑定机制。
+  - 支持在 `unset` 元素后对索引进行自动物理坍缩重排，向用户彻底屏蔽了数组下标的管理复杂度。
+- **存储层物理标准化与平滑迁移 (Storage Migration)**:
+  - 规范存储目录拓扑为 `vault/{profile}/{prefix}/{id}.json`，开机自启静默迁移 v2 数据资产，并提供孤儿文件 GC 检测接口。
+
+---
+
+## [0.3.2] - 2026-05-21
+
+### 🚀 新特性 (Features)
+- **优雅关机与单守护进程稳定性 (Graceful Shutdown & Stability)**:
+  - 重构了整个 Daemon 的并发调度，对多 Profile 共享底座进行架构稳定性加固。
+  - 强化了后台线程的信号监听与优雅关机（Graceful Shutdown）物理拦截，在强行退出时能够干净回收连接，绝不遗留悬挂僵尸进程或发生端口冲突。
+
+---
+
 ## [0.3.1] - 2026-05-19
 
 ### 🚀 新特性 (Features)

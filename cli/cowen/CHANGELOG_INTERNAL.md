@@ -4,6 +4,48 @@
 
 ---
 
+## [0.3.5] - 2026-05-22
+
+### 🏗️ 架构重构 (Architectural Refactoring)
+- **配置层级物理切分与加载算子 (Config Layers Isolation)**:
+  - 在 `cowen-common` 中重构了 `AppConfig` 与 `Config` 模型。在 `ConfigManager` 中实现了物理隔离加载算子，引入 `validate_profile_isolation` 机制，在 Profile 层对已移出全局的键值实施硬性物理屏蔽。
+  - 支持运行时通过 `COWEN_GLOBAL_*` 命名空间对全局基础设施配置进行动态覆盖覆盖，保证了配置的高优先级覆盖和运行灵活性。
+- **编译参数固化注入脚手架 (Build Variable Hardening)**:
+  - 交付了更加严谨的 `build.rs` 脚本。在编译阶段强行拦截 `COWEN_BUILD_*` 环境变量，如缺失直接触发 `panic!` 中断构建，彻底杜绝了源码级别的 URL 与凭证字面量硬编码。
+  - 在代码调用层通过编译期 `env!()` 宏直接拉起并导出为 `const` 元数据，确保了包发布产物的 100% 确定性。
+- **OCP 模块化重置 SPI 接口 (Modular SPI Reset)**:
+  - 基于开闭原则 (OCP) 交付了通用的 `Resettable` Trait 抽象。核心业务 Vault、Store、Telemetry、Config 均基于此 Trait 静态实现。
+  - 引入了 `inventory` 收集机制在编译期零开销自动发现注册组件，核心调度器变更为轻量级的双相调度：Phase 1 收集并输出 Dry Run 清单，Phase 2 原子物理执行清理。
+- **Idempotent UDS Socket 哈希缩短**:
+  - 实现了 `get_uds_path` 幂等自适应哈希算法，在发现 IPC 套接字路径越界 (SUN_LEN) 时，通过对 `app_dir` 进行 SHA-256 计算自动虚拟重映射至 `/tmp/cowen_<HASH>.sock`，增强了在各种极端深嵌套工作区下的守护进程绑定健壮性。
+
+### 🔧 测试基础设施升级
+- **E2E 失败断言全标准化转换 (Test Assertion Standardization)**:
+  - 针对全量 56 个 E2E 用例的失败控制流展开深度治理。开发了高健壮性的 Python 重构转换脚本，将 152 处非标准的 inline 过程式 `exit 1` 优雅统一为标准断言 `fail_suite`，并 100% 保留了调试所需的 `cat` 打印和 `kill` 清理等上下文指令。
+  - 彻底完成了测试沙箱的环境净化，高并发测试套件大回归全部 PASSED 通过，运行前后零悬挂孤儿进程残留。
+
+---
+
+## [0.3.3] - 2026-05-21
+
+### 🏗️ 架构重构 (Architectural Refactoring)
+- **Worker 生命周期手写状态机 (ProfileWorker State Machine)**:
+  - 手写设计了 `ProfileWorker` 异步状态机，彻底剔除了对多余三方件的硬依赖，实现了对 `JoinHandle` 异步任务转移的零开销微秒级精细化管控。
+  - 内置了基于指数退避时间自适应重试（最大退避至 60s）和熔断隔离逻辑（5分钟失败超 5 次则彻底熔断挂起）。熔断后必须显式调用 `restart` 重置状态机，防止了恶劣环境下的无效拉起死循环造成的系统 IO/CPU 灾难。
+- **自定义 Serde JSON 寻址与重排物理坍缩 (Custom JSON Path Locator)**:
+  - 在 `path_parser` 中自研了面向复杂 JSON 结构寻址的 key 匹配定位器，支持在 `unset` 删除数组元素后，索引数组物理坍缩重排。
+
+---
+
+## [0.3.2] - 2026-05-21
+
+### 🔧 稳定性与性能加固
+- **优雅连接秒级异步回收 (Graceful Socket Reclamation)**:
+  - 重构了守护进程的多 Profile 共享调度并发架构。
+  - 优雅关机信号拦截机制拦截 `SIGINT`/`SIGTERM` 时，会静默触发底层异步 Socket 的主动秒级平滑断开和生命周期销毁，确保进程强退时没有僵尸进程遗留或端口泄露发生。
+
+---
+
 ## [0.3.1] - 2026-05-19
 
 ### 🏗️ 架构重构 (Architectural Refactoring)

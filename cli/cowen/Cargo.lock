@@ -782,7 +782,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "cowen"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-ai"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "cowen-common",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-auth"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-common"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-config"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-daemon"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-doctor"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -979,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-infra"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "directories",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-monitor"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-search"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "cowen-infra",
@@ -1034,7 +1034,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-search-embedding"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "cowen-ai",
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-server"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1080,7 +1080,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-store"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
