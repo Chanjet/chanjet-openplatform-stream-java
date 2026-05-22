@@ -32,5 +32,5 @@
 - [ ] **解耦进程编排逻辑**: 将 `cowen-server/src/cmd/mod.rs` 中复杂的进程监控、PID 管理和僵尸进程探测逻辑提取到独立的 `cowen-daemon` 编排组件中。
 - [ ] **提取独立诊断模块**: 将散落在各处的 `status.rs` 和 `audit.rs` 整合为独立的 `cowen-telemetry` 模块。
 - [ ] **灵活的 SSRF 防御**: 为 `forwarder.rs` 增加 Webhook 转发白名单配置，支持容器化环境（如 K8s）下的私有网段转发，而非目前硬编码的 loopback 限制。
-- [ ] **拆解 Makefile**: 简化 `Makefile` 逻辑，将平台适配和容器管理逻辑拆分为独立的脚本，降低维护成本。
+- [ ] ~~**拆解 Makefile**~~: 简化 `Makefile` 逻辑，将平台适配和容器管理逻辑拆分为独立的脚本 (Cancelled for v0.3.4 freeze).
 - [ ] **补全 OCP 抽象**: 将系统重置 (System Reset) 逻辑彻底模块化。
