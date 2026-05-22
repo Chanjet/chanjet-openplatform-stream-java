@@ -25,6 +25,9 @@
 - [ ] **ConfigManager 内部重构**: 
     - 消除 `auto_migrate` 等函数中的深层嵌套逻辑（虽然 v0.3.3 已优化，但仍有扁平化空间）。
     - 将存储/缓存类型的元数据逻辑（是否分布式、默认 URL 等）从硬编码判断迁移至策略模式（Planned for Phase 2）。
+- [ ] **清理硬编码默认值**:
+    *   **现状**: `BUILTIN_CLIENT_ID` 和 `DEF_MARKET_URL` 等关键默认值目前在代码中硬编码。
+    *   **修改建议**: 必须通过构建脚本（`build.rs` 或 `Makefile`）在构建时注入。同步排查全工程中其他硬编码的默认值，确保配置的一致性。
 
 ## 🔵 P2: 中低优先级 (Medium/Low Priority)
 - [ ] **SQL 迁移抽象 (DSL/Trait)**: 为各 SQL Driver 提取通用的 `SchemaMigration` Trait，消除 SQLite/MySQL/Postgres 之间重复的列检查逻辑，并引入 `Transaction` 确保变更原子性。
