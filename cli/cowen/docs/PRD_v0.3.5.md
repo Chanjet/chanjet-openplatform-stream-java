@@ -35,7 +35,7 @@ v0.3.5 的核心目标是 **“全局寻址优化与构建标准化 (Global Conf
         *   其他潜在的硬编码 URL（如预览版应用地址）。
     *   **强制校验**: 更新 Makefile，支持在构建命令中通过变量传递这些参数。**若编译时未提供必需的变量，编译过程必须报错退出 (Abort)**。
 *   **验收标准**: 
-    *   在不修改源码的情况下，通过 `COWEN_BUILD_CLIENT_ID=XXXX make build` 产生的二进制，其内置 Client ID 为 `XXXX`。
+    *   在不修改源码的情况下，通过 `COWEN_BUILD_CLIENT_ID=<CLIENT_ID> make build` 产生的二进制，其内置 Client ID 为 `<CLIENT_ID>`。
     *   未注入环境变量时，执行 `cargo build` 必须引发编译失败。
     *   通过 `cowen version --debug` 等指令必须能公开展示 `COWEN_BUILD_CLIENT_ID` 等注入信息以便排查问题。
 
