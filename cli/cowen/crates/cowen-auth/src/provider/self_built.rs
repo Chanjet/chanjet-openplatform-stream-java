@@ -462,19 +462,19 @@ impl AuthProvider for SelfBuiltProvider {
         daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
     ) -> CowenResult<()> {
         if let Some(ak) = params.app_key {
-            config.app_key = ak;
+            config.app_key = cowen_common::utils::sanitize_credential(&ak);
         }
         if let Some(as_val) = params.app_secret {
-            config.app_secret = as_val;
+            config.app_secret = cowen_common::utils::sanitize_credential(&as_val);
         }
         if let Some(cert) = params.certificate {
-            config.certificate = cert;
+            config.certificate = cowen_common::utils::sanitize_credential(&cert);
         }
         if let Some(ek) = params.encrypt_key {
-            config.encrypt_key = ek;
+            config.encrypt_key = cowen_common::utils::sanitize_credential(&ek);
         }
         if let Some(wt) = params.webhook_target {
-            config.webhook_target = wt;
+            config.webhook_target = cowen_common::utils::sanitize_credential(&wt);
         }
 
         if let Some(pp) = params.proxy_port {
@@ -657,6 +657,52 @@ impl AuthProvider for SelfBuiltProvider {
             CommonTemplate::Custom("Security (Vault)".to_string(), "🛡️".to_string()),
             sec_level,
             sec_msg,
+        ));
+
+        // 1.5 Decryption Key Check
+        let app_secret_val = vault.get_secret(&ctx.profile, "app_secret").await.unwrap_or_else(|_| ctx.config.app_secret.clone());
+        let encrypt_key_val = vault.get_secret(&ctx.profile, "encrypt_key").await.unwrap_or_else(|_| ctx.config.encrypt_key.clone());
+        
+        let decrypt_key_raw = if !encrypt_key_val.is_empty() {
+            &encrypt_key_val
+        } else {
+            &app_secret_val
+        };
+        let decrypt_key = cowen_common::utils::sanitize_credential(decrypt_key_raw);
+
+        let (dk_level, dk_msg) = if decrypt_key.is_empty() {
+            (
+                StatusLevel::ERROR,
+                "Decryption key is missing (both encrypt_key and app_secret are empty)".to_string(),
+            )
+        } else {
+            let key_len = if decrypt_key.len() == 32 {
+                if hex::decode(&decrypt_key).is_ok() {
+                    16
+                } else {
+                    32
+                }
+            } else {
+                decrypt_key.len()
+            };
+
+            if key_len != 16 {
+                (
+                    StatusLevel::ERROR,
+                    format!("Decryption key trimmed length {} is invalid. Must be 16 bytes or 32-character hex", decrypt_key.len()),
+                )
+            } else {
+                (
+                    StatusLevel::OK,
+                    "Decryption key format is valid (16 bytes or 32-character hex)".to_string(),
+                )
+            }
+        };
+
+        entries.push(StatusEntry::new(
+            CommonTemplate::Custom("Decryption Key".to_string(), "🔑".to_string()),
+            dk_level,
+            dk_msg,
         ));
 
         // 2. AppTicket Status (Optional for Self-Built)

@@ -8,6 +8,7 @@ pub enum StoreAppTemplate {
     SecurityVault,
     SuiteAccessToken,
     AppTicket,
+    DecryptionKey,
 }
 
 impl AsStatusUI for StoreAppTemplate {
@@ -16,6 +17,7 @@ impl AsStatusUI for StoreAppTemplate {
             Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
             Self::SuiteAccessToken => ("SuiteAccessToken".to_string(), "🎫".to_string()),
             Self::AppTicket => ("AppTicket".to_string(), "🎫".to_string()),
+            Self::DecryptionKey => ("Decryption Key".to_string(), "🔑".to_string()),
         }
     }
 }
@@ -124,6 +126,50 @@ pub(crate) async fn get_diagnostics_entries(
             "[NONE] (等待 Daemon 接收推送)".to_string(),
         ));
     }}
+
+    // 4. Decryption Key (Global / Profile)
+    let app_secret_val = vault.get_secret(profile, "app_secret").await.unwrap_or_else(|_| config.app_secret.clone());
+    let encrypt_key_val = vault.get_secret(profile, "encrypt_key").await.unwrap_or_else(|_| config.encrypt_key.clone());
+    
+    let decrypt_key_raw = if !encrypt_key_val.is_empty() {
+        &encrypt_key_val
+    } else {
+        &app_secret_val
+    };
+    let decrypt_key = cowen_common::utils::sanitize_credential(decrypt_key_raw);
+
+    let (dk_level, dk_msg) = if decrypt_key.is_empty() {
+        (
+            StatusLevel::ERROR,
+            "Decryption key is missing (both encrypt_key and app_secret are empty)".to_string(),
+        )
+    } else {
+        let key_len = if decrypt_key.len() == 32 {
+            if hex::decode(&decrypt_key).is_ok() {
+                16
+            } else {
+                32
+            }
+        } else {
+            decrypt_key.len()
+        };
+
+        if key_len != 16 {
+            (
+                StatusLevel::ERROR,
+                format!("Decryption key trimmed length {} is invalid. Must be 16 bytes or 32-character hex", decrypt_key.len()),
+            )
+        } else {
+            (
+                StatusLevel::OK,
+                "Decryption key format is valid (16 bytes or 32-character hex)".to_string(),
+            )
+        }
+    };
+
+    entries.push(
+        StatusEntry::new(StoreAppTemplate::DecryptionKey, dk_level, dk_msg)
+    );
 
     Ok(entries)
 }

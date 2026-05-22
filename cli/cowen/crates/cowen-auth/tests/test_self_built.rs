@@ -62,7 +62,7 @@ impl HttpSender for CounterHttpSender {
 async fn test_self_built_concurrent_resend_lock() {
     let dir = tempdir().unwrap();
     let vault_path = dir.path().join("test.vault");
-    let store = Arc::new(FileStore::new(vault_path, "fingerprint").unwrap());
+    let store = Arc::new(FileStore::new(vault_path, Some("fingerprint")).unwrap());
     let vault = Arc::new(StoreVault::new(store.clone(), store.clone()));
     let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault));
 
@@ -75,7 +75,6 @@ async fn test_self_built_concurrent_resend_lock() {
     let config = Config {
         app_key: "AK_TEST".to_string(),
         app_secret: "AS_TEST".to_string(),
-        openapi_url: "http://127.0.0.1".to_string(),
         ..Config::default_with_profile("test")
     };
 

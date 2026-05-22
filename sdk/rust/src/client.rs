@@ -97,13 +97,14 @@ impl GatewayClient {
             return Err(anyhow::anyhow!("AppSecret cannot be empty"));
         }
 
-        let decrypt_key = self.options
+        let decrypt_key_raw = self.options
             .encrypt_key
             .as_ref()
             .unwrap_or(&self.options.app_secret);
+        let decrypt_key = crypto::sanitize_key(decrypt_key_raw);
 
         let key_len = if decrypt_key.len() == 32 {
-            if hex::decode(decrypt_key).is_ok() {
+            if hex::decode(&decrypt_key).is_ok() {
                 16
             } else {
                 32
@@ -240,8 +241,9 @@ impl GatewayClient {
         let (mut write, mut read) = ws_stream.split();
         let encrypt_key = options
             .encrypt_key
-            .clone()
-            .unwrap_or_else(|| options.app_secret.clone());
+            .as_ref()
+            .map(|k| crypto::sanitize_key(k))
+            .unwrap_or_else(|| crypto::sanitize_key(&options.app_secret));
 
         // 🚀 OCP: Decouple Read/Write loops to prevent HOL blocking when connection is flaky
         let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<Message>(100);

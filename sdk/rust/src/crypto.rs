@@ -15,7 +15,19 @@ pub fn hmac_sha256(data: &str, secret: &str) -> String {
     hex::encode(result.into_bytes())
 }
 
+pub fn sanitize_key(s: &str) -> String {
+    s.chars()
+        .filter(|&c| {
+            c != '\u{200b}' && c != '\u{200c}' && c != '\u{200d}' && c != '\u{feff}' 
+            && !c.is_control()
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 pub fn aes_decrypt(encrypted_base64: &str, decrypt_key: &str) -> Result<String> {
+    let decrypt_key = sanitize_key(decrypt_key);
     let ciphertext = general_purpose::STANDARD.decode(encrypted_base64)
         .map_err(|e| anyhow!("Base64 decode failed: {}", e))?;
     

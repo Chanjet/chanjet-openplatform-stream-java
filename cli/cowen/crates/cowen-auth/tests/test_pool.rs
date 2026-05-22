@@ -11,7 +11,7 @@ use tempfile::tempdir;
 async fn test_vault_token_pool_lifecycle() {
     let dir = tempdir().unwrap();
     let vault_path = dir.path().join("test.vault");
-    let store = Arc::new(FileStore::new(vault_path, "fingerprint").unwrap());
+    let store = Arc::new(FileStore::new(vault_path, Some("fingerprint")).unwrap());
     let vault = Arc::new(StoreVault::new(store.clone(), store.clone()));
     let pool = VaultTokenPool::new(vault);
     let profile = "test-profile";

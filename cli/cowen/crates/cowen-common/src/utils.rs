@@ -25,6 +25,17 @@ pub fn render<T: Serialize>(data: &T, format: &str) -> CowenResult<()> {
     Ok(())
 }
 
+pub fn sanitize_credential(s: &str) -> String {
+    s.chars()
+        .filter(|&c| {
+            c != '\u{200b}' && c != '\u{200c}' && c != '\u{200d}' && c != '\u{feff}' 
+            && !c.is_control()
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -40,5 +51,13 @@ mod tests {
     #[test]
     fn test_set_process_name() {
         set_process_name("cowen-test-process");
+    }
+
+    #[test]
+    fn test_sanitize_credential() {
+        // Contains standard spaces, tabs, newlines, zero-width space (\u{200b}), and control character (\u{0007} - Bell)
+        let dirty = "\n\t \u{200b}1234567890123456\u{200c}\u{200d}\u{feff}\u{0007} \r\n";
+        let clean = sanitize_credential(dirty);
+        assert_eq!(clean, "1234567890123456");
     }
 }

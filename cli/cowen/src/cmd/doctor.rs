@@ -167,9 +167,51 @@ impl DiagnosticTask for CredentialsCheck {
     fn name(&self) -> &str { "凭据与认证" }
     async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
         let start = Instant::now();
-        let status = match ctx.vault.get_secret(&ctx.profile, "app_secret").await {
-            Ok(s) if !s.is_empty() => DiagnosticStatus::Ok,
-            _ => DiagnosticStatus::Error("App Secret Missing".to_string()),
+        
+        let app_secret_res = ctx.vault.get_secret(&ctx.profile, "app_secret").await;
+        let encrypt_key_res = ctx.vault.get_secret(&ctx.profile, "encrypt_key").await;
+
+        let app_secret = app_secret_res.unwrap_or_default();
+        let encrypt_key = encrypt_key_res.unwrap_or_default();
+
+        let status = if ctx.config.app_mode == cowen_common::models::AuthMode::SelfBuilt 
+            || ctx.config.app_mode == cowen_common::models::AuthMode::StoreApp 
+        {
+            let decrypt_key_raw = if !encrypt_key.is_empty() {
+                &encrypt_key
+            } else {
+                &app_secret
+            };
+            let decrypt_key = decrypt_key_raw.trim();
+
+            if decrypt_key.is_empty() {
+                DiagnosticStatus::Error("缺少解密密钥 (App Secret 或 Encrypt Key 均为空)".to_string())
+            } else {
+                let key_len = if decrypt_key.len() == 32 {
+                    if hex::decode(decrypt_key).is_ok() {
+                        16
+                    } else {
+                        32
+                    }
+                } else {
+                    decrypt_key.len()
+                };
+
+                if key_len != 16 {
+                    DiagnosticStatus::Error(format!(
+                        "解密密钥不合规：必须为16字节或32字符Hex，当前 trimmed 长度为 {}",
+                        decrypt_key.len()
+                    ))
+                } else {
+                    DiagnosticStatus::Ok
+                }
+            }
+        } else {
+            if app_secret.is_empty() {
+                DiagnosticStatus::Error("App Secret 缺失".to_string())
+            } else {
+                DiagnosticStatus::Ok
+            }
         };
 
         Ok(DiagnosticResult {

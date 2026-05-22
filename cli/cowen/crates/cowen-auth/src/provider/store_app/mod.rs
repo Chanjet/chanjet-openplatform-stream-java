@@ -405,13 +405,13 @@ impl AuthProvider for StoreAppProvider {
     ) -> CowenResult<()> {
         // 1. Setup credentials
         if let Some(ak) = params.app_key {
-            config.app_key = ak;
+            config.app_key = cowen_common::utils::sanitize_credential(&ak);
         }
         if let Some(as_val) = params.app_secret {
-            config.app_secret = as_val;
+            config.app_secret = cowen_common::utils::sanitize_credential(&as_val);
         }
         if let Some(ek) = params.encrypt_key {
-            config.encrypt_key = ek;
+            config.encrypt_key = cowen_common::utils::sanitize_credential(&ek);
         }
 
 

@@ -207,6 +207,15 @@ impl DlqDomain for MockVault {
     async fn list_all_dlq(&self, _: &str) -> CowenResult<Vec<cowen_common::models::DlqMessage>> {
         Ok(vec![])
     }
+    async fn get_dlq_by_id(&self, _: i64) -> CowenResult<Option<cowen_common::models::DlqMessage>> {
+        Ok(None)
+    }
+    async fn list_dlq_paged(&self, _: &str, _: usize, _: usize) -> CowenResult<Vec<cowen_common::models::DlqMessage>> {
+        Ok(vec![])
+    }
+    async fn delete_dlq_by_id(&self, _: i64) -> CowenResult<()> {
+        Ok(())
+    }
 }
 #[async_trait]
 impl ManagementDomain for MockVault {

@@ -70,6 +70,26 @@ fn test_aes_decrypt_key_length_validation() {
     assert!(res_16.err().unwrap().to_string().contains("Base64 decode failed"));
 }
 
+#[test]
+fn test_aes_decrypt_key_trimming() {
+    // A valid 16-character key wrapped with spaces, newlines AND zero-width spaces (\u{200b})
+    let key_with_whitespace = "\n \u{200b}1234567890123456 \n\u{200b}";
+    // We expect it to be successfully sanitized to 16 bytes.
+    // If it is, it should bypass the length check and try to decrypt (failing on PKCS7 unpad or other decrypt errors)
+    // Instead of failing with "AES-128 key must be 16 bytes"
+    let res = connector_sdk::crypto::aes_decrypt("ZW5jcnlwdGVkX3N0dWZm", key_with_whitespace);
+    assert!(res.is_err());
+    let err_msg = res.err().unwrap().to_string();
+    assert!(!err_msg.contains("AES-128 key must be 16 bytes"));
+    
+    // Also test 32-character hex key with whitespaces and zero-width non-joiners (\u{200c}, \u{feff})
+    let key_32_with_whitespace = "  \u{200c}12345678901234561234567890123456 \n\u{feff}";
+    let res_32 = connector_sdk::crypto::aes_decrypt("ZW5jcnlwdGVkX3N0dWZm", key_32_with_whitespace);
+    assert!(res_32.is_err());
+    let err_32 = res_32.err().unwrap().to_string();
+    assert!(!err_32.contains("AES-128 key must be 16 bytes"));
+}
+
 #[tokio::test]
 async fn test_client_start_fails_early_with_invalid_key_length() {
     let options = connector_sdk::ClientOptions {
@@ -129,11 +149,11 @@ async fn test_client_start_passes_validation_with_32_character_hex_key() {
         ..Default::default()
     };
     let client = connector_sdk::GatewayClient::new(options);
-    let res = client.start().await;
-    assert!(res.is_err());
-    let err_msg = res.err().unwrap().to_string();
-    // It should fail with network connection error, NOT decrypt key length validation error
-    assert!(!err_msg.contains("Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes for AES-128"));
+    // Use timeout to prevent hanging forever in the connection loop since local port 8080 is not listening.
+    // If it times out, it means the validation has successfully passed and we entered the connect loop.
+    // If validation failed, it would have returned Err(...) immediately.
+    let res = tokio::time::timeout(std::time::Duration::from_millis(500), client.start()).await;
+    assert!(res.is_err(), "Expected client.start() to hang in connection loop (timeout), indicating validation passed successfully");
 }
 
 #[test]
@@ -178,6 +198,62 @@ fn test_ent_auth_code_message_deserialization_with_state() {
     assert_eq!(parsed.biz_content.temp_auth_code, "test_temp_auth_code");
     assert_eq!(parsed.biz_content.state, Some("my_custom_state".to_string()));
 }
+
+fn aes_encrypt(plaintext: &str, key: &[u8]) -> String {
+    use aes::cipher::generic_array::GenericArray;
+    use aes::cipher::{KeyInit, BlockEncrypt};
+    use aes::Aes128;
+    use base64::{engine::general_purpose, Engine as _};
+
+    let cipher = Aes128::new(GenericArray::from_slice(key));
+    let mut data = plaintext.as_bytes().to_vec();
+    
+    // PKCS7 padding
+    let block_size = 16;
+    let padding_len = block_size - (data.len() % block_size);
+    data.extend(std::iter::repeat(padding_len as u8).take(padding_len));
+
+    for chunk in data.chunks_mut(16) {
+        let block = GenericArray::from_mut_slice(chunk);
+        cipher.encrypt_block(block);
+    }
+
+    general_purpose::STANDARD.encode(&data)
+}
+
+#[test]
+fn test_aes_decrypt_with_dirty_16_byte_key() {
+    // 1. Raw 16-byte key and corresponding encrypted ciphertext
+    let raw_key = b"my_secret_key_16";
+    let plaintext = "Hello World Stream Channel!";
+    let encrypted_base64 = aes_encrypt(plaintext, raw_key);
+
+    // 2. Wrap the key with whitespace, newlines, and various zero-width characters to simulate clipboard pollution
+    let dirty_key = "\n \u{200b}my_secret_key_16 \n\u{200d}";
+
+    // 3. Perform decryption using the dirty key. It MUST successfully sanitize, decode, and match the original plaintext.
+    let decrypted = connector_sdk::crypto::aes_decrypt(&encrypted_base64, dirty_key);
+    assert!(decrypted.is_ok(), "Expected successful decryption with sanitized 16-byte key, but got: {:?}", decrypted.err());
+    assert_eq!(decrypted.unwrap(), plaintext);
+}
+
+#[test]
+fn test_aes_decrypt_with_dirty_32_char_hex_key() {
+    // 1. Raw 16-byte key, its 32-character hex representation, and corresponding ciphertext
+    let raw_key = b"my_secret_key_16";
+    let plaintext = "High Strength TDD Protection! 🚀";
+    let encrypted_base64 = aes_encrypt(plaintext, raw_key);
+
+    // 2. Wrap the 32-character hex key with whitespace and various zero-width characters (e.g. \u{200c}, \u{feff})
+    // "6d795f7365637265745f6b65795f3136" is hex of b"my_secret_key_16"
+    let dirty_hex_key = "  \u{200c}6d795f7365637265745f6b65795f3136 \n\u{feff}";
+
+    // 3. Perform decryption using the dirty hex key. It MUST successfully sanitize, hex-decode to 16 bytes, decrypt, and match.
+    let decrypted = connector_sdk::crypto::aes_decrypt(&encrypted_base64, dirty_hex_key);
+    assert!(decrypted.is_ok(), "Expected successful decryption with sanitized 32-character hex key, but got: {:?}", decrypted.err());
+    assert_eq!(decrypted.unwrap(), plaintext);
+}
+
 
 
 
