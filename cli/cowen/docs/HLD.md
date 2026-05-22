@@ -18,6 +18,7 @@ graph TD
         URLS[openapi_url, stream_url]
         SEC[security_level, allow_cidr]
         LOGS[log_level, rotation]
+        SRCH[search_plugins, enabled]
     end
     
     subgraph "env.yaml (Profile Specific)"
@@ -68,3 +69,5 @@ graph TD
 ## 5. 执行边界 (Implementation Boundaries)
 *   **禁止**: 在 LLD 之前开始任何具体的 `build.rs` 复杂逻辑编写。
 *   **必须**: 在 LLD 中明确 `Resettable` Trait 的 `dry_run` 方法返回格式（推荐 `Vec<String>` 指明路径或资源 ID）。
+*   **必须**: 迁移脚本执行时须输出标准化的迁移日志，清晰体现上移与废弃的配置项明细。
+*   **必须**: 严格遵循环境变量命名空间规范：编译期注入前缀为 `COWEN_BUILD_*`，运行时覆盖前缀为 `COWEN_GLOBAL_*`。
