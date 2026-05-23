@@ -60,7 +60,7 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
         windows-plugin-x64 windows-plugin-x86 test-macos-aarch64 \
         test test-linux test-win test-macos \
         package package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
-        package-linux-aarch64 package-windows-x86_64 clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
+        package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-cross package-windows-x86-cross clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # --- 默认构建目标 (Default Build Target) ---
 build:
@@ -344,6 +344,56 @@ package-windows-x86_64: clean windows-x86_64
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@echo "🔍 Automating Windows package verification..."
 	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
+
+package-windows-x86_64-cross: windows-x86_64-cross
+	@echo "📦 Cross-packaging Windows x86_64 on macOS/Linux..."
+	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross/release
+	rm -rf $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg
+	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg
+	cp $(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
+	cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
+	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
+	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/README.txt
+	@if [ -f "$(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll" ]; then \
+		echo "✅ Found cowen_search_embedding.dll (copied from Windows), copying into package..."; \
+		cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
+	elif [ -f "target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll" ]; then \
+		echo "✅ Found cowen_search_embedding.dll in target, copying into package..."; \
+		cp target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
+	else \
+		echo "⚠️ WARNING: cowen_search_embedding.dll not found. The package will be compiled WITHOUT AI embedding features."; \
+	fi
+	@echo "🗜️ Zipping Windows package..."
+	cd $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86_64.zip .
+	rm -rf $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg
+	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-cross/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip)
+	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64-cross/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip)
+	@echo "✅ Cross-packaging completed: $(OUTPUT_DIR)/windows-x86_64-cross/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip"
+
+package-windows-x86-cross: windows-x86-cross
+	@echo "📦 Cross-packaging Windows x86 (32-bit) on macOS/Linux..."
+	mkdir -p $(OUTPUT_DIR)/windows-x86/release
+	rm -rf $(OUTPUT_DIR)/windows-x86/tmp_pkg
+	mkdir -p $(OUTPUT_DIR)/windows-x86/tmp_pkg
+	cp $(OUTPUT_DIR)/windows-x86/$(BINARY).exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/
+	cp $(OUTPUT_DIR)/windows-x86/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/
+	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86/tmp_pkg/
+	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86/tmp_pkg/README.txt
+	@if [ -f "$(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll" ]; then \
+		echo "✅ Found 32-bit cowen_search_embedding.dll (copied from Windows), copying into package..."; \
+		cp $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
+	elif [ -f "target/i686-pc-windows-msvc/release/cowen_search_embedding.dll" ]; then \
+		echo "✅ Found 32-bit cowen_search_embedding.dll in target, copying into package..."; \
+		cp target/i686-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
+	else \
+		echo "⚠️ WARNING: 32-bit cowen_search_embedding.dll not found. The package will be compiled WITHOUT AI embedding features."; \
+	fi
+	@echo "🗜️ Zipping Windows package..."
+	cd $(OUTPUT_DIR)/windows-x86/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86.zip .
+	rm -rf $(OUTPUT_DIR)/windows-x86/tmp_pkg
+	@$(call MD5,$(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip)
+	@$(call SHA1,$(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip)
+	@echo "✅ Cross-packaging completed: $(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip"
 
 # 内部复用的 Linux 打包逻辑
 impl-package-linux-x86_64:
