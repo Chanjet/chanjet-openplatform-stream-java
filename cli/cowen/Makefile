@@ -276,12 +276,16 @@ windows-plugin-x86:
 
 windows-plugin-x64-cross:
 	@echo "🪟 Cross-compiling Windows x86_64 AI plugin (MSVC) via cargo-zigbuild..."
+	@echo "⚠️ NOTE: Cross-compiling C++ ONNX Runtime (ort) dependencies is highly constrained on macOS/Linux."
+	@echo "⚠️ It requires pre-configured MSVC SDK libraries and custom linkers. If this fails, please build directly on a Windows host using 'make windows-plugin-x64'."
 	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross
 	cargo zigbuild --release --target x86_64-pc-windows-msvc -p cowen-search-embedding
 	cp target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll
 
 windows-plugin-x86-cross:
 	@echo "🪟 Cross-compiling Windows x86 (32-bit) AI plugin (MSVC) via cargo-zigbuild..."
+	@echo "⚠️ NOTE: Cross-compiling C++ ONNX Runtime (ort) dependencies is highly constrained on macOS/Linux."
+	@echo "⚠️ It requires pre-configured MSVC SDK libraries and custom linkers. If this fails, please build directly on a Windows host using 'make windows-plugin-x86'."
 	mkdir -p $(OUTPUT_DIR)/windows-x86
 	cargo zigbuild --release --target i686-pc-windows-msvc -p cowen-search-embedding
 	cp target/i686-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll
