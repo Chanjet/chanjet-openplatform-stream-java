@@ -628,9 +628,9 @@ impl AuthProvider for SelfBuiltProvider {
 
     async fn get_diagnostics(
         &self,
-        ctx: &cowen_monitor::status::StatusContext<'_>,
-    ) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
-        use cowen_monitor::status::{CommonTemplate, StatusEntry, StatusLevel};
+        ctx: &cowen_common::status::StatusContext<'_>,
+    ) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
+        use cowen_common::status::{CommonTemplate, StatusEntry, StatusLevel};
         let mut entries = Vec::new();
         let vault = self.pool.as_vault();
 
@@ -814,10 +814,10 @@ impl AuthProvider for SelfBuiltProvider {
         }
 
         // 3. Daemon Status
-        let daemon_info = cowen_monitor::status::get_active_daemon_info(&ctx.profile);
+        let daemon_info = cowen_common::status::get_active_daemon_info(&ctx.profile);
         let (display_name, efficiency_tip) = self.get_daemon_display_info(daemon_info.is_some());
         entries.push(
-            cowen_monitor::status::collect_daemon_status(
+            cowen_common::status::collect_daemon_status(
                 ctx,
                 &display_name,
                 &efficiency_tip,

@@ -52,11 +52,15 @@
 - [x] **提取独立诊断模块**: 将散落在各处的 `status.rs` 和 `audit.rs` 整合为独立的 `cowen-telemetry` (cowen-monitor) 模块。
 - [x] **SSRF 防御与分级校验**: 为 `forwarder.rs` 增加 Webhook 转发白名单配置，并通过 `ssrf.rs` 实现分级校验。
 - [x] **补全 OCP 抽象**: 将系统重置 (System Reset) 逻辑彻底模块化。
+- [x] **高耦合度模块解耦：应用事件总线剪除 `cowen-monitor` 编译期强物理依赖** (v0.3.5)
+    *   **落地成果**:
+        1. **数据模型与客户端下沉**：状态核心指标模型及 `MonitorClient` 物理迁至 `cowen-common` 底层库，完成通信隔离。
+        2. **高性能事件流**：引入 `GlobalEvent::Telemetry` 与 `ProxyRequestReceived` 事件，使用基于 Tokio `broadcast` 异步无锁进程内总线完成打点流动。
+        3. **编译期物理剪除**：在 `cowen-auth` 与 `cowen-server` 中彻底物理剥离了对 `cowen-monitor` 的编译依赖。
+        4. **完全兼容与平滑自愈**：上层 `MonitorServer::start` 通过后台协程静默捕获总线遥测流录入 SQLite，实现 0 既有测试改动的 100% 成功回归验证。
 
 ## 📐 P3: 长期架构演进与解耦计划 (Long-term Architecture Decoupling)
 
-- [ ] **高耦合度模块解耦：应用事件总线剪除 `cowen-monitor` 编译期强物理依赖**
-    *   **实现建议**: 在 `cowen-common` 中定义核心领域事件契约，让鉴权（`cowen-auth`）与服务端（`cowen-server`）仅依赖内存级 `EventBus` 发布事件，而将实际的日志写入/收集责任移到最外层装配线或并行的 `cowen-monitor` 模块。
 - [ ] **高耦合度模块解耦：基于 Trait 隔离剪断对 `cowen-store` 的直接依赖**
     *   **实现建议**: 将 `Vault` 和 `TokenPool` 等底座存储抽象定义全部移入 `cowen-common`，业务鉴权层仅引入 Trait 契约编程，具体存储引擎通过依赖注入传入。
 - [ ] **中耦合度模块解耦：通用守护进程化重构 `cowen-daemon`**

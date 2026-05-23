@@ -285,8 +285,8 @@ pub trait AuthProvider: Send + Sync {
     /// 🚀 UI/诊断能力：获取该模式下的专属诊断条目（Auth、Daemon等）
     async fn get_diagnostics(
         &self,
-        _ctx: &cowen_monitor::status::StatusContext<'_>,
-    ) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
+        _ctx: &cowen_common::status::StatusContext<'_>,
+    ) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
         Ok(vec![])
     }
 

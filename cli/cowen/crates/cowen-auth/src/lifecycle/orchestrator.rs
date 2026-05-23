@@ -1,7 +1,7 @@
 use cowen_common::vault::Vault;
 use cowen_common::{CowenError, CowenResult};
 use cowen_config::ConfigManager;
-use cowen_monitor::MonitorClient;
+use cowen_common::status::{MonitorClient, AuthStatus};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{BufRead, Seek, Write};
 use std::sync::Arc;
@@ -36,11 +36,11 @@ pub async fn wait_for_token_exchange_ipc(profile: &str, monitor_port: u16) -> Co
                 pb.set_message(info.message.clone());
 
                 match info.status {
-                    cowen_monitor::AuthStatus::Completed => {
+                    AuthStatus::Completed => {
                         pb.finish_with_message("✅ Authorization successful");
                         return Ok(());
                     }
-                    cowen_monitor::AuthStatus::Failed => {
+                    AuthStatus::Failed => {
                         let err = info.error.unwrap_or_else(|| "Unknown error".to_string());
                         pb.finish_with_message(format!("❌ Failed: {}", err));
                         return Err(CowenError::Auth(err));

@@ -22,6 +22,7 @@ uuid = { version = "1.12", features = ["v4"] }
 serde_yaml = "0.9"
 inventory = "0.3"
 tokio = { version = "1.0", features = ["sync"] }
+sysinfo = "0.38"
 ipnet = "2.12"
 url = "2.5"
 reqwest = { version = "0.12", optional = true }

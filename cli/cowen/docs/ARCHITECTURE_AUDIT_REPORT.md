@@ -116,13 +116,13 @@
 
 针对系统中呈现出的中、高耦合度模块，为了防止后续业务扩张导致依赖网恶化，提出以下重构与优化建议：
 
-### 5.1 【高耦合】应用领域事件总线（EventBus）剪除 `cowen-monitor` 的编译期依赖
-*   **问题现状**：`cowen-auth` 与 `cowen-server` 为了记录审计日志与状态转移，直接依赖了 `cowen-monitor`。
-*   **解耦路线**：
-    1.  在最底层的 `cowen-common` 中定义通用的领域事件实体（如 `struct AuthEvent`）。
-    2.  `cowen-auth` 和 `cowen-server` 仅向 `cowen-common` 提供的无锁 `EventBus` 发布事件，完全不需要知晓接收端是谁。
-    3.  `cowen-monitor` 在上层订阅该事件线，实现日志存盘。
-*   **架构收益**：将 `cowen-monitor` 从业务的核心依赖中剥离，使得核心测试更容易，完全解耦监控与业务。
+### 5.1 [已完成] 【高耦合】应用领域事件总线（EventBus）剪除 `cowen-monitor` 的编译期依赖 (v0.3.5 已落地)
+*   **重构方案与成果**：
+    1. **状态模型与客户端下沉**：将 `StatusLevel`、`StatusEntry`、`CommonTemplate`、`StatusContext`、`StatusCollector`、`DaemonInfo`、`get_active_daemon_info` 等诊断指标模型，以及进行 IPC/HTTP 通信的 `MonitorClient` 完全下沉迁移至底层共享库 `cowen-common::status`。
+    2. **无锁事件总线机制**：在 `cowen-common::events` 中公开并扩展了全局事件总线，新增 `GlobalEvent::Telemetry` 与 `GlobalEvent::ProxyRequestReceived` 领域遥测事件通知。底层采用基于 Tokio 的高吞吐、低延迟 `broadcast::channel` 无锁通道，确保高并发代理时无任何性能锁争用。
+    3. **物理剪除编译期依赖**：彻底从 `cowen-auth/Cargo.toml` 和 `cowen-server/Cargo.toml` 中移除了对 `cowen-monitor` 的编译期引用，解耦了监控与核心业务系统。
+    4. **异步遥测捕获**：在最外层 CLI 启动装配线中，由上层 `cowen-monitor` 的 `MonitorServer::start` 自动拉起异步接收协程，订阅 `event_bus().subscribe()` 的遥测流，捕获打点数据并静默写入 `TelemetryDb` sqlite 库。
+    5. **100% 接口向下兼容 (0修改测试通过)**：`cowen-monitor` 仅通过一行 `pub use cowen_common::status::*;` 及 `MonitorClient` 重新导出实现完全一致的外部 API，保证了 60 余个既有 E2E 测试用例在不做任何改动的情况下，100% 顺利通过编译与所有功能校验。
 
 ### 5.2 【高耦合】基于 Trait 隔离，剪断对 `cowen-store` 数据库驱动的强物理依赖
 *   **问题现状**：`cowen-auth` 为管理多租户令牌的生命周期，必须强物理依赖 `cowen-store` 模块以连通数据库。

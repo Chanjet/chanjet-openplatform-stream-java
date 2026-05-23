@@ -7,16 +7,14 @@ use cowen_common::vault::Vault;
 use cowen_config::ConfigManager;
 use cowen_auth::client::Client;
 
-use cowen_monitor::telemetry_db::TelemetryDb;
-
 pub struct ServerDaemonService {
     worker_mgr: Arc<crate::daemon::manager::WorkerManager>,
 }
 
 impl ServerDaemonService {
-    pub fn new(cfg_mgr: ConfigManager, telemetry_db: Option<Arc<TelemetryDb>>) -> Self {
+    pub fn new(cfg_mgr: ConfigManager) -> Self {
         Self {
-            worker_mgr: crate::daemon::manager::WorkerManager::new(cfg_mgr, telemetry_db),
+            worker_mgr: crate::daemon::manager::WorkerManager::new(cfg_mgr),
         }
     }
 

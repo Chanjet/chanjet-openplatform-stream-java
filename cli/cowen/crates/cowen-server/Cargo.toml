@@ -22,7 +22,6 @@ connector-sdk = { path = "../../../../sdk/rust" }
 cowen-common = { path = "../cowen-common", features = ["reqwest"] }
 cowen-infra = { path = "../cowen-infra" }
 cowen-config = { path = "../cowen-config" }
-cowen-monitor = { path = "../cowen-monitor" }
 cowen-auth = { path = "../cowen-auth" }
 cowen-store = { path = "../cowen-store" }
 prometheus = "0.13"

@@ -4,30 +4,11 @@ use axum::{
     response::IntoResponse,
     http::StatusCode,
 };
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::collections::HashMap;
 use cowen_common::daemon::DaemonService;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthProgressInfo {
-    pub profile: String,
-    pub status: AuthStatus,
-    pub message: String,
-    pub percent: u32,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
-pub enum AuthStatus {
-    Idle,
-    Starting,
-    Exchanging,
-    Saving,
-    Completed,
-    Failed,
-}
+use cowen_common::status::{AuthStatus, AuthProgressInfo, FinalizeRequest, ProgressQuery};
 
 pub struct AuthManager {
     progress: Mutex<HashMap<String, AuthProgressInfo>>,
@@ -63,14 +44,6 @@ impl AuthManager {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct FinalizeRequest {
-    pub profile: String,
-    pub code: String,
-    pub state: Option<String>,
-    pub session_id: String,
-}
-
 pub async fn finalize_auth_handler(
     State((daemon_svc, auth_mgr)): State<(Arc<dyn DaemonService>, Arc<AuthManager>)>,
     Json(payload): Json<FinalizeRequest>,
@@ -96,11 +69,6 @@ pub async fn finalize_auth_handler(
     });
 
     StatusCode::ACCEPTED
-}
-
-#[derive(Deserialize)]
-pub struct ProgressQuery {
-    pub profile: String,
 }
 
 pub async fn progress_handler(

@@ -8,21 +8,19 @@ use cowen_config::ConfigManager;
 use crate::daemon::state::{ProfileWorker, WorkerStatus};
 use tokio::time::{Duration, Instant};
 use cowen_auth::client::Client;
-use cowen_monitor::telemetry_db::TelemetryDb;
+use cowen_common::events::{event_bus, GlobalEvent, TelemetryEvent};
 
 pub struct WorkerManager {
     cfg_mgr: ConfigManager,
     workers: Arc<Mutex<HashMap<String, ProfileWorker>>>,
-    telemetry_db: Option<Arc<TelemetryDb>>,
 }
 
 impl WorkerManager {
-    pub fn new(cfg_mgr: ConfigManager, telemetry_db: Option<Arc<TelemetryDb>>) -> Arc<Self> {
+    pub fn new(cfg_mgr: ConfigManager) -> Arc<Self> {
         let workers = Arc::new(Mutex::new(HashMap::new()));
         let manager = Arc::new(Self {
             cfg_mgr,
             workers,
-            telemetry_db,
         });
 
         // Start Watchdog
@@ -35,9 +33,13 @@ impl WorkerManager {
     }
 
     async fn record_event(&self, profile: &str, event: &str, old: Option<&str>, new: Option<&str>, details: Option<&str>) {
-        if let Some(db) = &self.telemetry_db {
-            let _ = db.insert_event(profile, event, old, new, details).await;
-        }
+        event_bus().publish(GlobalEvent::Telemetry(TelemetryEvent {
+            profile: profile.to_string(),
+            event_type: event.to_string(),
+            old_status: old.map(|s| s.to_string()),
+            new_status: new.map(|s| s.to_string()),
+            details: details.map(|s| s.to_string()),
+        }));
     }
 
     pub fn config_manager(&self) -> &ConfigManager {
@@ -82,7 +84,6 @@ impl WorkerManager {
         let cfg_mgr = self.cfg_mgr.clone();
         let cancel_token = worker.cancel_token.clone();
         let workers_clone = self.workers.clone();
-        let telemetry_db = self.telemetry_db.clone();
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
         let join_handle = tokio::spawn(async move {
@@ -94,9 +95,13 @@ impl WorkerManager {
                     Ok(_) => {
                         info!(target: "sys", profile = %profile_name, "Worker stopped gracefully");
                         w.status = WorkerStatus::Stopped;
-                        if let Some(db) = &telemetry_db {
-                            let _ = db.insert_event(&profile_name, "status_change", Some("Draining"), Some("Stopped"), None).await;
-                        }
+                        event_bus().publish(GlobalEvent::Telemetry(TelemetryEvent {
+                            profile: profile_name.clone(),
+                            event_type: "status_change".to_string(),
+                            old_status: Some("Draining".to_string()),
+                            new_status: Some("Stopped".to_string()),
+                            details: None,
+                        }));
                     }
                     Err(e) => {
                         error!(target: "sys", profile = %profile_name, error = %e, "Worker failed");
@@ -109,9 +114,13 @@ impl WorkerManager {
 
                         if next_retry > 5 {
                             w.status = WorkerStatus::Failed { reason: format!("Circuit breaker triggered: {}", e) };
-                            if let Some(db) = &telemetry_db {
-                                let _ = db.insert_event(&profile_name, "circuit_break", None, Some("Failed"), Some(&e.to_string())).await;
-                            }
+                            event_bus().publish(GlobalEvent::Telemetry(TelemetryEvent {
+                                profile: profile_name.clone(),
+                                event_type: "circuit_break".to_string(),
+                                old_status: None,
+                                new_status: Some("Failed".to_string()),
+                                details: Some(e.to_string()),
+                            }));
                         } else {
                             // Exponential backoff with 10% jitter logic
                             let base_delay = 2u64.pow(next_retry).min(60) as f64;
@@ -126,9 +135,13 @@ impl WorkerManager {
                                 last_error: e.to_string()
                             };
                             info!(target: "sys", profile = %profile_name, "Entering backoff state, will retry in {:?}", delay);
-                            if let Some(db) = &telemetry_db {
-                                let _ = db.insert_event(&profile_name, "backoff", None, Some("Backoff"), Some(&format!("Retry: {}, Error: {}", next_retry, e))).await;
-                            }
+                            event_bus().publish(GlobalEvent::Telemetry(TelemetryEvent {
+                                profile: profile_name.clone(),
+                                event_type: "backoff".to_string(),
+                                old_status: None,
+                                new_status: Some("Backoff".to_string()),
+                                details: Some(format!("Retry: {}, Error: {}", next_retry, e)),
+                            }));
                         }
                     }
                 }

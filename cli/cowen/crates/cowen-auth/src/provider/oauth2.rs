@@ -576,7 +576,7 @@ impl AuthProvider for OAuth2Provider {
         println!("\x1b[34m{}\x1b[0m", auth_url);
 
         // 5. Detect Running Daemon for IPC Finalization
-        let daemon_info = cowen_monitor::status::get_active_daemon_info(profile);
+        let daemon_info = cowen_common::status::get_active_daemon_info(profile);
         if let Some(info) = daemon_info {
             if let Some(m_port) = info.monitor_port {
                 println!("\n\x1b[34m🚀 Detected running Master Daemon. Using IPC-based authorization...\x1b[0m");
@@ -593,7 +593,7 @@ impl AuthProvider for OAuth2Provider {
                         match result {
                             Ok(Ok(callback_res)) => {
                                 println!("✅ Callback received. Pushing to Daemon for exchange...");
-                                let monitor_cli = cowen_monitor::MonitorClient::new(m_port);
+                                let monitor_cli = cowen_common::status::MonitorClient::new(m_port);
                                 monitor_cli.finalize_auth(profile, &callback_res.code, Some(&callback_res.state), &session.state).await?;
 
                                 // Wait for results via IPC progress bar
@@ -721,9 +721,9 @@ impl AuthProvider for OAuth2Provider {
 
     async fn get_diagnostics(
         &self,
-        ctx: &cowen_monitor::status::StatusContext<'_>,
-    ) -> CowenResult<Vec<cowen_monitor::status::StatusEntry>> {
-        use cowen_monitor::status::{
+        ctx: &cowen_common::status::StatusContext<'_>,
+    ) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
+        use cowen_common::status::{
             collect_daemon_status, AsStatusUI, CommonTemplate, StatusEntry, StatusLevel,
         };
 
@@ -907,7 +907,7 @@ impl AuthProvider for OAuth2Provider {
         }
 
         // 2. Daemon Status
-        let daemon_info = cowen_monitor::status::get_active_daemon_info(profile);
+        let daemon_info = cowen_common::status::get_active_daemon_info(profile);
         let (display_name, efficiency_tip) = self.get_daemon_display_info(daemon_info.is_some());
         results.push(
             collect_daemon_status(

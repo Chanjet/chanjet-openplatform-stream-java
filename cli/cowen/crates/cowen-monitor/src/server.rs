@@ -12,18 +12,45 @@ pub struct MonitorServer {
     port: u16,
     daemon_svc: Arc<dyn DaemonService>,
     auth_mgr: Arc<AuthManager>,
+    telemetry_db: Option<Arc<crate::telemetry_db::TelemetryDb>>,
 }
 
 impl MonitorServer {
-    pub fn new(port: u16, daemon_svc: Arc<dyn DaemonService>) -> Self {
+    pub fn new(port: u16, daemon_svc: Arc<dyn DaemonService>, telemetry_db: Option<Arc<crate::telemetry_db::TelemetryDb>>) -> Self {
         Self { 
             port, 
             daemon_svc,
             auth_mgr: Arc::new(AuthManager::new()),
+            telemetry_db,
         }
     }
 
     pub async fn start(&self, port_tx: Option<oneshot::Sender<u16>>, allow_fallback: bool) -> anyhow::Result<()> {
+        // Subscribe to EventBus and record events to TelemetryDb asynchronously
+        if let Some(db) = &self.telemetry_db {
+            let db_clone = db.clone();
+            tokio::spawn(async move {
+                let mut rx = cowen_common::events::event_bus().subscribe();
+                while let Ok(event) = rx.recv().await {
+                    match event {
+                        cowen_common::events::GlobalEvent::Telemetry(te) => {
+                            let _ = db_clone.insert_event(
+                                &te.profile,
+                                &te.event_type,
+                                te.old_status.as_deref(),
+                                te.new_status.as_deref(),
+                                te.details.as_deref(),
+                            ).await;
+                        }
+                        cowen_common::events::GlobalEvent::ProxyRequestReceived => {
+                            crate::counter!("cowen_proxy_requests_total", "Total proxy requests received").inc();
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+
         let app = Router::new()
             .route("/health", get(health_handler))
             .route("/metrics", get(metrics_handler))

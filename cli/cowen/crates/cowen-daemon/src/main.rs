@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
         info!("Starting cowen-daemon...");
         info!("Listening on UDS: {}", args.uds.display());
         
-        let daemon_svc = Arc::new(ServerDaemonService::new(cfg_mgr.clone(), Some(telemetry_db.clone())));
+        let daemon_svc = Arc::new(ServerDaemonService::new(cfg_mgr.clone()));
 
         let mut m_port = app_cfg.monitor_port;
         let mut allow_fallback = false;
@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
             m_port = 1588;
             allow_fallback = true;
         }
-        let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone());
+        let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone(), Some(telemetry_db.clone()));
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             if let Err(e) = m_server.start(Some(port_tx), allow_fallback).await {

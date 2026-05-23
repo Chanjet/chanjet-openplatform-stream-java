@@ -133,11 +133,11 @@ pub async fn migrate(
     for p in profiles {
         // We only care about standard profiles (not hidden app: ones) for daemon restarts
         if !p.starts_with("app:") {
-            if let Some(_info) = cowen_monitor::status::get_active_daemon_info(&p) {
+            if let Some(_info) = cowen_common::status::get_active_daemon_info(&p) {
                 if let Ok(config) = cfg_mgr.load(&p).await {
                     if !config.app_key.is_empty() {
                          println!("♻️  Restarting daemon for profile: {}", p);
-                         let _ = cowen_server::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None, daemon_svc.clone()).await;
+                         let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None, daemon_svc.clone()).await;
                     }
                 }
             }

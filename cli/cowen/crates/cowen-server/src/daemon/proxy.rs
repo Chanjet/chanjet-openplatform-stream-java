@@ -86,7 +86,7 @@ async fn handle_proxy(
     State(state): State<ProxyState>,
     req: Request,
 ) -> axum::response::Response {
-    cowen_monitor::counter!("cowen_proxy_requests_total", "Total proxy requests received").inc();
+    cowen_common::events::event_bus().publish(cowen_common::events::GlobalEvent::ProxyRequestReceived);
     let method_str = req.method().as_str().to_uppercase();
 
     if method_str == "OPTIONS" {

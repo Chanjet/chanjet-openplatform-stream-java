@@ -493,16 +493,15 @@ pub async fn run(cli: Cli) -> Result<()> {
     #[cfg(unix)]
     let daemon_svc: Arc<dyn DaemonService> = {
         let is_foreground_start = matches!(&cli.command, Commands::Daemon { action: DaemonCommands::Start { foreground: true, .. } });
-
         if is_foreground_start {
-            Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None))
+            Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()))
         } else {
             let uds_path = cowen_common::ipc::get_uds_path();
             Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
         }
     };
     #[cfg(not(unix))]
-    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone(), None));
+    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
 
     if matches!(&cli.command, Commands::Init { .. })
         && cli.profile.is_none() {
@@ -659,9 +658,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                 let _ = auth_cli.get_token(&active_profile, &config, &reqwest::header::HeaderMap::new()).await.map_err(|e: cowen_common::CowenError| anyhow::anyhow!(e))?;
                 
                 // Signal running daemon to reload if active
-                if let Some(_info) = cowen_monitor::status::get_active_daemon_info(&active_profile) {
+                if let Some(_info) = cowen_common::status::get_active_daemon_info(&active_profile) {
                     let app_cfg = cfg_mgr.load_app_config().await?;
-                    let client = cowen_monitor::client::MonitorClient::new(app_cfg.monitor_port);
+                    let client = cowen_common::status::MonitorClient::new(app_cfg.monitor_port);
                     let _ = client.reload_worker(&active_profile).await;
                 } else {
                     let _ = daemon_svc.reload_daemon(&active_profile).await;
@@ -706,9 +705,9 @@ pub async fn run(cli: Cli) -> Result<()> {
             DaemonCommands::Reload { all } => {
                 let profiles = if *all { cfg_mgr.list_profiles().await? } else { vec![active_profile.clone()] };
                 
-                if let Some(_info) = cowen_monitor::status::get_active_daemon_info(&active_profile) {
+                if let Some(_info) = cowen_common::status::get_active_daemon_info(&active_profile) {
                     let app_cfg = cfg_mgr.load_app_config().await?;
-                    let client = cowen_monitor::client::MonitorClient::new(app_cfg.monitor_port);
+                    let client = cowen_common::status::MonitorClient::new(app_cfg.monitor_port);
                     for p in profiles {
                         let _ = client.reload_worker(&p).await;
                     }

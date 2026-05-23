@@ -1,11 +1,22 @@
 use std::sync::OnceLock;
 use tokio::sync::broadcast;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TelemetryEvent {
+    pub profile: String,
+    pub event_type: String,
+    pub old_status: Option<String>,
+    pub new_status: Option<String>,
+    pub details: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub enum GlobalEvent {
     ProfileRenamed { old: String, new: String },
     ProfileDeleted { name: String },
     ConfigChanged { profile: String, key: String },
+    Telemetry(TelemetryEvent),
+    ProxyRequestReceived,
 }
 
 pub static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
