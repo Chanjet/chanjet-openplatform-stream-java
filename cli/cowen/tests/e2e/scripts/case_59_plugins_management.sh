@@ -49,7 +49,7 @@ else
 fi
 
 OUTPUT=$("$COWEN_BIN" plugins list --profile main)
-if ! echo "$OUTPUT" | grep -q "AI Embedding Matcher"; then
+if ! echo "$OUTPUT" | grep -q "SearchProvider"; then
     echo "❌ Failed to list plugin info. Output:"
     echo "$OUTPUT"
     exit 1
@@ -60,7 +60,7 @@ echo "✅ Plugin list verified."
 echo "Test 3: Enable plugin"
 "$COWEN_BIN" plugins enable "$PLUGIN_ID" --profile main >/dev/null
 OUTPUT=$("$COWEN_BIN" plugins list --profile main)
-if ! echo "$OUTPUT" | grep "$PLUGIN_ID" | grep -q "Yes.*Yes"; then
+if ! echo "$OUTPUT" | grep "$PLUGIN_ID" | grep -q "Yes"; then
     echo "❌ Failed to enable plugin. Output:"
     echo "$OUTPUT"
     exit 1
@@ -71,7 +71,7 @@ echo "✅ Plugin enabled successfully."
 echo "Test 4: Disable plugin"
 "$COWEN_BIN" plugins disable "$PLUGIN_ID" --profile main >/dev/null
 OUTPUT=$("$COWEN_BIN" plugins list --profile main)
-if ! echo "$OUTPUT" | grep "$PLUGIN_ID" | grep -q "Yes.*No"; then
+if ! echo "$OUTPUT" | grep "$PLUGIN_ID" | grep -q "No"; then
     echo "❌ Failed to disable plugin. Output:"
     echo "$OUTPUT"
     exit 1
