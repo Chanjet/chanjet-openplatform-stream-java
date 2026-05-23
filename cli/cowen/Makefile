@@ -57,7 +57,7 @@ TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 windows-x86-cross windows-x86_64-cross \
-        windows-plugin-x64 windows-plugin-x86 windows-plugin-x64-cross windows-plugin-x86-cross test-macos-aarch64 \
+        windows-plugin-x64 windows-plugin-x86 test-macos-aarch64 \
         test test-linux test-win test-macos \
         package package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
         package-linux-aarch64 package-windows-x86_64 clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
@@ -273,23 +273,6 @@ windows-plugin-x86:
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86"
 	powershell -NoProfile -Command "cargo build --release --target i686-pc-windows-msvc -p cowen-search-embedding"
 	powershell -NoProfile -Command "Copy-Item -Path target/i686-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll -Force"
-
-windows-plugin-x64-cross:
-	@echo "🪟 Cross-compiling Windows x86_64 AI plugin (MSVC) via cargo-zigbuild..."
-	@echo "⚠️ NOTE: Cross-compiling C++ ONNX Runtime (ort) dependencies is highly constrained on macOS/Linux."
-	@echo "⚠️ It requires pre-configured MSVC SDK libraries and custom linkers. If this fails, please build directly on a Windows host using 'make windows-plugin-x64'."
-	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross
-	cargo zigbuild --release --target x86_64-pc-windows-msvc -p cowen-search-embedding
-	cp target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll
-
-windows-plugin-x86-cross:
-	@echo "🪟 Cross-compiling Windows x86 (32-bit) AI plugin (MSVC) via cargo-zigbuild..."
-	@echo "⚠️ NOTE: Cross-compiling C++ ONNX Runtime (ort) dependencies is highly constrained on macOS/Linux."
-	@echo "⚠️ It requires pre-configured MSVC SDK libraries and custom linkers. If this fails, please build directly on a Windows host using 'make windows-plugin-x86'."
-	mkdir -p $(OUTPUT_DIR)/windows-x86
-	cargo zigbuild --release --target i686-pc-windows-msvc -p cowen-search-embedding
-	cp target/i686-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll
-
 # --- 打包目标 ---
 
 package-macos-aarch64: clean macos-aarch64
