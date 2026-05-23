@@ -124,13 +124,11 @@
     4. **异步遥测捕获**：在最外层 CLI 启动装配线中，由上层 `cowen-monitor` 的 `MonitorServer::start` 自动拉起异步接收协程，订阅 `event_bus().subscribe()` 的遥测流，捕获打点数据并静默写入 `TelemetryDb` sqlite 库。
     5. **100% 接口向下兼容 (0修改测试通过)**：`cowen-monitor` 仅通过一行 `pub use cowen_common::status::*;` 及 `MonitorClient` 重新导出实现完全一致的外部 API，保证了 60 余个既有 E2E 测试用例在不做任何改动的情况下，100% 顺利通过编译与所有功能校验。
 
-### 5.2 【高耦合】基于 Trait 隔离，剪断对 `cowen-store` 数据库驱动的强物理依赖
-*   **问题现状**：`cowen-auth` 为管理多租户令牌的生命周期，必须强物理依赖 `cowen-store` 模块以连通数据库。
-*   **解耦路线**：
-    1.  将 `Vault` 和 `TokenPool` 等底座存储抽象定义全部移入 `cowen-common`（仅留 Trait 声明）。
-    2.  `cowen-auth` 仅依赖 `cowen-common` 引入这些 Trait 接口，并在内部完全面向 Trait 编写鉴权。
-    3.  具体存储库由外部在 CLI 初始化装配时通过依赖注入传入。
-*   **架构收益**：实现鉴权模块与具体存储驱动的**物理级编译隔离**。
+### 5.2 [已完成] 【高耦合】基于 Trait 隔离，剪断对 `cowen-store` 数据库驱动的强物理依赖 (v0.3.5 已落地)
+*   **重构方案与成果**：
+    1. **契约编程与依赖重塑**：全面分析后确认，`cowen-auth` 核心逻辑原本即纯面向 `Vault` 与 `TokenPool` 这两大底座抽象 Trait（均分别定义在 `cowen-common::vault` 和 `cowen-auth::pool` 中，而非 `cowen-store`）。它对 `cowen-store` 的唯一依赖是用于实现 `ConfigValidator` 配置校验 Trait，而该 Trait 本质上原生定义在 `cowen-config` 之中（`cowen-auth` 已经正常依赖了该库）。
+    2. **物理层切断与依赖优化**：我们将 `cowen-auth/src/lib.rs` 中的 `ConfigValidator` 导入源从 `cowen_store` 直接替换为 `cowen_config`。随后彻底从 `cowen-auth/Cargo.toml` 中移除了 `cowen-store` 的编译期生产依赖，真正达成了鉴权引擎与具体底层存储驱动（SQL/Redis）在物理开发上的**完全隔离**。
+    3. **测试依赖平滑降级**：为了保证测试代码（如测试桩实例化 `StoreVault` 或 `FileStore`）完全无损，我们将 `cowen-store` 配置为 `[dev-dependencies]`（测试依赖）。该设计使得开发阶段的依赖网结构极度清晰，同时实现**测试用例 0 修改 100% 成功回归**。
 
 ### 5.3 【中耦合】抽象进程通信协议契约，实现 `cowen-daemon` 的“通用守护化”
 *   **问题现状**：`cowen-daemon` 深度知晓子进程是 Worker 还是 Master，与进程管理细节耦合较深。

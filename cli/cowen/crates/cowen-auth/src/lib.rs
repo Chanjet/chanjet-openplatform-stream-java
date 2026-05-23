@@ -120,7 +120,7 @@ fn validate_decrypt_key(config: &cowen_common::config::Config) -> CowenResult<()
     Ok(())
 }
 
-impl cowen_store::ConfigValidator for AuthProviderValidator {
+impl cowen_config::ConfigValidator for AuthProviderValidator {
     fn validate_load(
         &self,
         profile: &str,
@@ -158,7 +158,7 @@ mod tests {
     use super::*;
     use cowen_common::config::Config;
     use cowen_common::models::AuthMode;
-    use cowen_store::ConfigValidator;
+    use cowen_config::ConfigValidator;
 
     fn run_in_prod_env<F: FnOnce()>(f: F) {
         DISABLE_TEST_ENV_CHECK.with(|cell| cell.set(true));

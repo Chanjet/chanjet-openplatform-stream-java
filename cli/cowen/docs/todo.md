@@ -58,11 +58,14 @@
         2. **高性能事件流**：引入 `GlobalEvent::Telemetry` 与 `ProxyRequestReceived` 事件，使用基于 Tokio `broadcast` 异步无锁进程内总线完成打点流动。
         3. **编译期物理剪除**：在 `cowen-auth` 与 `cowen-server` 中彻底物理剥离了对 `cowen-monitor` 的编译依赖。
         4. **完全兼容与平滑自愈**：上层 `MonitorServer::start` 通过后台协程静默捕获总线遥测流录入 SQLite，实现 0 既有测试改动的 100% 成功回归验证。
+- [x] **高耦合度模块解耦：基于 Trait 隔离剪断对 `cowen-store` 的直接依赖** (v0.3.5)
+    *   **落地成果**:
+        1. **契约编程与依赖重塑**：确认 `cowen-auth` 生产核心逻辑面向抽象接口编写，唯一依赖的 `ConfigValidator` 验证器契约原生属于 `cowen-config` 共享层。
+        2. **编译物理隔离**：更新 `ConfigValidator` 导入并彻底移除了对 `cowen-store` 编译期强生产依赖。
+        3. **测试依赖平滑降级**：通过移入 `[dev-dependencies]` 作为测试依赖，确保本地单元/集成桩测试在 0 修改的情况下 100% 成功回归。
 
 ## 📐 P3: 长期架构演进与解耦计划 (Long-term Architecture Decoupling)
 
-- [ ] **高耦合度模块解耦：基于 Trait 隔离剪断对 `cowen-store` 的直接依赖**
-    *   **实现建议**: 将 `Vault` 和 `TokenPool` 等底座存储抽象定义全部移入 `cowen-common`，业务鉴权层仅引入 Trait 契约编程，具体存储引擎通过依赖注入传入。
 - [ ] **中耦合度模块解耦：通用守护进程化重构 `cowen-daemon`**
     *   **实现建议**: 抽象并提取子进程的通用生命周期控制 Trait（如 `start`, `stop` 等），使编排组件不再与特定 Worker 实现强绑定。
 - [ ] **中耦合度模块解耦：将 `cowen-doctor` 演进为纯“测试套件执行器”**

@@ -28,7 +28,6 @@ axum = "0.7"
 cowen-common = { path = "../cowen-common", features = ["reqwest"] }
 cowen-infra = { path = "../cowen-infra" }
 cowen-config = { path = "../cowen-config" }
-cowen-store = { path = "../cowen-store" }
 indicatif = "0.18.4"
 [features]
 inte = []
@@ -36,3 +35,4 @@ inte = []
 [dev-dependencies]
 tempfile = "3.8"
 tokio = { version = "1.0", features = ["full"] }
+cowen-store = { path = "../cowen-store" }
