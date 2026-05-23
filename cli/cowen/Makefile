@@ -264,8 +264,8 @@ impl-package-macos:
 	cd $(OUTPUT_DIR)/macos-$(ARCH)/release && \
 	productbuild --synthesize --package cowen-core.pkg --package cowen-ai-plugin.pkg Distribution.xml && \
 	sed -i '' 's/customize="never"/customize="always"/' Distribution.xml && \
-	sed -i '' '/<line choice="default">/d' Distribution.xml && \
-	sed -i '' '/<\/line>/d' Distribution.xml && \
+	perl -0777 -pi -e 's#<choices-outline>.*?</choices-outline>#<choices-outline>\\n        <line choice="com.chanjet.$(BINARY).core.$(ARCH)"/>\\n        <line choice="com.chanjet.$(BINARY).aiplugin.$(ARCH)"/>\\n    </choices-outline>#s' Distribution.xml && \
+	perl -pi -e 's#<choice id="default"/>##g' Distribution.xml && \
 	sed -i '' 's/<choice id="com.chanjet.$(BINARY).core.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).core.$(ARCH)" title="Cowen Core CLI" description="The core Cowen CLI and daemon." visible="true" enabled="false" selected="true">/' Distribution.xml && \
 	sed -i '' 's/<choice id="com.chanjet.$(BINARY).aiplugin.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).aiplugin.$(ARCH)" title="AI Embedding Plugin" description="Installs the AI embedding capabilities (Optional)." visible="true" selected="true">/' Distribution.xml && \
 	productbuild --distribution Distribution.xml --package-path . $(BINARY)-v$(VERSION)-macos-$(ARCH).pkg

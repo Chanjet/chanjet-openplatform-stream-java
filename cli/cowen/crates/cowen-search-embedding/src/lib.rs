@@ -78,6 +78,11 @@ pub unsafe extern "C" fn v1_init(model_path: *const c_char, tokenizer_path: *con
     let default_model = app_dir.join("search").join("models").join("model_quantized.onnx");
     let default_tokenizer = app_dir.join("search").join("models").join("tokenizer.json");
 
+    // 🚀 Ensure AI assets are available locally for the plugin when initialized
+    if let Err(e) = cowen_ai::SearchIndex::ensure_assets(&app_dir) {
+        eprintln!("⚠️  Failed to prepare AI assets from plugin: {}", e);
+    }
+
     let final_model_path = if model.is_empty() { default_model.to_string_lossy().to_string() } else { model };
     let final_tokenizer_path = if tokenizer.is_empty() { default_tokenizer.to_string_lossy().to_string() } else { tokenizer };
 

@@ -34,10 +34,13 @@ fi
 chown -R "$CURRENT_USER" "$PLUGIN_DIR"
 
 # 5. 动态修改该用户的配置，启用插件 (利用 cowen 自身的功能)
-if [ -f "$BINARY_PATH" ]; then
+if [ -x "$BINARY_PATH" ]; then
     # Wait for daemon to stabilize if it was just installed
     sleep 1
-    sudo -u "$CURRENT_USER" "$BINARY_PATH" plugins enable libcowen_search_embedding > /dev/null 2>&1 || true
+    echo "⚙️  Enabling plugin within cowen CLI..."
+    sudo -u "$CURRENT_USER" "$BINARY_PATH" plugins enable search-embedding > /dev/null 2>&1 || true
+else
+    echo "⚠️  Cowen core binary not found at $BINARY_PATH, skip enabling plugin."
 fi
 
 # 6. 清理公共中转区

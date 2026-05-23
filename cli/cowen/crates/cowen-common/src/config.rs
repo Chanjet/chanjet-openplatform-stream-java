@@ -151,7 +151,7 @@ fn default_search_plugins() -> Vec<PluginEntry> {
 }
 
 fn default_search_enabled() -> Vec<String> {
-    vec!["search-ai-embedding".to_string()]
+    vec![]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

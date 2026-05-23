@@ -81,7 +81,10 @@ pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     let mut app_config = cfg_mgr.load_app_config().await?;
     let plugins_dir = get_app_dir().join("plugins");
 
-    // Try to find the physical file
+    let target_name = name.replace("-", "_");
+    let expected_lib_name = format!("libcowen_{}", target_name);
+    let expected_bin_name = format!("cowen_{}", target_name);
+
     let mut found_path: Option<PathBuf> = None;
     if plugins_dir.exists() {
         for entry in fs::read_dir(&plugins_dir)? {
@@ -89,7 +92,7 @@ pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
             let path = entry.path();
             if path.is_file() {
                 let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                if file_stem == name {
+                if file_stem == name || file_stem == expected_lib_name || file_stem == expected_bin_name {
                     found_path = Some(path);
                     break;
                 }

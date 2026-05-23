@@ -40,25 +40,25 @@ fn test_plugin_auto_discovery() {
         return;
     }
 
-    // Official naming convention: libcowen_search_ai_embedding
+    // Official naming convention: libcowen_search_embedding
     let target_name = if cfg!(target_os = "windows") {
-        "cowen_search_ai_embedding.dll"
+        "cowen_search_embedding.dll"
     } else if cfg!(target_os = "macos") {
-        "libcowen_search_ai_embedding.dylib"
+        "libcowen_search_embedding.dylib"
     } else {
-        "libcowen_search_ai_embedding.so"
+        "libcowen_search_embedding.so"
     };
     
     fs::copy(&plugin_src, plugins_dir.join(target_name)).unwrap();
 
-    // 3. Create app.yaml with EMPTY plugins but ENABLED search-ai-embedding
+    // 3. Create app.yaml with EMPTY plugins but ENABLED search-embedding
     let app_yaml_path = dir.path().join("app.yaml");
     let app_config = json!({
         "storage": { "store": "innerdb" },
         "log": { "level": "info" },
         "search": {
             "plugins": [],
-            "enabled": ["search-ai-embedding"]
+            "enabled": ["search-embedding"]
         }
     });
     fs::write(app_yaml_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
@@ -98,7 +98,7 @@ fn test_plugin_auto_discovery() {
     // 6. Assertions
     cmd.assert()
        .success()
-       .stdout(predicate::str::contains("🔌 Using search plugin: search-ai-embedding"))
+       .stdout(predicate::str::contains("🔌 Using search plugin: search-embedding"))
        .stdout(predicate::str::contains(target_name))
        .stdout(predicate::str::contains("🧠 Initializing AI vector index for 1 APIs..."))
        .stdout(predicate::str::contains("GET /test"))

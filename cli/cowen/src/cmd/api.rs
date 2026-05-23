@@ -66,13 +66,7 @@ pub async fn list(
         if !app_cfg.search.enabled.is_empty() {
             let plugin_name = &app_cfg.search.enabled[0]; // For now, support one primary
             
-            // 🚀 Ensure AI assets are available locally for the plugin
-            if plugin_name == "search-ai-embedding" {
-                let app_dir = cowen_common::config::get_app_dir();
-                if let Err(e) = cowen_ai::SearchIndex::ensure_assets(&app_dir) {
-                    eprintln!("⚠️  Failed to prepare AI assets: {}", e);
-                }
-            }
+
 
             // 1. Try explicit config first
             let mut plugin_path = app_cfg.search.plugins.iter()
