@@ -16,8 +16,9 @@ pub mod sql;
 
 pub mod vault_impl;
 pub mod migration;
+pub mod diagnostics;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "redis"))]
 mod redis_tests;
 
 pub use file::FileStore;

@@ -80,37 +80,6 @@ impl DiagnosticTask for SystemInfoCheck {
 }
 inventory::submit! { DiagnosticRegistration { builder: || Box::new(SystemInfoCheck) } }
 
-struct StorageCheck;
-#[async_trait]
-impl DiagnosticTask for StorageCheck {
-    fn name(&self) -> &str { "存储后端与Schema" }
-    async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
-        let start = Instant::now();
-        let store = crate::core::create_store(&ctx.cfg_mgr).await?;
-        
-        let status = match store.list_dlq_paged(&ctx.profile, 0, 1).await {
-            Ok(_) => DiagnosticStatus::Ok,
-            Err(_) => {
-                if ctx.fix {
-                    match store.migrate().await {
-                        Ok(_) => DiagnosticStatus::Fixed("Schema 修复成功".to_string()),
-                        Err(e) => DiagnosticStatus::Error(format!("Schema 修复失败: {}", e)),
-                    }
-                } else {
-                    DiagnosticStatus::Error("Schema 可能需要更新".to_string())
-                }
-            }
-        };
-
-        Ok(DiagnosticResult {
-            name: self.name().to_string(),
-            status,
-            duration_ms: start.elapsed().as_millis() as u64,
-        })
-    }
-}
-inventory::submit! { DiagnosticRegistration { builder: || Box::new(StorageCheck) } }
-
 struct StreamUrlCheck;
 #[async_trait]
 impl DiagnosticTask for StreamUrlCheck {
@@ -161,63 +130,4 @@ impl DiagnosticTask for OpenApiCheck {
 }
 inventory::submit! { DiagnosticRegistration { builder: || Box::new(OpenApiCheck) } }
 
-struct CredentialsCheck;
-#[async_trait]
-impl DiagnosticTask for CredentialsCheck {
-    fn name(&self) -> &str { "凭据与认证" }
-    async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
-        let start = Instant::now();
-        
-        let app_secret_res = ctx.vault.get_secret(&ctx.profile, "app_secret").await;
-        let encrypt_key_res = ctx.vault.get_secret(&ctx.profile, "encrypt_key").await;
-
-        let app_secret = app_secret_res.unwrap_or_default();
-        let encrypt_key = encrypt_key_res.unwrap_or_default();
-
-        let status = if ctx.config.app_mode == cowen_common::models::AuthMode::SelfBuilt 
-            || ctx.config.app_mode == cowen_common::models::AuthMode::StoreApp 
-        {
-            let decrypt_key_raw = if !encrypt_key.is_empty() {
-                &encrypt_key
-            } else {
-                &app_secret
-            };
-            let decrypt_key = decrypt_key_raw.trim();
-
-            if decrypt_key.is_empty() {
-                DiagnosticStatus::Error("缺少解密密钥 (App Secret 或 Encrypt Key 均为空)".to_string())
-            } else {
-                let key_len = if decrypt_key.len() == 32 {
-                    if hex::decode(decrypt_key).is_ok() {
-                        16
-                    } else {
-                        32
-                    }
-                } else {
-                    decrypt_key.len()
-                };
-
-                if key_len != 16 {
-                    DiagnosticStatus::Error(format!(
-                        "解密密钥不合规：必须为16字节或32字符Hex，当前 trimmed 长度为 {}",
-                        decrypt_key.len()
-                    ))
-                } else {
-                    DiagnosticStatus::Ok
-                }
-            }
-        } else {
-            // OAuth2 mode: No app_secret needed. Uses built-in client ID with PKCE.
-            // Credential validation is handled by the OAuth2 provider during token operations.
-            DiagnosticStatus::Ok
-        };
-
-        Ok(DiagnosticResult {
-            name: self.name().to_string(),
-            status,
-            duration_ms: start.elapsed().as_millis() as u64,
-        })
-    }
-}
-inventory::submit! { DiagnosticRegistration { builder: || Box::new(CredentialsCheck) } }
 

@@ -6,6 +6,7 @@ use cowen_common::store::Store;
 use std::sync::Arc;
 use cowen_common::security;
 
+#[allow(dead_code)]
 pub async fn create_store(cfg_mgr: &ConfigManager) -> Result<Arc<dyn Store>> {
     let app_cfg = cfg_mgr.load_app_config().await?;
     let app_dir = &cfg_mgr.app_dir;

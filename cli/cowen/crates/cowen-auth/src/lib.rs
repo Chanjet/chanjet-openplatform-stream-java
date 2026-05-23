@@ -5,6 +5,7 @@ pub mod lifecycle;
 pub mod models;
 pub mod pool;
 pub mod provider;
+pub mod diagnostics;
 
 pub use client::AuthClient;
 pub use decorator::RequestDecorator;

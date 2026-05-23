@@ -113,6 +113,9 @@ fn test_oauth2_capabilities() {
         async fn delete_session(&self, _: &str) -> CowenResult<()> {
             Ok(())
         }
+        async fn list_sessions(&self) -> CowenResult<Vec<AuthSession>> {
+            Ok(vec![])
+        }
     }
 
     #[async_trait]

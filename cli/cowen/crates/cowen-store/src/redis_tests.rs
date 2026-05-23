@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "redis"))]
 mod tests {
     use crate::RedisStore;
     use cowen_common::store::Store;

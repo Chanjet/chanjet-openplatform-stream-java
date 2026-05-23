@@ -159,6 +159,9 @@ impl SessionDomain for MockVault {
     async fn delete_session(&self, _: &str) -> CowenResult<()> {
         Ok(())
     }
+    async fn list_sessions(&self) -> CowenResult<Vec<AuthSession>> {
+        Ok(vec![])
+    }
 }
 #[async_trait]
 impl SecretDomain for MockVault {
