@@ -354,8 +354,11 @@ package-windows-x86_64-cross: windows-x86_64-cross
 	cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
 	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/README.txt
-	@if [ -f "$(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll" ]; then \
-		echo "✅ Found cowen_search_embedding.dll (copied from Windows), copying into package..."; \
+	@if [ -f "../../assets/plugins/windows-x86_64/cowen_search_embedding.dll" ]; then \
+		echo "✅ Found stable cowen_search_embedding.dll in assets, copying into package..."; \
+		cp ../../assets/plugins/windows-x86_64/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
+	elif [ -f "$(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll" ]; then \
+		echo "✅ Found cowen_search_embedding.dll in output dir (copied from Windows), copying into package..."; \
 		cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
 	elif [ -f "target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found cowen_search_embedding.dll in target, copying into package..."; \
@@ -379,8 +382,11 @@ package-windows-x86-cross: windows-x86-cross
 	cp $(OUTPUT_DIR)/windows-x86/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/
 	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86/tmp_pkg/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86/tmp_pkg/README.txt
-	@if [ -f "$(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll" ]; then \
-		echo "✅ Found 32-bit cowen_search_embedding.dll (copied from Windows), copying into package..."; \
+	@if [ -f "../../assets/plugins/windows-x86/cowen_search_embedding.dll" ]; then \
+		echo "✅ Found stable 32-bit cowen_search_embedding.dll in assets, copying into package..."; \
+		cp ../../assets/plugins/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
+	elif [ -f "$(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll" ]; then \
+		echo "✅ Found 32-bit cowen_search_embedding.dll in output dir (copied from Windows), copying into package..."; \
 		cp $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
 	elif [ -f "target/i686-pc-windows-msvc/release/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found 32-bit cowen_search_embedding.dll in target, copying into package..."; \

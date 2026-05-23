@@ -1,0 +1,15 @@
+=== 🪟 Windows x86_64 Stable AI Plugin DLL Guide ===
+
+【中文说明】
+对于包含 AI 向量处理和 Embedding 引擎的项目，由于 C++ ONNX Runtime 的跨平台交叉编译极其复杂，
+在插件（cowen_search_embedding.dll）开发稳定且后续不需要频繁重新编译的情况下，
+我们可以将编译好的稳定版 DLL 直接永久存放在本目录下，并提交入 Git 仓库进行版本管理。
+
+【使用流程】：
+1. 在 Windows 物理机或 CI 上运行 `make windows-plugin-x64`。
+2. 将最终生成的 `cowen_search_embedding.dll` 拷贝至本目录（assets/plugins/windows-x86_64/）。
+3. 提交本目录下的 DLL 文件入 Git 仓库：
+   git add assets/plugins/windows-x86_64/cowen_search_embedding.dll
+   git commit -m "Add stable Windows x86_64 AI plugin"
+4. 后续在 macOS/Linux 上通过 `make package-windows-x86_64-cross` 进行打包时：
+   打包脚本将【最高优先级】自动读取并合并本目录下的稳定版 DLL 插件，实现全自动的 Windows 发行包构建。
