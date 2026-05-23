@@ -50,5 +50,24 @@
 - [x] **Doctor 插件化重构**: 将 `doctor.rs` 的过程化检测重构为基于 `DiagnosticTask` 插件的并发检测模型，提升扩展性。
 - [x] **解耦进程编排逻辑**: 将 `cowen-server/src/cmd/mod.rs` 中复杂的进程监控、PID 管理和僵尸进程探测逻辑提取到独立的 `cowen-daemon` 编排组件中。
 - [x] **提取独立诊断模块**: 将散落在各处的 `status.rs` 和 `audit.rs` 整合为独立的 `cowen-telemetry` (cowen-monitor) 模块。
-- [x] **灵活的 SSRF 防御**: 为 `forwarder.rs` 增加 Webhook 转发白名单配置，支持容器化环境（如 K8s）下的私有网段转发，并通过 `ssrf.rs` 实现分级校验。
+- [x] **SSRF 防御与分级校验**: 为 `forwarder.rs` 增加 Webhook 转发白名单配置，并通过 `ssrf.rs` 实现分级校验。
 - [x] **补全 OCP 抽象**: 将系统重置 (System Reset) 逻辑彻底模块化。
+
+## 📐 P3: 长期架构演进与解耦计划 (Long-term Architecture Decoupling)
+
+- [ ] **高耦合度模块解耦：应用事件总线剪除 `cowen-monitor` 编译期强物理依赖**
+    *   **实现建议**: 在 `cowen-common` 中定义核心领域事件契约，让鉴权（`cowen-auth`）与服务端（`cowen-server`）仅依赖内存级 `EventBus` 发布事件，而将实际的日志写入/收集责任移到最外层装配线或并行的 `cowen-monitor` 模块。
+- [ ] **高耦合度模块解耦：基于 Trait 隔离剪断对 `cowen-store` 的直接依赖**
+    *   **实现建议**: 将 `Vault` 和 `TokenPool` 等底座存储抽象定义全部移入 `cowen-common`，业务鉴权层仅引入 Trait 契约编程，具体存储引擎通过依赖注入传入。
+- [ ] **中耦合度模块解耦：通用守护进程化重构 `cowen-daemon`**
+    *   **实现建议**: 抽象并提取子进程的通用生命周期控制 Trait（如 `start`, `stop` 等），使编排组件不再与特定 Worker 实现强绑定。
+- [ ] **中耦合度模块解耦：将 `cowen-doctor` 演进为纯“测试套件执行器”**
+    *   **实现建议**: 允许每个子领域模块（存储、配置、AI 插件等）自行在其内部编写及导出特定的诊断任务，医生模块仅负责并发拉起与聚合 Prettytable 打印。
+
+---
+
+## 📂 附件 (Attachments)
+
+- 📄 **架构分析与核心源码审计报告**：包含 12 个 Crate 层级耦合度精细审计、源码精读、SOLID 原则落地以及具体解耦建议。
+    - [ARCHITECTURE_AUDIT_REPORT.md](ARCHITECTURE_AUDIT_REPORT.md)
+
