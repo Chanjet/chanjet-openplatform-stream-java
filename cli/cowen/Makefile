@@ -354,6 +354,7 @@ package-windows-x86_64-cross: windows-x86_64-cross
 	cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
 	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/README.txt
+	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
 	@if [ -f "../../assets/plugins/windows-x86_64/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found stable cowen_search_embedding.dll in assets, copying into package..."; \
 		cp ../../assets/plugins/windows-x86_64/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
@@ -382,6 +383,7 @@ package-windows-x86-cross: windows-x86-cross
 	cp $(OUTPUT_DIR)/windows-x86/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/
 	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86/tmp_pkg/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86/tmp_pkg/README.txt
+	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x86/tmp_pkg/
 	@if [ -f "../../assets/plugins/windows-x86/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found stable 32-bit cowen_search_embedding.dll in assets, copying into package..."; \
 		cp ../../assets/plugins/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
