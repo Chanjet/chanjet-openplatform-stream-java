@@ -38,7 +38,7 @@ if [ -x "$BINARY_PATH" ]; then
     # Wait for daemon to stabilize if it was just installed
     sleep 1
     echo "⚙️  Enabling plugin within cowen CLI..."
-    sudo -u "$CURRENT_USER" "$BINARY_PATH" plugins enable search-embedding > /dev/null 2>&1 || true
+    sudo -u "$CURRENT_USER" "$BINARY_PATH" plugins enable libcowen_search_embedding > /dev/null 2>&1 || true
 else
     echo "⚠️  Cowen core binary not found at $BINARY_PATH, skip enabling plugin."
 fi

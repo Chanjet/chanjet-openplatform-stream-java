@@ -68,28 +68,14 @@ pub async fn list(
             
 
 
-            // 1. Try explicit config first
-            let mut plugin_path = app_cfg.search.plugins.iter()
-                .find(|p| &p.name == plugin_name)
-                .map(|p| std::path::PathBuf::from(&p.path));
-
-            // 2. Try auto-discovery in ~/.cowen/plugins if not found or path doesn't exist
-            if plugin_path.as_ref().map(|p| !p.exists()).unwrap_or(true) {
-                let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
-                let discovered = cowen_infra::discover_plugins(&plugins_dir);
-                
-                // Strict match: The config name must be fully represented in the filename.
-                // We only auto-prepend 'libcowen_' as the system namespace.
-                let target_name = plugin_name.replace('-', "_");
-                let expected_lib_name = format!("libcowen_{}", target_name);
-                let expected_bin_name = format!("cowen_{}", target_name);
-                
-                if let Some(path) = discovered.into_iter().find(|p| {
-                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                    stem == expected_lib_name || stem == expected_bin_name
-                }) {
-                    plugin_path = Some(path);
-                }
+            let mut plugin_path = None;
+            let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
+            let discovered = cowen_infra::discover_plugins(&plugins_dir);
+            if let Some(path) = discovered.into_iter().find(|p| {
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                stem == plugin_name
+            }) {
+                plugin_path = Some(path);
             }
 
             if let Some(path) = plugin_path {

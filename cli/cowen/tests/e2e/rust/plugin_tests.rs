@@ -51,14 +51,17 @@ fn test_plugin_auto_discovery() {
     
     fs::copy(&plugin_src, plugins_dir.join(target_name)).unwrap();
 
-    // 3. Create app.yaml with EMPTY plugins but ENABLED search-embedding
+    // 3. Create app.yaml with ENABLED target_name (stem only, no extension)
     let app_yaml_path = dir.path().join("app.yaml");
+    
+    // strip extension from target_name
+    let expected_stem = std::path::Path::new(target_name).file_stem().unwrap().to_str().unwrap();
+
     let app_config = json!({
         "storage": { "store": "innerdb" },
         "log": { "level": "info" },
         "search": {
-            "plugins": [],
-            "enabled": ["search-embedding"]
+            "enabled": [expected_stem]
         }
     });
     fs::write(app_yaml_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
@@ -98,7 +101,7 @@ fn test_plugin_auto_discovery() {
     // 6. Assertions
     cmd.assert()
        .success()
-       .stdout(predicate::str::contains("🔌 Using search plugin: search-embedding"))
+       .stdout(predicate::str::contains(format!("🔌 Using search plugin: {}", expected_stem)))
        .stdout(predicate::str::contains(target_name))
        .stdout(predicate::str::contains("🧠 Initializing AI vector index for 1 APIs..."))
        .stdout(predicate::str::contains("GET /test"))

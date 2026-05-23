@@ -131,8 +131,6 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SearchConfig {
-    #[serde(default = "default_search_plugins")]
-    pub plugins: Vec<PluginEntry>,
     #[serde(default = "default_search_enabled")]
     pub enabled: Vec<String>,
 }
@@ -140,25 +138,13 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
-            plugins: default_search_plugins(),
             enabled: default_search_enabled(),
         }
     }
 }
 
-fn default_search_plugins() -> Vec<PluginEntry> {
-    vec![]
-}
-
 fn default_search_enabled() -> Vec<String> {
     vec![]
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PluginEntry {
-    pub name: String,
-    pub path: String,
-    pub r#type: String,
 }
 
 fn default_true() -> bool {
