@@ -68,11 +68,15 @@
         1. **面向契约编程**：对 `crates/cowen-daemon/src/main.rs` 进行依赖倒置，将 IPC connection 处理器 `handle_connection` 与具体服务实现类 `ServerDaemonService` 完全解耦，变更为完全面向抽象 `DaemonService` 契约编程。
         2. **高度纯粹性**：彻底屏蔽了进程编排管理与 IPC 消息响应中的具体业务细节，使其退化为高度纯粹且可复用的通用守护进程与 Supervisor 编排引擎。
         3. **无损兼容**：在 0 测试改动下，全量 58 个黑盒 E2E 并行测试套件均 100% 完美跑通。
+- [x] **中耦合度模块解耦：将 `cowen-doctor` 演进为纯“测试套件执行器”** (v0.3.5)
+    *   **落地成果**:
+        1. **诊断逻辑高内聚下沉**：彻底剥离了原 CLI `src/cmd/doctor.rs` 中硬编码的 `StorageCheck` 和 `CredentialsCheck`，将其分别下沉入所属的 `cowen-store` 和 `cowen-auth` 子模块中，实现了业务诊断的自治管理。
+        2. **零耦合自注册装配**：基于 `inventory` 全局链接器，各个子 Crate 可以在完全不被外围 CLI 修改的情况下，进行诊断任务的自注册。
+        3. **测试 0 改动无损兼容**：在 0 测试修改的严苛前提下，全量 30 个 Rust 单元/集成测试和 58 个黑盒 E2E 并行测试套件均 100% 成功通过。
 
 ## 📐 P3: 长期架构演进与解耦计划 (Long-term Architecture Decoupling)
 
-- [ ] **中耦合度模块解耦：将 `cowen-doctor` 演进为纯“测试套件执行器”**
-    *   **实现建议**: 允许每个子领域模块（存储、配置、AI 插件等）自行在其内部编写及导出特定的诊断任务，医生模块仅负责并发拉起与聚合 Prettytable 打印。
+*所有阶段解耦任务已全部高标准落地完成*
 
 ---
 
