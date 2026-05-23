@@ -19,3 +19,8 @@ pub trait SearchProvider: Send + Sync {
     fn update_index(&self, docs: &[SearchDocument]);
     fn name(&self) -> &str;
 }
+
+#[macro_export]
+macro_rules! plugin_trait_search_provider {
+    () => { c"SearchProvider" }
+}

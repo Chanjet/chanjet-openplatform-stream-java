@@ -81,7 +81,8 @@ pub async fn list(
                                 let ptr = trait_fn();
                                 if !ptr.is_null() {
                                     let trait_name = std::ffi::CStr::from_ptr(ptr).to_string_lossy();
-                                    if trait_name == "SearchProvider" {
+                                    let expected_trait = cowen_search::plugin_trait_search_provider!().to_str().unwrap();
+                                    if trait_name == expected_trait {
                                         is_search_provider = true;
                                     }
                                 }
@@ -113,7 +114,8 @@ pub async fn list(
             }
             
             if primary.is_none() {
-                eprintln!("⚠️  No active plugin with 'SearchProvider' trait found in config or ~/.cowen/plugins/");
+                let expected_trait = cowen_search::plugin_trait_search_provider!().to_str().unwrap();
+                eprintln!("⚠️  No active plugin with '{}' trait found in config or ~/.cowen/plugins/", expected_trait);
             }
         }
 

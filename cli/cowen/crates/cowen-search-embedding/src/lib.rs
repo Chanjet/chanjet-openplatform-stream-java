@@ -142,5 +142,5 @@ pub unsafe extern "C" fn v1_desc() -> *const c_char {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn v1_trait() -> *const c_char {
-    c"SearchProvider".as_ptr()
+    cowen_search::plugin_trait_search_provider!().as_ptr()
 }
