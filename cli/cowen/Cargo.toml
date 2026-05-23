@@ -52,7 +52,7 @@ cowen-config = { path = "crates/cowen-config" }
 cowen-monitor = { path = "crates/cowen-monitor" }
 cowen-search = { path = "crates/cowen-search" }
 cowen-doctor = { path = "crates/cowen-doctor" }
-cowen-search-embedding = { path = "crates/cowen-search-embedding" }
+cowen-search-embedding = { path = "crates/cowen-search-embedding", optional = true }
 
 inventory = "0.3"
 
@@ -78,7 +78,8 @@ serde_urlencoded = "0.7.1"
 tower-http = { version = "0.6.10", features = ["cors"] }
 
 [features]
-default = []
+default = ["ai"]
+ai = ["dep:cowen-search-embedding"]
 inte = []
 
 [dev-dependencies]
