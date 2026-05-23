@@ -57,8 +57,16 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
 
                 let name = file_name;
 
-                let is_registered = app_config.search.plugins.iter().any(|p| p.name == name);
-                let is_enabled = app_config.search.enabled.contains(&name.to_string());
+                // Reverse map to short name
+                let mut short_name = name.to_string();
+                if let Some(stripped) = name.strip_prefix("libcowen_") {
+                    short_name = stripped.replace("_", "-");
+                } else if let Some(stripped) = name.strip_prefix("cowen_") {
+                    short_name = stripped.replace("_", "-");
+                }
+
+                let is_registered = app_config.search.plugins.iter().any(|p| p.name == name || p.name == short_name);
+                let is_enabled = app_config.search.enabled.contains(&name.to_string()) || app_config.search.enabled.contains(&short_name);
 
                 let registered_str = if is_registered { "\x1b[32mYes\x1b[0m" } else { "\x1b[31mNo\x1b[0m" };
                 let enabled_str = if is_enabled { "\x1b[32mYes\x1b[0m" } else { "\x1b[31mNo\x1b[0m" };
