@@ -981,6 +981,7 @@ dependencies = [
  "libloading",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
 ]
 
