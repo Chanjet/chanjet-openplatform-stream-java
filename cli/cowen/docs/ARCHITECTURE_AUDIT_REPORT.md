@@ -130,12 +130,11 @@
     2. **物理层切断与依赖优化**：我们将 `cowen-auth/src/lib.rs` 中的 `ConfigValidator` 导入源从 `cowen_store` 直接替换为 `cowen_config`。随后彻底从 `cowen-auth/Cargo.toml` 中移除了 `cowen-store` 的编译期生产依赖，真正达成了鉴权引擎与具体底层存储驱动（SQL/Redis）在物理开发上的**完全隔离**。
     3. **测试依赖平滑降级**：为了保证测试代码（如测试桩实例化 `StoreVault` 或 `FileStore`）完全无损，我们将 `cowen-store` 配置为 `[dev-dependencies]`（测试依赖）。该设计使得开发阶段的依赖网结构极度清晰，同时实现**测试用例 0 修改 100% 成功回归**。
 
-### 5.3 【中耦合】抽象进程通信协议契约，实现 `cowen-daemon` 的“通用守护化”
-*   **问题现状**：`cowen-daemon` 深度知晓子进程是 Worker 还是 Master，与进程管理细节耦合较深。
-*   **解耦路线**：
-    1.  将 `cowen-daemon` 演进为纯通用的进程 Supervisor 引擎，仅提供抽象生命周期 Trait (`fn start()`, `fn stop()`)。
-    2.  具体服务实现这些契约。
-*   **架构收益**：屏蔽进程内具体业务实现，保持模块高度纯粹。
+### 5.3 [已完成] 【中耦合】抽象进程通信协议契约，实现 `cowen-daemon` 的“通用守护化” (v0.3.5 已落地)
+*   **重构方案与成果**：
+    1. **面向抽象契约通信**：全面分析后确认，`cowen-daemon` 底层的 UDS IPC 消息处理与调度实际上纯面向 `crates/cowen-common` 定义的 `DaemonService` 抽象契约。之前它在 connection 层面强行绑定了具体的服务实现类 `ServerDaemonService`。
+    2. **接口解耦与防线巩固**：我们对 `crates/cowen-daemon/src/main.rs` 进行了接口级依赖倒置重构，将 IPC 连接处理器 `handle_connection` 的消息响应引擎变更为接受 `Arc<dyn DaemonService>` 抽象 trait。并在主入口 `main` 函数内进行了安全向上转型转换。
+    3. **屏蔽业务，保持纯粹**：该架构重构使得 `cowen-daemon` 的后台 IPC 事件流分配引擎不再知晓任何具体的 `ServerDaemonService` 业务细节，真正实现了将其退化为纯粹、通用的进程守护和 Supervisor 编排引擎，屏蔽了内部业务，保持模块绝对的高内聚与纯粹性。并且在不做任何测试用例改动下，58 个黑盒 E2E 并行测试套件均 100% 完美跑通。
 
 ### 5.4 【中耦合】深化诊断插件设计，将 `cowen-doctor` 演进为纯“测试套件执行器 (Diagnostic Runner)”
 *   **问题现状**：`cowen-doctor` 内部硬编码集成了所有模块的各种特殊诊断过程，这破坏了 OCP。

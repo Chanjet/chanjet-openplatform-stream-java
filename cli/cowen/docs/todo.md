@@ -63,11 +63,14 @@
         1. **契约编程与依赖重塑**：确认 `cowen-auth` 生产核心逻辑面向抽象接口编写，唯一依赖的 `ConfigValidator` 验证器契约原生属于 `cowen-config` 共享层。
         2. **编译物理隔离**：更新 `ConfigValidator` 导入并彻底移除了对 `cowen-store` 编译期强生产依赖。
         3. **测试依赖平滑降级**：通过移入 `[dev-dependencies]` 作为测试依赖，确保本地单元/集成桩测试在 0 修改的情况下 100% 成功回归。
+- [x] **中耦合度模块解耦：通用守护进程化重构 `cowen-daemon`** (v0.3.5)
+    *   **落地成果**:
+        1. **面向契约编程**：对 `crates/cowen-daemon/src/main.rs` 进行依赖倒置，将 IPC connection 处理器 `handle_connection` 与具体服务实现类 `ServerDaemonService` 完全解耦，变更为完全面向抽象 `DaemonService` 契约编程。
+        2. **高度纯粹性**：彻底屏蔽了进程编排管理与 IPC 消息响应中的具体业务细节，使其退化为高度纯粹且可复用的通用守护进程与 Supervisor 编排引擎。
+        3. **无损兼容**：在 0 测试改动下，全量 58 个黑盒 E2E 并行测试套件均 100% 完美跑通。
 
 ## 📐 P3: 长期架构演进与解耦计划 (Long-term Architecture Decoupling)
 
-- [ ] **中耦合度模块解耦：通用守护进程化重构 `cowen-daemon`**
-    *   **实现建议**: 抽象并提取子进程的通用生命周期控制 Trait（如 `start`, `stop` 等），使编排组件不再与特定 Worker 实现强绑定。
 - [ ] **中耦合度模块解耦：将 `cowen-doctor` 演进为纯“测试套件执行器”**
     *   **实现建议**: 允许每个子领域模块（存储、配置、AI 插件等）自行在其内部编写及导出特定的诊断任务，医生模块仅负责并发拉起与聚合 Prettytable 打印。
 

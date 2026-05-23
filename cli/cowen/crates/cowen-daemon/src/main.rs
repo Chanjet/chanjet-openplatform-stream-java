@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
         info!("Starting cowen-daemon...");
         info!("Listening on UDS: {}", args.uds.display());
         
-        let daemon_svc = Arc::new(ServerDaemonService::new(cfg_mgr.clone()));
+        let daemon_svc: Arc<dyn DaemonService> = Arc::new(ServerDaemonService::new(cfg_mgr.clone()));
 
         let mut m_port = app_cfg.monitor_port;
         let mut allow_fallback = false;
@@ -184,7 +184,7 @@ async fn main() -> Result<()> {
 }
 
 #[cfg(unix)]
-async fn handle_connection(mut stream: UnixStream, svc: Arc<ServerDaemonService>, vault: Arc<dyn Vault>) -> Result<()> {
+async fn handle_connection(mut stream: UnixStream, svc: Arc<dyn DaemonService>, vault: Arc<dyn Vault>) -> Result<()> {
     let mut len_buf = [0u8; 4];
     if stream.read_exact(&mut len_buf).await.is_err() {
         return Ok(()); // Connection closed
