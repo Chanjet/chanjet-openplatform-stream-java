@@ -56,7 +56,7 @@ STATE=$(get_json_field "$SESSION_JSON" "state")
 
 # Wait/Retry Callback to avoid port binding race condition
 echo -n "   Simulating browser callback to port ${REDIRECT_PORT}..."
-MAX_RETRIES=20
+MAX_RETRIES=40
 SUCCESS=0
 for i in $(seq 1 $MAX_RETRIES); do
     if curl -s -f "http://127.0.0.1:${REDIRECT_PORT}/callback?code=mock_code&state=${STATE}" > /dev/null; then
