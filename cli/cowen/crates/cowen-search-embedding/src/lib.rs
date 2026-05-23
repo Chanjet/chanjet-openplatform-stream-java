@@ -137,5 +137,10 @@ pub unsafe extern "C" fn v1_name() -> *const c_char {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn v1_desc() -> *const c_char {
-    c"Local ONNX-based semantic search provider".as_ptr()
+    c"使用向量模型检索 api".as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn v1_trait() -> *const c_char {
+    c"SearchProvider".as_ptr()
 }

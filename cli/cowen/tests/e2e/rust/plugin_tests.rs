@@ -60,9 +60,7 @@ fn test_plugin_auto_discovery() {
     let app_config = json!({
         "storage": { "store": "innerdb" },
         "log": { "level": "info" },
-        "search": {
-            "enabled": [expected_stem]
-        }
+        "plugins": [expected_stem]
     });
     fs::write(app_yaml_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
 

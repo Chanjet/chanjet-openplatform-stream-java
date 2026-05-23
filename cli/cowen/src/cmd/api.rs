@@ -63,41 +63,57 @@ pub async fn list(
         let mut primary: Option<Box<dyn SearchProvider>> = None;
         
         // Try to load the enabled plugin from config
-        if !app_cfg.search.enabled.is_empty() {
-            let plugin_name = &app_cfg.search.enabled[0]; // For now, support one primary
-            
-
-
-            let mut plugin_path = None;
+        if !app_cfg.plugins.is_empty() {
             let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
             let discovered = cowen_infra::discover_plugins(&plugins_dir);
-            if let Some(path) = discovered.into_iter().find(|p| {
-                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                stem == plugin_name
-            }) {
-                plugin_path = Some(path);
-            }
-
-            if let Some(path) = plugin_path {
-                unsafe {
-                    match DynamicSearchProvider::new(plugin_name, &path) {
-                        Ok(p) => {
-                            println!("🔌 Using search plugin: {} ({})", plugin_name, path.display());
-                            let provider: Box<dyn SearchProvider> = Box::new(p);
-                            
-                            // 🚀 LIFE CYCLE: Push documents to plugin for indexing/vectorization
-                            println!("🧠 Initializing AI vector index for {} APIs...", search_docs.len());
-                            provider.update_index(&search_docs);
-                            
-                            primary = Some(provider);
+            
+            // Iterate over all enabled plugins in config
+            for plugin_name in &app_cfg.plugins {
+                if let Some(path) = discovered.iter().find(|p| {
+                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                    stem == plugin_name
+                }) {
+                    // Load and check trait
+                    let mut is_search_provider = false;
+                    if let Ok(loader) = cowen_infra::PluginLoader::new(&path) {
+                        unsafe {
+                            if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const std::os::raw::c_char>(b"v1_trait") {
+                                let ptr = trait_fn();
+                                if !ptr.is_null() {
+                                    let trait_name = std::ffi::CStr::from_ptr(ptr).to_string_lossy();
+                                    if trait_name == "SearchProvider" {
+                                        is_search_provider = true;
+                                    }
+                                }
+                            }
                         }
-                        Err(e) => {
-                            eprintln!("⚠️  Failed to load search plugin '{}' at {}: {}", plugin_name, path.display(), e);
+                    }
+
+                    if is_search_provider {
+                        unsafe {
+                            match DynamicSearchProvider::new(plugin_name, &path) {
+                                Ok(p) => {
+                                    println!("🔌 Using search plugin: {} ({})", plugin_name, path.display());
+                                    let provider: Box<dyn SearchProvider> = Box::new(p);
+                                    
+                                    // 🚀 LIFE CYCLE: Push documents to plugin for indexing/vectorization
+                                    println!("🧠 Initializing AI vector index for {} APIs...", search_docs.len());
+                                    provider.update_index(&search_docs);
+                                    
+                                    primary = Some(provider);
+                                    break; // Found the search provider, stop looking
+                                }
+                                Err(e) => {
+                                    eprintln!("⚠️  Failed to load search plugin '{}' at {}: {}", plugin_name, path.display(), e);
+                                }
+                            }
                         }
                     }
                 }
-            } else {
-                eprintln!("⚠️  Search plugin '{}' is enabled but not found in config or ~/.cowen/plugins/", plugin_name);
+            }
+            
+            if primary.is_none() {
+                eprintln!("⚠️  No active plugin with 'SearchProvider' trait found in config or ~/.cowen/plugins/");
             }
         }
 

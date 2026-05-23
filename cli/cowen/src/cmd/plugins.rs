@@ -11,7 +11,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
 
     println!("🔍 Scanning plugins directory: {:?}", plugins_dir);
-    println!("{:<30} | {:<10} | {:<10} | DESCRIPTION", "NAME", "TYPE", "ENABLED");
+    println!("{:<30} | {:<10} | {:<10} | DESCRIPTION", "NAME", "TRAIT", "ENABLED");
     println!("{:-<30}-+-{:-<10}-+-{:-<10}-+-{:-<40}", "", "", "", "");
 
     if !plugins_dir.exists() {
@@ -28,15 +28,15 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
             if ext == "so" || ext == "dylib" || ext == "dll" {
                 found_any = true;
                 let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
-                let mut display_type = "dynamic".to_string();
+                let mut display_trait = "unknown".to_string();
                 let mut display_desc = String::new();
 
                 if let Ok(loader) = PluginLoader::new(&path) {
                     unsafe {
-                        if let Ok(type_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_type") {
-                            let ptr = type_fn();
+                        if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_trait") {
+                            let ptr = trait_fn();
                             if !ptr.is_null() {
-                                display_type = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+                                display_trait = CStr::from_ptr(ptr).to_string_lossy().into_owned();
                             }
                         }
                         if let Ok(desc_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_desc") {
@@ -49,12 +49,12 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
                 }
 
                 let name = file_name;
-                let is_enabled = app_config.search.enabled.contains(&name.to_string());
+                let is_enabled = app_config.plugins.contains(&name.to_string());
                 let enabled_str = if is_enabled { "\x1b[32mYes\x1b[0m" } else { "\x1b[31mNo\x1b[0m" };
 
                 // Because of ANSI escape codes \x1b[32m (9 chars) and \x1b[0m (4 chars),
                 // we add 13 to the padding to maintain the actual visual width of 10.
-                println!("{:<30} | {:<10} | {:<23} | {}", name, display_type, enabled_str, display_desc);
+                println!("{:<30} | {:<10} | {:<23} | {}", name, display_trait, enabled_str, display_desc);
             }
         }
     }
@@ -75,8 +75,8 @@ pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     let expected_path_dll = plugins_dir.join(format!("{}.dll", name));
 
     if expected_path_dylib.exists() || expected_path_so.exists() || expected_path_dll.exists() {
-        if !app_config.search.enabled.contains(name) {
-            app_config.search.enabled.push(name.to_string());
+        if !app_config.plugins.contains(name) {
+            app_config.plugins.push(name.to_string());
             println!("✅ Enabled plugin '{}'.", name);
             cfg_mgr.save_app_config(&app_config).await?;
             println!("🚀 Plugin configuration updated. Restart daemon to take effect if necessary.");
@@ -93,8 +93,8 @@ pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
 pub async fn disable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     let mut app_config = cfg_mgr.load_app_config().await?;
     
-    if app_config.search.enabled.contains(name) {
-        app_config.search.enabled.retain(|n| n != name);
+    if app_config.plugins.contains(name) {
+        app_config.plugins.retain(|n| n != name);
         cfg_mgr.save_app_config(&app_config).await?;
         println!("✅ Disabled plugin '{}'.", name);
         println!("🚀 Plugin configuration updated. Restart daemon to take effect if necessary.");

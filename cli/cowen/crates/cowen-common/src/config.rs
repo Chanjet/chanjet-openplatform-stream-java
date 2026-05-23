@@ -18,7 +18,7 @@ pub struct AppConfig {
     #[serde(default = "default_stream_url")]
     pub stream_url: String,
     #[serde(default)]
-    pub search: SearchConfig,
+    pub plugins: Vec<String>,
     #[serde(default = "default_true")]
     pub telemetry_enabled: bool,
 }
@@ -40,7 +40,7 @@ impl Default for AppConfig {
             log: default_log(),
             openapi_url: default_openapi_url(),
             stream_url: default_stream_url(),
-            search: SearchConfig::default(),
+            plugins: vec![],
             telemetry_enabled: true,
         }
     }
@@ -129,23 +129,6 @@ pub struct Config {
     pub exclusive: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SearchConfig {
-    #[serde(default = "default_search_enabled")]
-    pub enabled: Vec<String>,
-}
-
-impl Default for SearchConfig {
-    fn default() -> Self {
-        Self {
-            enabled: default_search_enabled(),
-        }
-    }
-}
-
-fn default_search_enabled() -> Vec<String> {
-    vec![]
-}
 
 fn default_true() -> bool {
     true
