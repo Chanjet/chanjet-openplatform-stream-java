@@ -55,6 +55,13 @@ graph TD
   - 用于承载特定租户/Profile 级的鉴权凭证（例如：Client ID, Client Secret）以及本地存储后端（如 SQLite 单文件物理路径、独立 Redis 实例端点等）。
   - 彻底实现了多租户/多环境的物理隔离和独立寻址。
 
+### 3. 配置双写降级策略 (Dual-Write Strategy)
+
+对于单机开发默认的 `innerdb` (SQLite) 存储模式，由于其属于本地物理存储范畴，`cowen` 采用了一种**双写降级**机制：
+- **运行时主存**：任何配置更改会序列化为字符串（`system:manifest`）存储于 SQLite 数据库中，引擎启动与运行时优先从库中读取，保障配置一致性与多域共享能力。
+- **本地文件镜像 (DX 优化)**：与此同时，系统会在 `~/.cowen/` 下实时生成并同步同名的 `.yaml` 配置文件（如 `self_built_app.yaml`）。
+这一设计的初衷是为了赋予开发者更直观的查阅与编辑体验，方便提交代码版本控制（如配套的 `_openapi.yaml`）；在意外情况下，系统也能够纯依赖本地文件实现无缝降级。
+
 ---
 
 ## 🔌 SPI 与 插件化设计 (OCP Implementation)
@@ -109,9 +116,15 @@ v0.3.5 实现了严格的物理目录隔离，每个领域拥有独立的 `Cargo
 - `cowen-common`: 核心数据模型、脱敏类型和通用错误机制。
 - `cowen-config`: 配置管理器。实现全局应用配置与多 Profile 租户配置的分层解析寻址、校验及自动迁移策略。
 - `cowen-store`: 存储 SPI 与 SQLite/PostgreSQL/MySQL/Redis 等异构持久化存储后端驱动。
-- `cowen-auth`: 鉴权 SPI 与 Self-Built / Store-App / OAuth2 鉴权驱动插件实现。
-- `cowen-search`: 语义搜索 Hub。承载向量化转换与动态 C-ABI 搜索插件管理。
-- `cowen-infra`: 包括动态插件加载器、敏感信息混淆器、文件锁等底层工具组件。
+- `cowen-auth`: 鉴权 SPI 与 Self-Built / Store-App / OAuth2 鉴权机制与驱动插件实现。
+- `cowen-search`: 语义搜索 Hub。承载向量化转换抽象与动态 C-ABI 搜索插件管理。
+- `cowen-search-embedding`: 语义搜索插件的具体 C-ABI 导出实现，桥接语义搜索 Hub 与底层的向量提取引擎。
+- `cowen-ai`: 核心向量模型推理及分词引擎，内置 ONNX 运行时，负责本地高维向量计算与 Top-K 检索。
+- `cowen-daemon`: 热重启工作子进程 worker 编排管理器，提供平滑热重启及 PID 监控保障。
+- `cowen-doctor`: 诊断任务插件化并发执行引擎，负责环境体检与自动修复。
+- `cowen-monitor`: 状态与遥测收集引擎，记录系统历史状态转换事件流水并管理本地 `telemetry.db` SQLite 库。
+- `cowen-server`: 主控守护 IPC 服务、反向代理网关、Webhook 接收器及多租户 Active-Active 令牌自愈轮询引擎。
+- `cowen-infra`: 包括动态插件加载器、敏感信息混淆器、文件锁等底层跨平台工具组件。
 
 ---
 
@@ -120,7 +133,8 @@ v0.3.5 实现了严格的物理目录隔离，每个领域拥有独立的 `Cargo
 `cowen api list -s "关键词"` 的实现细节：
 - **模型**: BGE-small-zh-v1.5 (量化版 ONNX)。
 - **推理**: 使用 `ort` (ONNX Runtime) 执行。
-- **原理**: 将所有 API 路径和描述转化为向量，通过 Cosine Similarity 计算相关度，优于传统关键词匹配。
+- **机制 (纯内存索引)**: 提取 API 文档文本后实时转为高维浮点数向量，采用 **无持久化的纯内存数组 (`Vec<SearchDocument>`)** 管理。
+- **原理**: 检索时采用基于 **全量内存暴力遍历 (Brute-Force)** 的余弦相似度计算，辅以中文字符 N-Gram 权重提升机制（Hybrid Search）。这种“轻量无依赖”的设计完美契合 CLI 局部小规模数据集（通常 < 10,000 条），避免了引入外部向量库的运维负担，以极低的架构成本实现了毫秒级的高精确度语义召回。
 
 ---
 

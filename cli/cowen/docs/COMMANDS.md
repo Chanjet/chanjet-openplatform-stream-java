@@ -56,6 +56,12 @@ search:
 ### `api spec` - 规约详情
 查看指定接口的文档定义或原始 JSON 片段。
 
+### `plugins` - 插件管理 (v0.3.5+)
+动态扫描、启用或禁用本地扩展插件。
+- `cowen plugins list`: 扫描并列出 `~/.cowen/plugins/` 目录下的可用扩展插件（检测其导出的 C-ABI 接口与描述）。
+- `cowen plugins enable <NAME>`: 启用指定的插件并将其注册到全局配置中。
+- `cowen plugins disable <NAME>`: 禁用指定的插件。
+
 ### `api [METHOD] [PATH]` - 接口调用
 直接发起受控请求，系统自动处理签名与 Token。
 ```bash
@@ -74,8 +80,15 @@ cowen api POST /v1/orders -d '{"amount": 100}'
 手动触发网络换票流程。
 - `--force`: 强制使本地缓存失效并重新换票。
 
-### `auth logout`
-清理本地内存与 Vault 中的 Token 缓存。
+### `auth logout` / `auth reset`
+清理本地内存与 Vault 中的 Token 缓存，退出登录会话。
+
+### `auth token`
+获取或主动续期刷新当前 Profile 的 AccessToken。
+- `--refresh`: 强制立即向开放平台执行 Token 寿命续期刷新。
+
+### `auth reload`
+从共享存储中强制同步最新凭据数据到当前工作上下文，并向运行中的 Daemon 进程发送重载信号以即时同步状态。
 
 ---
 
@@ -83,27 +96,52 @@ cowen api POST /v1/orders -d '{"amount": 100}'
 
 ### `daemon start`
 启动长连接桥接器、反向代理与自动续约引擎。
-- `--enable-proxy`: 同时开启本地 HTTP 代理。
-- `--foreground`: 前台运行观察日志。
+- `--enable-proxy`: 同时开启本地 HTTP 代理网关。
+- `--no-proxy`: 强制禁用代理网关，仅做流消息桥接。
+- `--foreground`: 在控制台前台阻塞式挂起运行以方便直接观察日志流。
+- `-a, --all`: 批量为所有已配置激活的 Profile 环境一并启动后台服务。
 - **自适应刷新 (v0.3.1+)**: 后台维护循环会根据 Token 剩余寿命自动计算下一次检查时间（80% 寿命规则 + 随机抖动），显著降低系统开销。
 
+### `daemon stop`
+优雅停止运行中的后台守护进程服务。
+- `-a, --all`: 批量停止当前机器上运行的所有 Profile 守护进程。
+
+### `daemon restart`
+重启守护服务并应用最新加载的配置文件参数。
+- `--enable-proxy` / `--no-proxy`: 覆盖启用或关闭代理网关能力。
+- `-a, --all`: 批量重启所有已配置的 Profile 守护进程。
+
+### `daemon reload` (v0.3.5+)
+在不停止主控服务 Master 守护的前提下，平滑热重启特定的工作 Worker 子进程（例如重新加载新换取的租户 Token）。
+- `-a, --all`: 批量热重启所有激活环境的工作子进程。
+
+### `daemon service` (v0.3.5+)
+管理操作系统的系统级自启动服务单元。
+- `cowen daemon service install`: 将后台守护服务安装到操作系统开机自启动单元中（支持 Linux `systemd` / macOS `launchd`）。
+- `cowen daemon service uninstall`: 从系统服务管理器中安全卸载守护进程开机单元。
+- `cowen daemon service status`: 诊断操作系统服务管理器中当前单元的运行生命周期状态。
+
+### `status` / `system status`
+检查并输出 CLI 的运行状态指标，包含 Daemon 运行状态、Store 连通性、Auth 及 AI 模块的健康度。
+- `-a, --all`: 扫描并诊断系统所有存在的 Profile 的详细运行状态矩阵。
+
 ### `doctor` - 环境诊断 (v0.3.1+)
-运行一键诊断工具，检查网络、存储、插件加载、版本一致性及权限问题。
+运行一键诊断工具，深度检查网络、存储、插件加载、版本一致性及权限问题。
+- `-p, --profile <NAME>`: 指定要诊断的环境 Profile。
+- `-v, --verbose`: 开启详细诊断模式，包含插件哈希校验与网络延迟测试。
+- `--fix`: 尝试自动修复发现的问题（如 SQLite 存储 Schema 自动更新或迁移）。
 ```bash
 cowen doctor --verbose
 ```
-
-### `system status --all`
-扫描并诊断系统所有 Profile 的运行状态矩阵。
 
 ### `store status`
 检查当前配置的主存储后端与缓存连接性及健康状态。
 
 ### `store set`
 配置全局存储后端与缓存的连接参数与引擎类型。
-- `--store`: 主存储引擎类型 (可选 `sqlite`, `innerdb`, `mysql`, `postgres`, `redis`, `local`)。
+- `--store`: 主存储数据库引擎类型 (可选 `sqlite`, `innerdb`, `mysql`, `postgres`, `redis`, `local`)。
 - `--db-url`: 数据库连接 URL 地址。
-- `--cache`: 全局缓存引擎类型 (如 `redis`, `memory`)。
+- `--cache`: 全局缓存引擎类型 (如 `redis`, `memory`, `none`)。
 - `--cache-url`: 缓存连接的物理 URL 地址。
 
 ### `store migrate` (v0.3.5+)
@@ -116,11 +154,12 @@ cowen doctor --verbose
 ## 📦 5. 运维审计 (Log, Dlq)
 
 ### `log list`
-查看当前的日志域列表（sys, audit, stream, dlq）。
+查看当前的日志域列表（sys, audit, stream, dlq）及其对应的物理审计文件信息。
 
 ### `log view <DOMAIN>`
+查看审计文件或实时跟踪多域日志流的控制台输出。
 - `--follow`: 实时追踪日志流水。
-- `-n`: 指定起始行数。
+- `-n`: 指定默认在尾部展示日志审计文件的尾部行数 (默认 10)。
 
 ### `dlq list`
 列出当前死信队列 (DLQ) 中因为网络或本地重试耗尽而堆积的异常事件。
@@ -128,14 +167,28 @@ cowen doctor --verbose
 - `-n`, `--page-size`: 每页显示的死信记录条数限制 (默认 20)。
 
 ### `dlq retry <ID>`
-手动触发死信重发。
+根据唯一事件 ID (UUID) 手动触发指定死信消息重新投递重试。
+
+### `dlq purge`
+物理抹除死信队列中堆积的所有历史事件（慎用）。
+
+### `events` - 事件回溯 (v0.3.5+)
+查看过去的系统事件流与故障状态切换轨迹，提供细粒度的诊断回溯。
+- `-p, --profile <NAME>`: 仅过滤特定 Profile 环境的事件。
+- `-n, --limit <LIMIT>`: 展示最近的事件条数 (默认 20)。
 
 ---
 
 ## ⌨️ 6. 其它
 
-### `completion --install`
-自动安装 Shell 命令补全脚本。
+### `completion` - 自动补全
+自动生成或安装命令行自动补全脚本 (支持 Zsh, Bash, Fish 和 PowerShell)。
+- `--install`: 自动安装补全脚本到当前用户的配置中。
+- `--uninstall`: 从当前用户的配置中卸载补全脚本。
+
+### `version` - 版本信息
+获取当前 CLI 构建的版本、Build ID 及构建时间。
+- `-o, --format <FORMAT>`: 输出格式 (`text`, `json`)，默认为 `text`。
 
 ---
 © 2026 Chanjet Advanced Agentic Coding Team.

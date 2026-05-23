@@ -115,8 +115,8 @@
 
 ### 7.1 编译期强校验注入
 必须在编译期通过构建脚本（如 `build.rs`）校验并静态注入以下变量，任何缺失或格式错误均会导致编译失败：
-- `COWEN_BUILD_CLIENT_ID`: 编译期注入的内置自建应用 Client ID，用于安全引导和默认代金券交换。
-- `COWEN_BUILD_MARKET_URL`: 编译期注入的默认开放平台应用市场 API 地址。
+- `COWEN_BUILD_CLIENT_ID` (或 `BUILTIN_CLIENT_ID`): 编译期注入的内置自建应用 Client ID，用于安全引导和默认代金券交换。
+- `DEF_MARKET_URL`: 编译期注入的默认开放平台应用市场 API 地址。
 
 ### 7.2 运行时全局环境变量覆盖
 运行时允许通过带 `COWEN_GLOBAL_` 前缀的环境变量直接覆盖全局 `app.yaml` 中的对应配置项，无需修改物理文件即可调整行为：

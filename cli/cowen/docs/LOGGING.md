@@ -1,4 +1,4 @@
-# cowen 日志与遥测指南 (Logging v0.3.0)
+# cowen 日志与遥测指南 (Logging v0.3.5)
 
 `cowen` 提供了一套工业级的结构化遥测系统。
 

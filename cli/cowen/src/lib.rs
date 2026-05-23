@@ -74,7 +74,7 @@ pub enum Commands {
         openapi_url: Option<String>,
         #[arg(long, env = "COWEN_STREAM_URL", help = "Stream Gateway 基础 URL 覆盖")]
         stream_url: Option<String>,
-        #[arg(long, env = "COWEN_APP_MODE", help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用)")]
+        #[arg(long, env = "COWEN_APP_MODE", help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用), store_app (商店应用)")]
         app_mode: Option<String>,
         #[arg(long, env = "COWEN_PROXY_PORT", help = "本地代理监听端口")]
         proxy_port: Option<u16>,

@@ -107,7 +107,7 @@ cowen doctor --profile corp-dev
 
 - **Store (持久化层)**: 
   - `local` (默认): 数据以加密形式存放在 `~/.cowen/.seal` 目录下。无需任何安装，开箱即用。
-  - `innerdb`: 业务数据（日志、队列）存储在本地 SQLite 数据库中，敏感凭据锁定在本地 `.seal`。
+  - `innerdb`: 业务数据（日志、队列）存储在内置 SQLite 数据库中，敏感凭据锁定在本地 `.seal`。采用 **“双写降级”** 策略：在数据库存入全量配置的同时，会在本地 `~/.cowen/` 下镜像生成同名 `.yaml` 文件（如 `self_built_app.yaml`），方便开发者直观阅览或配置版本管理。
   - `mysql` / `postgres` / `mssql`: 全量数据存入远程数据库。**推荐生产集群使用**，支持多节点共享身份。
 - **Cache (加速层)**:
   - `none` (默认): 无额外缓存。

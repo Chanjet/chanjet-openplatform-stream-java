@@ -1,14 +1,14 @@
 # 畅捷通 Stream Connector CLI (Rust 版) - cowen
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-0.3.5-blue.svg)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 `cowen` 是畅捷通开放平台（Chanjet Open Platform）官方推出的高性能、安全且智能的命令行治理工具。它通过 Rust 的内存安全特性、零成本抽象以及原生 AI 能力，为开发者提供全生命周期的 API 治理体验。
 
 ## ✨ 核心特性
 
-- 🧠 **语义化 API 搜索**：集成原生 ONNX 引擎（BGE-small-zh），支持基于 NLP 的意图发现，不仅仅是关键词匹配。
+- 🧠 **语义化 API 搜索**：集成原生 ONNX 引擎（BGE-small-zh），构建 **轻量级纯内存向量检索引擎**，支持基于 NLP 的意图发现，不仅仅是关键词匹配。
 - 🔄 **动态 OpenAPI 发现**：服务驱动的 Spec 同步机制，支持全量规约下载与增量权限发现，自动聚合环境感知的可用接口列表。
 - 🛡️ **声明式安全治理**：基于 OpenAPI 规约自动注入 `appKey`、`appSecret` 以及 `openToken`，实现零代码侵入的生产级鉴权。
 - 📉 **指数退避与限流 (Backoff)**：内置针对云端流量控制（HTTP 409）的指数级退避算法，状态加密持久化，保障在高频调用或自愈重启时的账号信誉。
