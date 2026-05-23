@@ -56,7 +56,7 @@ PROD_STREAM  = https://stream-open.chanapp.chanjet.com
 TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
-.PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 test-macos-aarch64 \
+.PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 windows-x86-cross windows-x86_64-cross test-macos-aarch64 \
         test test-linux test-win test-macos \
         package package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
         package-linux-aarch64 package-windows-x86_64 clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
@@ -236,6 +236,30 @@ windows-x86_64: build-plugins
 	powershell -NoProfile -Command "if (Test-Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll) { Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force }"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
+
+windows-x86-cross:
+	@echo "🪟 Cross-compiling Windows x86 (32-bit) v$(VERSION) via cargo-zigbuild..."
+	mkdir -p $(OUTPUT_DIR)/windows-x86
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
+	DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
+	cargo zigbuild --release --target i686-pc-windows-gnu --no-default-features -p cowen -p cowen-daemon
+	cp target/i686-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x86/$(BINARY).exe
+	cp target/i686-pc-windows-gnu/release/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86/cowen-daemon.exe
+	@$(call MD5,$(OUTPUT_DIR)/windows-x86/$(BINARY).exe)
+	@$(call SHA1,$(OUTPUT_DIR)/windows-x86/$(BINARY).exe)
+
+windows-x86_64-cross:
+	@echo "🪟 Cross-compiling Windows x86_64 (64-bit) v$(VERSION) via cargo-zigbuild..."
+	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
+	DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
+	cargo zigbuild --release --target x86_64-pc-windows-gnu --no-default-features -p cowen -p cowen-daemon
+	cp target/x86_64-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe
+	cp target/x86_64-pc-windows-gnu/release/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86_64-cross/cowen-daemon.exe
+	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe)
+	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe)
 
 # --- 打包目标 ---
 
@@ -465,7 +489,7 @@ db-down:
 
 clean:
 	cargo clean
-	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/macos-x86_64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-x86_64-legacy $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/windows-x86_64-legacy $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
+	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/macos-x86_64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-x86_64-legacy $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/windows-x86_64-cross $(OUTPUT_DIR)/windows-x86_64-legacy $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
 
 install:
 	@$(MAKE) macos-aarch64
