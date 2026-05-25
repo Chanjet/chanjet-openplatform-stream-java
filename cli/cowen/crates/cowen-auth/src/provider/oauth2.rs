@@ -572,10 +572,15 @@ impl AuthProvider for OAuth2Provider {
             tracing::info!(target: "sys", url = %auth_url, "Browser mock triggered for URL");
         } else if let Err(e) = open::that(&auth_url) {
             tracing::warn!(target: "sys", error = %e, "Failed to open browser automatically");
-            println!("\x1b[33m(Failed to open browser automatically. Please copy the URL below manually to your LOCAL browser)\x1b[0m");
+            println!("\x1b[33m(Failed to open browser automatically.)\x1b[0m");
         }
 
         println!("\x1b[34m{}\x1b[0m", auth_url);
+        println!("\x1b[33m💡 Tip: If you are in an SSH or Headless environment:\x1b[0m");
+        println!("\x1b[33m   1. Copy the URL above and open it in your local browser manually.\x1b[0m");
+        println!("\x1b[33m   2. After authorization, your browser will redirect to a localhost URL (it may show 'Connection Refused').\x1b[0m");
+        println!("\x1b[33m   3. Copy that redirected URL from your browser's address bar and run `curl \"<COPIED_URL>\"` in this terminal to complete the login.\x1b[0m");
+
 
         // 5. Detect Running Daemon for IPC Finalization
         let daemon_info = cowen_common::status::get_active_daemon_info(profile);

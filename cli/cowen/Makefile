@@ -215,21 +215,23 @@ prepare-podman-image: prepare-podman-machine
 linux-x86_64-with-podman: prepare-podman-image
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] via Podman v$(VERSION)..."
 	@mkdir -p $(OUTPUT_DIR)/linux-x86_64
-	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git
+	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git $(CARGO_CACHE_DIR)/target
 	@trap '$(MAKE) stop-podman-machine' EXIT; \
 	podman run --rm \
 		-v "$$(pwd)/../..:/workspace" \
 		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
 		-v "$(CARGO_CACHE_DIR)/git:/usr/local/cargo/git" \
+		-v "$(CARGO_CACHE_DIR)/target:/workspace/cli/cowen/target_podman" \
 		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
 		bash -c "export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc && \
+			export CARGO_TARGET_DIR=target_podman && \
 			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 			BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
 			cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon && \
-			cp target/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
-			cp target/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon" && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon" && \
 	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -240,6 +242,7 @@ linux-aarch64: build-plugins
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features -p cowen -p cowen-daemon
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)
 	cp target/aarch64-unknown-linux-musl/release/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
+	cp target/release/libcowen_search_embedding.so $(OUTPUT_DIR)/linux-aarch64/ || true
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
@@ -337,14 +340,16 @@ package-linux-x86_64-with-podman: clean linux-x86_64-with-podman
 
 package-linux-aarch64: clean linux-aarch64
 	@echo "📦 Packaging Linux aarch64..."
-	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release
+	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
 	cp $(OUTPUT_DIR)/linux-aarch64/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)-v$(VERSION)-linux-aarch64
 	cp $(OUTPUT_DIR)/linux-aarch64/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
+	cp target/release/libcowen_search_embedding.so pkg_root_aarch64/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-aarch64/
-	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY)-v$(VERSION)-linux-aarch64 cowen-daemon install.sh README.txt CHANGELOG.md
+	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY)-v$(VERSION)-linux-aarch64 cowen-daemon install.sh README.txt CHANGELOG.md -C ../../../cli/cowen/pkg_root_aarch64 lib
 	rm -f $(OUTPUT_DIR)/linux-aarch64/$(BINARY)-v$(VERSION)-linux-aarch64 $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
+	rm -rf pkg_root_aarch64
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
 

@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use reqwest::Method;
 use serde_json::Value;
 use std::sync::Arc;
-use cowen_search::{SearchProvider, StringMatchProvider, loader::{DynamicSearchProvider, FallbackProvider}};
+use cowen_search::{SearchProvider, StringMatchProvider, loader::DynamicSearchProvider};
 
 #[derive(serde::Serialize)]
 struct ApiOperation {
@@ -119,13 +119,26 @@ pub async fn list(
             }
         }
 
-        let fallback = Box::new(StringMatchProvider { docs: search_docs });
-        let provider = FallbackProvider { primary, fallback };
+        let mut results = vec![];
+        let mut used_provider = String::new();
+        let mut is_basic = false;
+
+        if let Some(p) = primary {
+            results = p.search(query, page * page_size);
+            used_provider = p.name().to_string();
+        }
+
+        if results.is_empty() {
+            // fallback
+            let fallback = StringMatchProvider { docs: search_docs };
+            results = fallback.search(query, page * page_size);
+            used_provider = "basic_text_match".to_string();
+            is_basic = true;
+        }
         
         // Perform search
-        println!("🔍 Searching for: '{}' (via {})", query, provider.name());
+        println!("🔍 Searching for: '{}' (via {})", query, used_provider);
         
-        let results = provider.search(query, page * page_size);
         let start = (page.max(1) - 1) * page_size;
         let paged_results = if start < results.len() {
             &results[start..]
@@ -135,10 +148,14 @@ pub async fn list(
 
         println!("--------------------------------------------------");
         if paged_results.is_empty() {
-            println!("  (No results from plugin)");
+            println!("  (No results found)");
         } else {
             for (score, doc) in paged_results {
-                println!("\x1b[1;32m{:<30}\x1b[0m [Match: {:.1}%]", doc.id, score * 100.0);
+                if is_basic {
+                    println!("\x1b[1;32m{:<30}\x1b[0m [\x1b[36mBasic Match\x1b[0m]", doc.id);
+                } else {
+                    println!("\x1b[1;32m{:<30}\x1b[0m [Match: {:.1}%]", doc.id, score * 100.0);
+                }
                 println!("  Summary: {}", doc.summary);
                 println!();
             }

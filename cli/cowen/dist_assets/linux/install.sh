@@ -42,4 +42,19 @@ echo "⚙️ Setting up shell completion..."
 echo "📟 Setting up autostart service..."
 "$INSTALL_DIR/$BINARY" daemon service install > /dev/null 2>&1 || true
 
+# 6. Install and enable AI search plugin
+PLUGIN_DIR="$HOME/.cowen/plugins"
+if [ -d "lib" ] && ls lib/libcowen_search_embedding.so >/dev/null 2>&1; then
+    echo "🧩 Installing AI search plugin..."
+    mkdir -p "$PLUGIN_DIR"
+    cp lib/libcowen_search_embedding.so "$PLUGIN_DIR/"
+    chmod +x "$PLUGIN_DIR/libcowen_search_embedding.so"
+    
+    echo "⚙️ Enabling AI search plugin..."
+    # Wait briefly for daemon to stabilize if just installed/started
+    sleep 1
+    "$INSTALL_DIR/$BINARY" plugins enable libcowen_search_embedding > /dev/null 2>&1 || true
+    echo "✅ AI search plugin installed and enabled."
+fi
+
 echo -e "\n🎉 Installation complete! Run 'cowen --help' to get started."

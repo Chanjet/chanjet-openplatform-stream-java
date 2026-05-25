@@ -260,6 +260,11 @@ pub enum PluginsCommands {
         /// 要禁用的插件名称
         name: String,
     },
+    /// 安装插件，将其拷贝到 ~/.cowen/plugins 目录并赋予权限
+    Install {
+        /// 要安装的插件文件路径 (如 ./libcowen_search_embedding.so)
+        path: String,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -352,8 +357,8 @@ pub enum AuthCommands {
     Reset,
     /// 安全清除本地内存与 Vault 中的 Token 凭据并退出会话
     Logout,
-    /// 触发与开放平台的换票及交互式 OAuth2 登录流
-    #[command(long_about = "触发与开放平台的换票及交互式 OAuth2 登录流。\n\n默认情况下，CLI 会尝试打开系统本地浏览器进行授权。如果处于无桌面/无头服务器环境 (Headless)，可以使用 --manual 参数，CLI 会打印出鉴权链接，您可以将其复制到本地浏览器中完成授权。")]
+    /// 触发与开放平台的换票及交互式 OAuth2 登录流 (支持 Headless / SSH 远程复制 URL 授权)
+    #[command(long_about = "触发与开放平台的换票及交互式 OAuth2 登录流。\n\n默认情况下，CLI 会尝试打开系统本地浏览器进行授权。如果处于无桌面/无头服务器环境 (Headless)，可以直接复制控制台打印的鉴权链接，并在您的本地浏览器中完成授权。\n\n【SSH 环境收尾说明】授权完成后浏览器会重定向到 localhost 并可能提示无法访问。您只需将地址栏中被重定向的 URL 完整复制，然后在当前无头服务器中执行 `curl \"<复制的URL>\"` 即可完成最终的换票收尾流程。也可以使用 --manual 参数禁用自动打开浏览器。")]
     Login {
         /// 强制废弃本地 Token 并立即触发重新网络登录
         #[arg(short, long, help = "强制废弃缓存凭据并立即网络重登录")]
@@ -456,6 +461,7 @@ pub enum DlqCommands {
         page_size: usize,
     },
     /// 查看特定死信事件的详细请求体 (Payload) 和堆栈信息
+    #[command(alias = "show")]
     View {
         /// 需要查看的死信事件 ID
         #[arg(help = "死信记录的唯一事件 ID")]
@@ -769,6 +775,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             PluginsCommands::List => cmd::plugins::list(&cfg_mgr).await?,
             PluginsCommands::Enable { name } => cmd::plugins::enable(&cfg_mgr, name).await?,
             PluginsCommands::Disable { name } => cmd::plugins::disable(&cfg_mgr, name).await?,
+            PluginsCommands::Install { path } => cmd::plugins::install(&cfg_mgr, path).await?,
         },
         Commands::Config { action, all } => match action {
             Some(ConfigCommands::Set { key, value, global }) => {

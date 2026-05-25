@@ -11,7 +11,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
 
     println!("🔍 Scanning plugins directory: {:?}", plugins_dir);
-    println!("{:<30} | {:<10} | {:<10} | DESCRIPTION", "NAME", "TRAIT", "ENABLED");
+    println!("{:<30} | {:<10} | {:<10} | DESCRIPTION", "NAME", "TYPE", "ENABLED");
     println!("{:-<30}-+-{:-<10}-+-{:-<10}-+-{:-<40}", "", "", "", "");
 
     if !plugins_dir.exists() {
@@ -59,7 +59,9 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
         }
     }
 
-    if !found_any {
+    if found_any {
+        println!("\n💡 TYPE indicates the plugin's capability (e.g., SearchProvider for semantic search).");
+    } else {
         println!("(No dynamic library plugins found)");
     }
 
@@ -102,5 +104,35 @@ pub async fn disable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
         println!("ℹ️ Plugin '{}' is not currently enabled.", name);
     }
 
+    Ok(())
+}
+
+pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
+    let source_path = std::path::Path::new(path);
+    if !source_path.exists() || !source_path.is_file() {
+        return Err(anyhow::anyhow!("❌ Source plugin file not found or is not a file: {}", path));
+    }
+
+    let file_name = source_path.file_name().ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
+    let plugins_dir = get_app_dir().join("plugins");
+    
+    if !plugins_dir.exists() {
+        std::fs::create_dir_all(&plugins_dir)?;
+    }
+    
+    let target_path = plugins_dir.join(file_name);
+    std::fs::copy(source_path, &target_path)?;
+    
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&target_path)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&target_path, perms)?;
+    }
+
+    println!("✅ Successfully installed plugin '{}' to {:?}", file_name.to_string_lossy(), plugins_dir);
+    println!("💡 Use 'cowen plugins list' to view it, and 'cowen plugins enable <name>' to activate it.");
+    
     Ok(())
 }
