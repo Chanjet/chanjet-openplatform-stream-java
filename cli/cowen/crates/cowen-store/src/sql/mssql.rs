@@ -1036,6 +1036,12 @@ impl SqlDriver for MssqlDriver {
         .await
         .map_err(|e| CowenError::Store(e.to_string()))?;
         conn.execute(
+            "UPDATE cowen_tenant_token SET profile = @p1 WHERE profile = @p2",
+            &[&new_name, &old_name],
+        )
+        .await
+        .map_err(|e| CowenError::Store(e.to_string()))?;
+        conn.execute(
             "UPDATE cowen_audit SET profile = @p1 WHERE profile = @p2",
             &[&new_name, &old_name],
         )

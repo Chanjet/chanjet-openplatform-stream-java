@@ -460,6 +460,7 @@ impl SqlDriver for MySqlDriver {
         sqlx::query("UPDATE cowen_config SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         sqlx::query("UPDATE cowen_secret SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         sqlx::query("UPDATE cowen_token SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        sqlx::query("UPDATE cowen_tenant_token SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         sqlx::query("UPDATE cowen_audit SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         sqlx::query("UPDATE cowen_dlq SET profile = ? WHERE profile = ?").bind(new_name).bind(old_name).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())

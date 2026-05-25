@@ -73,6 +73,13 @@ EOF
     CFG=$("$COWEN_BIN" config --profile new_prof)
     assert_match "$CFG" "AK_RENAME_$mode" "Data (AppKey) migrated to 'new_prof'"
     
+    # 7.5 Verify authentication is retained
+    STATUS=$("$COWEN_BIN" status --profile new_prof 2>&1 || true)
+    if echo "$STATUS" | grep -q "Not logged in"; then
+        fail_suite "Authentication lost after rename in $mode. Token store migration failed!"
+    fi
+    echo -e "  ${GREEN}✓${NC} Authentication (Token) migrated to 'new_prof'"
+    
     # 8. Extra check for Local mode: file exists
     if [ "$mode" == "local" ]; then
         if [ ! -f "$COWEN_HOME/new_prof.yaml" ]; then
