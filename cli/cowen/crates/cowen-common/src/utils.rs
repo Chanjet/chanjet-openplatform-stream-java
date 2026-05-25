@@ -25,6 +25,15 @@ pub fn render<T: Serialize>(data: &T, format: &str) -> CowenResult<()> {
     Ok(())
 }
 
+pub fn print_error_json(err_msg: &str) {
+    let mut map = serde_json::Map::new();
+    map.insert("status".to_string(), serde_json::Value::String("failed".to_string()));
+    map.insert("error".to_string(), serde_json::Value::String(err_msg.to_string()));
+    if let Ok(json_str) = serde_json::to_string_pretty(&serde_json::Value::Object(map)) {
+        println!("{}", json_str);
+    }
+}
+
 pub fn sanitize_credential(s: &str) -> String {
     s.chars()
         .filter(|&c| {

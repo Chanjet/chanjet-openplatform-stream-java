@@ -426,6 +426,7 @@ pub async fn call(
     data: &Option<String>,
     data_file: &Option<String>,
     format: &str,
+    force: bool,
 ) -> anyhow::Result<()> {
     if !auth_cli.supports_api_call(cfg) {
         return Err(anyhow!("Auth mode '{:?}' does not support direct CLI API calls. Please use your main application to trigger requests.", cfg.app_mode));
@@ -450,11 +451,15 @@ pub async fn call(
     let method_upper = method.to_uppercase();
 
     // PRE-CHECK: Validate Parameters & Body against OpenAPI spec
-    cowen_common::openapi::validate_request(&spec, &method_upper, path, &body_option).map_err(|e| anyhow::anyhow!(e))?;
+    if !force {
+        cowen_common::openapi::validate_request(&spec, &method_upper, path, &body_option).map_err(|e| anyhow::anyhow!(e))?;
 
-    let path_no_query = path.split('?').next().unwrap_or(path);
-    if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
-        return Err(anyhow!("CLI Rejected: Target path {} is not in the OpenAPI whitelist.", path_no_query));
+        let path_no_query = path.split('?').next().unwrap_or(path);
+        if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
+            return Err(anyhow!("CLI Rejected: Target path {} is not in the OpenAPI whitelist. (Use --force to bypass)", path_no_query));
+        }
+    } else {
+        tracing::warn!(target: "sys", "API Validation bypassed due to --force flag.");
     }
 
     // 2. Resolve Token

@@ -278,73 +278,74 @@ async fn status_linux(bin_name: &str) -> Result<()> {
 // --- Windows Implementation ---
 
 async fn install_windows(bin_name: &str, bin_path: &str) -> Result<()> {
-    let value_name = format!("{}Daemon", bin_name);
+    let service_name = format!("{}Daemon", bin_name);
     let bin_name_caps = bin_name.to_uppercase();
     
-    // reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v CowenDaemon /t REG_SZ /d "\"C:\path\to\cowen.exe\" daemon start --all" /f
-    let status = Command::new("reg")
-        .arg("add")
-        .arg("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
-        .arg("/v")
-        .arg(&value_name)
-        .arg("/t")
-        .arg("REG_SZ")
-        .arg("/d")
-        .arg(format!("\"{}\" daemon start --all", bin_path))
-        .arg("/f")
+    let status = Command::new("sc")
+        .arg("create")
+        .arg(&service_name)
+        .arg("binPath=")
+        .arg(format!("\"{}\" daemon start --all --run-as-service", bin_path))
+        .arg("start=")
+        .arg("auto")
         .status();
 
     match status {
         Ok(s) if s.success() => {
-            println!("✅ Successfully added autostart entry to Windows Registry.");
-            println!("📍 Registry Value: {}", value_name);
-            println!("💡 {} will now start automatically whenever you log in.", bin_name_caps);
+            println!("✅ Successfully installed Windows Service.");
+            println!("📍 Service Name: {}", service_name);
+            println!("💡 {} will now start automatically on boot.", bin_name_caps);
         },
         _ => {
-            anyhow::bail!("Failed to add registry entry via reg add.");
+            anyhow::bail!("Failed to create Windows Service via sc create. Ensure you are running as Administrator.");
         }
     }
     Ok(())
 }
 
 async fn uninstall_windows(bin_name: &str) -> Result<()> {
-    let value_name = format!("{}Daemon", bin_name);
-    let status = Command::new("reg")
+    let service_name = format!("{}Daemon", bin_name);
+    
+    let _ = Command::new("sc").arg("stop").arg(&service_name).status();
+
+    let status = Command::new("sc")
         .arg("delete")
-        .arg("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
-        .arg("/v")
-        .arg(&value_name)
-        .arg("/f")
+        .arg(&service_name)
         .status();
 
     match status {
         Ok(s) if s.success() => {
-            println!("✅ Successfully removed registry autostart entry.");
+            println!("✅ Successfully removed Windows Service.");
         },
         _ => {
-            println!("ℹ️  No registry entry found to remove.");
+            println!("ℹ️  No Windows Service found to remove, or lacking Administrator privileges.");
         }
     }
     Ok(())
 }
 
 async fn status_windows(bin_name: &str) -> Result<()> {
-    let value_name = format!("{}Daemon", bin_name);
+    let service_name = format!("{}Daemon", bin_name);
 
-    println!("🔍 Windows Registry Autostart Status:");
-    println!("  - Key: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-    println!("  - Value: {}", value_name);
+    println!("🔍 Windows Service Status:");
+    println!("  - Service Name: {}", service_name);
 
-    let output = Command::new("reg")
+    let output = Command::new("sc")
         .arg("query")
-        .arg("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
-        .arg("/v")
-        .arg(&value_name)
+        .arg(&service_name)
         .output();
 
     match output {
         Ok(out) if out.status.success() => {
             println!("  - Status: \x1b[32mREGISTERED\x1b[0m");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if stdout.contains("RUNNING") {
+                println!("  - State: \x1b[32mRUNNING\x1b[0m");
+            } else if stdout.contains("STOPPED") {
+                println!("  - State: \x1b[33mSTOPPED\x1b[0m");
+            } else {
+                println!("  - State: UNKNOWN");
+            }
         },
         _ => {
             println!("  - Status: \x1b[33mNOT REGISTERED\x1b[0m");

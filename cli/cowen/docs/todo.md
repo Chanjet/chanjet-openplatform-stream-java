@@ -73,6 +73,11 @@
         1. **诊断逻辑高内聚下沉**：彻底剥离了原 CLI `src/cmd/doctor.rs` 中硬编码的 `StorageCheck` 和 `CredentialsCheck`，将其分别下沉入所属的 `cowen-store` 和 `cowen-auth` 子模块中，实现了业务诊断的自治管理。
         2. **零耦合自注册装配**：基于 `inventory` 全局链接器，各个子 Crate 可以在完全不被外围 CLI 修改的情况下，进行诊断任务的自注册。
         3. **测试 0 改动无损兼容**：在 0 测试修改的严苛前提下，全量 30 个 Rust 单元/集成测试和 58 个黑盒 E2E 并行测试套件均 100% 成功通过。
+- [x] **架构升级：跨平台 IPC 与 Windows Service 深度集成** (v0.3.5)
+    *   **落地成果**:
+        1. **通信升级**：废弃了之前仅限 Unix 的 UDS（Unix Domain Sockets）机制，将其重构为跨平台的 TCP Socket IPC。主进程动态分配 `127.0.0.1:0` 并写入 `ipc.port` 供 CLI 通信。
+        2. **企业级 Windows 支持**：整合 `windows-service` 和 SCM 体系，替换了注册表（Registry）自启动方案，实现 `sc.exe` 标准 Windows 后台服务（`LocalSystem`）。统一了所有平台上的优雅停机与 IPC 交互表现。
+        3. **E2E 健壮回归**：所有改动历经 64 个并行 E2E 用例严格考验，全部零故障通过。
 
 ## 📐 P3: 长期架构演进与解耦计划 (Long-term Architecture Decoupling)
 

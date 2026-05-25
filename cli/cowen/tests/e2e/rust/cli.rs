@@ -46,3 +46,25 @@ fn test_cli_dlq_list_page_size_short_n() {
 }
 
 
+
+#[test]
+fn test_config_list_json_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_str().unwrap().to_string();
+    
+    // Create basic app config
+    let config_path = dir.path().join("app.yaml");
+    std::fs::write(&config_path, "openapi_url: \"http://localhost:8080\"").unwrap();
+
+    let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.arg("-o").arg("json");
+    cmd.arg("config").arg("list");
+    
+    let output = cmd.assert().success().get_output().clone();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    assert!(stdout.contains("\"openapi_url\":"));
+    
+    let _ = dir;
+}

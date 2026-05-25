@@ -117,7 +117,7 @@ cowen api POST /v1/orders -d '{"amount": 100}'
 
 ### `daemon service` (v0.3.5+)
 管理操作系统的系统级自启动服务单元。
-- `cowen daemon service install`: 将后台守护服务安装到操作系统开机自启动单元中（支持 Linux `systemd` / macOS `launchd`）。
+- `cowen daemon service install`: 将后台守护服务安装到操作系统开机自启动单元中（支持 Linux `systemd` / macOS `launchd` / Windows `Service Control Manager (SCM)`）。
 - `cowen daemon service uninstall`: 从系统服务管理器中安全卸载守护进程开机单元。
 - `cowen daemon service status`: 诊断操作系统服务管理器中当前单元的运行生命周期状态。
 

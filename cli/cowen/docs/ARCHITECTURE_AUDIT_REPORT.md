@@ -132,7 +132,7 @@
 
 ### 5.3 [已完成] 【中耦合】抽象进程通信协议契约，实现 `cowen-daemon` 的“通用守护化” (v0.3.5 已落地)
 *   **重构方案与成果**：
-    1. **面向抽象契约通信**：全面分析后确认，`cowen-daemon` 底层的 UDS IPC 消息处理与调度实际上纯面向 `crates/cowen-common` 定义的 `DaemonService` 抽象契约。之前它在 connection 层面强行绑定了具体的服务实现类 `ServerDaemonService`。
+    1. **面向抽象契约通信**：全面分析后确认，`cowen-daemon` 底层的进程间通信 (IPC) 消息处理与调度实际上纯面向 `crates/cowen-common` 定义的 `DaemonService` 抽象契约。之前它在 connection 层面强行绑定了具体的服务实现类 `ServerDaemonService`。为实现跨平台兼容（尤其是 Windows），已将底层的 UDS IPC 替换为动态分配的 TCP Socket IPC（绑定 `127.0.0.1:0` 并将端口写入 `ipc.port`）。
     2. **接口解耦与防线巩固**：我们对 `crates/cowen-daemon/src/main.rs` 进行了接口级依赖倒置重构，将 IPC 连接处理器 `handle_connection` 的消息响应引擎变更为接受 `Arc<dyn DaemonService>` 抽象 trait。并在主入口 `main` 函数内进行了安全向上转型转换。
     3. **屏蔽业务，保持纯粹**：该架构重构使得 `cowen-daemon` 的后台 IPC 事件流分配引擎不再知晓任何具体的 `ServerDaemonService` 业务细节，真正实现了将其退化为纯粹、通用的进程守护和 Supervisor 编排引擎，屏蔽了内部业务，保持模块绝对的高内聚与纯粹性。并且在不做任何测试用例改动下，58 个黑盒 E2E 并行测试套件均 100% 完美跑通。
 

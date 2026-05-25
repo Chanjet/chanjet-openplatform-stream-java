@@ -210,3 +210,52 @@ fn test_api_spec_details() {
     
     let _ = dir;
 }
+
+#[test]
+fn test_api_call_force_bypass() {
+    let (dir, home) = setup_test_env(false);
+    
+    // Without --force, calling a path not in spec should be rejected
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.arg("--profile").arg("test_api");
+    cmd.arg("api").arg("GET").arg("/v1/ghost");
+    
+    cmd.assert()
+        .failure()
+        .stderr(predicates::str::contains("Validation error"));
+
+    // With --force, it should bypass the check and fail later at network layer
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.arg("--profile").arg("test_api");
+    cmd.arg("api").arg("--force").arg("GET").arg("/v1/ghost");
+    
+    let output = cmd.assert().failure().get_output().stderr.clone();
+    let stderr = String::from_utf8_lossy(&output);
+    assert!(!stderr.contains("Validation error"));
+    
+    let _ = dir;
+}
+
+#[test]
+fn test_api_error_json_format() {
+    let (dir, home) = setup_test_env(false);
+    
+    // Global format JSON should wrap the error
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.arg("--profile").arg("test_api");
+    cmd.arg("-o").arg("json");
+    cmd.arg("api").arg("GET").arg("/v1/ghost");
+    
+    // Fails with CLI Rejected, but output should be a JSON in stdout
+    let output = cmd.assert().failure().get_output().clone();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    assert!(stdout.contains("\"status\": \"failed\""));
+    assert!(stdout.contains("\"error\":"));
+    assert!(stdout.contains("Validation error"));
+    
+    let _ = dir;
+}

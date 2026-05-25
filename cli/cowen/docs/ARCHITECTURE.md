@@ -123,7 +123,7 @@ v0.3.5 实现了严格的物理目录隔离，每个领域拥有独立的 `Cargo
 - `cowen-daemon`: 热重启工作子进程 worker 编排管理器，提供平滑热重启及 PID 监控保障。
 - `cowen-doctor`: 诊断任务插件化并发执行引擎，负责环境体检与自动修复。
 - `cowen-monitor`: 状态与遥测收集引擎，记录系统历史状态转换事件流水并管理本地 `telemetry.db` SQLite 库。
-- `cowen-server`: 主控守护 IPC 服务、反向代理网关、Webhook 接收器及多租户 Active-Active 令牌自愈轮询引擎。
+- `cowen-server`: 主控守护 IPC 服务（跨平台 TCP Socket）、反向代理网关、Webhook 接收器及多租户 Active-Active 令牌自愈轮询引擎。
 - `cowen-infra`: 包括动态插件加载器、敏感信息混淆器、文件锁等底层跨平台工具组件。
 
 ---

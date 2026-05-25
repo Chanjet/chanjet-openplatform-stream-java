@@ -42,24 +42,11 @@ pub enum DaemonResponse {
     Error { code: i32, message: String },
 }
 
-pub fn get_uds_path() -> std::path::PathBuf {
-    use sha2::{Digest, Sha256};
+pub fn get_ipc_port_path() -> std::path::PathBuf {
     let app_dir = crate::config::get_app_dir();
-    let mut uds_path = app_dir.join("uds.sock");
-
-    // SUN_LEN is usually 104-108. If path is too long (e.g. in deep parallel tests),
-    // we use a hashed name in /tmp to ensure socket binding succeeds.
-    if uds_path.to_string_lossy().len() >= 100 {
-        let mut hasher = Sha256::new();
-        hasher.update(uds_path.to_string_lossy().as_bytes());
-        let hash_bytes = hasher.finalize();
-        let hash = hash_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
-        uds_path = std::path::PathBuf::from(format!("/tmp/cowen_{}.sock", &hash[..16]));
-    }
-    uds_path
+    app_dir.join("ipc.port")
 }
 
-#[cfg(unix)]
 pub mod client {
     use super::*;
     use anyhow::{bail, Context, Result};
@@ -67,10 +54,20 @@ pub mod client {
     use std::process::Command;
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::UnixStream;
+    use tokio::net::TcpStream;
 
-    pub async fn ensure_daemon(uds_path: &Path) -> Result<UnixStream> {
-        if let Ok(stream) = UnixStream::connect(uds_path).await {
+    async fn connect_to_daemon(port_path: &Path) -> Result<TcpStream> {
+        if !port_path.exists() {
+            bail!("Port file missing");
+        }
+        let port_str = std::fs::read_to_string(port_path)?;
+        let port: u16 = port_str.trim().parse()?;
+        let stream = TcpStream::connect(format!("127.0.0.1:{}", port)).await?;
+        Ok(stream)
+    }
+
+    pub async fn ensure_daemon(port_path: &Path) -> Result<TcpStream> {
+        if let Ok(stream) = connect_to_daemon(port_path).await {
             return Ok(stream);
         }
 
@@ -105,8 +102,8 @@ pub mod client {
             .open(log_dir.join("daemon.stderr.log"))?;
 
         let _child = Command::new(&daemon_path)
-            .arg("--uds")
-            .arg(uds_path)
+            .arg("--ipc-port-file")
+            .arg(port_path)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::from(stdout_file))
             .stderr(std::process::Stdio::from(stderr_file))
@@ -116,10 +113,10 @@ pub mod client {
                 daemon_path.display()
             ))?;
 
-        // Retry logic: MAX 5 times, 200ms delay, total 1s (LLD says RETRY_FAST 5 times/200ms)
-        for _ in 0..5 {
+        // Retry logic: MAX 25 times, 200ms delay, total 5s
+        for _ in 0..25 {
             tokio::time::sleep(Duration::from_millis(200)).await;
-            if let Ok(stream) = UnixStream::connect(uds_path).await {
+            if let Ok(stream) = connect_to_daemon(port_path).await {
                 return Ok(stream);
             }
         }
@@ -128,7 +125,7 @@ pub mod client {
     }
 
     pub async fn send_request(
-        stream: &mut UnixStream,
+        stream: &mut TcpStream,
         req: &DaemonRequest,
     ) -> Result<DaemonResponse> {
         let payload = serde_json::to_vec(req)?;
@@ -147,12 +144,12 @@ pub mod client {
     }
 
     pub struct IpcDaemonService {
-        pub uds_path: PathBuf,
+        pub port_path: PathBuf,
     }
 
     impl IpcDaemonService {
-        pub fn new(uds_path: PathBuf) -> Self {
-            Self { uds_path }
+        pub fn new(port_path: PathBuf) -> Self {
+            Self { port_path }
         }
 
         pub async fn ping(&self) -> CowenResult<()> {
@@ -167,7 +164,7 @@ pub mod client {
         async fn request(&self, req: DaemonRequest) -> CowenResult<DaemonResponse> {
             let mut last_err = None;
             for _ in 0..15 {
-                let mut stream = match tokio::net::UnixStream::connect(&self.uds_path).await {
+                let mut stream = match connect_to_daemon(&self.port_path).await {
                     Ok(s) => s,
                     Err(e) => {
                         last_err = Some(CowenError::api(format!("IPC connection failed: {}", e)));

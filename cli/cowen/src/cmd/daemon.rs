@@ -88,6 +88,19 @@ async fn preflight_check_and_bind_port(cfg_mgr: &ConfigManager) -> Result<()> {
             Ok(())
         }
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            // 🚀 STABILITY: Immediate micro-retries for TIME_WAIT or ephemeral OS lock release
+            let mut resolved = false;
+            for _ in 0..3 {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                if tokio::net::TcpListener::bind(addr).await.is_ok() {
+                    resolved = true;
+                    break;
+                }
+            }
+            if resolved {
+                return Ok(());
+            }
+
             let app_dir = cowen_common::config::get_app_dir();
             let pid_file = app_dir.join("master_daemon.pid");
             let mut killed_old = false;
@@ -104,9 +117,9 @@ async fn preflight_check_and_bind_port(cfg_mgr: &ConfigManager) -> Result<()> {
                                 let name = proc.name().to_string_lossy().to_lowercase();
                                 if name.contains("cowen") {
                                     // It's a cowen process. Is it healthy?
-                                    let uds_path = cowen_common::ipc::get_uds_path();
-                                    let is_healthy = if uds_path.exists() {
-                                        let client = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
+                                    let port_path = cowen_common::ipc::get_ipc_port_path();
+                                    let is_healthy = if port_path.exists() {
+                                        let client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
                                         client.ping().await.is_ok()
                                     } else {
                                         false
@@ -184,12 +197,12 @@ pub async fn start(
             eprintln!("🚀 Triggering standalone daemon for profile '{}'...", profile);
             
             // Check if daemon is running by attempting a ping or checking socket
-            let uds_path = cowen_common::ipc::get_uds_path();
-            let _ipc_client = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
+            let port_path = cowen_common::ipc::get_ipc_port_path();
+            let _ipc_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
             
             // Wait, we can't easily ping, so we'll try to spawn if not exists.
             // Actually, if we spawn it detached, we can then send the command.
-            if !uds_path.exists() {
+            if !port_path.exists() {
                 eprintln!("ℹ️ Daemon process not running. Spawning in background...");
                 let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
                 let daemon_path = std::env::var("COWEN_DAEMON_BIN").map(std::path::PathBuf::from).unwrap_or_else(|_| exe_dir.join("cowen-daemon"));
@@ -201,8 +214,8 @@ pub async fn start(
                 let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
 
                 let _child = Command::new(&daemon_path)
-                    .arg("--uds")
-                    .arg(&uds_path)
+                    .arg("--ipc-port-file")
+                    .arg(&port_path)
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::from(stdout_file))
                     .stderr(std::process::Stdio::from(stderr_file))
@@ -217,9 +230,9 @@ pub async fn start(
             if let Err(e) = err_res {
                 // If the initial connection failed, check if the process is actually dead.
                 // If the socket exists but the process is dead, we clean up the socket and spawn it.
-                if !uds_path.exists() || !is_daemon_alive() {
+                if !port_path.exists() || !is_daemon_alive() {
                      eprintln!("ℹ️ Daemon socket stale or process dead. Spawning in background...");
-                     if uds_path.exists() { let _ = std::fs::remove_file(&uds_path); }
+                     if port_path.exists() { let _ = std::fs::remove_file(&port_path); }
                      
                      let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
                      let daemon_path = std::env::var("COWEN_DAEMON_BIN").map(std::path::PathBuf::from).unwrap_or_else(|_| exe_dir.join("cowen-daemon"));
@@ -231,8 +244,8 @@ pub async fn start(
                      let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
 
                      let _child = Command::new(&daemon_path)
-                         .arg("--uds")
-                         .arg(&uds_path)
+                         .arg("--ipc-port-file")
+                         .arg(&port_path)
                          .stdin(std::process::Stdio::null())
                          .stdout(std::process::Stdio::from(stdout_file))
                          .stderr(std::process::Stdio::from(stderr_file))
@@ -241,7 +254,7 @@ pub async fn start(
                      tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                      
                      // Try again
-                     let ipc_client2 = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
+                     let ipc_client2 = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
                      if let Err(e2) = ipc_client2.start_daemon(profile, config, vault.clone()).await {
                          let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
                          let original_port = if app_cfg.monitor_port == 0 { 1588 } else { app_cfg.monitor_port };
@@ -262,15 +275,15 @@ pub async fn start(
         } else {
             // Foreground mode on Unix: we must spawn cowen-daemon as a child and wait for it,
             // so that launchd/systemd can monitor the process, while still keeping UDS IPC alive.
-            let uds_path = cowen_common::ipc::get_uds_path();
+            let port_path = cowen_common::ipc::get_ipc_port_path();
             
             // Spawn the daemon in the foreground
             let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
             let daemon_path = std::env::var("COWEN_DAEMON_BIN").map(std::path::PathBuf::from).unwrap_or_else(|_| exe_dir.join("cowen-daemon"));
             
             let mut child = Command::new(&daemon_path)
-                .arg("--uds")
-                .arg(&uds_path)
+                .arg("--ipc-port-file")
+                .arg(&port_path)
                 .spawn()?;
             
             let child_id = child.id();
@@ -293,7 +306,7 @@ pub async fn start(
             
             // Send the start commands via IPC
             use cowen_common::daemon::DaemonService;
-            let ipc_client = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
+            let ipc_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
             let target_profiles = if all { cfg_mgr.list_profiles().await? } else { vec![profile.to_string()] };
             for p in target_profiles {
                 let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| Config::default_with_profile(&p)) };
@@ -513,17 +526,17 @@ pub async fn start(
 pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
     #[cfg(unix)]
     {
-        let uds_path = cowen_common::ipc::get_uds_path();
-        if !uds_path.exists() {
+        let port_path = cowen_common::ipc::get_ipc_port_path();
+        if !port_path.exists() {
             eprintln!("✅ No running daemon found.");
             return Ok(());
         }
 
-        let mut client = match tokio::net::UnixStream::connect(&uds_path).await {
+        let mut client = match cowen_common::ipc::client::ensure_daemon(&port_path).await {
             Ok(c) => c,
             Err(_) => {
                 eprintln!("✅ Daemon is not running (or socket is stale).");
-                let _ = std::fs::remove_file(&uds_path);
+                let _ = std::fs::remove_file(&port_path);
                 return Ok(());
             }
         };

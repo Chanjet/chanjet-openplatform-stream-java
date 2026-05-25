@@ -21,6 +21,7 @@ async fn main() {
 
     // Execute the main task
     let cli = Cli::parse();
+    let format = cli.format.clone();
     let res = run(cli).await;
     
     // Check results
@@ -31,7 +32,12 @@ async fn main() {
             std::process::exit(1);
         }
         tracing::error!(target: "sys", error = %err_msg, "CLI execution failed");
-        eprintln!("❌ Error: {}", err_msg);
+        
+        if format == "json" {
+            let _ = cowen_common::utils::print_error_json(&err_msg);
+        } else {
+            eprintln!("❌ Error: {}", err_msg);
+        }
         std::process::exit(1);
     }
 

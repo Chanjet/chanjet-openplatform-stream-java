@@ -89,6 +89,8 @@ pub enum Commands {
         data: Option<String>,
         #[arg(short = 'f', long = "file", help = "从文件读取请求体数据 (JSON格式)")]
         data_file: Option<String>,
+        #[arg(long, help = "绕过 OpenAPI 规约严格校验")]
+        force: bool,
 
         #[command(subcommand)]
         action: Option<ApiCommands>,
@@ -158,7 +160,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: LogCommands,
     },
-    /// 管理并配置全局存储后端与缓存 (此命令为全局操作，不受 -p 参数影响)
+    /// 配置持久化后端，操作需基于有效的 Profile 权限
     Store {
         #[command(subcommand)]
         action: StoreCommands,
@@ -219,10 +221,7 @@ pub enum ConfigCommands {
         key: String,
     },
     /// 列出当前生效的所有配置项目
-    List {
-        #[arg(short, long, default_value = "table", help = "列表的展示输出格式 (table, json)")]
-        format: String,
-    },
+    List,
 }
 
 #[derive(clap::Subcommand)]
@@ -365,7 +364,7 @@ pub enum AuthCommands {
         #[arg(short, long, help = "强制立即向开放平台执行 Token 刷新")]
         refresh: bool,
     },
-    /// 从共享存储中强制同步最新凭据数据到当前工作上下文
+    /// 从共享存储中强制同步最新凭据数据到当前工作上下文 (常用于多机共享存储时同步远端节点更新的 Token)
     Reload,
 }
 
@@ -505,18 +504,15 @@ pub async fn run(cli: Cli) -> Result<()> {
     let _ = cfg_mgr.set_validator(std::sync::Arc::new(cowen_auth::AuthProviderValidator::new(auth_cli.clone())));
 
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
-    #[cfg(unix)]
     let daemon_svc: Arc<dyn DaemonService> = {
         let is_foreground_start = matches!(&cli.command, Commands::Daemon { action: DaemonCommands::Start { foreground: true, .. } });
         if is_foreground_start {
             Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()))
         } else {
-            let uds_path = cowen_common::ipc::get_uds_path();
-            Arc::new(cowen_common::ipc::client::IpcDaemonService::new(uds_path))
+            let port_path = cowen_common::ipc::get_ipc_port_path();
+            Arc::new(cowen_common::ipc::client::IpcDaemonService::new(port_path))
         }
     };
-    #[cfg(not(unix))]
-    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_server::ServerDaemonService::new(cfg_mgr.clone()));
 
     if matches!(&cli.command, Commands::Init { .. })
         && cli.profile.is_none() {
@@ -650,7 +646,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             };
             cmd::init::execute(&active_profile, &cfg_mgr, &mut app_config, vault.clone(), ctx, Some(daemon_svc.clone())).await?;
         }
-        Commands::Api { method, path, data, data_file, action } => {
+        Commands::Api { method, path, data, data_file, force, action } => {
             if let Some(act) = action {
                 match act {
                     ApiCommands::List { search, page, page_size, refresh } => {
@@ -661,7 +657,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                     }
                 }
             } else if let (Some(m), Some(p)) = (method, path) {
-                cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, data_file, &cli.format).await?;
+                cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, data_file, &cli.format, *force).await?;
             } else {
                 println!("Usage: cowen api [METHOD] [PATH] or use subcommands (list, spec)");
             }
@@ -774,9 +770,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                 cfg_mgr.unset_value(&active_profile, key).await.map_err(|e| anyhow::anyhow!(e))?;
                 println!("✅ Successfully unset '{}'", key);
             }
-            Some(ConfigCommands::List { format }) => {
+            Some(ConfigCommands::List) => {
                 let val = cfg_mgr.list_values(&active_profile).await.map_err(|e| anyhow::anyhow!(e))?;
-                if format == "json" {
+                if cli.format == "json" {
                     println!("{}", serde_json::to_string_pretty(&val).unwrap());
                 } else {
                     println!("{}", serde_yaml::to_string(&val).unwrap());
