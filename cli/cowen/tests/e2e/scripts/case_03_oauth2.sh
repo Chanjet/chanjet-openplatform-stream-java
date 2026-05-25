@@ -76,6 +76,15 @@ echo "   Extracted: port=$REDIRECT_PORT, state=${STATE:0:8}..."
 # Wait a moment for the finalizer listener to be ready
 sleep 2
 
+# Assert that the browser mock was called correctly
+echo -n "   Verifying browser trigger..."
+if grep -q "Browser mock triggered for URL" "$COWEN_HOME/init.log" 2>/dev/null; then
+    echo -e " ${GREEN}[OK]${NC}"
+else
+    kill "$INIT_PID" 2>/dev/null
+    fail_suite "[FAIL - Browser open command was not triggered]"
+fi
+
 # Simulate browser callback (this is what the platform redirect would do)
 echo -n "   Simulating browser callback..."
 CALLBACK_RESP=$(curl -s -o /dev/null -w "%{http_code}" \

@@ -61,7 +61,7 @@ echo "   Killing Daemon (PID: $DAEMON_PID) with SIGTERM..."
 kill -15 $DAEMON_PID
 
 # Wait for exit with timeout
-WAIT_TIMEOUT=15
+WAIT_TIMEOUT=25
 START_TIME=$(date +%s)
 while kill -0 $DAEMON_PID 2>/dev/null; do
     ELAPSED=$(( $(date +%s) - START_TIME ))

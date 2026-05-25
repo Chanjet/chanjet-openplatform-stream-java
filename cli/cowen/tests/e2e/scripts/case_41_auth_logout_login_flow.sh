@@ -24,8 +24,6 @@ PROF="logout_test"
 # ============================================================
 echo -e "${BOLD}1. Initial OAuth2 Init${NC}"
 
-export COWEN_SKIP_BROWSER=true
-
 # Calculate dynamic ports based on MOCK_PORT to avoid parallel collisions
 PROXY_PORT=$((MOCK_PORT + 100))
 
@@ -34,7 +32,7 @@ PROXY_PORT=$((MOCK_PORT + 100))
     --app-mode oauth2 \
     --openapi-url "$MOCK_URL" \
     --stream-url "$MOCK_WS" \
-    --proxy-port $PROXY_PORT > /dev/null 2>&1 &
+    --proxy-port $PROXY_PORT > "$COWEN_HOME/init.log" 2>&1 &
 INIT_PID=$!
 
 # Extract state/port from DB
@@ -50,6 +48,15 @@ for i in {1..40}; do
 done
 [ -z "$SESSION_JSON" ] && fail_suite "Timeout waiting for auth session"
 echo -e " ${GREEN}[FOUND]${NC}"
+
+# Assert that the browser mock was called correctly
+echo -n "   Verifying browser trigger..."
+if grep -q "Browser mock triggered for URL" "$COWEN_HOME/init.log" 2>/dev/null; then
+    echo -e " ${GREEN}[OK]${NC}"
+else
+    kill "$INIT_PID" 2>/dev/null
+    fail_suite "[FAIL - Browser open command was not triggered]"
+fi
 
 REDIRECT_PORT=$(get_json_field "$SESSION_JSON" "redirect_port")
 STATE=$(get_json_field "$SESSION_JSON" "state")

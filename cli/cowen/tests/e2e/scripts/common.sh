@@ -213,6 +213,9 @@ setup_workspace() {
     # Ensure it is executable
     chmod +x "$COWEN_BIN"
     
+    # 🚀 OCP: Globally skip browser popups in E2E tests, but verify the trigger log
+    export COWEN_SKIP_BROWSER=true
+
     local monitor_port=$(get_unused_port)
     # Create isolated app.yaml with absolute DB path
     cat > "$COWEN_HOME/app.yaml" <<EOF

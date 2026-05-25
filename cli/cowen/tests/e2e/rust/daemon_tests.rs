@@ -2,6 +2,9 @@ use assert_cmd::Command;
 use std::fs;
 use serde_json::json;
 use tempfile::tempdir;
+use std::sync::atomic::{AtomicU16, Ordering};
+
+static NEXT_PORT: AtomicU16 = AtomicU16::new(17000);
 
 fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String) {
     let dir = tempdir().unwrap();
@@ -20,12 +23,15 @@ fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String) {
     });
     fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
 
+    let port = NEXT_PORT.fetch_add(1, Ordering::SeqCst);
+
     // Create app config
     let app_config_path = cowen_home.join("app.yaml");
     let app_config = json!({
         "openapi_url": "http://localhost:12345",
         "stream_url": "http://localhost:12345",
         "telemetry_enabled": false,
+        "monitor_port": port,
         "log": {
             "level": "debug"
         }
@@ -136,12 +142,15 @@ fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, Stri
     });
     fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
 
+    let port = NEXT_PORT.fetch_add(1, Ordering::SeqCst);
+
     // Create app config with HTTPS URLs to force Rustls/TLS initialization
     let app_config_path = cowen_home.join("app.yaml");
     let app_config = json!({
         "openapi_url": "https://localhost:12345",
         "stream_url": "https://localhost:12345",
         "telemetry_enabled": false,
+        "monitor_port": port,
         "log": {
             "level": "debug"
         }

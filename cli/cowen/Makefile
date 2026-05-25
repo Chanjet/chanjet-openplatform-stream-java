@@ -36,6 +36,22 @@ else
         HOST_ARCH := $(UNAME_M)
     endif
 endif
+# --- 本地开发编译提速优化 (Local Fast Build Optimizations) ---
+# 如果不在 CI 环境下，且没有显式禁用，并且当前执行的命令中不包含 'package'，默认关闭 LTO 并恢复多线程代码生成以大幅提升本地编译速度
+ifndef CI
+ifndef DISABLE_FAST_BUILD
+ifeq ($(findstring package,$(MAKECMDGOALS)),)
+    export CARGO_PROFILE_RELEASE_LTO ?= false
+    export CARGO_PROFILE_RELEASE_CODEGEN_UNITS ?= 256
+    
+    # 自动探测 sccache 并启用
+    SCCACHE_EXISTS := $(shell command -v sccache 2> /dev/null)
+    ifdef SCCACHE_EXISTS
+        export RUSTC_WRAPPER = sccache
+    endif
+endif
+endif
+endif
 
 # --- 跨平台兼容性宏 ---
 ifeq ($(OS),Windows_NT)
@@ -423,7 +439,7 @@ impl-package-linux-x86_64:
 test-rust:
 	@echo "🧪 Running Rust internal and integration tests..."
 	cargo build -p cowen -p cowen-daemon
-	cargo test
+	COWEN_SKIP_BROWSER=true cargo test
 
 # 自动根据环境运行测试
 test:
@@ -451,17 +467,17 @@ test-linux: prepare-podman-machine prepare-podman-image
 		-e QEMU_LD_PREFIX=/usr/x86_64-linux-gnu/ \
 		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
-		bash -c "cargo test --target x86_64-unknown-linux-gnu && ./tests/runners/run_parallel.sh"
+		bash -c "COWEN_SKIP_BROWSER=true cargo test --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true ./tests/runners/run_parallel.sh"
 
 # 在 Windows PowerShell 环境下执行测试
 test-win: test-rust
 	@echo "🧪 Running Full E2E Suite in Windows PowerShell..."
-	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/runners/run_suites.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -Command "$$env:COWEN_SKIP_BROWSER='true'; ./tests/runners/run_suites.ps1"
 
 # 在 macOS 原生环境执行并行测试
 test-macos: test-rust local-db-up
 	@echo "🧪 Running Parallel E2E Suite natively on macOS (Isolated)..."
-	TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/runners/run_parallel.sh
+	COWEN_SKIP_BROWSER=true TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/runners/run_parallel.sh
 
 # --- 数据库管理 (Database Management) ---
 

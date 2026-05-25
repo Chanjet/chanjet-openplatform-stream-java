@@ -57,6 +57,15 @@ if [[ -z "$STATE" ]]; then
     fail_suite "Failed to extract OAuth2 context from logs"
 fi
 
+# Assert that the browser mock was called correctly
+echo -n "   Verifying browser trigger..."
+if grep -q "Browser mock triggered for URL" "$COWEN_HOME/init.log" 2>/dev/null; then
+    echo -e " ${GREEN}[OK]${NC}"
+else
+    kill "$INIT_PID" 2>/dev/null
+    fail_suite "[FAIL - Browser open command was not triggered]"
+fi
+
 # 3. Simulate Callback
 # Set mock server to return tokens that expire in 7 seconds
 curl -s -X POST "$MOCK_URL/control/config" -d '{"token_expires_in": 7}' > /dev/null
