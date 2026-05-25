@@ -112,6 +112,12 @@ async fn install_macos(bin_name: &str, bin_path: &str) -> Result<()> {
     }
     fs::write(&plist_path, plist_content)?;
 
+    // If the service is already loaded, unload it first
+    let _ = Command::new("launchctl")
+        .arg("unload")
+        .arg(&plist_path)
+        .status();
+
     // Load the service
     let status = Command::new("launchctl")
         .arg("load")

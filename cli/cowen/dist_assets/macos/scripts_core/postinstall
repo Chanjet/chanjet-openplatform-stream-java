@@ -17,8 +17,10 @@ if [ -f "$BINARY_PATH" ]; then
     
     if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
         sudo -u "$CURRENT_USER" "$BINARY_PATH" daemon service install > /dev/null 2>&1 || true
+        sudo -u "$CURRENT_USER" "$BINARY_PATH" daemon restart --all > /dev/null 2>&1 || true
     else
         "$BINARY_PATH" daemon service install > /dev/null 2>&1 || true
+        "$BINARY_PATH" daemon restart --all > /dev/null 2>&1 || true
     fi
 fi
 
