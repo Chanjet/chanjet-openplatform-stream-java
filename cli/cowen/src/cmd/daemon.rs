@@ -3,7 +3,7 @@ use cowen_config::ConfigManager;
 pub use cowen_server::cmd::service;
 use anyhow::Result;
 use std::process::Command;
-use std::fs;
+
 use std::sync::Arc;
 use cowen_common::vault::Vault;
 use cowen_common::daemon::DaemonService;
@@ -131,8 +131,9 @@ async fn preflight_check_and_bind_port(cfg_mgr: &ConfigManager) -> Result<()> {
                 }
             }
 
-            // Retry binding for up to 1 second to allow TIME_WAIT or graceful shutdown to clear
-            for _ in 0..5 {
+            // Retry binding for up to 3 seconds to allow TIME_WAIT or tokio graceful shutdown to clear
+            // (Tokio might take a couple of seconds to fully drop the TcpListener after SIGTERM)
+            for _ in 0..15 {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 if tokio::net::TcpListener::bind(addr).await.is_ok() {
                     return Ok(());
@@ -509,40 +510,82 @@ pub async fn start(
     }
 }
 
-pub async fn stop(_profile: &str, _all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
-    let app_dir = cowen_common::config::get_app_dir();
-    let pid_file = app_dir.join("master_daemon.pid");
-    let stopped_file = app_dir.join("master_daemon.stopped");
-    std::fs::write(&stopped_file, "1").ok(); // Set intentional stop marker
-    
-    let mut process_dead = true;
-    if let Ok(content) = fs::read_to_string(&pid_file) {
-        if let Some(pid_str) = content.lines().next() {
-            if let Ok(pid_u32) = pid_str.trim().parse::<u32>() {
-                eprintln!("🛑 Stopping master daemon (PID: {})...", pid_u32);
-                kill_process(pid_u32);
+pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let uds_path = cowen_common::ipc::get_uds_path();
+        if !uds_path.exists() {
+            eprintln!("✅ No running daemon found.");
+            return Ok(());
+        }
 
-                process_dead = false;
-                // Wait for process to exit
-                use sysinfo::{System, Pid, ProcessesToUpdate};
-                let mut sys = System::new();
-                let pid = Pid::from_u32(pid_u32);
-                for _ in 0..60 { // Max 12 seconds to match daemon's 10s graceful shutdown + margin
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
-                    if sys.process(pid).is_none() {
-                        process_dead = true;
-                        break;
-                    }
-                }
+        let mut client = match tokio::net::UnixStream::connect(&uds_path).await {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("✅ Daemon is not running (or socket is stale).");
+                let _ = std::fs::remove_file(&uds_path);
+                return Ok(());
+            }
+        };
+
+        if all {
+            let req = cowen_common::ipc::DaemonRequest::StopAllWorkers;
+            match cowen_common::ipc::client::send_request(&mut client, &req).await {
+                Ok(cowen_common::ipc::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),
+                Ok(cowen_common::ipc::DaemonResponse::Error { message, .. }) => eprintln!("⚠️ Failed to stop all workers: {}", message),
+                Ok(_) => eprintln!("⚠️ Unexpected response type"),
+                Err(e) => eprintln!("⚠️ IPC request failed: {}", e),
+            }
+        } else {
+            let req = cowen_common::ipc::DaemonRequest::StopWorker { profile: profile.to_string() };
+            match cowen_common::ipc::client::send_request(&mut client, &req).await {
+                Ok(cowen_common::ipc::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),
+                Ok(cowen_common::ipc::DaemonResponse::Error { message, .. }) => eprintln!("⚠️ Failed to stop profile {}: {}", profile, message),
+                Ok(_) => eprintln!("⚠️ Unexpected response type"),
+                Err(e) => eprintln!("⚠️ IPC request failed: {}", e),
             }
         }
     }
-    if process_dead {
-        let _ = fs::remove_file(pid_file);
-        eprintln!("✅ Daemon stopped successfully.");
-    } else {
-        tracing::warn!(target: "sys", "Daemon process did not exit within timeout.");
+
+    #[cfg(not(unix))]
+    {
+        let app_dir = cowen_common::config::get_app_dir();
+        let pid_file = app_dir.join("master_daemon.pid");
+        let stopped_file = app_dir.join("master_daemon.stopped");
+        std::fs::write(&stopped_file, "1").ok(); // Set intentional stop marker
+        
+        if all {
+            let mut process_dead = true;
+            if let Ok(content) = fs::read_to_string(&pid_file) {
+                if let Some(pid_str) = content.lines().next() {
+                    if let Ok(pid_u32) = pid_str.trim().parse::<u32>() {
+                        eprintln!("🛑 Stopping master daemon (PID: {})...", pid_u32);
+                        kill_process(pid_u32);
+
+                        process_dead = false;
+                        use sysinfo::{System, Pid, ProcessesToUpdate};
+                        let mut sys = System::new();
+                        let pid = Pid::from_u32(pid_u32);
+                        for _ in 0..60 {
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+                            if sys.process(pid).is_none() {
+                                process_dead = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if process_dead {
+                let _ = fs::remove_file(pid_file);
+                eprintln!("✅ Daemon stopped successfully.");
+            } else {
+                tracing::warn!(target: "sys", "Daemon process did not exit within timeout.");
+            }
+        } else {
+            eprintln!("⚠️ Stopping individual profiles on this OS is not supported yet. Use --all to stop the daemon.");
+        }
     }
     Ok(())
 }
@@ -553,13 +596,3 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_pro
     start(profile, config, proxy_port, enable_proxy, false, all, cfg_mgr, vault, telemetry, daemon_svc).await
 }
 
-fn kill_process(pid: u32) {
-    #[cfg(unix)]
-    {
-        let _ = Command::new("kill").arg("-15").arg(pid.to_string()).status();
-    }
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill").arg("/PID").arg(pid.to_string()).status();
-    }
-}

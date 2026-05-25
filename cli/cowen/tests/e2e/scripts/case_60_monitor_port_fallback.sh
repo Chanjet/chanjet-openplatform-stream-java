@@ -70,11 +70,17 @@ else
 fi
 
 echo -e "${BOLD}5. Stop Daemon and Reset Config to Explicit $TEST_PORT${NC}"
-"$COWEN_BIN" daemon stop --profile main >/dev/null || true
+"$COWEN_BIN" daemon stop --all >/dev/null || true
+if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
+    PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid")
+    kill -9 "$PID" 2>/dev/null || true
+    rm -f "$COWEN_HOME/master_daemon.pid" || true
+fi
+rm -f "$COWEN_HOME/cowen-ipc.sock" || true
 sleep 1
 
 # Manually set monitor_port to $TEST_PORT to simulate non-first time
-"$COWEN_BIN" config set monitor_port $TEST_PORT --profile main >/dev/null
+"$COWEN_BIN" config set monitor_port $TEST_PORT --global >/dev/null
 
 echo -e "${BOLD}6. Daemon Startup without Fallback (Non-first time)${NC}"
 # The daemon should fail because $TEST_PORT is occupied and fallback is not allowed

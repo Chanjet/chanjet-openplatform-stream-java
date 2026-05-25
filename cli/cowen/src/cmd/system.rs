@@ -474,6 +474,51 @@ pub async fn enforce_daemon_version_sync(
                 // This prevents "AppKey is empty" warnings for unused default profiles during version sync.
                 if !config.app_key.trim().is_empty() {
                     eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
+                    
+                    // Kill the old master daemon process to force a full process restart
+                    eprintln!("🛑 Stopping master daemon (PID: {})...", info.pid);
+                    #[cfg(unix)]
+                    let _ = std::process::Command::new("kill").arg("-15").arg(info.pid.to_string()).status();
+                    #[cfg(windows)]
+                    let _ = std::process::Command::new("taskkill").args(&["/F", "/PID", &info.pid.to_string()]).status();
+
+                    // Wait for the process to exit
+                    for _ in 0..50 {
+                        #[cfg(unix)]
+                        {
+                            let status = std::process::Command::new("kill").arg("-0").arg(info.pid.to_string()).status();
+                            if let Ok(st) = status {
+                                if !st.success() {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        #[cfg(windows)]
+                        {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    }
+
+                    // Force kill if still alive
+                    #[cfg(unix)]
+                    {
+                        let status = std::process::Command::new("kill").arg("-0").arg(info.pid.to_string()).status();
+                        if let Ok(st) = status {
+                            if st.success() {
+                                eprintln!("⚠️ Master daemon (PID: {}) is taking too long to shut down. Force killing...", info.pid);
+                                let _ = std::process::Command::new("kill").arg("-9").arg(info.pid.to_string()).status();
+                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            }
+                        }
+                    }
+
+                    // 🚀 STABILITY: Give the system service manager (e.g. launchd) time to detect the crash 
+                    // and restart the daemon BEFORE we try to spawn it manually. 
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
                     crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None, daemon_svc.clone()).await?;
                     
                     // 🚀 STABILITY: Brief grace period to allow the new daemon to bind ports and write its PID file

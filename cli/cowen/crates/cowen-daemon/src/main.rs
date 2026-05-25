@@ -231,6 +231,13 @@ async fn handle_connection(mut stream: UnixStream, svc: Arc<dyn DaemonService>, 
                 Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
             }
         }
+        DaemonRequest::StopAllWorkers => {
+            info!("StopAllWorkers requested");
+            match svc.stop_all().await {
+                Ok(_) => DaemonResponse::Success { message: "All workers stopped".to_string() },
+                Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
+            }
+        }
         DaemonRequest::ReloadWorker { profile } => {
             info!("ReloadWorker requested for {}", profile);
             match svc.reload_daemon(&profile).await {

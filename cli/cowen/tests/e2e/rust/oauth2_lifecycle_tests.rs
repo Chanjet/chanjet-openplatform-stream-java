@@ -1,7 +1,7 @@
 use crate::e2e::rust::common::{setup_test_env, start_mock_platform};
 use assert_cmd::Command;
 use std::fs;
-use predicates::prelude::*;
+
 use cowen_common::config::AppConfig;
 
 

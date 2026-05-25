@@ -28,6 +28,7 @@ pub enum WorkerStateDto {
 pub enum DaemonRequest {
     StartWorker { profile: String, config: Config },
     StopWorker { profile: String },
+    StopAllWorkers,
     ReloadWorker { profile: String },
     GetStatus { profile: Option<String> },
     Ping,
@@ -236,8 +237,10 @@ pub mod client {
         }
 
         async fn stop_all(&self) -> CowenResult<()> {
-            // For IPC, we might not need stop_all unless we want to shut down the daemon.
-            // But we can implement a StopDaemon if needed.
+            let res = self.request(DaemonRequest::StopAllWorkers).await?;
+            if let DaemonResponse::Error { message, .. } = res {
+                return Err(CowenError::api(message));
+            }
             Ok(())
         }
     }
