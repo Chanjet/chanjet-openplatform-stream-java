@@ -41,6 +41,36 @@ pub async fn list(profile: &str, config: &Config, format: &str, page: usize, pag
     Ok(())
 }
 
+pub async fn view(profile: &str, _config: &Config, id: String, vault: Arc<dyn cowen_common::vault::Vault>) -> Result<()> {
+    let dlq_store = DlqStore::new(profile, vault).map_err(|e| anyhow::anyhow!(e))?;
+    let entry_id = id.parse::<i64>().map_err(|_| anyhow::anyhow!("Invalid DLQ entry ID"))?;
+    
+    let entry = dlq_store.get_by_id(entry_id).await.map_err(|e| anyhow::anyhow!(e))?;
+    if let Some(entry) = entry {
+        println!("\n🔍 \x1b[1;36mDLQ Entry Details\x1b[0m");
+        println!("--------------------------------------------------");
+        println!("  ID:          {}", entry.id);
+        println!("  Topic:       {}", entry.topic);
+        println!("  Created:     {}", entry.created_at);
+        println!("  Retry Count: {}", entry.retry_count);
+        println!("--------------------------------------------------");
+        println!("\x1b[1;33mPayload:\x1b[0m");
+        match serde_json::from_str::<serde_json::Value>(&entry.payload) {
+            Ok(json) => println!("{}", serde_json::to_string_pretty(&json).unwrap_or(entry.payload.clone())),
+            Err(_) => println!("{}", entry.payload),
+        }
+        if !entry.error.as_deref().unwrap_or("").is_empty() {
+            println!("--------------------------------------------------");
+            println!("\x1b[1;31mError Context:\x1b[0m");
+            println!("{}", entry.error.as_deref().unwrap_or(""));
+        }
+        println!();
+    } else {
+        println!("❌ DLQ entry with ID {} not found.", id);
+    }
+    Ok(())
+}
+
 pub async fn retry(profile: &str, config: &Config, id: String, vault: Arc<dyn cowen_common::vault::Vault>) -> Result<()> {
     let dlq_store = DlqStore::new(profile, vault).map_err(|e| anyhow::anyhow!(e))?;
     let entry_id = id.parse::<i64>().map_err(|_| anyhow::anyhow!("Invalid DLQ entry ID"))?;

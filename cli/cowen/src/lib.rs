@@ -80,6 +80,7 @@ pub enum Commands {
         proxy_port: Option<u16>,
     },
     /// 调用开放平台 API 或管理接口规范
+    #[command(long_about = "调用开放平台 API 或管理接口规范。\n\n有两种使用方式:\n1. 直接发起 API 调用: cowen api GET /v1/user\n2. 使用子命令: cowen api list 或 cowen api spec\n\n注意: METHOD 和 PATH 必须成对出现，如果遇到名为 list 的 API 路径，请写为 cowen api GET /list，以免与子命令 list 冲突。")]
     Api {
         #[arg(help = "HTTP Method (e.g. GET, POST)")]
         method: Option<String>,
@@ -215,7 +216,8 @@ pub enum ConfigCommands {
         #[arg(help = "要获取的配置项路径")]
         key: String,
     },
-    /// 删除局部配置项 (支持配置数组坍缩)
+    /// 删除局部配置项 (自动重排索引)
+    #[command(long_about = "删除局部配置项。\n\n提示: 若删除 JSON 数组中的特定索引元素，工具会自动重排索引 (Index Reordering)。\n例如: cowen config unset search.plugins.1\n删除后，原本的 plugins[2] 会自动前移到 plugins[1]，保持数组连续性。")]
     Unset {
         #[arg(help = "要删除的配置项路径 (例如 search.plugins.0)")]
         key: String,
@@ -298,6 +300,7 @@ pub enum StoreCommands {
     /// 检查当前配置的主存储后端与缓存连接性及健康状态
     Status,
     /// 在不同的底层存储后端之间安全地迁移已保存的配置与凭据状态
+    #[command(long_about = "在不同的底层存储后端之间安全地迁移已保存的配置与凭据状态。\n\n⚠️  警告: 数据迁移可能会覆盖目标数据库中的同名记录。请在执行前确保目标数据库为空或已备份。\n\n示例: \n  cowen store migrate --to sqlite:data/new.db --mode clone\n  cowen store migrate --to redis://localhost:6379/1")]
     Migrate {
         /// 迁移的目标数据库连接 URL 地址
         #[arg(
@@ -307,7 +310,7 @@ pub enum StoreCommands {
         )]
         to: String,
         /// 数据迁移的交互工作模式
-        #[arg(long, value_enum, default_value = "clone", help = "数据迁移模式 (clone: 复制数据; move: 物理迁移)")]
+        #[arg(long, value_enum, default_value = "clone", help = "数据迁移模式 (clone: 全量复制数据; move: 物理迁移，源数据将被清除)")]
         mode: cowen_store::migration::MigrationMode,
     },
 }
@@ -350,10 +353,14 @@ pub enum AuthCommands {
     /// 安全清除本地内存与 Vault 中的 Token 凭据并退出会话
     Logout,
     /// 触发与开放平台的换票及交互式 OAuth2 登录流
+    #[command(long_about = "触发与开放平台的换票及交互式 OAuth2 登录流。\n\n默认情况下，CLI 会尝试打开系统本地浏览器进行授权。如果处于无桌面/无头服务器环境 (Headless)，可以使用 --manual 参数，CLI 会打印出鉴权链接，您可以将其复制到本地浏览器中完成授权。")]
     Login {
         /// 强制废弃本地 Token 并立即触发重新网络登录
         #[arg(short, long, help = "强制废弃缓存凭据并立即网络重登录")]
         force: bool,
+        /// 手动复制登录链接并在本地浏览器授权 (适用于远程 SSH 或 Headless 环境)
+        #[arg(short, long, help = "手动复制链接授权 (Headless 无头环境适用)")]
+        manual: bool,
         /// 仅供内部流转，用于异步完成登录握手回传
         #[arg(long, hide = true)]
         finalize: Option<String>,
@@ -427,9 +434,11 @@ pub enum DaemonCommands {
 
 #[derive(clap::Subcommand)]
 pub enum ServiceCommands {
-    /// 安装后台守护守护服务到操作系统开机自启动单元中
+    /// 安装后台守护服务到操作系统开机自启动单元中
+    #[command(long_about = "安装后台守护服务到操作系统开机自启动单元中。\n\n权限要求:\n- Linux (systemd): 通常需要 sudo 权限。\n- macOS (launchd): 安装为当前用户的 LaunchAgent，无需 sudo。")]
     Install,
     /// 从操作系统服务管理器中安全卸载守护进程开机单元
+    #[command(long_about = "从操作系统服务管理器中安全卸载守护进程开机单元。\n\n权限要求:\n- Linux (systemd): 通常需要 sudo 权限。\n- macOS (launchd): 无需 sudo。")]
     Uninstall,
     /// 诊断操作系统服务管理器中的当前单元运行生命周期状态
     Status,
@@ -445,6 +454,12 @@ pub enum DlqCommands {
         /// 每页显示的死信记录数限制
         #[arg(short = 'n', long, default_value = "20", help = "每页显示的死信记录条数")]
         page_size: usize,
+    },
+    /// 查看特定死信事件的详细请求体 (Payload) 和堆栈信息
+    View {
+        /// 需要查看的死信事件 ID
+        #[arg(help = "死信记录的唯一事件 ID")]
+        id: String,
     },
     /// 手动重新投递重试特定 ID 的死信队列异常事件
     Retry {
@@ -665,7 +680,12 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Auth { action } => match action {
             AuthCommands::Status => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, false).await?,
             AuthCommands::Reset | AuthCommands::Logout => cmd::auth::logout(&active_profile, &config, &auth_cli).await?,
-            AuthCommands::Login { force, finalize } => cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref(), Some(daemon_svc.clone())).await?,
+            AuthCommands::Login { force, manual, finalize } => {
+                if *manual {
+                    std::env::set_var("COWEN_SKIP_BROWSER", "true");
+                }
+                cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref(), Some(daemon_svc.clone())).await?
+            },
             AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format, *refresh).await?,
             AuthCommands::Reload => {
                 let _ = auth_cli.get_token(&active_profile, &config, &reqwest::header::HeaderMap::new()).await.map_err(|e: cowen_common::CowenError| anyhow::anyhow!(e))?;
@@ -805,6 +825,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             ProfileCommands::Rename { old_name, new_name } => cmd::system::rename_profile(old_name, new_name, &cfg_mgr, vault.clone(), cowen_common::events::event_bus()).await?,
         }
         Commands::Dlq { action } => match action {
+            DlqCommands::View { id } => cmd::dlq::view(&active_profile, &config, id.clone(), vault.clone()).await?,
             DlqCommands::List { page, page_size } => cmd::dlq::list(&active_profile, &config, &cli.format, *page, *page_size, vault.clone()).await?,
             DlqCommands::Retry { id } => cmd::dlq::retry(&active_profile, &config, id.clone(), vault.clone()).await?,
             DlqCommands::Purge => cmd::dlq::purge(&active_profile, &config, vault.clone()).await?,
