@@ -10,8 +10,10 @@ if [ -f "tests/e2e/scripts/common.sh" ]; then
     source tests/e2e/scripts/common.sh
 
 PROXY_PORT=$(get_unused_port)
+MONITOR_PORT_B=$(get_unused_port)
 else
     source "$(dirname "$0")/common.sh"
+    MONITOR_PORT_B=$(get_unused_port)
 fi
 
 echo -e "${BOLD}1. Setup Environment${NC}"
@@ -52,14 +54,14 @@ mkdir -p "$HOME_NODE_B"
 cp "$COWEN_HOME/app.yaml" "$HOME_NODE_B/app.yaml"
 
 export COWEN_HOME="$HOME_NODE_B"
-"$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/node_b.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile "$PROF" --monitor-port $MONITOR_PORT_B --foreground > "$COWEN_HOME/node_b.log" 2>&1 &
 NODE_B_PID=$!
 export COWEN_HOME="$HOME_NODE_A"
 
 echo -n "   Waiting for both nodes to connect to WebSocket..."
 COUNT=$(wait_for_connections 2 20)
 if [ -z "$COUNT" ] || [ "$COUNT" -lt 2 ]; then
-    kill -9 $NODE_A_PID $NODE_B_PID 2>/dev/null || true
+    kill_daemons_in_dirs "$HOME_NODE_A" "$HOME_NODE_B"
     fail_suite "Nodes failed to connect"
 fi
 echo -e " ${GREEN}[CONNECTED: $COUNT]${NC}"
@@ -88,7 +90,7 @@ echo -e "${BOLD}3. Verifying Sink Received Exactly ONE Request${NC}"
 WEBHOOKS=$(curl -s "$MOCK_URL/control/webhooks")
 RECEIVED_COUNT=$(echo "$WEBHOOKS" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); print(len([m for m in data if (m.get('body') or m).get('msgId') == '$MSG_ID']))" 2>/dev/null)
 
-kill -9 $NODE_A_PID $NODE_B_PID 2>/dev/null || true
+kill_daemons_in_dirs "$HOME_NODE_A" "$HOME_NODE_B"
 
 if [ "$RECEIVED_COUNT" -eq 1 ]; then
     echo -e "   ${GREEN}✓${NC} Idempotency successful! Only 1 message received at sink."

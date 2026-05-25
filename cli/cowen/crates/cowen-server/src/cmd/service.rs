@@ -91,7 +91,10 @@ async fn install_macos(bin_name: &str, bin_path: &str) -> Result<()> {
         <string>daemon</string>
         <string>start</string>
         <string>--all</string>
+        <string>--foreground</string>
     </array>
+    <key>KeepAlive</key>
+    <true/>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
@@ -185,9 +188,9 @@ Description={bin_name} Daemon Autostart
 After=network.target
 
 [Service]
-Type=oneshot
-ExecStart={bin_path} daemon start --all
-RemainAfterExit=yes
+Type=simple
+ExecStart={bin_path} daemon start --all --foreground
+Restart=always
 
 [Install]
 WantedBy=default.target

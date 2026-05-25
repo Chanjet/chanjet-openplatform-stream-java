@@ -68,10 +68,8 @@ if ! command -v sqlite3 >/dev/null 2>&1; then
 fi
 
 # Wait for WAL to flush by killing daemon
-echo "   Killing daemon $DAEMON_PID..."
-kill -9 $DAEMON_PID 2>/dev/null || true
-# Use a more specific pattern to avoid killing the test script itself
-pkill -9 -f "$(basename "$COWEN_BIN") daemon.*--profile $PROF" 2>/dev/null || true
+echo "   Killing daemon..."
+kill_daemons_in_dirs "$COWEN_HOME"
 sleep 5
 
 if [ ! -f "$DB_FILE" ]; then
@@ -133,13 +131,13 @@ except:
         echo -e " ${RED}[MISMATCH]${NC}"
         echo "   Expected token containing: mock_at_oa2_permanent_code"
         echo "   Actual token received:     $RECEIVED_TOKEN"
-        kill -9 $DAEMON_PID 2>/dev/null || true
+        kill_daemons_in_dirs "$COWEN_HOME"
         fail_suite "Full Response:             $RECEIVED_RESP"
     fi
 done
 
 # Cleanup
-kill -9 $DAEMON_PID 2>/dev/null || true
+kill_daemons_in_dirs "$COWEN_HOME"
 
 # Mandatory Sanitization Check
 CONFIG_OUT=$("$COWEN_BIN" config --profile main 2>&1)

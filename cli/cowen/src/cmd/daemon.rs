@@ -7,7 +7,6 @@ use std::fs;
 use std::sync::Arc;
 use cowen_common::vault::Vault;
 use cowen_common::daemon::DaemonService;
-use tracing::{info, error};
 
 use cowen_monitor::telemetry::TelemetryControl;
 
@@ -27,12 +26,59 @@ pub async fn start(
     #[cfg(unix)]
     {
         // On Unix, we use the standalone cowen-daemon binary via IPC.
-        // If foreground=true, we might want to wait for it or block, 
-        // but for now let's just trigger the start.
         if !foreground {
             eprintln!("🚀 Triggering standalone daemon for profile '{}'...", profile);
             daemon_svc.start_daemon(profile, config, vault).await.map_err(|e| anyhow::anyhow!(e))?;
             eprintln!("✅ Startup command sent to daemon.");
+            return Ok(());
+        } else {
+            // Foreground mode on Unix: we must spawn cowen-daemon as a child and wait for it,
+            // so that launchd/systemd can monitor the process, while still keeping UDS IPC alive.
+            let uds_path = cowen_common::ipc::get_uds_path();
+            
+            // Spawn the daemon in the foreground
+            let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
+            let daemon_path = std::env::var("COWEN_DAEMON_BIN").map(std::path::PathBuf::from).unwrap_or_else(|_| exe_dir.join("cowen-daemon"));
+            
+            let mut child = Command::new(&daemon_path)
+                .arg("--uds")
+                .arg(&uds_path)
+                .spawn()?;
+            
+            let child_id = child.id();
+            eprintln!("🚀 Starting cowen-daemon in foreground (PID: {})...", child_id);
+            
+            // Forward signals (SIGTERM, Ctrl+C) to child process for graceful shutdown
+            tokio::spawn(async move {
+                if let Ok(mut sigterm) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {},
+                        _ = sigterm.recv() => {},
+                    }
+                    eprintln!("ℹ️ Received stop signal, forwarding to child daemon...");
+                    let _ = std::process::Command::new("kill").arg("-15").arg(child_id.to_string()).status();
+                }
+            });
+            
+            // Wait briefly for UDS to be ready
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            
+            // Send the start commands via IPC
+            use cowen_common::daemon::DaemonService;
+            let ipc_client = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
+            let target_profiles = if all { cfg_mgr.list_profiles().await? } else { vec![profile.to_string()] };
+            for p in target_profiles {
+                let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| Config::default_with_profile(&p)) };
+                if let Err(e) = ipc_client.start_daemon(&p, &p_cfg, vault.clone()).await {
+                    eprintln!("⚠️ Failed to send start command to daemon: {}", e);
+                }
+            }
+            
+            eprintln!("✅ Startup commands sent to foreground daemon. Blocking...");
+            
+            // Wait for child to exit
+            let status = child.wait()?;
+            eprintln!("ℹ️ cowen-daemon exited with status: {}", status);
             return Ok(());
         }
     }
@@ -116,9 +162,11 @@ pub async fn start(
         }
     }
 
-    // --- Master Process (Foreground) ---
-    let app_dir = cowen_common::config::get_app_dir();
-    let pid_file = app_dir.join("master_daemon.pid");
+    #[cfg(not(unix))]
+    {
+        // --- Master Process (Foreground) ---
+        let app_dir = cowen_common::config::get_app_dir();
+        let pid_file = app_dir.join("master_daemon.pid");
     
     // Acquire exclusive lock
     let pid_file_handle = std::fs::OpenOptions::new().create(true).write(true).open(&pid_file)?;
@@ -228,6 +276,7 @@ pub async fn start(
     let _ = fs::remove_file(pid_file);
     
     Ok(())
+    }
 }
 
 pub async fn stop(_profile: &str, _all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
