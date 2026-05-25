@@ -156,7 +156,7 @@ pub mod client {
 
         async fn request(&self, req: DaemonRequest) -> CowenResult<DaemonResponse> {
             let mut last_err = None;
-            for _ in 0..3 {
+            for _ in 0..15 {
                 let mut stream = match ensure_daemon(&self.uds_path).await {
                     Ok(s) => s,
                     Err(e) => {

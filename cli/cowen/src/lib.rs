@@ -686,11 +686,7 @@ pub async fn run(cli: Cli) -> Result<()> {
 
                 if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
                 
-                if *foreground {
-                    cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, true, *all, &cfg_mgr, vault.clone(), telemetry_control.clone(), daemon_svc.clone()).await?;
-                } else {
-                    cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr, vault.clone(), telemetry_control.clone(), daemon_svc.clone()).await?;
-                }
+                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr, vault.clone(), telemetry_control.clone(), daemon_svc.clone()).await?;
             }
             DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
             DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {

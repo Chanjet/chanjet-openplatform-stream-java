@@ -10,6 +10,24 @@ use cowen_common::daemon::DaemonService;
 
 use cowen_monitor::telemetry::TelemetryControl;
 
+fn is_daemon_alive() -> bool {
+    let app_dir = cowen_common::config::get_app_dir();
+    let pid_file = app_dir.join("master_daemon.pid");
+    if pid_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&pid_file) {
+            if let Some(pid_str) = content.lines().next() {
+                if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                    let mut s = sysinfo::System::new();
+                    let sys_pid = sysinfo::Pid::from_u32(pid);
+                    s.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
+                    return s.process(sys_pid).is_some();
+                }
+            }
+        }
+    }
+    false
+}
+
 /// 启动守护进程 (主分发器)
 pub async fn start(
     profile: &str, 
@@ -28,7 +46,71 @@ pub async fn start(
         // On Unix, we use the standalone cowen-daemon binary via IPC.
         if !foreground {
             eprintln!("🚀 Triggering standalone daemon for profile '{}'...", profile);
-            daemon_svc.start_daemon(profile, config, vault).await.map_err(|e| anyhow::anyhow!(e))?;
+            
+            // Check if daemon is running by attempting a ping or checking socket
+            let uds_path = cowen_common::ipc::get_uds_path();
+            let _ipc_client = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
+            
+            // Wait, we can't easily ping, so we'll try to spawn if not exists.
+            // Actually, if we spawn it detached, we can then send the command.
+            if !uds_path.exists() {
+                eprintln!("ℹ️ Daemon process not running. Spawning in background...");
+                let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
+                let daemon_path = std::env::var("COWEN_DAEMON_BIN").map(std::path::PathBuf::from).unwrap_or_else(|_| exe_dir.join("cowen-daemon"));
+                
+                let app_dir = cowen_common::config::get_app_dir();
+                let log_dir = app_dir.join("logs");
+                if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
+                let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))?;
+                let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
+
+                let _child = Command::new(&daemon_path)
+                    .arg("--uds")
+                    .arg(&uds_path)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::from(stdout_file))
+                    .stderr(std::process::Stdio::from(stderr_file))
+                    .spawn()?;
+                
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            }
+
+            // We must use the specific ipc client instead of the injected one because the injected one might be ServerDaemonService if not set up correctly in lib.rs for this path.
+            // Actually `daemon_svc` is correct.
+            let err_res = daemon_svc.start_daemon(profile, config, vault.clone()).await;
+            if let Err(e) = err_res {
+                // If the initial connection failed, check if the process is actually dead.
+                // If the socket exists but the process is dead, we clean up the socket and spawn it.
+                if !uds_path.exists() || !is_daemon_alive() {
+                     eprintln!("ℹ️ Daemon socket stale or process dead. Spawning in background...");
+                     if uds_path.exists() { let _ = std::fs::remove_file(&uds_path); }
+                     
+                     let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
+                     let daemon_path = std::env::var("COWEN_DAEMON_BIN").map(std::path::PathBuf::from).unwrap_or_else(|_| exe_dir.join("cowen-daemon"));
+                     
+                     let app_dir = cowen_common::config::get_app_dir();
+                     let log_dir = app_dir.join("logs");
+                     if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
+                     let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))?;
+                     let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
+
+                     let _child = Command::new(&daemon_path)
+                         .arg("--uds")
+                         .arg(&uds_path)
+                         .stdin(std::process::Stdio::null())
+                         .stdout(std::process::Stdio::from(stdout_file))
+                         .stderr(std::process::Stdio::from(stderr_file))
+                         .spawn()?;
+                     
+                     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                     
+                     // Try again
+                     let ipc_client2 = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
+                     ipc_client2.start_daemon(profile, config, vault).await.map_err(|e2| anyhow::anyhow!(e2))?;
+                } else {
+                     return Err(anyhow::anyhow!("Daemon is running but failed to respond: {}", e));
+                }
+            }
             eprintln!("✅ Startup command sent to daemon.");
             return Ok(());
         } else {
