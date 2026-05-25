@@ -36,7 +36,7 @@ impl<T: std::fmt::Display> Colorize for T {
 #[command(version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " / ", env!("BUILD_TIME"), ")"))]
 #[command(
     about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
-    long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。"
+    long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。\n\n🔒 隐私说明: 默认开启的遥测仅用于收集匿名崩溃报告与性能指标，不包含任何业务数据。可通过 --no-telemetry 或全局配置关闭。"
 )]
 pub struct Cli {
     #[arg(short, long, global = true, env = "COWEN_PROFILE", help = "配置环境名称 (缺省则使用当前激活的 Profile)")]
@@ -106,7 +106,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: DaemonCommands,
     },
-    /// 检查 CLI 的整体运行状态
+    /// 检查 CLI 的整体运行状态 (cowen system status 的简写形式)
     Status {
         /// 扫描并输出所有存在的 Profile 的状态
         #[arg(short, long)]
@@ -161,7 +161,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: LogCommands,
     },
-    /// 配置持久化后端，操作需基于有效的 Profile 权限
+    /// 管理全局存储后端，部分操作会校验当前 Profile 的兼容性
     Store {
         #[command(subcommand)]
         action: StoreCommands,
@@ -269,7 +269,7 @@ pub enum PluginsCommands {
 
 #[derive(clap::Subcommand)]
 pub enum SystemCommands {
-    /// 检查系统的整体运行状态指标 (包括 Daemon、Store、Auth、AI 等)
+    /// 检查系统的整体运行状态指标 (包括 Daemon、Store、Auth、AI 等)。此命令是 cowen status 的全名形式。
     Status {
         /// 扫描并输出所有 Profile 环境的详细运行状态
         #[arg(short, long)]
@@ -439,7 +439,7 @@ pub enum DaemonCommands {
 
 #[derive(clap::Subcommand)]
 pub enum ServiceCommands {
-    /// 安装后台守护服务到操作系统开机自启动单元中
+    /// 安装后台守护服务到操作系统开机自启动单元中 (提示: Linux 环境下可能需要 root/sudo 权限执行)
     #[command(long_about = "安装后台守护服务到操作系统开机自启动单元中。\n\n权限要求:\n- Linux (systemd): 通常需要 sudo 权限。\n- macOS (launchd): 安装为当前用户的 LaunchAgent，无需 sudo。")]
     Install,
     /// 从操作系统服务管理器中安全卸载守护进程开机单元

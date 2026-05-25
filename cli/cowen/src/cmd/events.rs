@@ -6,11 +6,11 @@ use chrono::{DateTime, Local};
 
 #[derive(Parser, Debug)]
 pub struct EventsArgs {
-    /// Filter events by profile
+    /// 按 Profile 过滤事件
     #[arg(short, long)]
     pub profile: Option<String>,
     
-    /// Number of events to show
+    /// 显示的事件条数限制
     #[arg(short = 'n', long, default_value = "20")]
     pub limit: i64,
 }
