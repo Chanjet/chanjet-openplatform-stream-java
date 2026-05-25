@@ -229,9 +229,10 @@ linux-x86_64-with-podman: prepare-podman-image
 			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 			BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
-			cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon && \
+			cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
-			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon" && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so ../../bin/linux-x86_64/" && \
 	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -342,7 +343,6 @@ package-linux-aarch64: clean linux-aarch64
 	@echo "📦 Packaging Linux aarch64..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
 	cp $(OUTPUT_DIR)/linux-aarch64/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)-v$(VERSION)-linux-aarch64
-	cp $(OUTPUT_DIR)/linux-aarch64/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding.so pkg_root_aarch64/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
@@ -428,12 +428,11 @@ package-windows-x86-cross: windows-x86-cross
 impl-package-linux-x86_64:
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
 	cp $(OUTPUT_DIR)/linux-x86_64/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64
-	cp $(OUTPUT_DIR)/linux-x86_64/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
-	cp target/release/libcowen_search_embedding.so pkg_root/lib/ || true
+	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.so pkg_root/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64/
-	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64 cowen-daemon install.sh README.txt CHANGELOG.md -C ../../../cli/cowen/pkg_root lib
+	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64 cowen-daemon install.sh README.txt CHANGELOG.md -C ../../cli/cowen/pkg_root lib
 	rm -f $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64 $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
