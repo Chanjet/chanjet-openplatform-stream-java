@@ -32,6 +32,8 @@ async fn sync_feedback(original_port: u16) -> Result<()> {
     let mut loop_count = 0;
     let mut recovered_port = None;
 
+    let mut last_error = None;
+
     while loop_count < 10 { // 500ms total
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         // The profile param doesn't matter for unified daemon, we pass empty string
@@ -52,8 +54,7 @@ async fn sync_feedback(original_port: u16) -> Result<()> {
                         if let Some(le) = line.strip_prefix("LAST_ERROR=") {
                             let err_msg = le.trim();
                             if !err_msg.is_empty() {
-                                eprintln!("❌ Failed: Daemon crashed on startup (Error: {})", err_msg);
-                                return Err(anyhow::anyhow!("Daemon crashed on startup (Error: {})", err_msg));
+                                last_error = Some(err_msg.to_string());
                             }
                         }
                     }
@@ -61,6 +62,13 @@ async fn sync_feedback(original_port: u16) -> Result<()> {
             }
         }
         loop_count += 1;
+    }
+
+    if cowen_common::status::get_active_daemon_info("").is_some() {
+        // Connected!
+    } else if let Some(err_msg) = last_error {
+        eprintln!("❌ Failed: Daemon crashed on startup (Error: {})", err_msg);
+        return Err(anyhow::anyhow!("Daemon crashed on startup (Error: {})", err_msg));
     }
 
     if let Some(p) = recovered_port {
@@ -136,7 +144,7 @@ async fn preflight_check_and_bind_port(cfg_mgr: &ConfigManager) -> Result<()> {
                     return Ok(());
                 } else {
                     tracing::warn!(target: "sys", "Pre-flight check: Monitor port {} is occupied by a 3rd party process.", m_port);
-                    return Err(anyhow::anyhow!("Monitor port {} is occupied by another process. Please choose a different port or kill the occupying process.", m_port));
+                    return Err(anyhow::anyhow!("Monitor port {} is occupied by another process.\n👉 Fix: Run 'cowen config set monitor_port <NEW_PORT> --global'", m_port));
                 }
             }
             Ok(())
@@ -159,6 +167,12 @@ pub async fn start(
     _telemetry: Option<Arc<TelemetryControl>>,
     daemon_svc: Arc<dyn DaemonService>,
 ) -> Result<()> {
+    let app_dir = cowen_common::config::get_app_dir();
+    let stopped_file = app_dir.join("master_daemon.stopped");
+    if stopped_file.exists() {
+        let _ = std::fs::remove_file(&stopped_file);
+    }
+
     // 1. 启动前置预检 (Pre-flight Check)
     preflight_check_and_bind_port(cfg_mgr).await?;
 
@@ -498,6 +512,8 @@ pub async fn start(
 pub async fn stop(_profile: &str, _all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let pid_file = app_dir.join("master_daemon.pid");
+    let stopped_file = app_dir.join("master_daemon.stopped");
+    std::fs::write(&stopped_file, "1").ok(); // Set intentional stop marker
     
     let mut process_dead = true;
     if let Ok(content) = fs::read_to_string(&pid_file) {
@@ -524,6 +540,7 @@ pub async fn stop(_profile: &str, _all: bool, _cfg_mgr: &ConfigManager) -> Resul
     }
     if process_dead {
         let _ = fs::remove_file(pid_file);
+        eprintln!("✅ Daemon stopped successfully.");
     } else {
         tracing::warn!(target: "sys", "Daemon process did not exit within timeout.");
     }

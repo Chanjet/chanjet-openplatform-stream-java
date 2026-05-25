@@ -107,6 +107,11 @@ pub async fn execute(
     let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
     let provider = auth_cli.provider(&mode);
 
+    if mode == cowen_common::models::AuthMode::Oauth2 && cfg_mgr.is_distributed_storage(app_config) {
+        eprintln!("⚠️  \x1b[1;33mWarning: OAuth2 mode is typically bound to local environment state, but you are using distributed storage.\x1b[0m");
+        eprintln!("    \x1b[1;33mThis may cause token state conflicts across different nodes. It is recommended to use 'store_app' mode with distributed storage.\x1b[0m");
+    }
+
     // 3. Check for duplicate parameters — strategy delegated to provider
     if let Some(ak) = &ctx.app_key {
         let conflict_profile = provider

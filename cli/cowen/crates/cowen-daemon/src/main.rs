@@ -168,10 +168,14 @@ async fn run_main(pid_file: &PathBuf) -> Result<()> {
                 }
                 _ = sigterm.recv() => {
                     info!("SIGTERM received, initiating graceful shutdown...");
+                    let stopped_file = cowen_common::config::get_app_dir().join("master_daemon.stopped");
+                    let _ = std::fs::write(stopped_file, "1");
                     break;
                 }
                 _ = tokio::signal::ctrl_c() => {
                     info!("Ctrl+C received, initiating graceful shutdown...");
+                    let stopped_file = cowen_common::config::get_app_dir().join("master_daemon.stopped");
+                    let _ = std::fs::write(stopped_file, "1");
                     break;
                 }
             }

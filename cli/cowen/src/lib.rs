@@ -148,6 +148,11 @@ pub enum Commands {
         #[command(subcommand)]
         action: DlqCommands,
     },
+    /// 查看与跟踪系统审计日志
+    Audit {
+        #[command(subcommand)]
+        action: AuditCommands,
+    },
     /// 查看并追踪 CLI 运行日志
     Log {
         #[command(subcommand)]
@@ -470,6 +475,16 @@ pub enum LogCommands {
     },
 }
 
+#[derive(clap::Subcommand)]
+pub enum AuditCommands {
+    /// 实时追踪特定环境的关键业务操作与审计日志
+    Tail {
+        /// 默认在起始位置展示日志审计文件的尾部行数
+        #[arg(short = 'n', long, default_value_t = 10, help = "要在尾部默认读取的日志行数")]
+        lines: usize,
+    },
+}
+
 pub async fn run(cli: Cli) -> Result<()> {
     let _bin_name = get_bin_name();
 
@@ -550,6 +565,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Completion { .. } => "completion",
         Commands::Profile { .. } => "profile",
         Commands::Dlq { .. } => "dlq",
+        Commands::Audit { .. } => "audit",
         Commands::Log { .. } => "log",
         Commands::Store { .. } => "store",
         Commands::Doctor { .. } => "doctor",
@@ -608,7 +624,8 @@ pub async fn run(cli: Cli) -> Result<()> {
     // that the user is explicitly trying to stop, reset or initialize.
     // However, diagnostic commands like 'status' SHOULD trigger recovery to maintain the "always-on" promise.
     let skip_recovery = match cmd_name {
-        "daemon" | "reset" | "init" | "config" | "profile" | "dlq" | "log" => true,
+        "daemon" | "reset" | "init" | "config" | "profile" | "dlq" | "log" | "status" | "audit" => true,
+        "doctor" => !matches!(&cli.command, Commands::Doctor { fix: true, .. }),
         "auth" => matches!(&cli.command, Commands::Auth { action: AuthCommands::Logout | AuthCommands::Reset }),
         _ => false,
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
@@ -799,6 +816,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Log { action } => match action {
             LogCommands::List => cmd::log::list(&active_profile, vault.clone()).await?,
             LogCommands::View { domain, follow, lines } => cmd::log::view(&active_profile, domain, *follow, *lines, vault.clone()).await?,
+        }
+        Commands::Audit { action } => match action {
+            AuditCommands::Tail { lines } => cmd::audit::tail(&active_profile, *lines, vault.clone()).await?,
         }
         Commands::Store { .. } => unreachable!(),
         Commands::Version { .. } => unreachable!(),

@@ -130,4 +130,48 @@ impl DiagnosticTask for OpenApiCheck {
 }
 inventory::submit! { DiagnosticRegistration { builder: || Box::new(OpenApiCheck) } }
 
+struct MonitorPortCheck;
+#[async_trait]
+impl DiagnosticTask for MonitorPortCheck {
+    fn name(&self) -> &str { "监控端口 (Monitor Port)" }
+    async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
+        let start = Instant::now();
+        let app_cfg = ctx.cfg_mgr.load_app_config().await.unwrap_or_default();
+        let port = if app_cfg.monitor_port == 0 { 1588 } else { app_cfg.monitor_port };
+        
+        let is_occupied = std::net::TcpListener::bind(("127.0.0.1", port)).is_err();
+        let daemon_info = cowen_common::status::get_active_daemon_info(&ctx.profile);
+        let mut occupied_by_other = false;
+        
+        if is_occupied {
+             if let Some(info) = daemon_info {
+                 if info.monitor_port == Some(port) {
+                      // It's occupied by our own daemon, which is OK
+                 } else {
+                      occupied_by_other = true;
+                 }
+             } else {
+                 occupied_by_other = true;
+             }
+        }
+
+        let status = if occupied_by_other {
+            DiagnosticStatus::Error(format!(
+                "端口 {} 被占用。\n    👉 Fix: 请杀掉占用进程或运行 'cowen config set monitor_port <NEW_PORT> --global'",
+                port
+            ))
+        } else {
+            DiagnosticStatus::Ok
+        };
+
+        Ok(DiagnosticResult {
+            name: self.name().to_string(),
+            status,
+            duration_ms: start.elapsed().as_millis() as u64,
+        })
+    }
+}
+inventory::submit! { DiagnosticRegistration { builder: || Box::new(MonitorPortCheck) } }
+
+
 

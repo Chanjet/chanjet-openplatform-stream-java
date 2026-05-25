@@ -76,7 +76,7 @@ impl MonitorServer {
                         current_port = 0;
                         addr = SocketAddr::from(([127, 0, 0, 1], current_port));
                     } else {
-                        return Err(anyhow::anyhow!("Monitor port {} is in use. Please manually configure a new monitor_port in app.yaml or use `cowen config set monitor_port <PORT>`.", current_port));
+                        return Err(anyhow::anyhow!("Monitor port {} is in use. Please manually configure a new monitor_port.\n👉 Fix: Run 'cowen config set monitor_port <NEW_PORT> --global'", current_port));
                     }
                 }
                 Err(e) => return Err(anyhow::anyhow!("Failed to bind to monitor port {}: {}", current_port, e)),

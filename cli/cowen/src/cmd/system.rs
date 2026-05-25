@@ -394,6 +394,13 @@ pub async fn ensure_daemon_running(
     vault: Arc<dyn Vault>,
     auth_cli: &dyn cowen_auth::client::Client,
 ) -> Result<()> {
+    // 0. Check intentional stop marker
+    let app_dir = cowen_common::config::get_app_dir();
+    let stopped_file = app_dir.join("master_daemon.stopped");
+    if stopped_file.exists() {
+        return Ok(());
+    }
+
     // 1. Check if already running
     if cowen_common::status::get_active_daemon_info(profile).is_some() {
         return Ok(());
