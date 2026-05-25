@@ -311,7 +311,7 @@ impl-package-macos:
 	cp $(OUTPUT_DIR)/macos-$(ARCH)/cowen-daemon pkg_core_root/usr/local/bin/cowen-daemon
 	cp dist_assets/macos/cowen-uninstall pkg_core_root/usr/local/bin/cowen-uninstall
 	cp CHANGELOG.md pkg_core_root/usr/local/share/doc/cowen/
-	cp -r docs/usage pkg_core_root/usr/local/share/doc/cowen/
+	cp -r dist_assets/usage pkg_core_root/usr/local/share/doc/cowen/usage
 	cp target/release/libcowen_search_embedding.dylib pkg_plugin_root/usr/local/share/cowen/staging/ || true
 	@chmod +x dist_assets/macos/scripts_core/postinstall
 	@chmod +x dist_assets/macos/scripts_plugin/postinstall
@@ -348,9 +348,8 @@ package-linux-aarch64: clean linux-aarch64
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-aarch64/
-	mkdir -p $(OUTPUT_DIR)/linux-aarch64/docs
-	cp -r docs/usage $(OUTPUT_DIR)/linux-aarch64/docs/
-	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY)-v$(VERSION)-linux-aarch64 cowen-daemon install.sh README.txt CHANGELOG.md docs/usage -C ../../cli/cowen/pkg_root_aarch64 lib
+	cp -r dist_assets/usage $(OUTPUT_DIR)/linux-aarch64/
+	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY)-v$(VERSION)-linux-aarch64 cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root_aarch64 lib
 	rm -f $(OUTPUT_DIR)/linux-aarch64/$(BINARY)-v$(VERSION)-linux-aarch64 $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	rm -rf pkg_root_aarch64
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
@@ -379,8 +378,7 @@ package-windows-x86_64-cross: windows-x86_64-cross
 	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/README.txt
 	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
-	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/docs
-	cp -r docs/usage $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/docs/
+	cp -r dist_assets/usage $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
 	@if [ -f "../../assets/plugins/windows-x86_64/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found stable cowen_search_embedding.dll in assets, copying into package..."; \
 		cp ../../assets/plugins/windows-x86_64/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
@@ -437,9 +435,8 @@ impl-package-linux-x86_64:
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64/
-	mkdir -p $(OUTPUT_DIR)/linux-x86_64/docs
-	cp -r docs/usage $(OUTPUT_DIR)/linux-x86_64/docs/
-	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64 cowen-daemon install.sh README.txt CHANGELOG.md docs/usage -C ../../cli/cowen/pkg_root lib
+	cp -r dist_assets/usage $(OUTPUT_DIR)/linux-x86_64/
+	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY)-v$(VERSION)-linux-x86_64 cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root lib
 	rm -f $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64 $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
