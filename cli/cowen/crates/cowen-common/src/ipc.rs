@@ -154,14 +154,23 @@ pub mod client {
             Self { uds_path }
         }
 
+        pub async fn ping(&self) -> CowenResult<()> {
+            let res = self.request(DaemonRequest::Ping).await?;
+            if let DaemonResponse::Pong = res {
+                Ok(())
+            } else {
+                Err(CowenError::api("Invalid ping response"))
+            }
+        }
+
         async fn request(&self, req: DaemonRequest) -> CowenResult<DaemonResponse> {
             let mut last_err = None;
             for _ in 0..15 {
-                let mut stream = match ensure_daemon(&self.uds_path).await {
+                let mut stream = match tokio::net::UnixStream::connect(&self.uds_path).await {
                     Ok(s) => s,
                     Err(e) => {
                         last_err = Some(CowenError::api(format!("IPC connection failed: {}", e)));
-                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         continue;
                     }
                 };

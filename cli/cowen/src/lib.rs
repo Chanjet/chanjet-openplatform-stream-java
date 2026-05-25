@@ -600,7 +600,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     
     if !skip_version_sync {
-        let _ = cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr, vault.clone(), daemon_svc.clone()).await;
+        cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr, vault.clone(), daemon_svc.clone()).await?;
     }
 
     // 2. Auto-recovery: "确保必要的后台进程正在运行"
@@ -614,7 +614,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     
     if !skip_recovery {
-        let _ = cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await;
+        cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr, vault.clone(), &auth_cli).await?;
     }
 
     match &cli.command {

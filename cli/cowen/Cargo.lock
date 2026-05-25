@@ -897,6 +897,7 @@ name = "cowen-daemon"
 version = "0.3.5"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "cowen-auth",
  "cowen-common",

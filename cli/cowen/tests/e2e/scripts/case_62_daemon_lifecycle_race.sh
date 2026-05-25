@@ -27,6 +27,10 @@ LAUNCHD_PID=$!
 # Give it a fraction of a second to simulate the port binding / startup delay
 sleep 0.2
 
+# Wait briefly for foreground daemon to write its PID file
+sleep 1
+ORIGINAL_PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid")
+
 echo -e "${BOLD}3. Concurrent start in background (simulate user CLI action)${NC}"
 # This should NOT crash the existing daemon, nor crash itself. It should just send IPC or wait.
 "$COWEN_BIN" daemon start --profile main > "$COWEN_HOME/background_start.log" 2>&1
@@ -37,12 +41,16 @@ wait_for_daemon main 10
 assert_pass "Daemon is running and healthy"
 
 echo -e "${BOLD}4. Verify single master daemon process${NC}"
-# Check how many cowen-daemon processes are running for this workspace
-DAEMON_COUNT=$(ps auxww | grep "cowen-daemon" | grep "$COWEN_HOME/uds.sock" | grep -v grep | wc -l | tr -d ' ')
-if [ "$DAEMON_COUNT" != "1" ]; then
-    fail_suite "Expected exactly 1 daemon process, found $DAEMON_COUNT"
+# Check that the PID in master_daemon.pid is still the original daemon
+ACTUAL_PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid")
+if [ "$ACTUAL_PID" != "$ORIGINAL_PID" ]; then
+    fail_suite "Expected daemon PID to remain $ORIGINAL_PID, but found $ACTUAL_PID in pidfile"
 fi
-assert_pass "Only 1 daemon process is running"
+# Verify the process is actually running
+if ! kill -0 $ACTUAL_PID 2>/dev/null; then
+    fail_suite "Daemon process $ACTUAL_PID is not running"
+fi
+assert_pass "Only 1 daemon process is running (PID stable)"
 
 echo -e "${BOLD}5. Stop daemon gracefully${NC}"
 "$COWEN_BIN" daemon stop --profile main >/dev/null

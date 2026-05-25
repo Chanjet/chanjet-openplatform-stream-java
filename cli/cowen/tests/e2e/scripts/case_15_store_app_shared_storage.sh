@@ -22,6 +22,9 @@ SHARED_DB="$COWEN_HOME/store_app_shared.db"
 
 function final_cleanup {
     echo -e "\n${YELLOW}🧹 Cleaning up Case 15 environment...${NC}"
+    echo "==== DAEMON LOG ===="
+    cat "$HOME_2/daemon.log" || true
+    echo "===================="
     kill_daemons_in_dirs "$HOME_1" "$HOME_2"
     cleanup_suite
 }
@@ -77,14 +80,17 @@ EOF
 # Node 2 starts daemon
 "$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 &
 DAEMON_PID=$!
-sleep 2
 
-# Verify Node 2 is running
-if ! ps -p $DAEMON_PID > /dev/null; then
-    cat "$HOME_2/daemon.log"
-    fail_suite "Node 2 daemon failed to start"
-fi
+wait_for_daemon main 10
 echo -e "   ✓ Node 2 daemon started successfully"
+
+for _ in {1..20}; do
+    if nc -z 127.0.0.1 $PROXY_PORT_2 2>/dev/null; then
+        echo -e "   ✓ Node 2 proxy port is ready"
+        break
+    fi
+    sleep 0.5
+done
 
 
 # 3. Simulate Platform Webhook to Node 2

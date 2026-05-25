@@ -57,6 +57,11 @@ impl AppConfig {
         if let Ok(val) = std::env::var("COWEN_TELEMETRY_ENABLED") {
             self.telemetry_enabled = val == "true" || val == "1";
         }
+        if let Ok(val) = std::env::var("COWEN_MONITOR_PORT") {
+            if let Ok(port) = val.parse::<u16>() {
+                self.monitor_port = port;
+            }
+        }
     }
 }
 

@@ -28,6 +28,124 @@ fn is_daemon_alive() -> bool {
     false
 }
 
+async fn sync_feedback(original_port: u16) -> Result<()> {
+    let mut loop_count = 0;
+    let mut recovered_port = None;
+
+    while loop_count < 10 { // 500ms total
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        // The profile param doesn't matter for unified daemon, we pass empty string
+        if let Some(info) = cowen_common::status::get_active_daemon_info("") {
+            if let Some(p) = info.monitor_port {
+                if p != original_port && p != 0 {
+                    recovered_port = Some(p);
+                }
+            }
+            break;
+        } else {
+            // Check if crashed
+            let app_dir = cowen_common::config::get_app_dir();
+            let pid_file = app_dir.join("master_daemon.pid");
+            if pid_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&pid_file) {
+                    for line in content.lines() {
+                        if let Some(le) = line.strip_prefix("LAST_ERROR=") {
+                            let err_msg = le.trim();
+                            if !err_msg.is_empty() {
+                                eprintln!("❌ Failed: Daemon crashed on startup (Error: {})", err_msg);
+                                return Err(anyhow::anyhow!("Daemon crashed on startup (Error: {})", err_msg));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        loop_count += 1;
+    }
+
+    if let Some(p) = recovered_port {
+        eprintln!("🚀 Daemon recovered on port {} (Note: default {} was occupied)", p, original_port);
+    }
+    Ok(())
+}
+
+async fn preflight_check_and_bind_port(cfg_mgr: &ConfigManager) -> Result<()> {
+    let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+    let m_port = if app_cfg.monitor_port == 0 { 1588 } else { app_cfg.monitor_port };
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], m_port));
+    match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => {
+            drop(l);
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            let app_dir = cowen_common::config::get_app_dir();
+            let pid_file = app_dir.join("master_daemon.pid");
+            let mut killed_old = false;
+
+            if pid_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&pid_file) {
+                    if let Some(pid_str) = content.lines().next() {
+                        if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                            use sysinfo::{System, Pid, ProcessesToUpdate};
+                            let mut s = System::new();
+                            let sys_pid = Pid::from_u32(pid);
+                            s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
+                            if let Some(proc) = s.process(sys_pid) {
+                                let name = proc.name().to_string_lossy().to_lowercase();
+                                if name.contains("cowen") {
+                                    // It's a cowen process. Is it healthy?
+                                    let uds_path = cowen_common::ipc::get_uds_path();
+                                    let is_healthy = if uds_path.exists() {
+                                        let client = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
+                                        client.ping().await.is_ok()
+                                    } else {
+                                        false
+                                    };
+
+                                    if is_healthy {
+                                        tracing::debug!(target: "sys", "Port {} is occupied by healthy cowen daemon (PID: {}). Proceeding via IPC.", m_port, pid);
+                                        return Ok(());
+                                    }
+
+                                    tracing::warn!(target: "sys", "Port {} seems occupied by unresponsive cowen daemon (PID: {}). Sending SIGTERM...", m_port, pid);
+                                    #[cfg(unix)]
+                                    let _ = std::process::Command::new("kill").arg("-15").arg(pid.to_string()).status();
+                                    #[cfg(windows)]
+                                    let _ = std::process::Command::new("taskkill").args(&["/F", "/PID", &pid.to_string()]).status();
+                                    
+                                    killed_old = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Retry binding for up to 1 second to allow TIME_WAIT or graceful shutdown to clear
+            for _ in 0..5 {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                if tokio::net::TcpListener::bind(addr).await.is_ok() {
+                    return Ok(());
+                }
+            }
+            if !killed_old {
+                if app_cfg.monitor_port == 0 {
+                    tracing::warn!(target: "sys", "Pre-flight check: Default monitor port {} is occupied, but config is set to 0. Allowing fallback to random port.", m_port);
+                    return Ok(());
+                } else {
+                    tracing::warn!(target: "sys", "Pre-flight check: Monitor port {} is occupied by a 3rd party process.", m_port);
+                    return Err(anyhow::anyhow!("Monitor port {} is occupied by another process. Please choose a different port or kill the occupying process.", m_port));
+                }
+            }
+            Ok(())
+        }
+        Err(e) => Err(anyhow::anyhow!("Pre-flight port bind failed: {}", e)),
+    }
+}
+
+
 /// 启动守护进程 (主分发器)
 pub async fn start(
     profile: &str, 
@@ -41,6 +159,9 @@ pub async fn start(
     _telemetry: Option<Arc<TelemetryControl>>,
     daemon_svc: Arc<dyn DaemonService>,
 ) -> Result<()> {
+    // 1. 启动前置预检 (Pre-flight Check)
+    preflight_check_and_bind_port(cfg_mgr).await?;
+
     #[cfg(unix)]
     {
         // On Unix, we use the standalone cowen-daemon binary via IPC.
@@ -106,12 +227,22 @@ pub async fn start(
                      
                      // Try again
                      let ipc_client2 = cowen_common::ipc::client::IpcDaemonService::new(uds_path.clone());
-                     ipc_client2.start_daemon(profile, config, vault).await.map_err(|e2| anyhow::anyhow!(e2))?;
+                     if let Err(e2) = ipc_client2.start_daemon(profile, config, vault.clone()).await {
+                         let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+                         let original_port = if app_cfg.monitor_port == 0 { 1588 } else { app_cfg.monitor_port };
+                         if let Err(sync_err) = sync_feedback(original_port).await {
+                             return Err(sync_err);
+                         }
+                         return Err(anyhow::anyhow!("IPC connection failed: FATAL: Failed to connect to cowen-daemon after spawning: {}", e2));
+                     }
                 } else {
                      return Err(anyhow::anyhow!("Daemon is running but failed to respond: {}", e));
                 }
             }
             eprintln!("✅ Startup command sent to daemon.");
+            let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+            let original_port = if app_cfg.monitor_port == 0 { 1588 } else { app_cfg.monitor_port };
+            sync_feedback(original_port).await?;
             return Ok(());
         } else {
             // Foreground mode on Unix: we must spawn cowen-daemon as a child and wait for it,
@@ -238,6 +369,9 @@ pub async fn start(
         
         if ready {
             eprintln!("✅ Master daemon started successfully.");
+            let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+            let original_port = if app_cfg.monitor_port == 0 { 1588 } else { app_cfg.monitor_port };
+            sync_feedback(original_port).await?;
             return Ok(());
         } else {
             anyhow::bail!("Master daemon failed to start within timeout or exited.");
@@ -365,27 +499,34 @@ pub async fn stop(_profile: &str, _all: bool, _cfg_mgr: &ConfigManager) -> Resul
     let app_dir = cowen_common::config::get_app_dir();
     let pid_file = app_dir.join("master_daemon.pid");
     
+    let mut process_dead = true;
     if let Ok(content) = fs::read_to_string(&pid_file) {
         if let Some(pid_str) = content.lines().next() {
             if let Ok(pid_u32) = pid_str.trim().parse::<u32>() {
                 eprintln!("🛑 Stopping master daemon (PID: {})...", pid_u32);
                 kill_process(pid_u32);
 
+                process_dead = false;
                 // Wait for process to exit
-                use sysinfo::{System, Pid};
+                use sysinfo::{System, Pid, ProcessesToUpdate};
                 let mut sys = System::new();
                 let pid = Pid::from_u32(pid_u32);
-                for _ in 0..20 { // Max 4 seconds
+                for _ in 0..60 { // Max 12 seconds to match daemon's 10s graceful shutdown + margin
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+                    sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
                     if sys.process(pid).is_none() {
+                        process_dead = true;
                         break;
                     }
                 }
             }
         }
     }
-    let _ = fs::remove_file(pid_file);
+    if process_dead {
+        let _ = fs::remove_file(pid_file);
+    } else {
+        tracing::warn!(target: "sys", "Daemon process did not exit within timeout.");
+    }
     Ok(())
 }
 

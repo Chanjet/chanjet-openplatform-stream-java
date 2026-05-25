@@ -24,6 +24,21 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let app_dir = cowen_common::config::get_app_dir();
+    let pid_file = app_dir.join("master_daemon.pid");
+
+    let result = run_main(&pid_file).await;
+    if let Err(e) = &result {
+        // FATAL CRASH: Write LAST_ERROR to PID file so CLI can report it synchronously
+        let current_pid = std::process::id();
+        let error_msg = e.to_string().replace('\n', " ");
+        let start_time = chrono::Utc::now().to_rfc3339();
+        let _ = std::fs::write(&pid_file, format!("{}\nSTART_TIME={}\nLAST_ERROR={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, start_time, error_msg, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+    }
+    result
+}
+
+async fn run_main(pid_file: &PathBuf) -> Result<()> {
     // Initialize Rustls Crypto Provider (Mandatory for Rustls 0.23+)
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -46,10 +61,9 @@ async fn main() -> Result<()> {
 
         let listener = UnixListener::bind(&args.uds)?;
 
-        let app_dir = cowen_common::config::get_app_dir();
-        let pid_file = app_dir.join("master_daemon.pid");
         let current_pid = std::process::id();
-        let _ = std::fs::write(&pid_file, format!("{}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+        let start_time = chrono::Utc::now().to_rfc3339();
+        let _ = std::fs::write(pid_file, format!("{}\nSTART_TIME={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
 
         // Set permissions to 0600 (owner only)
         use std::os::unix::fs::PermissionsExt;
@@ -57,14 +71,13 @@ async fn main() -> Result<()> {
         perms.set_mode(0o600);
         std::fs::set_permissions(&args.uds, perms)?;
 
-        let cfg_mgr = ConfigManager::new().expect("Failed to init ConfigManager");
+        let cfg_mgr = ConfigManager::new().map_err(|e| anyhow::anyhow!("Failed to init ConfigManager: {}", e))?;
         let app_dir = cowen_common::config::get_app_dir();
         let telemetry_db = Arc::new(
             cowen_monitor::telemetry_db::TelemetryDb::new(&app_dir.join("telemetry.db"))
                 .await
-                .expect("Failed to init telemetry db")
+                .map_err(|e| anyhow::anyhow!("Failed to init telemetry db: {}", e))?
         );
-        
         let _ = telemetry_db.run_gc().await;
 
         let mut app_cfg = if let Ok(content) = std::fs::read_to_string(app_dir.join("app.yaml")) {
@@ -79,7 +92,7 @@ async fn main() -> Result<()> {
         }
 
         let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
-        let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await.expect("Failed to init Vault");
+        let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!("Failed to init Vault: {}", e))?;
 
         use tracing_subscriber::prelude::*;
         let console_layer = tracing_subscriber::fmt::layer()
@@ -130,7 +143,7 @@ async fn main() -> Result<()> {
             let _ = cfg_mgr.save_app_config(&app_cfg).await;
         }
 
-        let _ = std::fs::write(&pid_file, format!("{}\nMONITOR_PORT={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, actual_m_port, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+        let _ = std::fs::write(pid_file, format!("{}\nMONITOR_PORT={}\nSTART_TIME={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, actual_m_port, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
 
         // Signal-aware accept loop
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -169,7 +182,7 @@ async fn main() -> Result<()> {
         let _ = daemon_svc.stop_all().await;
         
         // Clean up PID file and UDS socket
-        let _ = std::fs::remove_file(&pid_file);
+        let _ = std::fs::remove_file(pid_file);
         let _ = std::fs::remove_file(&args.uds);
         info!("cowen-daemon shutdown complete.");
     }

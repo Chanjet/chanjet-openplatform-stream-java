@@ -112,6 +112,8 @@ pub struct DaemonInfo {
     pub build_id: Option<String>,
     pub build_time: Option<String>,
     pub monitor_port: Option<u16>,
+    pub start_time: Option<String>,
+    pub last_error: Option<String>,
 }
 
 pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
@@ -155,6 +157,8 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
                             build_id: None,
                             build_time: None,
                             monitor_port: None,
+                            start_time: None,
+                            last_error: None,
                         };
                         
                         for line in lines {
@@ -164,6 +168,13 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
                                 info.build_time = Some(bt.trim().to_string());
                             } else if let Some(mp) = line.strip_prefix("MONITOR_PORT=") {
                                 info.monitor_port = mp.trim().parse::<u16>().ok();
+                            } else if let Some(st) = line.strip_prefix("START_TIME=") {
+                                info.start_time = Some(st.trim().to_string());
+                            } else if let Some(le) = line.strip_prefix("LAST_ERROR=") {
+                                let err_msg = le.trim().to_string();
+                                if !err_msg.is_empty() {
+                                    info.last_error = Some(err_msg);
+                                }
                             }
                         }
                         return Some(info);

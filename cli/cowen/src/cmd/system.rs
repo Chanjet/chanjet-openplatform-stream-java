@@ -429,7 +429,7 @@ pub async fn ensure_daemon_running(
         let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_common::ipc::client::IpcDaemonService::new(cowen_common::ipc::get_uds_path()));
         #[cfg(not(unix))]
         let daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService> = std::sync::Arc::new(cowen_server::ServerDaemonService::new(_cfg_mgr.clone()));
-        let _ = crate::cmd::daemon::start(profile, config, config.proxy_port, config.proxy_enabled, false, false, _cfg_mgr, vault, None, daemon_svc).await;
+        crate::cmd::daemon::start(profile, config, config.proxy_port, config.proxy_enabled, false, false, _cfg_mgr, vault, None, daemon_svc).await?;
     }
 
     Ok(())
@@ -467,7 +467,7 @@ pub async fn enforce_daemon_version_sync(
                 // This prevents "AppKey is empty" warnings for unused default profiles during version sync.
                 if !config.app_key.trim().is_empty() {
                     eprintln!("🔄 Profile '{}' 的后台进程版本已过时，正在自动重启以同步最新构建...", p);
-                    let _ = crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None, daemon_svc.clone()).await;
+                    crate::cmd::daemon::restart(&p, &config, config.proxy_port, config.proxy_enabled, false, cfg_mgr, vault.clone(), None, daemon_svc.clone()).await?;
                     
                     // 🚀 STABILITY: Brief grace period to allow the new daemon to bind ports and write its PID file
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
