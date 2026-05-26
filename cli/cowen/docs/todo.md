@@ -43,13 +43,15 @@ crates/cowen-infra/src/
 ├── lib.rs
 ├── sys/
 │   ├── mod.rs        // 提取抽象：定义统一的 Trait (如 ProcessManager)
-│   ├── unix.rs       // 仅限 macOS/Linux 编译 (#[cfg(unix)])
-│   └── windows.rs    // 仅限 Windows 编译 (#[cfg(windows)])
+│   ├── unix.rs       // 承载 macOS/Linux 共有的 POSIX 兼容工具/方法 (#[cfg(unix)])
+│   ├── macos.rs      // macOS 专属实现 (#[cfg(target_os = "macos")])
+│   ├── linux.rs      // Linux 专属实现 (#[cfg(target_os = "linux")])
+│   └── windows.rs    // Windows 专属实现 (#[cfg(windows)])
 ```
 
 **代码规范约束：**
 *   **依赖倒置**：业务层必须且只能通过 `sys::mod.rs` 暴露出的标准 Trait 和工厂模式进行调用。
-*   **物理隔离**：所有的平台专属代码必须收敛在各自的文件中，如 `windows.rs`。这能在物理层面上防止 AI 在修改 macOS/Linux 代码时意外破坏 Windows 的相关实现。
+*   **物理隔离**：所有的平台专属代码必须收敛在各自的文件中（如 `macos.rs`, `linux.rs`, `windows.rs`）。这能在物理层面上防止 AI 在修改一个平台的代码时意外破坏另一个平台的独立实现。公共 POSIX 通用逻辑收敛在 `unix.rs` 中被双端复用。
 
 ### 2. 测试策略：系统 API Mocking
 *   由于遵循 **TDD Mandatory** 规则，所有 `sys` 层提供出的 Trait 接口必须利于 Mock。
