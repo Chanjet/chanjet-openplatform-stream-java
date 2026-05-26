@@ -532,11 +532,24 @@ impl AuthProvider for SelfBuiltProvider {
 
         if params.auto_start {
             if let Some(svc) = daemon_service {
-                println!("🚀 Mode is 'SelfBuilt': Triggering proactive AppTicket push...");
-                let _ = self.trigger_push_internal(profile, config, false).await;
-
                 println!("📡 Starting background daemon to maintain AppTicket...");
                 let _ = svc.start_daemon(profile, config, vault).await;
+
+                if config.proxy_enabled && config.proxy_port != 0 {
+                    let mut retries = 20;
+                    while retries > 0 {
+                        if cowen_common::status::is_port_responsive(config.proxy_port).await {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        retries -= 1;
+                    }
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                }
+
+                println!("🚀 Mode is 'SelfBuilt': Triggering proactive AppTicket push...");
+                let _ = self.trigger_push_internal(profile, config, false).await;
             }
         } else {
             println!("💡 \x1b[1m提示\x1b[0m: 'SelfBuilt' 模式依赖平台主动推送凭证。");

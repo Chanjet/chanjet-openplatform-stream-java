@@ -668,7 +668,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 stream_url: stream_url.clone(),
                 app_mode: app_mode.clone(),
                 proxy_port: *proxy_port,
-                auto_start: false,
+                auto_start: cowen_common::status::get_active_daemon_info("").is_some(),
             };
             cmd::init::execute(&active_profile, &cfg_mgr, &mut app_config, vault.clone(), ctx, Some(daemon_svc.clone())).await?;
         }
