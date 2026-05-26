@@ -34,12 +34,135 @@ impl SysFingerprint for MacFingerprint {
         }
         
         // Fallback to basic fingerprint if ioreg fails or doesn't have UUID
-        let hostname = hostname::get()?.to_string_lossy().to_string();
-        let base = format!("macos-{}", hostname);
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(base.as_bytes());
-        let hash = hasher.finalize();
-        Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
+        crate::sys::derive_fallback_fingerprint("macos")
+    }
+}
+
+pub struct MacServiceManager;
+
+impl MacServiceManager {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+fn get_macos_plist_path(bin_name: &str) -> anyhow::Result<std::path::PathBuf> {
+    let home = directories::UserDirs::new()
+        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
+        .home_dir()
+        .to_path_buf();
+    Ok(home.join("Library").join("LaunchAgents").join(format!("{}.{}.daemon.plist", crate::sys::SERVICE_PREFIX, bin_name)))
+}
+
+#[async_trait::async_trait]
+impl crate::sys::ServiceManager for MacServiceManager {
+    async fn install(&self, bin_name: &str, bin_path: &str, log_dir: &str) -> anyhow::Result<()> {
+        let plist_path = get_macos_plist_path(bin_name)?;
+        std::fs::create_dir_all(log_dir)?;
+
+        let plist_content = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{prefix}.{bin_name}.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{bin_path}</string>
+        <string>daemon</string>
+        <string>start</string>
+        <string>--all</string>
+        <string>--foreground</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{log_path}/service.log</string>
+    <key>StandardErrorPath</key>
+    <string>{log_path}/service.error.log</string>
+</dict>
+</plist>"#, 
+        prefix = crate::sys::SERVICE_PREFIX,
+        bin_name = bin_name,
+        bin_path = bin_path,
+        log_path = log_dir);
+
+        if let Some(parent) = plist_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&plist_path, plist_content)?;
+
+        // If the service is already loaded, unload it first
+        let _ = std::process::Command::new("launchctl")
+            .arg("unload")
+            .arg(&plist_path)
+            .status();
+
+        // Load the service
+        let status = std::process::Command::new("launchctl")
+            .arg("load")
+            .arg(&plist_path)
+            .status()?;
+
+        if status.success() {
+            println!("✅ Successfully installed and loaded macOS LaunchAgent.");
+            println!("📍 Config: {:?}", plist_path);
+            Ok(())
+        } else {
+            anyhow::bail!("Failed to load LaunchAgent via launchctl. Plist created at {:?}", plist_path)
+        }
+    }
+
+    async fn uninstall(&self, bin_name: &str) -> anyhow::Result<()> {
+        let plist_path = get_macos_plist_path(bin_name)?;
+        if plist_path.exists() {
+            let _ = std::process::Command::new("launchctl")
+                .arg("unload")
+                .arg(&plist_path)
+                .status();
+            std::fs::remove_file(&plist_path)?;
+            println!("✅ Successfully uninstalled macOS LaunchAgent.");
+        } else {
+            println!("ℹ️  No service found to uninstall.");
+        }
+        Ok(())
+    }
+
+    async fn status(&self, bin_name: &str) -> anyhow::Result<String> {
+        let plist_path = get_macos_plist_path(bin_name)?;
+        let label = format!("{}.{}.daemon", crate::sys::SERVICE_PREFIX, bin_name);
+
+        let output = std::process::Command::new("launchctl")
+            .arg("list")
+            .arg(&label)
+            .output();
+
+        let mut status_msg = format!(
+            "🔍 macOS Service Status:\n  - Label: {}\n  - Config: {}\n",
+            label,
+            if plist_path.exists() { "EXISTS" } else { "MISSING" }
+        );
+
+        match output {
+            Ok(out) if out.status.success() => {
+                status_msg.push_str("  - Status: \x1b[32mRUNNING (REGISTERED)\x1b[0m");
+            }
+            _ => {
+                status_msg.push_str("  - Status: \x1b[33mNOT REGISTERED\x1b[0m");
+            }
+        }
+        Ok(status_msg)
+    }
+}
+
+/// 设置当前进程的显示名称 (macOS 实现)
+pub fn set_process_name(name: &str) {
+    use std::ffi::CString;
+    if let Ok(c_name) = CString::new(name) {
+        unsafe {
+            libc::pthread_setname_np(c_name.as_ptr());
+        }
     }
 }

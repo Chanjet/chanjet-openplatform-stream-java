@@ -41,12 +41,7 @@ impl FileStore {
             json.into_bytes()
         };
 
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        
-        options.open(&temp_path)
+        cowen_infra::sys::fs::secure_open_write(&temp_path)
             .and_then(|mut f| {
                 use std::io::Write;
                 f.write_all(&data)

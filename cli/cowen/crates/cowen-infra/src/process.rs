@@ -13,31 +13,7 @@ pub fn get_bin_name() -> String {
 
 /// 设置当前进程的显示名称 (跨平台实现)
 pub fn set_process_name(name: &str) {
-    #[cfg(target_os = "linux")]
-    {
-        use std::ffi::CString;
-        if let Ok(c_name) = CString::new(name) {
-            unsafe {
-                libc::prctl(libc::PR_SET_NAME, c_name.as_ptr(), 0, 0, 0);
-            }
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        use std::ffi::CString;
-        if let Ok(c_name) = CString::new(name) {
-            unsafe {
-                libc::pthread_setname_np(c_name.as_ptr());
-            }
-        }
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = name;
-        // Unsupported platforms: Fallback to doing nothing
-    }
+    crate::sys::set_process_name(name);
 }
 
 /// 检查端口占用情况，返回 PID 和 进程名

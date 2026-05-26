@@ -58,6 +58,13 @@ impl crate::sys::ProcessManager for UnixProcessManager {
     async fn run_as_service(&self, _f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>) -> anyhow::Result<()> {
         anyhow::bail!("Unix does not support Windows Service model.")
     }
+    
+    fn spawn_daemon(&self, cmd: &mut std::process::Command) -> anyhow::Result<u32> {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+        let child = cmd.spawn()?;
+        Ok(child.id())
+    }
 }
 
 pub struct UnixIpcBinder;
@@ -86,5 +93,81 @@ impl crate::sys::IpcBinder for UnixIpcBinder {
         let mut f = opts.open(token_file)?;
         f.write_all(token.as_bytes())?;
         Ok(())
+    }
+}
+
+pub mod fs {
+    use std::path::Path;
+
+    pub fn secure_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> std::io::Result<()> {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(contents.as_ref())
+    }
+
+    pub fn secure_open_write<P: AsRef<Path>>(path: P) -> std::io::Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        options.open(path)
+    }
+
+    pub fn secure_open_append<P: AsRef<Path>>(path: P) -> std::io::Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).append(true);
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        options.open(path)
+    }
+
+    pub fn make_executable<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&path)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms)?;
+        Ok(())
+    }
+
+    pub fn is_file_secure<P: AsRef<Path>>(path: P) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        
+        let check_meta = |m: &std::fs::Metadata| -> bool {
+            let mode = m.mode();
+            let uid = m.uid();
+            
+            // World-writable check
+            if mode & 0o002 != 0 {
+                return false;
+            }
+            
+            // Owner check (must be owned by root or the current user)
+            let current_uid = unsafe { libc::getuid() };
+            if uid != 0 && uid != current_uid {
+                return false;
+            }
+            true
+        };
+
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if !check_meta(&meta) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        if let Some(parent) = path.as_ref().parent() {
+            if let Ok(meta) = std::fs::metadata(parent) {
+                if !check_meta(&meta) {
+                    return false;
+                }
+            }
+        }
+        true
     }
 }

@@ -135,13 +135,7 @@ pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
     let target_path = plugins_dir.join(file_name);
     std::fs::copy(source_path, &target_path)?;
     
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&target_path)?.permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&target_path, perms)?;
-    }
+    cowen_infra::sys::fs::make_executable(&target_path)?;
 
     let bundle_source_path = source_path.with_extension("bundle");
     if bundle_source_path.exists() && bundle_source_path.is_file() {

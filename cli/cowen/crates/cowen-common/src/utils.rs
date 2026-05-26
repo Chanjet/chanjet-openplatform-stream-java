@@ -46,22 +46,7 @@ pub fn sanitize_credential(s: &str) -> String {
 }
 
 pub fn secure_write<P: std::convert::AsRef<std::path::Path>, C: std::convert::AsRef<[u8]>>(path: P, contents: C) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)?;
-        file.write_all(contents.as_ref())
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::write(path, contents)
-    }
+    cowen_infra::sys::fs::secure_write(path, contents)
 }
 
 #[cfg(test)]

@@ -30,6 +30,8 @@ pub mod traits {
         fn set_stop_channel(&self, tx: Sender<()>);
         /// 运行 Windows Service 循环，仅在 Windows 下有效，其它平台抛出 Error
         async fn run_as_service(&self, f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>) -> anyhow::Result<()>;
+        /// 跨平台常驻后台进程启动
+        fn spawn_daemon(&self, cmd: &mut std::process::Command) -> anyhow::Result<u32>;
     }
 
     pub trait SysFingerprint: Send + Sync {
@@ -46,9 +48,19 @@ pub mod traits {
         /// 保存仅对当前运行用户具有 0600 读写权限的随机鉴权 Token 字符串
         async fn save_ipc_token(&self, token_file: &Path, token: &str) -> anyhow::Result<()>;
     }
+
+    #[async_trait::async_trait]
+    pub trait ServiceManager: Send + Sync {
+        /// 安装系统后台服务
+        async fn install(&self, bin_name: &str, bin_path: &str, log_dir: &str) -> anyhow::Result<()>;
+        /// 卸载系统后台服务
+        async fn uninstall(&self, bin_name: &str) -> anyhow::Result<()>;
+        /// 查询系统服务状态
+        async fn status(&self, bin_name: &str) -> anyhow::Result<String>;
+    }
 }
 
-pub use traits::{ProcessManager, SysFingerprint, IpcBinder};
+pub use traits::{ProcessManager, SysFingerprint, IpcBinder, ServiceManager};
 
 pub fn get_process_manager() -> Arc<dyn ProcessManager> {
     #[cfg(target_os = "macos")]
@@ -92,6 +104,49 @@ pub fn get_ipc_binder() -> Arc<dyn IpcBinder> {
     compile_error!("Unsupported platform!");
 }
 
+pub fn get_service_manager() -> Arc<dyn ServiceManager> {
+    #[cfg(target_os = "macos")]
+    return Arc::new(macos::MacServiceManager::new());
+    
+    #[cfg(target_os = "linux")]
+    return Arc::new(linux::LinuxServiceManager::new());
+    
+    #[cfg(windows)]
+    return Arc::new(windows::WinServiceManager::new());
+    
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    compile_error!("Unsupported platform!");
+}
+
+#[cfg(target_os = "macos")]
+pub use macos::set_process_name;
+#[cfg(target_os = "linux")]
+pub use linux::set_process_name;
+#[cfg(windows)]
+pub use windows::set_process_name;
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+pub fn set_process_name(name: &str) {
+    let _ = name;
+}
+
+#[cfg(unix)]
+pub use unix::fs;
+#[cfg(windows)]
+pub use windows::fs;
+
+pub const SERVICE_PREFIX: &str = "com.chanjet";
+
+/// 生成统一的操作系统硬件指纹 fallback 哈希
+pub fn derive_fallback_fingerprint(os_prefix: &str) -> anyhow::Result<String> {
+    let hostname = hostname::get()?.to_string_lossy().to_string();
+    let base = format!("{}-{}", os_prefix, hostname);
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(base.as_bytes());
+    let hash = hasher.finalize();
+    Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +160,36 @@ mod tests {
         
         let fingerprint: Arc<dyn SysFingerprint> = mock.clone();
         assert_eq!(fingerprint.get_machine_id().unwrap(), "mock-windows-machine-uuid-123456789");
+
+        // Verify service manager Mock
+        let service: Arc<dyn ServiceManager> = mock.clone();
+        assert!(service.install("test", "path", "log_dir").await.is_ok());
+        assert!(service.uninstall("test").await.is_ok());
+        let status = service.status("test").await.unwrap();
+        assert!(status.contains("REGISTERED"));
+    }
+
+    #[test]
+    fn test_sys_fs_secure_operations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("secure_test.txt");
+
+        // Test secure_write
+        assert!(fs::secure_write(&path, b"hello world").is_ok());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello world");
+
+        // Test secure_open_write
+        let open_res = fs::secure_open_write(&path);
+        assert!(open_res.is_ok());
+
+        // Test secure_open_append
+        let append_res = fs::secure_open_append(&path);
+        assert!(append_res.is_ok());
+
+        // Test make_executable
+        assert!(fs::make_executable(&path).is_ok());
+
+        // Test is_file_secure
+        assert!(fs::is_file_secure(&path));
     }
 }

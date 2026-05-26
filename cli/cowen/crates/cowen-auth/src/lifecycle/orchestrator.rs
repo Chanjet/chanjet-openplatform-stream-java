@@ -209,14 +209,9 @@ pub fn spawn_finalizer(profile: &str, session_id: &str) -> CowenResult<u32> {
     .stdout(file.try_clone().map_err(CowenError::from)?)
     .stderr(file);
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
-
-    let child = cmd.spawn().map_err(CowenError::from)?;
-    Ok(child.id())
+    let child_id = cowen_infra::sys::get_process_manager().spawn_daemon(&mut cmd)
+        .map_err(|e| CowenError::Auth(e.to_string()))?;
+    Ok(child_id)
 }
 
 pub fn render_last_auth_error(profile: &str) -> CowenResult<()> {

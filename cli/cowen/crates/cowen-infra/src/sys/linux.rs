@@ -29,12 +29,124 @@ impl SysFingerprint for LinuxFingerprint {
         }
         
         // Fallback to basic fingerprint
-        let hostname = hostname::get()?.to_string_lossy().to_string();
-        let base = format!("linux-{}", hostname);
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(base.as_bytes());
-        let hash = hasher.finalize();
-        Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
+        crate::sys::derive_fallback_fingerprint("linux")
+    }
+}
+
+pub struct LinuxServiceManager;
+
+impl LinuxServiceManager {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+fn get_linux_service_path(bin_name: &str) -> anyhow::Result<std::path::PathBuf> {
+    let home = directories::UserDirs::new()
+        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
+        .home_dir()
+        .to_path_buf();
+    Ok(home.join(".config").join("systemd").join("user").join(format!("{}-daemon.service", bin_name)))
+}
+
+#[async_trait::async_trait]
+impl crate::sys::ServiceManager for LinuxServiceManager {
+    async fn install(&self, bin_name: &str, bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
+        let service_path = get_linux_service_path(bin_name)?;
+        
+        let service_content = format!(r#"[Unit]
+Description={prefix}.{bin_name} Daemon Autostart
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={bin_path} daemon start --all --foreground
+Restart=always
+
+[Install]
+WantedBy=default.target
+"#, 
+        prefix = crate::sys::SERVICE_PREFIX,
+        bin_name = bin_name,
+        bin_path = bin_path);
+
+        if let Some(parent) = service_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&service_path, service_content)?;
+
+        // Reload and enable
+        let _ = std::process::Command::new("systemctl").arg("--user").arg("daemon-reload").status();
+        let status = std::process::Command::new("systemctl")
+            .arg("--user")
+            .arg("enable")
+            .arg("--now")
+            .arg(format!("{}-daemon", bin_name))
+            .status()?;
+
+        if status.success() {
+            println!("✅ Successfully installed and enabled systemd user service.");
+            println!("📍 Config: {:?}", service_path);
+            Ok(())
+        } else {
+            anyhow::bail!("Failed to enable systemd user service via systemctl. Config created at {:?}", service_path)
+        }
+    }
+
+    async fn uninstall(&self, bin_name: &str) -> anyhow::Result<()> {
+        let service_path = get_linux_service_path(bin_name)?;
+        let unit_name = format!("{}-daemon", bin_name);
+
+        if service_path.exists() {
+            let _ = std::process::Command::new("systemctl").arg("--user").arg("disable").arg("--now").arg(&unit_name).status();
+            std::fs::remove_file(&service_path)?;
+            let _ = std::process::Command::new("systemctl").arg("--user").arg("daemon-reload").status();
+            println!("✅ Successfully uninstalled systemd user service.");
+        } else {
+            println!("ℹ️  No service found to uninstall.");
+        }
+        Ok(())
+    }
+
+    async fn status(&self, bin_name: &str) -> anyhow::Result<String> {
+        let service_path = get_linux_service_path(bin_name)?;
+        let unit_name = format!("{}-daemon", bin_name);
+
+        let mut status_msg = format!(
+            "🔍 Linux systemd Status:\n  - Unit: {}\n  - Config: {}\n",
+            unit_name,
+            if service_path.exists() { "EXISTS" } else { "MISSING" }
+        );
+
+        let output = std::process::Command::new("systemctl")
+            .arg("--user")
+            .arg("is-active")
+            .arg(&unit_name)
+            .output();
+
+        match output {
+            Ok(out) => {
+                let state = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if state == "active" {
+                    status_msg.push_str("  - Status: \x1b[32mACTIVE\x1b[0m");
+                } else {
+                    status_msg.push_str(&format!("  - Status: \x1b[33m{}\x1b[0m", state));
+                }
+            }
+            _ => {
+                status_msg.push_str("  - Status: UNKNOWN");
+            }
+        }
+        Ok(status_msg)
+    }
+}
+
+/// 设置当前进程的显示名称 (Linux 实现)
+pub fn set_process_name(name: &str) {
+    use std::ffi::CString;
+    if let Ok(c_name) = CString::new(name) {
+        unsafe {
+            libc::prctl(libc::PR_SET_NAME, c_name.as_ptr(), 0, 0, 0);
+        }
     }
 }

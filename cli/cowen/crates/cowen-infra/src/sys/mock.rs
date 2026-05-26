@@ -1,7 +1,7 @@
 use std::path::Path;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Sender;
-use crate::sys::{ProcessManager, IpcBinder, SysFingerprint};
+use crate::sys::{ProcessManager, IpcBinder, SysFingerprint, ServiceManager};
 
 pub struct MockWindowsSys {
     pub mock_pid: u32,
@@ -39,6 +39,24 @@ impl ProcessManager for MockWindowsSys {
     
     async fn run_as_service(&self, _f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    fn spawn_daemon(&self, cmd: &mut std::process::Command) -> anyhow::Result<u32> {
+        let child = cmd.spawn()?;
+        Ok(child.id())
+    }
+}
+
+#[async_trait::async_trait]
+impl ServiceManager for MockWindowsSys {
+    async fn install(&self, _bin_name: &str, _bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn uninstall(&self, _bin_name: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn status(&self, _bin_name: &str) -> anyhow::Result<String> {
+        Ok("🔍 Windows Service Status:\n  - Status: REGISTERED\n  - State: RUNNING".to_string())
     }
 }
 

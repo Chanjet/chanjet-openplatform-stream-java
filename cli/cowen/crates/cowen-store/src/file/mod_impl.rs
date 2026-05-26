@@ -184,12 +184,7 @@ impl FileStore {
         } else {
             data.as_bytes().to_vec()
         };
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        
-        options.open(&path)
+        cowen_infra::sys::fs::secure_open_write(&path)
             .and_then(|mut f| {
                 use std::io::Write;
                 f.write_all(&final_data)

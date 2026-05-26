@@ -84,6 +84,111 @@ impl ProcessManager for WinProcessManager {
             anyhow::bail!("Windows Service is not supported on non-Windows platforms.");
         }
     }
+
+    fn spawn_daemon(&self, cmd: &mut std::process::Command) -> anyhow::Result<u32> {
+        #[cfg(windows)]
+        {
+            disable_std_handles_inheritance();
+        }
+        let child = cmd.spawn()?;
+        Ok(child.id())
+    }
+}
+
+pub struct WinServiceManager;
+
+impl WinServiceManager {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::sys::ServiceManager for WinServiceManager {
+    async fn install(&self, bin_name: &str, bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
+        let service_name = format!("{}Daemon", bin_name);
+        let status = std::process::Command::new("sc")
+            .arg("create")
+            .arg(&service_name)
+            .arg("binPath=")
+            .arg(format!("\"{}\" daemon start --all --run-as-service", bin_path))
+            .arg("start=")
+            .arg("auto")
+            .status()?;
+        if status.success() {
+            println!("✅ Successfully installed Windows Service.");
+            println!("📍 Service Name: {}", service_name);
+            Ok(())
+        } else {
+            anyhow::bail!("Failed to create Windows Service via sc create.")
+        }
+    }
+
+    async fn uninstall(&self, bin_name: &str) -> anyhow::Result<()> {
+        let service_name = format!("{}Daemon", bin_name);
+        let _ = std::process::Command::new("sc").arg("stop").arg(&service_name).status();
+        let status = std::process::Command::new("sc")
+            .arg("delete")
+            .arg(&service_name)
+            .status()?;
+        if status.success() {
+            println!("✅ Successfully removed Windows Service.");
+            Ok(())
+        } else {
+            anyhow::bail!("Failed to delete Windows Service.")
+        }
+    }
+
+    async fn status(&self, bin_name: &str) -> anyhow::Result<String> {
+        let service_name = format!("{}Daemon", bin_name);
+        let mut status_msg = format!("🔍 Windows Service Status:\n  - Service Name: {}\n", service_name);
+        let output = std::process::Command::new("sc")
+            .arg("query")
+            .arg(&service_name)
+            .output();
+        match output {
+            Ok(out) if out.status.success() => {
+                status_msg.push_str("  - Status: \x1b[32mREGISTERED\x1b[0m\n");
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if stdout.contains("RUNNING") {
+                    status_msg.push_str("  - State: \x1b[32mRUNNING\x1b[0m");
+                } else if stdout.contains("STOPPED") {
+                    status_msg.push_str("  - State: \x1b[33mSTOPPED\x1b[0m");
+                } else {
+                    status_msg.push_str("  - State: UNKNOWN");
+                }
+            }
+            _ => {
+                status_msg.push_str("  - Status: \x1b[33mNOT REGISTERED\x1b[0m");
+            }
+        }
+        Ok(status_msg)
+    }
+}
+
+#[cfg(windows)]
+fn disable_std_handles_inheritance() {
+    unsafe {
+        const STD_OUTPUT_HANDLE: i32 = -11;
+        const STD_ERROR_HANDLE: i32 = -12;
+        const HANDLE_FLAG_INHERIT: u32 = 1;
+        const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1isize as *mut std::ffi::c_void;
+
+        extern "system" {
+            fn GetStdHandle(nStdHandle: i32) -> *mut std::ffi::c_void;
+            fn SetHandleInformation(hObject: *mut std::ffi::c_void, dwMask: u32, dwFlags: u32) -> i32;
+        }
+
+        let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        if !stdout_handle.is_null() && stdout_handle != INVALID_HANDLE_VALUE {
+            SetHandleInformation(stdout_handle, HANDLE_FLAG_INHERIT, 0);
+        }
+
+        let stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+        if !stderr_handle.is_null() && stderr_handle != INVALID_HANDLE_VALUE {
+            SetHandleInformation(stderr_handle, HANDLE_FLAG_INHERIT, 0);
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -170,14 +275,7 @@ impl SysFingerprint for WinFingerprint {
                 }
             }
         }
-        
-        let hostname = hostname::get()?.to_string_lossy().to_string();
-        let base = format!("windows-{}", hostname);
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(base.as_bytes());
-        let hash = hasher.finalize();
-        Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
+        crate::sys::derive_fallback_fingerprint("windows")
     }
 }
 
@@ -204,5 +302,45 @@ impl IpcBinder for WinIpcBinder {
     async fn save_ipc_token(&self, token_file: &Path, token: &str) -> anyhow::Result<()> {
         std::fs::write(token_file, token)?;
         Ok(())
+    }
+}
+
+/// 设置当前进程的显示名称 (跨平台实现)
+pub fn set_process_name(name: &str) {
+    let _ = name;
+    // Windows unsupported: doing nothing
+}
+
+pub mod fs {
+    use std::path::Path;
+
+    pub fn secure_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> std::io::Result<()> {
+        std::fs::write(path, contents)
+    }
+
+    pub fn secure_open_write<P: AsRef<Path>>(path: P) -> std::io::Result<std::fs::File> {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)
+    }
+
+    pub fn secure_open_append<P: AsRef<Path>>(path: P) -> std::io::Result<std::fs::File> {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .append(true)
+            .open(path)
+    }
+
+    pub fn make_executable<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+        let _ = path;
+        Ok(())
+    }
+
+    pub fn is_file_secure<P: AsRef<Path>>(path: P) -> bool {
+        let _ = path;
+        true
     }
 }

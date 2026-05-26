@@ -208,17 +208,17 @@ pub async fn start(
                 let app_dir = cowen_common::config::get_app_dir();
                 let log_dir = app_dir.join("logs");
                 if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
-                use std::os::unix::fs::OpenOptionsExt;
-                let stdout_file = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(log_dir.join("daemon.stdout.log"))?;
-                let stderr_file = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(log_dir.join("daemon.stderr.log"))?;
+                let stdout_file = cowen_infra::sys::fs::secure_open_append(log_dir.join("daemon.stdout.log"))?;
+                let stderr_file = cowen_infra::sys::fs::secure_open_append(log_dir.join("daemon.stderr.log"))?;
 
-                let _child = Command::new(&daemon_path)
-                    .arg("--ipc-port-file")
+                let mut child_cmd = Command::new(&daemon_path);
+                child_cmd.arg("--ipc-port-file")
                     .arg(&port_path)
                     .stdin(std::process::Stdio::null())
                     .stdout(std::process::Stdio::from(stdout_file))
-                    .stderr(std::process::Stdio::from(stderr_file))
-                    .spawn()?;
+                    .stderr(std::process::Stdio::from(stderr_file));
+
+                let _child_id = cowen_infra::sys::get_process_manager().spawn_daemon(&mut child_cmd)?;
                 
                 tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             }
@@ -239,17 +239,17 @@ pub async fn start(
                      let app_dir = cowen_common::config::get_app_dir();
                      let log_dir = app_dir.join("logs");
                      if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
-                     use std::os::unix::fs::OpenOptionsExt;
-                     let stdout_file = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(log_dir.join("daemon.stdout.log"))?;
-                     let stderr_file = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(log_dir.join("daemon.stderr.log"))?;
+                     let stdout_file = cowen_infra::sys::fs::secure_open_append(log_dir.join("daemon.stdout.log"))?;
+                     let stderr_file = cowen_infra::sys::fs::secure_open_append(log_dir.join("daemon.stderr.log"))?;
 
-                     let _child = Command::new(&daemon_path)
-                         .arg("--ipc-port-file")
+                     let mut child_cmd = Command::new(&daemon_path);
+                     child_cmd.arg("--ipc-port-file")
                          .arg(&port_path)
                          .stdin(std::process::Stdio::null())
                          .stdout(std::process::Stdio::from(stdout_file))
-                         .stderr(std::process::Stdio::from(stderr_file))
-                         .spawn()?;
+                         .stderr(std::process::Stdio::from(stderr_file));
+
+                     let _child_id = cowen_infra::sys::get_process_manager().spawn_daemon(&mut child_cmd)?;
                      
                      tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                      
@@ -291,14 +291,15 @@ pub async fn start(
             
             // Forward signals (SIGTERM, Ctrl+C) to child process for graceful shutdown
             tokio::spawn(async move {
-                if let Ok(mut sigterm) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-                    tokio::select! {
-                        _ = tokio::signal::ctrl_c() => {},
-                        _ = sigterm.recv() => {},
-                    }
-                    eprintln!("ℹ️ Received stop signal, forwarding to child daemon...");
-                    let _ = std::process::Command::new("kill").arg("-15").arg(child_id.to_string()).status();
+                let pm = cowen_infra::sys::get_process_manager();
+                let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+                pm.set_stop_channel(tx);
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {},
+                    _ = rx.recv() => {},
                 }
+                eprintln!("ℹ️ Received stop signal, forwarding to child daemon...");
+                let _ = pm.kill_process(child_id, false).await;
             });
             
             // Wait briefly for UDS to be ready
@@ -355,8 +356,8 @@ pub async fn start(
         let stdout_path = log_dir.join("master_daemon.stdout.log");
         let stderr_path = log_dir.join("master_daemon.stderr.log");
 
-        let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(stdout_path)?;
-        let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(stderr_path)?;
+        let stdout_file = cowen_infra::sys::fs::secure_open_append(stdout_path)?;
+        let stderr_file = cowen_infra::sys::fs::secure_open_append(stderr_path)?;
 
         child_cmd.arg("--profile").arg(profile).arg("daemon").arg("start")
             .arg("--foreground")
@@ -366,17 +367,8 @@ pub async fn start(
         
         if all { child_cmd.arg("--all"); }
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            child_cmd.process_group(0);
-        }
-
-        #[cfg(windows)]
-        disable_std_handles_inheritance();
-
-        let mut child_proc = child_cmd.spawn()?;
-        let pid = child_proc.id();
+        let pm = cowen_infra::sys::get_process_manager();
+        let pid = pm.spawn_daemon(&mut child_cmd)?;
         eprintln!("🚀 Launching master daemon (PID: {})...", pid);
         
         // Wait for PID file to have content
@@ -390,11 +382,8 @@ pub async fn start(
                 }
             }
             // If child exited, stop waiting
-            if let Ok(Some(status)) = child_proc.try_wait() {
-                if !status.success() {
-                    anyhow::bail!("Master daemon exited with error.");
-                }
-                break;
+            if !pm.is_process_alive(pid).await {
+                anyhow::bail!("Master daemon exited with error.");
             }
         }
         
@@ -583,16 +572,13 @@ pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<
                 if let Some(pid_str) = content.lines().next() {
                     if let Ok(pid_u32) = pid_str.trim().parse::<u32>() {
                         eprintln!("🛑 Stopping master daemon (PID: {})...", pid_u32);
-                        let _ = std::process::Command::new("taskkill").args(&["/F", "/PID", &pid_u32.to_string()]).status();
+                        let pm = cowen_infra::sys::get_process_manager();
+                        let _ = pm.kill_process(pid_u32, true).await;
 
                         process_dead = false;
-                        use sysinfo::{System, Pid, ProcessesToUpdate};
-                        let mut sys = System::new();
-                        let pid = Pid::from_u32(pid_u32);
                         for _ in 0..60 {
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                            sys.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
-                            if sys.process(pid).is_none() {
+                            if !pm.is_process_alive(pid_u32).await {
                                 process_dead = true;
                                 break;
                             }
@@ -617,30 +603,5 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_pro
     stop(profile, all, cfg_mgr).await?;
     std::thread::sleep(std::time::Duration::from_millis(500));
     start(profile, config, proxy_port, enable_proxy, false, all, cfg_mgr, vault, telemetry, daemon_svc).await
-}
-
-#[cfg(windows)]
-fn disable_std_handles_inheritance() {
-    unsafe {
-        const STD_OUTPUT_HANDLE: i32 = -11;
-        const STD_ERROR_HANDLE: i32 = -12;
-        const HANDLE_FLAG_INHERIT: u32 = 1;
-        const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1isize as *mut std::ffi::c_void;
-
-        extern "system" {
-            fn GetStdHandle(nStdHandle: i32) -> *mut std::ffi::c_void;
-            fn SetHandleInformation(hObject: *mut std::ffi::c_void, dwMask: u32, dwFlags: u32) -> i32;
-        }
-
-        let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-        if !stdout_handle.is_null() && stdout_handle != INVALID_HANDLE_VALUE {
-            SetHandleInformation(stdout_handle, HANDLE_FLAG_INHERIT, 0);
-        }
-
-        let stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
-        if !stderr_handle.is_null() && stderr_handle != INVALID_HANDLE_VALUE {
-            SetHandleInformation(stderr_handle, HANDLE_FLAG_INHERIT, 0);
-        }
-    }
 }
 

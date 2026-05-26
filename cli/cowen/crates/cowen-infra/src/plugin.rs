@@ -33,51 +33,11 @@ impl PluginLoader {
 }
 
 pub fn is_secure_plugin_path(path: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        
-        let check_meta = |m: &fs::Metadata| -> bool {
-            let mode = m.mode();
-            let uid = m.uid();
-            
-            // World-writable check
-            if mode & 0o002 != 0 {
-                return false;
-            }
-            
-            // Owner check (must be owned by root or the current user)
-            let current_uid = unsafe { libc::getuid() };
-            if uid != 0 && uid != current_uid {
-                return false;
-            }
-            true
-        };
-
-        if let Ok(meta) = fs::metadata(path) {
-            if !check_meta(&meta) {
-                tracing::warn!("Plugin file {:?} is insecure (wrong owner or world-writable)", path);
-                return false;
-            }
-        } else {
-            return false;
-        }
-
-        if let Some(parent) = path.parent() {
-            if let Ok(meta) = fs::metadata(parent) {
-                if !check_meta(&meta) {
-                    tracing::warn!("Plugin directory {:?} is insecure (wrong owner or world-writable)", parent);
-                    return false;
-                }
-            }
-        }
-        
-        true
+    let secure = crate::sys::fs::is_file_secure(path);
+    if !secure {
+        tracing::warn!("Plugin file or its parent directory {:?} is insecure (wrong owner or world-writable)", path);
     }
-    #[cfg(not(unix))]
-    {
-        true // Windows ACLs require more complex logic
-    }
+    secure
 }
 
 pub fn discover_plugins<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
