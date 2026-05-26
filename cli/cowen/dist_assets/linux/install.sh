@@ -48,6 +48,9 @@ if [ -d "lib" ] && ls lib/libcowen_search_embedding.so >/dev/null 2>&1; then
     echo "🧩 Installing AI search plugin..."
     mkdir -p "$PLUGIN_DIR"
     cp lib/libcowen_search_embedding.so "$PLUGIN_DIR/"
+    if [ -f "lib/libcowen_search_embedding.bundle" ]; then
+        cp lib/libcowen_search_embedding.bundle "$PLUGIN_DIR/"
+    fi
     chmod +x "$PLUGIN_DIR/libcowen_search_embedding.so"
     
     echo "⚙️ Enabling AI search plugin..."

@@ -69,7 +69,7 @@ cp tests/e2e/scripts/common.sh "$RESULTS_DIR/tmp_scripts/"
 cp tests/e2e/scripts/verify-binary.sh "$RESULTS_DIR/tmp_scripts/" 2>/dev/null || true
 
 
-echo -n "  Building cowen binary (release)..."
+echo -n "  Building cowen binary and plugins (release)..."
 export COWEN_BUILD_CLIENT_ID="dummy-parallel-client-id"
 BUILD_ARGS="--release"
 BINARY_PATH="target/release/cowen"
@@ -78,7 +78,7 @@ if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
     BINARY_PATH="target/x86_64-unknown-linux-gnu/release/cowen"
 fi
 
-if cargo build --quiet $BUILD_ARGS -p cowen -p cowen-daemon 2>/dev/null; then
+if cargo build --quiet $BUILD_ARGS -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer 2>/dev/null; then
     echo -e " ${GREEN}[OK]${NC}"
     export COWEN_BIN="$(pwd)/$BINARY_PATH"
     # Force common.sh to refresh its SOURCE_BIN
@@ -88,12 +88,24 @@ else
     exit 1
 fi
 
-# 🔌 🔌 ENSURE SEARCH PLUGINS DYLIB IS AVAILABLE
-# The test scripts expect the dylib in the same directory as the binary
-FIND_DYLIB=$(find target/release/deps -name "libcowen_search_embedding.dylib" | head -n 1)
-[ -z "$FIND_DYLIB" ] && FIND_DYLIB=$(find target/debug/deps -name "libcowen_search_embedding.dylib" | head -n 1)
-if [ -n "$FIND_DYLIB" ]; then
-    cp "$FIND_DYLIB" "$(dirname "$BINARY_PATH")/libcowen_search_embedding.dylib"
+# 🔌 🔌 ENSURE SEARCH PLUGINS ARE SIGNED FOR TESTS
+PLUGIN_NAME="libcowen_search_embedding"
+DYLIB_EXT="so"
+if [[ "$OSTYPE" == "darwin"* ]]; then DYLIB_EXT="dylib"; fi
+if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* ]]; then DYLIB_EXT="dll"; PLUGIN_NAME="cowen_search_embedding"; fi
+
+BUILD_DIR="$(dirname "$BINARY_PATH")"
+PLUGIN_SRC="$BUILD_DIR/$PLUGIN_NAME.$DYLIB_EXT"
+
+# If the plugin was built and we have dev keys, sign it so E2E tests pass PKI validation
+if [ -f "$PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
+    cargo run --quiet $BUILD_ARGS -p cowen-signer -- sign-plugin \
+        --dylib "$PLUGIN_SRC" \
+        --name cowen-search-embedding \
+        --version "0.3.5" \
+        --dev-key dist_assets/keys/official_dev.pk8 \
+        --dev-cert dist_assets/keys/official_dev_cert.json \
+        --out-bundle "$BUILD_DIR/$PLUGIN_NAME.bundle" 2>/dev/null || true
 fi
 
 cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"

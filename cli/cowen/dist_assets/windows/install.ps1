@@ -10,7 +10,7 @@ Write-Host "=== 🚀 Starting Cowen Windows installation ===" -ForegroundColor C
 
 # 1. 自动探测并拷贝核心二进制和插件 DLL
 $current_dir = Get-Location
-$files_to_copy = @("cowen.exe", "cowen-daemon.exe", "cowen_search_embedding.dll")
+$files_to_copy = @("cowen.exe", "cowen-daemon.exe", "cowen_search_embedding.dll", "cowen_search_embedding.bundle")
 foreach ($file in $files_to_copy) {
     $src = Join-Path $current_dir $file
     if (Test-Path $src) {

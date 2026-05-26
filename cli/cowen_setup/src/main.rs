@@ -5,8 +5,19 @@ use std::process::Command;
 fn main() {
     println!("🚀 Starting cowen installation...");
     
-    // Embed the binary
-    let bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen.exe"#);
+    // Embed binaries
+    let cowen_bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen.exe"#);
+    let daemon_bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen-daemon.exe"#);
+    
+    #[cfg(has_ai_plugin)]
+    let dll_bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen_search_embedding.dll"#);
+    #[cfg(not(has_ai_plugin))]
+    let dll_bytes: &[u8] = &[];
+    
+    #[cfg(has_ai_plugin)]
+    let bundle_bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen_search_embedding.bundle"#);
+    #[cfg(not(has_ai_plugin))]
+    let bundle_bytes: &[u8] = &[];
     
     let home = std::env::var("USERPROFILE").expect("Failed to find USERPROFILE");
     let install_dir = PathBuf::from(&home).join(".cowen").join("bin");
@@ -16,9 +27,34 @@ fn main() {
     }
     
     let dest = install_dir.join("cowen.exe");
-    fs::write(&dest, bytes).expect("Failed to write cowen.exe");
-    
+    fs::write(&dest, cowen_bytes).expect("Failed to write cowen.exe");
     println!("✅ Copied cowen.exe to {}", install_dir.display());
+    
+    let daemon_dest = install_dir.join("cowen-daemon.exe");
+    fs::write(&daemon_dest, daemon_bytes).expect("Failed to write cowen-daemon.exe");
+    println!("✅ Copied cowen-daemon.exe to {}", install_dir.display());
+    
+    if !dll_bytes.is_empty() {
+        let plugins_dir = PathBuf::from(&home).join(".cowen").join("plugins");
+        if !plugins_dir.exists() {
+            fs::create_dir_all(&plugins_dir).expect("Failed to create plugins directory");
+        }
+        
+        let dll_dest = plugins_dir.join("cowen_search_embedding.dll");
+        fs::write(&dll_dest, dll_bytes).expect("Failed to write cowen_search_embedding.dll");
+        
+        let bundle_dest = plugins_dir.join("cowen_search_embedding.bundle");
+        fs::write(&bundle_dest, bundle_bytes).expect("Failed to write cowen_search_embedding.bundle");
+        
+        println!("🧩 Installed AI plugin to {}", plugins_dir.display());
+        
+        // Wait briefly and enable the plugin
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let _ = Command::new(&dest)
+            .args(&["plugins", "enable", "cowen_search_embedding"])
+            .status();
+        println!("✅ AI plugin enabled.");
+    }
     
     // Add to User PATH
     let current_path = get_user_path();

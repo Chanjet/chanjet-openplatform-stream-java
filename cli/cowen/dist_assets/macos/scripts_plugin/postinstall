@@ -4,6 +4,7 @@
 # Path where the binary is installed by pkgbuild (base on --install-location /)
 BINARY_PATH="/usr/local/bin/cowen"
 STAGING_FILE="/usr/local/share/cowen/staging/libcowen_search_embedding.dylib"
+STAGING_BUNDLE="/usr/local/share/cowen/staging/libcowen_search_embedding.bundle"
 
 # 1. 准确获取当前图形界面的真实登录用户（绕过 root 环境）
 # macOS Installer app runs as root, but we want to install the plugin for the user who invoked it.
@@ -28,6 +29,9 @@ mkdir -p "$PLUGIN_DIR"
 # 3. 把中转区的文件移动到用户的真实目录下
 if [ -f "$STAGING_FILE" ]; then
     mv "$STAGING_FILE" "$PLUGIN_DIR/"
+fi
+if [ -f "$STAGING_BUNDLE" ]; then
+    mv "$STAGING_BUNDLE" "$PLUGIN_DIR/"
 fi
 
 # 4. 关键：把文件的所有权交还给真实用户
