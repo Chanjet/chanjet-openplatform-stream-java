@@ -139,21 +139,12 @@ impl crate::sys::ServiceManager for MacServiceManager {
             .arg(&label)
             .output();
 
-        let mut status_msg = format!(
-            "🔍 macOS Service Status:\n  - Label: {}\n  - Config: {}\n",
-            label,
-            if plist_path.exists() { "EXISTS" } else { "MISSING" }
-        );
+        let status_str = match output {
+            Ok(out) if out.status.success() => crate::sys::STATUS_ACTIVE,
+            _ => crate::sys::STATUS_NOT_REGISTERED,
+        };
 
-        match output {
-            Ok(out) if out.status.success() => {
-                status_msg.push_str("  - Status: \x1b[32mRUNNING (REGISTERED)\x1b[0m");
-            }
-            _ => {
-                status_msg.push_str("  - Status: \x1b[33mNOT REGISTERED\x1b[0m");
-            }
-        }
-        Ok(status_msg)
+        Ok(crate::sys::format_service_status("macOS", &label, plist_path.exists(), status_str))
     }
 }
 

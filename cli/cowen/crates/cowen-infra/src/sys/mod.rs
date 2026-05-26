@@ -147,6 +147,23 @@ pub fn derive_fallback_fingerprint(os_prefix: &str) -> anyhow::Result<String> {
     Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
+pub const STATUS_ACTIVE: &str = "\x1b[32mACTIVE (RUNNING)\x1b[0m";
+pub const STATUS_INACTIVE: &str = "\x1b[33mINACTIVE (STOPPED)\x1b[0m";
+pub const STATUS_NOT_REGISTERED: &str = "\x1b[31mNOT REGISTERED\x1b[0m";
+pub const STATUS_UNKNOWN: &str = "UNKNOWN";
+
+/// 统一格式化各操作系统的后台服务查询状态输出，确保多端展示的一致性与美观性
+pub fn format_service_status(platform_title: &str, service_name: &str, is_config_exists: bool, status: &str) -> String {
+    let config_str = if is_config_exists { "EXISTS" } else { "MISSING" };
+    format!(
+        "🔍 {} Service Status:\n  - Service Name: {}\n  - Config: {}\n  - Status: {}",
+        platform_title,
+        service_name,
+        config_str,
+        status
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

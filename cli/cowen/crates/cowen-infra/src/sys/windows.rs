@@ -141,28 +141,26 @@ impl crate::sys::ServiceManager for WinServiceManager {
 
     async fn status(&self, bin_name: &str) -> anyhow::Result<String> {
         let service_name = format!("{}Daemon", bin_name);
-        let mut status_msg = format!("🔍 Windows Service Status:\n  - Service Name: {}\n", service_name);
         let output = std::process::Command::new("sc")
             .arg("query")
             .arg(&service_name)
             .output();
-        match output {
+
+        let (is_exists, status_str) = match output {
             Ok(out) if out.status.success() => {
-                status_msg.push_str("  - Status: \x1b[32mREGISTERED\x1b[0m\n");
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 if stdout.contains("RUNNING") {
-                    status_msg.push_str("  - State: \x1b[32mRUNNING\x1b[0m");
+                    (true, crate::sys::STATUS_ACTIVE)
                 } else if stdout.contains("STOPPED") {
-                    status_msg.push_str("  - State: \x1b[33mSTOPPED\x1b[0m");
+                    (true, crate::sys::STATUS_INACTIVE)
                 } else {
-                    status_msg.push_str("  - State: UNKNOWN");
+                    (true, crate::sys::STATUS_UNKNOWN)
                 }
             }
-            _ => {
-                status_msg.push_str("  - Status: \x1b[33mNOT REGISTERED\x1b[0m");
-            }
-        }
-        Ok(status_msg)
+            _ => (false, crate::sys::STATUS_NOT_REGISTERED),
+        };
+
+        Ok(crate::sys::format_service_status("Windows", &service_name, is_exists, status_str))
     }
 }
 

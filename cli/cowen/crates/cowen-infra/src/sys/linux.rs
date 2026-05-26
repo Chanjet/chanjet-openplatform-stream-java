@@ -112,32 +112,27 @@ WantedBy=default.target
         let service_path = get_linux_service_path(bin_name)?;
         let unit_name = format!("{}-daemon", bin_name);
 
-        let mut status_msg = format!(
-            "🔍 Linux systemd Status:\n  - Unit: {}\n  - Config: {}\n",
-            unit_name,
-            if service_path.exists() { "EXISTS" } else { "MISSING" }
-        );
-
         let output = std::process::Command::new("systemctl")
             .arg("--user")
             .arg("is-active")
             .arg(&unit_name)
             .output();
 
-        match output {
+        let status_str = match output {
             Ok(out) => {
                 let state = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if state == "active" {
-                    status_msg.push_str("  - Status: \x1b[32mACTIVE\x1b[0m");
+                    crate::sys::STATUS_ACTIVE
+                } else if state == "inactive" || state == "failed" {
+                    crate::sys::STATUS_INACTIVE
                 } else {
-                    status_msg.push_str(&format!("  - Status: \x1b[33m{}\x1b[0m", state));
+                    crate::sys::STATUS_UNKNOWN
                 }
             }
-            _ => {
-                status_msg.push_str("  - Status: UNKNOWN");
-            }
-        }
-        Ok(status_msg)
+            _ => crate::sys::STATUS_UNKNOWN,
+        };
+
+        Ok(crate::sys::format_service_status("Linux", &unit_name, service_path.exists(), status_str))
     }
 }
 
