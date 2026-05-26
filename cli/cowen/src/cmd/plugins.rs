@@ -28,6 +28,12 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
             if ext == "so" || ext == "dylib" || ext == "dll" {
                 found_any = true;
                 let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+                
+                if !cowen_infra::plugin::is_secure_plugin_path(&path) {
+                    println!("{:<30} | {:<10} | {:<23} | {}", file_name, "\x1b[31mUNSAFE\x1b[0m", "\x1b[31mIgnored\x1b[0m", "Insecure file permissions or owner");
+                    continue;
+                }
+
                 let mut display_trait = "unknown".to_string();
                 let mut display_desc = String::new();
 
@@ -46,6 +52,8 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
                             }
                         }
                     }
+                } else {
+                    display_trait = "\x1b[31mSignature/Load Failed\x1b[0m".to_string();
                 }
 
                 let name = file_name;

@@ -1,10 +1,16 @@
 # Cowen CLI 待办事项与技术债清单 (TODO & Technical Debt)
 
 ## 🔴 P0: 紧急且关键 (Critical & Urgent)
-*暂无未完成事项*
+- [ ] **高危风险：修复未授权的本地 IPC 通信 (`ipc.rs`)**
+    - **问题说明**：CLI 与 Daemon 间使用 127.0.0.1:PORT (TCP) 通信，未做任何鉴权握手协议。
+    - **危害**：本地任何用户或脚本扫描到端口后，可伪造 JSON Payload 发送指令（如 StopAllWorkers / StartWorker），导致本地提权 (LPE) 或拒绝服务。
+    - **建议**：在 macOS/Linux 上将 TCP 替换为 Unix Domain Socket (UDS) 并设置 0600 文件权限；若必须跨平台使用 TCP，需在启动时生成随机鉴权 Token 写入 0600 权限文件，并在通信中携带该 Token。
 
 ## 🟠 P1: 高优先级 (High Priority)
-*暂无未完成事项*
+- [ ] **中等风险：修复不安全的动态插件加载 (`plugin.rs`)**
+    - **问题说明**：`discover_plugins` 函数自动扫描目录并加载 `.dylib` 等库文件。
+    - **危害**：加载动态库即执行初始化代码。若插件目录不受权限保护（可被普通用户写入），黑客可植入后门 `.dylib` 代为执行。
+    - **建议**：加载插件前，强制检查插件目录及其父目录的 Owner（是否为当前用户或 root），并禁止 World-Writable (其他人可写) 权限。
 
 ## 🔵 P2: 中低优先级 (Medium/Low Priority)
 - [x] **插件管理命令 (Plugin Management)**: 在 CLI 中增加 `cowen plugins` 命令组，支持对 `~/.cowen/plugins/` 目录下的插件进行快速管理。

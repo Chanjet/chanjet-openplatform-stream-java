@@ -138,6 +138,29 @@ v0.3.5 实现了严格的物理目录隔离，每个领域拥有独立的 `Cargo
 
 ---
 
+---
+
+## 🛡️ 安全加固与策略 (Security Hardening & Policies)
+
+本项目实施了严格的安全审计与加固，以防范本地提权 (LPE) 及恶意代码注入风险。
+
+### 1. IPC 鉴权保护 (IPC Authentication Hardening)
+- **风险防范**: 防止同一设备上的其他本地用户或恶意脚本通过扫描并连接 127.0.0.1 上的 Daemon 端口来伪造指令。
+- **机制**: 
+  - `cowen-daemon` 启动时动态生成强随机 UUID Token，并存入与 IPC 端口文件同级的 `ipc.token` 文件中。
+  - 在 Unix 系统下，该 Token 文件强制设定 `0600` (仅所有者读写) 权限，确保仅当前用户可读取。
+  - CLI 与 Daemon 之间的 TCP 连接必须使用 `IpcEnvelope` 封包包裹请求体并携带该 Token。Daemon 会对连接进行严格的 Token 校验，鉴权失败则直接拒绝服务并返回 401。
+
+### 2. 插件安全加载 (Secure Plugin Loading)
+- **风险防范**: 避免 CLI 在扫描插件目录时，加载被恶意注入的第三方动态链接库 (`.dylib` / `.so`)。
+- **机制**:
+  - `cowen-infra` 在加载动态库前执行 `is_secure_plugin_path` 元数据安全检查。
+  - **权限检查**: 确保插件文件及其所在父级目录不具有 `World-Writable` (`chmod 777`) 的高危权限（即 `mode & 0o002 == 0`）。
+  - **所有者检查**: 验证插件文件的 UID 必须属于系统 `root (0)` 或是当前运行 CLI 进程的属主。
+  - 对于未通过安全策略检查的 `.dylib` / `.so` 文件，系统会打印安全警告并主动跳过其加载过程。
+
+---
+
 ## 🛠️ 开发规范 (Engineering Standards)
 
 为确保 `cowen` 的代码质量、安全性及可维护性，所有代码贡献必须严格遵循以下规范：

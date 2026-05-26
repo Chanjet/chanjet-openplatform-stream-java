@@ -89,6 +89,7 @@ fn test_plugin_auto_discovery() {
     // 5. Execute command
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &cowen_home)
+       .env("COWEN_DEV_MODE", "1")
        .arg("api")
        .arg("list")
        .arg("--search")

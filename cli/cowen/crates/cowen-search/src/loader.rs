@@ -13,6 +13,12 @@ pub struct DynamicSearchProvider {
 }
 
 impl DynamicSearchProvider {
+    /// Loads a dynamic search provider plugin.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the plugin library at the given path is trusted,
+    /// as loading it will execute arbitrary initialization code and FFI calls.
     pub unsafe fn new<P: AsRef<std::path::Path>>(name: &str, path: P) -> anyhow::Result<Self> {
         let loader = PluginLoader::new(path.as_ref())?;
 

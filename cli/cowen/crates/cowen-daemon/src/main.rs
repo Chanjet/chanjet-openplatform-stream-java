@@ -64,6 +64,24 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     let ipc_port = listener.local_addr()?.port();
     
     let target_ipc_port_file = ipc_port_file.unwrap_or_else(|| cowen_common::config::get_app_dir().join("ipc.port"));
+    let target_ipc_token_file = target_ipc_port_file.with_file_name("ipc.token");
+    let ipc_token = uuid::Uuid::new_v4().to_string();
+    
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true).mode(0o600);
+        if let Ok(mut f) = opts.open(&target_ipc_token_file) {
+            use std::io::Write;
+            let _ = f.write_all(ipc_token.as_bytes());
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::write(&target_ipc_token_file, &ipc_token);
+    }
+    
     std::fs::write(&target_ipc_port_file, ipc_port.to_string())?;
 
     let current_pid = std::process::id();
@@ -173,8 +191,9 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
                     Ok((stream, _)) => {
                         let svc = daemon_svc.clone();
                         let v = vault.clone();
+                        let exp_token = ipc_token.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, svc, v).await {
+                            if let Err(e) = handle_connection(stream, svc, v, exp_token).await {
                                 error!("Connection error: {}", e);
                             }
                         });
@@ -200,12 +219,13 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     // Clean up PID file and UDS socket
     let _ = std::fs::remove_file(pid_file);
     let _ = std::fs::remove_file(&target_ipc_port_file);
+    let _ = std::fs::remove_file(&target_ipc_token_file);
     info!("cowen-daemon shutdown complete.");
     
     Ok(())
 }
 
-async fn handle_connection(mut stream: TcpStream, svc: Arc<dyn DaemonService>, vault: Arc<dyn Vault>) -> Result<()> {
+async fn handle_connection(mut stream: TcpStream, svc: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, expected_token: String) -> Result<()> {
     let mut len_buf = [0u8; 4];
     if stream.read_exact(&mut len_buf).await.is_err() {
         return Ok(()); // Connection closed
@@ -215,7 +235,17 @@ async fn handle_connection(mut stream: TcpStream, svc: Arc<dyn DaemonService>, v
     let mut payload = vec![0u8; len];
     stream.read_exact(&mut payload).await?;
 
-    let req: DaemonRequest = serde_json::from_slice(&payload)?;
+    let envelope: cowen_common::ipc::IpcEnvelope = serde_json::from_slice(&payload)?;
+    if envelope.token != expected_token {
+        let res = DaemonResponse::Error { code: 401, message: "Unauthorized IPC".to_string() };
+        let res_payload = serde_json::to_vec(&res)?;
+        let res_len = res_payload.len() as u32;
+        stream.write_all(&res_len.to_be_bytes()).await?;
+        stream.write_all(&res_payload).await?;
+        return Ok(());
+    }
+    
+    let req = envelope.request;
     
     let res = match req {
         DaemonRequest::Ping => {

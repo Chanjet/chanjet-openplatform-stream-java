@@ -24,6 +24,7 @@ futures = "0.3"
 directories = "6.0"
 rustls = { version = "0.23", features = ["ring"] }
 chrono = "0.4.44"
+uuid = { version = "1.23.1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"

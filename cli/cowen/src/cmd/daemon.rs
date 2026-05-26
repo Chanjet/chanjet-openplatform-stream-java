@@ -540,10 +540,13 @@ pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<
                 return Ok(());
             }
         };
+        
+        let token_path = port_path.with_file_name("ipc.token");
+        let token = std::fs::read_to_string(&token_path).unwrap_or_default();
 
         if all {
             let req = cowen_common::ipc::DaemonRequest::StopAllWorkers;
-            match cowen_common::ipc::client::send_request(&mut client, &req).await {
+            match cowen_common::ipc::client::send_request(&mut client, &req, &token).await {
                 Ok(cowen_common::ipc::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),
                 Ok(cowen_common::ipc::DaemonResponse::Error { message, .. }) => eprintln!("⚠️ Failed to stop all workers: {}", message),
                 Ok(_) => eprintln!("⚠️ Unexpected response type"),
@@ -551,7 +554,7 @@ pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<
             }
         } else {
             let req = cowen_common::ipc::DaemonRequest::StopWorker { profile: profile.to_string() };
-            match cowen_common::ipc::client::send_request(&mut client, &req).await {
+            match cowen_common::ipc::client::send_request(&mut client, &req, &token).await {
                 Ok(cowen_common::ipc::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),
                 Ok(cowen_common::ipc::DaemonResponse::Error { message, .. }) => eprintln!("⚠️ Failed to stop profile {}: {}", profile, message),
                 Ok(_) => eprintln!("⚠️ Unexpected response type"),

@@ -123,6 +123,11 @@ PREVIEW_APP_KEY  ?= RjP3LPoI   # 预览/集成测试环境 AppKey (Preview/INTE)
 build-plugins:
 	@echo "🛠️ Building search-embedding plugin (Release)..."
 	cargo build --release -p cowen-search-embedding
+	@echo "🔐 Signing plugins natively..."
+	@if [ -f "dist_assets/keys/official_dev.pk8" ]; then \
+		if [ -f "target/release/libcowen_search_embedding.dylib" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding.dylib --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle; fi; \
+		if [ -f "target/release/libcowen_search_embedding.so" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding.so --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle; fi; \
+	fi
 
 macos-aarch64: build-plugins
 	@echo "🍎 Building macOS Apple Silicon v$(VERSION)..."
@@ -131,6 +136,7 @@ macos-aarch64: build-plugins
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/macos-aarch64/$(BINARY)
 	cp target/release/cowen-daemon $(OUTPUT_DIR)/macos-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding.dylib $(OUTPUT_DIR)/macos-aarch64/ || true
+	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/macos-aarch64/ || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
@@ -156,6 +162,7 @@ macos-x86_64: build-plugins
 	cp target/x86_64-apple-darwin/release/$(BINARY) $(OUTPUT_DIR)/macos-x86_64/$(BINARY)
 	cp target/x86_64-apple-darwin/release/cowen-daemon $(OUTPUT_DIR)/macos-x86_64/cowen-daemon
 	cp target/release/libcowen_search_embedding.dylib $(OUTPUT_DIR)/macos-x86_64/ || true
+	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/macos-x86_64/ || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/$(BINARY) 2>/dev/null || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
@@ -170,6 +177,7 @@ linux-x86_64: build-plugins
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
 	cp target/x86_64-unknown-linux-gnu/release/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	cp target/release/libcowen_search_embedding.so $(OUTPUT_DIR)/linux-x86_64/ || true
+	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-x86_64/ || true
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -229,10 +237,12 @@ linux-x86_64-with-podman: prepare-podman-image
 			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 			BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
-			cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding && \
+			cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer && \
+			target_podman/x86_64-unknown-linux-gnu/release/cowen-signer sign-plugin --dylib target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon && \
-			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so ../../bin/linux-x86_64/" && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so ../../bin/linux-x86_64/ && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle ../../bin/linux-x86_64/" && \
 	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -244,6 +254,7 @@ linux-aarch64: build-plugins
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)
 	cp target/aarch64-unknown-linux-musl/release/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding.so $(OUTPUT_DIR)/linux-aarch64/ || true
+	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-aarch64/ || true
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
@@ -254,7 +265,7 @@ windows-x86_64: build-plugins
 	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc -p cowen -p cowen-daemon"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen-daemon.exe -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-daemon.exe -Force"
-	powershell -NoProfile -Command "if (Test-Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll) { Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force }"
+	powershell -NoProfile -Command "if (Test-Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll) { cargo run --release -p cowen-signer -- sign-plugin --dylib target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/x86_64-pc-windows-msvc/release/cowen_search_embedding.bundle; Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force; Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.bundle -Force }"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 
@@ -286,13 +297,17 @@ windows-plugin-x64:
 	@echo "🪟 Building Windows x86_64 AI plugin (MSVC Release)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
 	powershell -NoProfile -Command "cargo build --release --target x86_64-pc-windows-msvc -p cowen-search-embedding"
+	powershell -NoProfile -Command "cargo run --release -p cowen-signer -- sign-plugin --dylib target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/x86_64-pc-windows-msvc/release/cowen_search_embedding.bundle"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force"
+	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.bundle -Force"
 
 windows-plugin-x86:
 	@echo "🪟 Building Windows x86 (32-bit) AI plugin (MSVC Release)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86"
 	powershell -NoProfile -Command "cargo build --release --target i686-pc-windows-msvc -p cowen-search-embedding"
+	powershell -NoProfile -Command "cargo run --release -p cowen-signer -- sign-plugin --dylib target/i686-pc-windows-msvc/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle"
 	powershell -NoProfile -Command "Copy-Item -Path target/i686-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll -Force"
+	powershell -NoProfile -Command "Copy-Item -Path target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.bundle -Force"
 # --- 打包目标 ---
 
 package-macos-aarch64: clean macos-aarch64
@@ -313,6 +328,7 @@ impl-package-macos:
 	cp CHANGELOG.md pkg_core_root/usr/local/share/doc/cowen/
 	cp -r dist_assets/usage pkg_core_root/usr/local/share/doc/cowen/usage
 	cp target/release/libcowen_search_embedding.dylib pkg_plugin_root/usr/local/share/cowen/staging/ || true
+	cp target/release/libcowen_search_embedding.bundle pkg_plugin_root/usr/local/share/cowen/staging/ || true
 	@chmod +x dist_assets/macos/scripts_core/postinstall
 	@chmod +x dist_assets/macos/scripts_plugin/postinstall
 	pkgbuild --identifier com.chanjet.$(BINARY).core.$(ARCH) --version $(VERSION) --root pkg_core_root --install-location / --scripts dist_assets/macos/scripts_core $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg
@@ -345,6 +361,7 @@ package-linux-aarch64: clean linux-aarch64
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
 	cp $(OUTPUT_DIR)/linux-aarch64/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)-v$(VERSION)-linux-aarch64
 	cp target/release/libcowen_search_embedding.so pkg_root_aarch64/lib/ || true
+	cp target/release/libcowen_search_embedding.bundle pkg_root_aarch64/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-aarch64/
@@ -381,13 +398,16 @@ package-windows-x86_64-cross: windows-x86_64-cross
 	cp -r dist_assets/usage $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/
 	@if [ -f "../../assets/plugins/windows-x86_64/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found stable cowen_search_embedding.dll in assets, copying into package..."; \
-		cp ../../assets/plugins/windows-x86_64/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
+		cp ../../assets/plugins/windows-x86_64/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/;
+		cp ../../assets/plugins/windows-x86_64/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/ || true; \
 	elif [ -f "$(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found cowen_search_embedding.dll in output dir (copied from Windows), copying into package..."; \
-		cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
+		cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/;
+		cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/ || true; \
 	elif [ -f "target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found cowen_search_embedding.dll in target, copying into package..."; \
-		cp target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
+		cp target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/;
+		cp target/x86_64-pc-windows-msvc/release/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/ || true; \
 	else \
 		echo "⚠️ WARNING: cowen_search_embedding.dll not found. The package will be compiled WITHOUT AI embedding features."; \
 	fi
@@ -410,13 +430,16 @@ package-windows-x86-cross: windows-x86-cross
 	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x86/tmp_pkg/
 	@if [ -f "../../assets/plugins/windows-x86/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found stable 32-bit cowen_search_embedding.dll in assets, copying into package..."; \
-		cp ../../assets/plugins/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
+		cp ../../assets/plugins/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/;
+		cp ../../assets/plugins/windows-x86/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
 	elif [ -f "$(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found 32-bit cowen_search_embedding.dll in output dir (copied from Windows), copying into package..."; \
-		cp $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
+		cp $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/;
+		cp $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
 	elif [ -f "target/i686-pc-windows-msvc/release/cowen_search_embedding.dll" ]; then \
 		echo "✅ Found 32-bit cowen_search_embedding.dll in target, copying into package..."; \
-		cp target/i686-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
+		cp target/i686-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/;
+		cp target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
 	else \
 		echo "⚠️ WARNING: 32-bit cowen_search_embedding.dll not found. The package will be compiled WITHOUT AI embedding features."; \
 	fi
@@ -432,6 +455,7 @@ impl-package-linux-x86_64:
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
 	cp $(OUTPUT_DIR)/linux-x86_64/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)-v$(VERSION)-linux-x86_64
 	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.so pkg_root/lib/ || true
+	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.bundle pkg_root/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64/
@@ -446,8 +470,8 @@ impl-package-linux-x86_64:
 
 test-rust:
 	@echo "🧪 Running Rust internal and integration tests..."
-	cargo build -p cowen -p cowen-daemon
-	COWEN_SKIP_BROWSER=true cargo test
+	RUSTFLAGS="-D warnings" cargo build -p cowen -p cowen-daemon
+	COWEN_SKIP_BROWSER=true RUSTFLAGS="-D warnings" cargo test
 
 # 自动根据环境运行测试
 test:
@@ -475,7 +499,7 @@ test-linux: prepare-podman-machine prepare-podman-image
 		-e QEMU_LD_PREFIX=/usr/x86_64-linux-gnu/ \
 		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
-		bash -c "COWEN_SKIP_BROWSER=true cargo test --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true ./tests/runners/run_parallel.sh"
+		bash -c "COWEN_SKIP_BROWSER=true RUSTFLAGS=\"-D warnings\" cargo test --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true ./tests/runners/run_parallel.sh"
 
 # 在 Windows PowerShell 环境下执行测试
 test-win: test-rust

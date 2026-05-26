@@ -5,6 +5,7 @@ pub mod mask;
 pub mod http;
 pub mod network;
 pub mod plugin;
+pub mod pki;
 
 pub use obfs::deobfs;
 pub use path::get_app_dir;

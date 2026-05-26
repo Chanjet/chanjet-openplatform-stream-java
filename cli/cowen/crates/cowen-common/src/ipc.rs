@@ -24,7 +24,13 @@ pub enum WorkerStateDto {
     Stopped,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct IpcEnvelope {
+    pub token: String,
+    pub request: DaemonRequest,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DaemonRequest {
     StartWorker { profile: String, config: Config },
     StopWorker { profile: String },
@@ -127,8 +133,13 @@ pub mod client {
     pub async fn send_request(
         stream: &mut TcpStream,
         req: &DaemonRequest,
+        token: &str,
     ) -> Result<DaemonResponse> {
-        let payload = serde_json::to_vec(req)?;
+        let envelope = IpcEnvelope {
+            token: token.to_string(),
+            request: req.clone(),
+        };
+        let payload = serde_json::to_vec(&envelope)?;
         let len = payload.len() as u32;
         stream.write_all(&len.to_be_bytes()).await?;
         stream.write_all(&payload).await?;
@@ -162,6 +173,9 @@ pub mod client {
         }
 
         async fn request(&self, req: DaemonRequest) -> CowenResult<DaemonResponse> {
+            let token_path = self.port_path.with_file_name("ipc.token");
+            let token = std::fs::read_to_string(&token_path).unwrap_or_default();
+            
             let mut last_err = None;
             for _ in 0..15 {
                 let mut stream = match connect_to_daemon(&self.port_path).await {
@@ -173,7 +187,7 @@ pub mod client {
                     }
                 };
 
-                match send_request(&mut stream, &req).await {
+                match send_request(&mut stream, &req, &token).await {
                     Ok(res) => return Ok(res),
                     Err(e) => {
                         last_err = Some(CowenError::api(format!("IPC request failed: {}", e)));
@@ -240,5 +254,26 @@ pub mod client {
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ipc_envelope_serialization() {
+        let req = DaemonRequest::Ping;
+        let env = IpcEnvelope {
+            token: "secret-token".to_string(),
+            request: req,
+        };
+        let serialized = serde_json::to_string(&env).unwrap();
+        assert!(serialized.contains("secret-token"));
+        assert!(serialized.contains("Ping"));
+        
+        let deserialized: IpcEnvelope = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.token, "secret-token");
+        assert!(matches!(deserialized.request, DaemonRequest::Ping));
     }
 }

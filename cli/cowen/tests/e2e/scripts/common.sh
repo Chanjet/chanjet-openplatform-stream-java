@@ -63,6 +63,7 @@ export MOCK_URL="http://127.0.0.1:$MOCK_PORT"
 export MOCK_WS="ws://127.0.0.1:$MOCK_PORT"
 export COWEN_RAW_OUTPUT="true"
 export COWEN_EXCLUSIVE="false"
+export COWEN_DEV_MODE="1"
 
 # Detect Container Environment for DB Access (Podman on macOS support)
 detect_db_host() {
