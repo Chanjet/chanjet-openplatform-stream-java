@@ -1,7 +1,9 @@
 {
-  "developer_id": "official-ci",
-  "pub": "a835e119ce2583afca1f40035ca5a234295dff1adff899435ec825486bbd4e16",
-  "issued_at": 1779758073,
-  "expires_at": 2095118073,
-  "sig": "debe75d8bee590a2b5ea89acd0e28ac5125ea24796dcf3892f73ec80503d841fc663d2234dfa430cbb54c867d022275dfcbdbff8640ab1da5666bf7850e25709"
+  "developer_id": "openplatform",
+  "organization": "com.chanjet",
+  "country": "china",
+  "pub": "dc8081062903302f4c5ea5e60dbbfc01ea8babee578ed13123985fa296251b3d",
+  "issued_at": 1779765616,
+  "expires_at": 1811301616,
+  "sig": "a50e436483f6b93ef4181b817780dde5e494de10dbfdc5c65f576c1d4a4a2b471318af1704b59dad72e13184b5db4cbd61246dbc78b61235d356e9225ebd010e"
 }

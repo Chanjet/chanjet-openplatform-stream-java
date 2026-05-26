@@ -33,6 +33,10 @@ enum Commands {
         out_cert: PathBuf,
         #[arg(long, help = "Validity in days", default_value = "365")]
         days: u64,
+        #[arg(long, help = "Organization Name", default_value = "")]
+        org: String,
+        #[arg(long, help = "Country", default_value = "")]
+        country: String,
     },
     /// Sign a plugin dynamic library
     SignPlugin {
@@ -73,7 +77,7 @@ fn main() -> Result<()> {
             }
             println!("];\n");
         }
-        Commands::IssueCert { root_key, dev_id, out_dev_key, out_cert, days } => {
+        Commands::IssueCert { root_key, dev_id, out_dev_key, out_cert, days, org, country } => {
             let root_bytes = std::fs::read(&root_key).context("Failed to read root key")?;
             let root_pair = Ed25519KeyPair::from_pkcs8(&root_bytes).map_err(|_| anyhow::anyhow!("Invalid root pk8 key"))?;
 
@@ -88,11 +92,17 @@ fn main() -> Result<()> {
             let expires_at = now + (days * 24 * 3600);
             let dev_pub_hex = hex::encode(dev_pair.public_key().as_ref());
 
-            let msg = format!("{}:{}:{}:{}", dev_id, dev_pub_hex, now, expires_at);
+            let msg = if org.is_empty() && country.is_empty() {
+                format!("{}:{}:{}:{}", dev_id, dev_pub_hex, now, expires_at)
+            } else {
+                format!("{}:{}:{}:{}:{}:{}", dev_id, org, country, dev_pub_hex, now, expires_at)
+            };
             let sig = root_pair.sign(msg.as_bytes());
 
             let cert = DeveloperCert {
                 developer_id: dev_id,
+                organization: org,
+                country,
                 public_key_hex: dev_pub_hex,
                 issued_at: now,
                 expires_at,

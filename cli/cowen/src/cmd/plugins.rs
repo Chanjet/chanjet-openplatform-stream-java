@@ -37,23 +37,27 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
                 let mut display_trait = "unknown".to_string();
                 let mut display_desc = String::new();
 
-                if let Ok(loader) = PluginLoader::new(&path) {
-                    unsafe {
-                        if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_trait") {
-                            let ptr = trait_fn();
-                            if !ptr.is_null() {
-                                display_trait = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+                match PluginLoader::new(&path) {
+                    Ok(loader) => {
+                        unsafe {
+                            if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_trait") {
+                                let ptr = trait_fn();
+                                if !ptr.is_null() {
+                                    display_trait = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+                                }
                             }
-                        }
-                        if let Ok(desc_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_desc") {
-                            let ptr = desc_fn();
-                            if !ptr.is_null() {
-                                display_desc = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+                            if let Ok(desc_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_desc") {
+                                let ptr = desc_fn();
+                                if !ptr.is_null() {
+                                    display_desc = CStr::from_ptr(ptr).to_string_lossy().into_owned();
+                                }
                             }
                         }
                     }
-                } else {
-                    display_trait = "\x1b[31mSignature/Load Failed\x1b[0m".to_string();
+                    Err(e) => {
+                        tracing::error!("ERROR LOADING PLUGIN {}: {:?}", file_name, e);
+                        display_trait = "\x1b[31mSignature/Load Failed\x1b[0m".to_string();
+                    }
                 }
 
                 let name = file_name;
@@ -145,7 +149,7 @@ pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
     Ok(())
 }
 
-pub async fn refresh_signature(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
+pub async fn refresh_signature(_cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
     
     let expected_path_dylib = plugins_dir.join(format!("{}.dylib", name));

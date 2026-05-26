@@ -8,6 +8,10 @@ pub const OFFICIAL_ROOT_PUB_KEY: &[u8] = include_bytes!("../../../dist_assets/ke
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeveloperCert {
     pub developer_id: String,
+    #[serde(default)]
+    pub organization: String,
+    #[serde(default)]
+    pub country: String,
     #[serde(rename = "pub")]
     pub public_key_hex: String,
     pub issued_at: u64,
@@ -58,7 +62,11 @@ pub fn verify_plugin_bundle_with_root(dylib_path: &Path, root_pub_key: &[u8]) ->
     let bundle: SignatureBundle = serde_json::from_str(&bundle_str)?;
 
     // 1. Verify DeveloperCert using Root Key
-    let cert_msg = format!("{}:{}:{}:{}", bundle.cert.developer_id, bundle.cert.public_key_hex, bundle.cert.issued_at, bundle.cert.expires_at);
+    let cert_msg = if bundle.cert.organization.is_empty() && bundle.cert.country.is_empty() {
+        format!("{}:{}:{}:{}", bundle.cert.developer_id, bundle.cert.public_key_hex, bundle.cert.issued_at, bundle.cert.expires_at)
+    } else {
+        format!("{}:{}:{}:{}:{}:{}", bundle.cert.developer_id, bundle.cert.organization, bundle.cert.country, bundle.cert.public_key_hex, bundle.cert.issued_at, bundle.cert.expires_at)
+    };
     verify_signature(root_pub_key, cert_msg.as_bytes(), &bundle.cert.signature_hex)
         .map_err(|e| anyhow::anyhow!("Invalid Developer Certificate (Root validation failed): {}", e))?;
 
@@ -129,6 +137,8 @@ mod tests {
         
         let cert = DeveloperCert {
             developer_id: "dev1".to_string(),
+            organization: "".to_string(),
+            country: "".to_string(),
             public_key_hex: dev_pub_hex,
             issued_at,
             expires_at,
@@ -179,6 +189,8 @@ mod tests {
         let cert_sig = root_pair.sign(cert_msg.as_bytes());
         let cert = DeveloperCert {
             developer_id: "dev1".to_string(),
+            organization: "".to_string(),
+            country: "".to_string(),
             public_key_hex: dev_pub_hex,
             issued_at: 1000,
             expires_at: 2000,
