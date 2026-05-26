@@ -7,7 +7,9 @@ use std::process::Command;
 use std::sync::Arc;
 use cowen_common::vault::Vault;
 use cowen_common::daemon::DaemonService;
+#[cfg(not(unix))]
 use std::fs;
+#[cfg(not(unix))]
 use tracing::{info, error};
 
 use cowen_monitor::telemetry::TelemetryControl;
@@ -534,7 +536,7 @@ pub async fn start(
     }
 }
 
-pub async fn stop(_profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
+pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
     #[cfg(unix)]
     {
         let port_path = cowen_common::ipc::get_ipc_port_path();
@@ -576,6 +578,7 @@ pub async fn stop(_profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result
 
     #[cfg(not(unix))]
     {
+        let _ = profile;
         let app_dir = cowen_common::config::get_app_dir();
         let pid_file = app_dir.join("master_daemon.pid");
         let stopped_file = app_dir.join("master_daemon.stopped");
