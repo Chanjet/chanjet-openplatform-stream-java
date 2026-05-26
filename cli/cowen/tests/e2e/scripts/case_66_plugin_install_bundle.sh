@@ -1,0 +1,66 @@
+#!/bin/bash
+set -e
+
+# Source common utilities
+if [ -f "tests/e2e/scripts/common.sh" ]; then
+    source tests/e2e/scripts/common.sh
+else
+    source "$(dirname "$0")/common.sh"
+fi
+
+setup_workspace "case_66"
+
+echo "🧪 Starting case_66_plugin_install_bundle..."
+
+# Create a temporary source directory for the plugin installation test
+TMP_PLUGIN_SRC="$COWEN_HOME/plugin_source"
+mkdir -p "$TMP_PLUGIN_SRC"
+
+# Copy the built plugin and bundle to the temporary source directory
+if [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.dylib" ]; then
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.dylib" "$TMP_PLUGIN_SRC/"
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$TMP_PLUGIN_SRC/" 2>/dev/null || true
+    PLUGIN_EXT="dylib"
+elif [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.so" ]; then
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.so" "$TMP_PLUGIN_SRC/"
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$TMP_PLUGIN_SRC/" 2>/dev/null || true
+    PLUGIN_EXT="so"
+fi
+
+PLUGIN_SRC_PATH="$TMP_PLUGIN_SRC/libcowen_search_embedding.$PLUGIN_EXT"
+PLUGIN_TARGET_DIR="$COWEN_HOME/plugins"
+
+# Clean up existing plugins directory just to be safe
+rm -rf "$PLUGIN_TARGET_DIR"
+
+echo "Installing plugin from $PLUGIN_SRC_PATH..."
+"$COWEN_BIN" plugins install "$PLUGIN_SRC_PATH"
+
+# Verify that both the dylib/so and the .bundle were copied to $COWEN_HOME/plugins
+if [ ! -f "$PLUGIN_TARGET_DIR/libcowen_search_embedding.$PLUGIN_EXT" ]; then
+    echo "❌ Plugin binary was not installed to $PLUGIN_TARGET_DIR."
+    exit 1
+fi
+
+if [ ! -f "$PLUGIN_TARGET_DIR/libcowen_search_embedding.bundle" ]; then
+    echo "❌ Plugin bundle (.bundle) was NOT installed to $PLUGIN_TARGET_DIR!"
+    exit 1
+fi
+
+echo "✅ Both plugin binary and bundle were successfully installed."
+
+# Verify the plugin can be listed without signature failure (since bundle is present)
+unset COWEN_DEV_MODE
+OUTPUT=$("$COWEN_BIN" plugins list 2>&1)
+echo "$OUTPUT"
+
+if echo "$OUTPUT" | grep -q "libcowen_search_embedding" && ! echo "$OUTPUT" | grep -q "Failed"; then
+    echo "✅ Plugin is loaded and verified successfully after install."
+else
+    echo "❌ Plugin failed to load after install. Output was:"
+    echo "$OUTPUT"
+    exit 1
+fi
+
+cleanup_suite
+echo "🎉 case_66_plugin_install_bundle passed!"
