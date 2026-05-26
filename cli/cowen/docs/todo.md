@@ -158,24 +158,59 @@ pub fn get_sys_fingerprint() -> Arc<dyn SysFingerprint> {
 
 ---
 
-## 3. 测试策略：系统 API Mocking 与 TDD 契约
-根据 **TDD Mandatory** 与 **Independent E2E Validation Standard**：
-1. 本地开发阶段，我们将在 `sys` 模块的测试套件中编写包含 Given-When-Then 断言的 Mock 驱动：
-   ```rust
-   pub struct MockWindowsSys {
-       pub mock_pid: u32,
-       pub should_alive: bool,
-   }
-   
-   #[async_trait]
-   impl ProcessManager for MockWindowsSys {
-       fn current_pid(&self) -> u32 { self.mock_pid }
-       async fn is_process_alive(&self, _pid: u32) -> bool { self.should_alive }
-       async fn kill_process(&self, _pid: u32, _force: bool) -> CowenResult<()> { Ok(()) }
-       async fn daemonize(&self) -> CowenResult<()> { Ok(()) }
-   }
-   ```
-2. 我们无须切换到物理 Windows 环境，即可通过 `MockWindowsSys` 模拟系统调用故障、硬件指纹突变等边界场景，大幅提高跨平台核心代码的单元测试覆盖率。
+## 3. 测试策略：双轨制测试与 TDD 契约
+根据 **TDD Mandatory** 与 **Independent E2E Validation Standard**，为确保跨平台代码的绝对确定性，我们将测试策略设计为“双轨制”：
+
+### 3.1 第一轨：基于 Mock / DI 的跨平台逻辑模拟（任何开发机均可运行）
+本地开发阶段，我们将在 `sys` 模块的测试套件中编写包含 Given-When-Then 断言的 Mock 驱动。例如在 macOS 本地编写针对 Windows 适配层被调用时的模拟响应：
+```rust
+pub struct MockWindowsSys {
+    pub mock_pid: u32,
+    pub should_alive: bool,
+}
+
+#[async_trait]
+impl ProcessManager for MockWindowsSys {
+    fn current_pid(&self) -> u32 { self.mock_pid }
+    async fn is_process_alive(&self, _pid: u32) -> bool { self.should_alive }
+    async fn kill_process(&self, _pid: u32, _force: bool) -> CowenResult<()> { Ok(()) }
+    async fn daemonize(&self) -> CowenResult<()> { Ok(()) }
+}
+```
+这使我们无须物理切换到 Windows 环境，即可通过 `MockWindowsSys` 模拟系统调用故障、硬件指纹突变等边界场景，高标准覆盖业务调度层的所有异常分支。
+
+### 3.2 第二轨：物理隔离的平台专属原生测试（仅在专属平台下运行）
+为了验证每个平台真实系统调用的正确性（例如真实的 macOS IOKit API 是否可用，Windows 的 SCM 服务通信是否正常），我们在各平台的专属物理文件中就地编写**原生单元测试（Native Unit Tests）**。
+
+#### A. 模块内就地测试（物理文件级自动隔离）
+由于 `macos.rs` 等文件受最外层编译配置保护，我们直接在文件底部编写的测试模块将**天然且仅在专属平台下被编译和执行**：
+```rust
+// crates/cowen-infra/src/sys/macos.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_macos_hardware_uuid_extraction() {
+        let fingerprint = MacFingerprint::new();
+        let result = fingerprint.get_machine_id();
+        assert!(result.is_ok());
+        let uuid = result.unwrap();
+        assert_eq!(uuid.len(), 36); // 验证标准 UUID 长度
+    }
+}
+```
+当在 Linux 或 Windows 上运行 `cargo test` 时，由于编译链直接跳过了 `macos.rs` 的编译，上述 macOS 原生测试代码不会参与编译，更不会被运行。
+
+#### B. 集成测试与特定属性守卫（多目标精细化过滤）
+对于多平台共享的测试文件，可使用 `#[cfg(target_os = "...")]` 对特定的测试函数实施条件编译守卫：
+```rust
+#[cfg(target_os = "linux")]
+#[test]
+fn test_linux_etc_machine_id_fallback() {
+    // 仅在真实 Linux 系统测试中被编译并执行
+}
+```
 
 ---
 
