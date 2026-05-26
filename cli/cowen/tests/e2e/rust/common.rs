@@ -138,19 +138,20 @@ pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile
         search_paths.insert(3, base.join("debug"));
     }
 
+    let exe_suffix = std::env::consts::EXE_SUFFIX;
     let mut cli_found = false;
     let mut daemon_found = false;
 
     for path in search_paths {
-        let cli_src = path.join("cowen");
-        let daemon_src = path.join("cowen-daemon");
+        let cli_src = path.join(format!("cowen{}", exe_suffix));
+        let daemon_src = path.join(format!("cowen-daemon{}", exe_suffix));
 
         if !cli_found && cli_src.exists() {
-            fs::copy(&cli_src, bin_dir.join("cowen")).unwrap();
+            fs::copy(&cli_src, bin_dir.join(format!("cowen{}", exe_suffix))).unwrap();
             cli_found = true;
         }
         if !daemon_found && daemon_src.exists() {
-            fs::copy(&daemon_src, bin_dir.join("cowen-daemon")).unwrap();
+            fs::copy(&daemon_src, bin_dir.join(format!("cowen-daemon{}", exe_suffix))).unwrap();
             daemon_found = true;
         }
         

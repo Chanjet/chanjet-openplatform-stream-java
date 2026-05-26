@@ -12,6 +12,7 @@ use tracing::{info, error};
 
 use cowen_monitor::telemetry::TelemetryControl;
 
+#[cfg(unix)]
 fn is_daemon_alive() -> bool {
     let app_dir = cowen_common::config::get_app_dir();
     let pid_file = app_dir.join("master_daemon.pid");
@@ -376,6 +377,9 @@ pub async fn start(
             child_cmd.process_group(0);
         }
 
+        #[cfg(windows)]
+        disable_std_handles_inheritance();
+
         let mut child_proc = child_cmd.spawn()?;
         let pid = child_proc.id();
         eprintln!("🚀 Launching master daemon (PID: {})...", pid);
@@ -415,12 +419,13 @@ pub async fn start(
         // --- Master Process (Foreground) ---
         let app_dir = cowen_common::config::get_app_dir();
         let pid_file = app_dir.join("master_daemon.pid");
+        let lock_file = app_dir.join("master_daemon.lock");
     
-    // Acquire exclusive lock
-    let pid_file_handle = std::fs::OpenOptions::new().create(true).write(true).open(&pid_file)?;
+    // Acquire exclusive lock on separate lock file to avoid sharing violation on PID file
+    let lock_file_handle = std::fs::OpenOptions::new().create(true).write(true).open(&lock_file)?;
     use fs2::FileExt;
-    if pid_file_handle.try_lock_exclusive().is_err() {
-        eprintln!("⚠️ Master daemon is already running (PID file is locked). Exiting.");
+    if lock_file_handle.try_lock_exclusive().is_err() {
+        eprintln!("⚠️ Master daemon is already running (Lock file is locked). Exiting.");
         return Ok(());
     }
 
@@ -521,13 +526,15 @@ pub async fn start(
     // Stop all workers gracefully
     let _ = daemon_svc.stop_all().await;
     
+    drop(lock_file_handle);
     let _ = fs::remove_file(pid_file);
+    let _ = fs::remove_file(lock_file);
     
     Ok(())
     }
 }
 
-pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
+pub async fn stop(_profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
     #[cfg(unix)]
     {
         let port_path = cowen_common::ipc::get_ipc_port_path();
@@ -614,5 +621,30 @@ pub async fn restart(profile: &str, config: &Config, proxy_port: u16, enable_pro
     stop(profile, all, cfg_mgr).await?;
     std::thread::sleep(std::time::Duration::from_millis(500));
     start(profile, config, proxy_port, enable_proxy, false, all, cfg_mgr, vault, telemetry, daemon_svc).await
+}
+
+#[cfg(windows)]
+fn disable_std_handles_inheritance() {
+    unsafe {
+        const STD_OUTPUT_HANDLE: i32 = -11;
+        const STD_ERROR_HANDLE: i32 = -12;
+        const HANDLE_FLAG_INHERIT: u32 = 1;
+        const INVALID_HANDLE_VALUE: *mut std::ffi::c_void = -1isize as *mut std::ffi::c_void;
+
+        extern "system" {
+            fn GetStdHandle(nStdHandle: i32) -> *mut std::ffi::c_void;
+            fn SetHandleInformation(hObject: *mut std::ffi::c_void, dwMask: u32, dwFlags: u32) -> i32;
+        }
+
+        let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        if !stdout_handle.is_null() && stdout_handle != INVALID_HANDLE_VALUE {
+            SetHandleInformation(stdout_handle, HANDLE_FLAG_INHERIT, 0);
+        }
+
+        let stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+        if !stderr_handle.is_null() && stderr_handle != INVALID_HANDLE_VALUE {
+            SetHandleInformation(stderr_handle, HANDLE_FLAG_INHERIT, 0);
+        }
+    }
 }
 

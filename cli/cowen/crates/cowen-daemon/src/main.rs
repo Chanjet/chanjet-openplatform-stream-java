@@ -177,8 +177,11 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
 
     let stop_tx_ctrl_c = stop_tx.clone();
     tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        let _ = stop_tx_ctrl_c.send(()).await;
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!("Ctrl-C listener failed (likely headless): {}", e);
+        } else {
+            let _ = stop_tx_ctrl_c.send(()).await;
+        }
     });
 
     // We also support stop from Windows service control

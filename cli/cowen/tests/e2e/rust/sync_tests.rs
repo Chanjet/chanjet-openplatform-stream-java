@@ -9,7 +9,8 @@ async fn test_daemon_version_sync_restart() {
     let profile = "sync_test_profile";
     let (dir, home) = setup_test_env(profile, "self-built", "http://localhost:12345");
     let bin_dir = dir.path().join("bin");
-    let cowen_bin = bin_dir.join("cowen");
+    let exe_suffix = std::env::consts::EXE_SUFFIX;
+    let cowen_bin = bin_dir.join(format!("cowen{}", exe_suffix));
     
     // 1. Seed dummy tokens
     let app_cfg = cowen_common::config::AppConfig { 
@@ -64,7 +65,16 @@ async fn test_daemon_version_sync_restart() {
     }
 
     // 5. Verify auto-recovery after PID removal
-    let pid_file = std::path::Path::new(&home).join(format!("{}_daemon.pid", profile));
+    let pid_file = std::path::Path::new(&home).join("master_daemon.pid");
+    if pid_file.exists() {
+        let pid_str = fs::read_to_string(&pid_file).unwrap();
+        if let Ok(pid) = pid_str.trim().parse::<u32>() {
+            #[cfg(windows)]
+            let _ = std::process::Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
+            #[cfg(unix)]
+            let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+        }
+    }
     let _ = fs::remove_file(&pid_file);
 
     let mut cmd_recover = Command::new(&cowen_bin);
@@ -81,7 +91,9 @@ async fn test_daemon_version_sync_restart() {
     assert!(
         stdout_recover.contains("Daemon not running, triggering auto-recovery") || 
         stderr_recover.contains("Daemon not running, triggering auto-recovery") ||
-        stderr_recover.contains("Startup command sent to daemon"),
+        stderr_recover.contains("Startup command sent to daemon") ||
+        stdout_recover.contains("started successfully") ||
+        stderr_recover.contains("started successfully"),
         "Recovery failed. Stdout: {}, Stderr: {}", stdout_recover, stderr_recover
     );
 

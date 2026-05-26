@@ -646,7 +646,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     // that the user is explicitly trying to stop, reset or initialize.
     // However, diagnostic commands like 'status' SHOULD trigger recovery to maintain the "always-on" promise.
     let skip_recovery = match cmd_name {
-        "daemon" | "reset" | "init" | "config" | "profile" | "dlq" | "log" | "status" | "audit" => true,
+        "daemon" | "reset" | "init" | "config" | "profile" | "dlq" | "log" | "audit" => true,
         "doctor" => !matches!(&cli.command, Commands::Doctor { fix: true, .. }),
         "auth" => matches!(&cli.command, Commands::Auth { action: AuthCommands::Logout | AuthCommands::Reset }),
         _ => false,

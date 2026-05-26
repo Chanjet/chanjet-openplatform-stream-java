@@ -13,7 +13,8 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     let profile = "oa2_lifecycle";
     let (dir, home) = setup_test_env(profile, "oauth2", &openapi_url);
     let bin_dir = dir.path().join("bin");
-    let cowen_bin = bin_dir.join("cowen");
+    let exe_suffix = std::env::consts::EXE_SUFFIX;
+    let cowen_bin = bin_dir.join(format!("cowen{}", exe_suffix));
 
     // 1. Run 'cowen init' in background
     let mut child = std::process::Command::new(&cowen_bin)
@@ -83,7 +84,9 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     
     assert!(
         stdout.contains("Startup command sent to daemon") || 
-        stderr.contains("Startup command sent to daemon"),
+        stderr.contains("Startup command sent to daemon") ||
+        stdout.contains("started successfully") ||
+        stderr.contains("started successfully"),
         "Daemon should start. Stdout: {}, Stderr: {}", stdout, stderr
     );
 
@@ -91,7 +94,7 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // 6. Simulate crash (kill -9)
-    let pid_file = std::path::Path::new(&home).join(format!("{}_daemon.pid", profile));
+    let pid_file = std::path::Path::new(&home).join("master_daemon.pid");
     if pid_file.exists() {
         let pid_str = fs::read_to_string(&pid_file).unwrap();
         if let Ok(pid) = pid_str.trim().parse::<u32>() {

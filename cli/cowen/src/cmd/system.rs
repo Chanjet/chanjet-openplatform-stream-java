@@ -499,6 +499,7 @@ pub async fn enforce_daemon_version_sync(
                         {
                             break;
                         }
+                        #[cfg(not(windows))]
                         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                     }
 
