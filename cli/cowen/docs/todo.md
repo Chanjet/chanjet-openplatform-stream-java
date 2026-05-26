@@ -21,4 +21,4 @@
 ## 📂 附件 (Attachments)
 
 - 📄 **架构分析与核心源码审计报告**：包含 12 个 Crate 层级耦合度精细审计、源码精读、SOLID 原则落地以及具体解耦建议。
-    - [ARCHITECTURE_AUDIT_REPORT.md](ARCHITECTURE_AUDIT_REPORT.md)
+    - [ARCHITECTURE_AUDIT_REPORT.md](archive/ARCHITECTURE_AUDIT_REPORT.md)
