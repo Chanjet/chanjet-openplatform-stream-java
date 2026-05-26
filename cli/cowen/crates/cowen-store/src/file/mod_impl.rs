@@ -184,6 +184,16 @@ impl FileStore {
         } else {
             data.as_bytes().to_vec()
         };
-        std::fs::write(path, final_data).map_err(|e| cowen_common::CowenError::Store(e.to_string()))
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        
+        options.open(&path)
+            .and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(&final_data)
+            })
+            .map_err(|e| cowen_common::CowenError::Store(e.to_string()))
     }
 }

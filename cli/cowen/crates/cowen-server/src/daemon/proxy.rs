@@ -89,11 +89,18 @@ async fn handle_proxy(
     cowen_common::events::event_bus().publish(cowen_common::events::GlobalEvent::ProxyRequestReceived);
     let method_str = req.method().as_str().to_uppercase();
 
+    let origin_header = req.headers().get("origin").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let allow_origin = if origin_header.contains("localhost") || origin_header.contains("127.0.0.1") {
+        origin_header.to_string()
+    } else {
+        "http://127.0.0.1".to_string()
+    };
+
     if method_str == "OPTIONS" {
         tracing::info!(target: "sys", "Intercepted OPTIONS pre-flight request, returning CORS headers immediately.");
         return axum::response::Response::builder()
             .status(axum::http::StatusCode::NO_CONTENT)
-            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Origin", &allow_origin)
             .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
             .header("Access-Control-Allow-Headers", "*")
             .header("Access-Control-Max-Age", "86400")
@@ -105,10 +112,11 @@ async fn handle_proxy(
     let (parts, body) = req.into_parts();
     
     // Helper for CORS-enabled error responses
+    let allow_origin_clone = allow_origin.clone();
     let cors_error = |status: axum::http::StatusCode, msg: String| {
         axum::response::Response::builder()
             .status(status)
-            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Origin", &allow_origin_clone)
             .body(axum::body::Body::from(msg))
             .unwrap()
     };
@@ -168,7 +176,7 @@ async fn handle_proxy(
             let body_bytes = serde_json::to_vec(&json_resp).unwrap_or_default();
             return axum::response::Response::builder()
                 .status(axum::http::StatusCode::OK)
-                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Origin", &allow_origin)
                 .header("Content-Type", "application/json")
                 .body(axum::body::Body::from(body_bytes))
                 .unwrap();

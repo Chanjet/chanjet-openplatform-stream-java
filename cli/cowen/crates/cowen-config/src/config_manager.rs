@@ -357,7 +357,7 @@ impl ConfigManager {
         if !is_db_mode {
             let path = self.app_dir.join(format!("{}.yaml", profile));
             let content = serde_yaml::to_string(config)?;
-            fs::write(path, content)?;
+            cowen_common::utils::secure_write(path, content)?;
         }
 
         Ok(())
@@ -560,7 +560,7 @@ impl ConfigManager {
                                 let _ = fs::copy(&path, &backup_path);
                             }
                             if let Ok(updated) = serde_yaml::to_string(&yaml) {
-                                 let _ = fs::write(&path, updated);
+                                 let _ = cowen_common::utils::secure_write(&path, updated);
                                  println!("  ✓ Removed storage config from {}.yaml (backup created: {}.yaml.bak)", profile, profile);
                             }
                         }
@@ -599,7 +599,7 @@ impl ConfigManager {
     pub async fn save_app_config(&self, config: &AppConfig) -> CowenResult<()> {
         let path = self.app_dir.join("app.yaml");
         let content = serde_yaml::to_string(config)?;
-        fs::write(path, content)?;
+        cowen_common::utils::secure_write(path, content)?;
         event_bus().publish(cowen_common::events::GlobalEvent::ConfigChanged { 
             profile: "system".to_string(), 
             key: "app".to_string() 
@@ -618,7 +618,7 @@ impl ConfigManager {
 
     pub fn set_default_profile(&self, profile: &str) -> CowenResult<()> {
         let path = self.app_dir.join("current_profile");
-        fs::write(path, profile)?;
+        cowen_common::utils::secure_write(path, profile)?;
         Ok(())
     }
 

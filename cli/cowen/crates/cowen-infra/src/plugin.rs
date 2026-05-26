@@ -9,6 +9,11 @@ pub struct PluginLoader {
 impl PluginLoader {
     pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let p = path.as_ref();
+        
+        if !is_secure_plugin_path(p) {
+            return Err(anyhow::anyhow!("Plugin path is insecure (wrong owner or world-writable)"));
+        }
+        
         crate::pki::verify_plugin_bundle(p)?;
         
         let lib = unsafe { Library::new(p)? };

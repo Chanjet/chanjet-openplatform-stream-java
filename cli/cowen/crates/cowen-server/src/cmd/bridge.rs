@@ -38,7 +38,7 @@ pub async fn run(
 
     if requires_stream {
         let d = client.dispatcher();
-        let mut dispatcher = d.lock().unwrap();
+        let mut dispatcher = d.lock().unwrap_or_else(|e| e.into_inner());
 
         if enable_webhook_forwarding {
             let fwd = forwarder.clone();

@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
         let current_pid = std::process::id();
         let error_msg = e.to_string().replace('\n', " ");
         let start_time = chrono::Utc::now().to_rfc3339();
-        let _ = std::fs::write(&pid_file, format!("{}\nSTART_TIME={}\nLAST_ERROR={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, start_time, error_msg, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+        let _ = cowen_common::utils::secure_write(&pid_file, format!("{}\nSTART_TIME={}\nLAST_ERROR={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, start_time, error_msg, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
     }
     result
 }
@@ -79,14 +79,14 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     }
     #[cfg(not(unix))]
     {
-        let _ = std::fs::write(&target_ipc_token_file, &ipc_token);
+        let _ = cowen_common::utils::secure_write(&target_ipc_token_file, &ipc_token);
     }
     
-    std::fs::write(&target_ipc_port_file, ipc_port.to_string())?;
+    cowen_common::utils::secure_write(&target_ipc_port_file, ipc_port.to_string())?;
 
     let current_pid = std::process::id();
     let start_time = chrono::Utc::now().to_rfc3339();
-    let _ = std::fs::write(pid_file, format!("{}\nSTART_TIME={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+    let _ = cowen_common::utils::secure_write(pid_file, format!("{}\nSTART_TIME={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
 
     let cfg_mgr = ConfigManager::new().map_err(|e| anyhow::anyhow!("Failed to init ConfigManager: {}", e))?;
     let app_dir = cowen_common::config::get_app_dir();
@@ -160,7 +160,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
         let _ = cfg_mgr.save_app_config(&app_cfg).await;
     }
 
-    let _ = std::fs::write(pid_file, format!("{}\nMONITOR_PORT={}\nSTART_TIME={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, actual_m_port, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+    let _ = cowen_common::utils::secure_write(pid_file, format!("{}\nMONITOR_PORT={}\nSTART_TIME={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, actual_m_port, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
 
     // Signal-aware accept loop
     let (stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1);
@@ -206,7 +206,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
             _ = stop_rx.recv() => {
                 info!("Shutdown signal received, initiating graceful shutdown...");
                 let stopped_file = cowen_common::config::get_app_dir().join("master_daemon.stopped");
-                let _ = std::fs::write(stopped_file, "1");
+                let _ = cowen_common::utils::secure_write(stopped_file, "1");
                 break;
             }
         }

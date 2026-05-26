@@ -41,7 +41,17 @@ impl FileStore {
             json.into_bytes()
         };
 
-        fs::write(&temp_path, data).map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        
+        options.open(&temp_path)
+            .and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(&data)
+            })
+            .map_err(|e| CowenError::Store(e.to_string()))?;
         fs::rename(temp_path, path).map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
     }

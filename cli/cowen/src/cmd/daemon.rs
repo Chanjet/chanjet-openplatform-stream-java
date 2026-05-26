@@ -210,8 +210,9 @@ pub async fn start(
                 let app_dir = cowen_common::config::get_app_dir();
                 let log_dir = app_dir.join("logs");
                 if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
-                let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))?;
-                let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
+                use std::os::unix::fs::OpenOptionsExt;
+                let stdout_file = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(log_dir.join("daemon.stdout.log"))?;
+                let stderr_file = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(log_dir.join("daemon.stderr.log"))?;
 
                 let _child = Command::new(&daemon_path)
                     .arg("--ipc-port-file")
@@ -240,8 +241,9 @@ pub async fn start(
                      let app_dir = cowen_common::config::get_app_dir();
                      let log_dir = app_dir.join("logs");
                      if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
-                     let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))?;
-                     let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
+                     use std::os::unix::fs::OpenOptionsExt;
+                     let stdout_file = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(log_dir.join("daemon.stdout.log"))?;
+                     let stderr_file = std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(log_dir.join("daemon.stderr.log"))?;
 
                      let _child = Command::new(&daemon_path)
                          .arg("--ipc-port-file")
@@ -452,7 +454,7 @@ pub async fn start(
     if actual_m_port > 0 {
         info!(target: "sys", "Master monitor server started on port {}", actual_m_port);
         // Rewrite PID file with Monitor Port
-        fs::write(
+        cowen_common::utils::secure_write(
             &pid_file, 
             format!(
                 "{}\nBUILD_ID={}\nBUILD_TIME={}\nMONITOR_PORT={}", 
@@ -463,7 +465,7 @@ pub async fn start(
             )
         )?;
     } else {
-        fs::write(
+        cowen_common::utils::secure_write(
             &pid_file, 
             format!(
                 "{}\nBUILD_ID={}\nBUILD_TIME={}", 
@@ -568,7 +570,7 @@ pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<
         let app_dir = cowen_common::config::get_app_dir();
         let pid_file = app_dir.join("master_daemon.pid");
         let stopped_file = app_dir.join("master_daemon.stopped");
-        std::fs::write(&stopped_file, "1").ok(); // Set intentional stop marker
+        cowen_common::utils::secure_write(&stopped_file, "1").ok(); // Set intentional stop marker
         
         if all {
             let mut process_dead = true;

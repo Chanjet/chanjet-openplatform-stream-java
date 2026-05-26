@@ -751,7 +751,7 @@ impl AuthClient {
             let _ = std::fs::create_dir_all(parent);
         }
         let yaml_data = serde_yaml::to_string(spec)?;
-        std::fs::write(path, yaml_data)?;
+        cowen_common::utils::secure_write(path, yaml_data)?;
         Ok(())
     }
 

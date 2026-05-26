@@ -265,6 +265,11 @@ pub enum PluginsCommands {
         /// 要安装的插件文件路径 (如 ./libcowen_search_embedding.so)
         path: String,
     },
+    /// 刷新插件签名校准状态 (支持本地临时开发者签名或清理 OS 隔离标记)
+    RefreshSignature {
+        /// 要校准签名的插件名称
+        name: String,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -776,6 +781,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             PluginsCommands::Enable { name } => cmd::plugins::enable(&cfg_mgr, name).await?,
             PluginsCommands::Disable { name } => cmd::plugins::disable(&cfg_mgr, name).await?,
             PluginsCommands::Install { path } => cmd::plugins::install(&cfg_mgr, path).await?,
+            PluginsCommands::RefreshSignature { name } => cmd::plugins::refresh_signature(&cfg_mgr, name).await?,
         },
         Commands::Config { action, all } => match action {
             Some(ConfigCommands::Set { key, value, global }) => {

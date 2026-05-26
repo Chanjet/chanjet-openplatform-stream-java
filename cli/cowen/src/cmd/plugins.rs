@@ -144,3 +144,96 @@ pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
     
     Ok(())
 }
+
+pub async fn refresh_signature(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
+    let plugins_dir = get_app_dir().join("plugins");
+    
+    let expected_path_dylib = plugins_dir.join(format!("{}.dylib", name));
+    let expected_path_so = plugins_dir.join(format!("{}.so", name));
+    let expected_path_dll = plugins_dir.join(format!("{}.dll", name));
+
+    let target_path = if expected_path_dylib.exists() {
+        expected_path_dylib
+    } else if expected_path_so.exists() {
+        expected_path_so
+    } else if expected_path_dll.exists() {
+        expected_path_dll
+    } else {
+        return Err(anyhow::anyhow!("❌ Plugin file for '{}' not found in {:?}", name, plugins_dir));
+    };
+
+    let bundle_path = target_path.with_extension("bundle");
+
+    if !bundle_path.exists() {
+        println!("⚠️  Missing .bundle signature file for {:?}", target_path);
+    } else {
+        println!("🔍 Re-verifying existing signature bundle...");
+        match cowen_infra::pki::verify_plugin_bundle(&target_path) {
+            Ok(_) => {
+                println!("✅ Signature is perfectly valid. If it fails to load, it might be due to OS Quarantine.");
+                #[cfg(target_os = "macos")]
+                {
+                    println!("   💡 Tip: macOS may block execution. You can manually run: xattr -d com.apple.quarantine {:?}", target_path);
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                println!("❌ Signature validation failed: {}", e);
+            }
+        }
+    }
+
+    if std::env::var("COWEN_DEV_MODE").unwrap_or_default() == "1" {
+        println!("🛠️  COWEN_DEV_MODE is enabled. Attempting Ad-Hoc signing via cowen-signer...");
+        
+        let mut signer_path = std::env::current_exe()?
+            .parent()
+            .unwrap_or(std::path::Path::new(""))
+            .join("cowen-signer");
+            
+        if !signer_path.exists() {
+            // fallback to workspace target
+            signer_path = std::path::PathBuf::from("target/debug/cowen-signer");
+            if !signer_path.exists() {
+                signer_path = std::path::PathBuf::from("target/release/cowen-signer");
+            }
+        }
+
+        if !signer_path.exists() {
+            println!("❌ Cannot find cowen-signer binary. Please compile it first.");
+            return Ok(());
+        }
+
+        // We assume dev keys exist in ./dist_assets/keys for ad-hoc signing
+        let dev_key = std::path::PathBuf::from("dist_assets/keys/official_dev.pk8");
+        let dev_cert = std::path::PathBuf::from("dist_assets/keys/official_dev_cert.json");
+        
+        if !dev_key.exists() || !dev_cert.exists() {
+            println!("❌ Cannot find developer keys in ./dist_assets/keys. Please ensure you are in the workspace root.");
+            return Ok(());
+        }
+
+        let output = std::process::Command::new(&signer_path)
+            .arg("sign-plugin")
+            .arg("--dylib").arg(&target_path)
+            .arg("--name").arg(name)
+            .arg("--version").arg("dev-refresh")
+            .arg("--dev-key").arg(&dev_key)
+            .arg("--dev-cert").arg(&dev_cert)
+            .arg("--out-bundle").arg(&bundle_path)
+            .output()?;
+
+        if output.status.success() {
+            println!("✅ Successfully generated Ad-Hoc signature for local development!");
+        } else {
+            println!("❌ Ad-Hoc signing failed: \n{}", String::from_utf8_lossy(&output.stderr));
+        }
+
+    } else {
+        println!("❌ Security enforcement prevents generating official signatures automatically.");
+        println!("💡 Tip: If you are a developer, export COWEN_DEV_MODE=1 and provide dev keys to generate an Ad-Hoc signature.");
+        println!("💡 Tip: For end-users, please re-install the official signed version of the plugin.");
+    }
+
+    Ok(())
+}

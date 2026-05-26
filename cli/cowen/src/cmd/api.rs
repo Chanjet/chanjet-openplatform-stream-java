@@ -75,18 +75,23 @@ pub async fn list(
                 }) {
                     // Load and check trait
                     let mut is_search_provider = false;
-                    if let Ok(loader) = cowen_infra::PluginLoader::new(&path) {
-                        unsafe {
-                            if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const std::os::raw::c_char>(b"v1_trait") {
-                                let ptr = trait_fn();
-                                if !ptr.is_null() {
-                                    let trait_name = std::ffi::CStr::from_ptr(ptr).to_string_lossy();
-                                    let expected_trait = cowen_search::plugin_trait_search_provider!().to_str().unwrap();
-                                    if trait_name == expected_trait {
-                                        is_search_provider = true;
+                    match cowen_infra::PluginLoader::new(&path) {
+                        Ok(loader) => {
+                            unsafe {
+                                if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const std::os::raw::c_char>(b"v1_trait") {
+                                    let ptr = trait_fn();
+                                    if !ptr.is_null() {
+                                        let trait_name = std::ffi::CStr::from_ptr(ptr).to_string_lossy();
+                                        let expected_trait = cowen_search::plugin_trait_search_provider!().to_str().unwrap();
+                                        if trait_name == expected_trait {
+                                            is_search_provider = true;
+                                        }
                                     }
                                 }
                             }
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️  Refusing to load plugin at {}: {}", path.display(), e);
                         }
                     }
 
@@ -479,11 +484,16 @@ pub async fn call(
         tracing::warn!(target: "sys", "API Validation bypassed due to --force flag.");
     }
 
+    // SSRF Check: Prevent absolute external URLs even with --force
+    let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+    if path.starts_with("http") && !path.starts_with(&app_cfg.openapi_url) {
+        return Err(anyhow!("CLI Security Block: Absolute external URLs are not allowed."));
+    }
+
     // 2. Resolve Token
     let token = auth_cli.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await.map_err(|e| anyhow::anyhow!(e))?;
 
     // 3. Build & Execute Request
-    let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
     let ua = cowen_infra::get_user_agent(env!("CARGO_PKG_VERSION"));
     let client = cowen_infra::create_client(&ua).map_err(|e| anyhow::anyhow!(e))?;
     let url = if path.starts_with("http") {

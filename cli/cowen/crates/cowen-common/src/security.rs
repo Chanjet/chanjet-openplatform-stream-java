@@ -63,7 +63,7 @@ pub fn decrypt(combined: &[u8], key: &[u8; 32]) -> CowenResult<Vec<u8>> {
 pub fn seal_config<P: AsRef<Path>>(path: P, data: &[u8], fingerprint: &str) -> CowenResult<()> {
     let key = derive_key(fingerprint);
     let encrypted = encrypt(data, &key)?;
-    std::fs::write(path, encrypted)?;
+    crate::utils::secure_write(path, encrypted)?;
     Ok(())
 }
 

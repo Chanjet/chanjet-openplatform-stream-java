@@ -259,3 +259,21 @@ fn test_api_error_json_format() {
     
     let _ = dir;
 }
+
+#[test]
+fn test_api_call_ssrf_block() {
+    let (dir, home) = setup_test_env(false);
+    
+    // Attempting to call an absolute external URL should be blocked even with --force
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.arg("--profile").arg("test_api");
+    cmd.arg("api").arg("--force").arg("GET").arg("http://evil.com/v1/users");
+    
+    let output = cmd.assert().failure().get_output().stderr.clone();
+    let stderr = String::from_utf8_lossy(&output);
+    println!("STDERR WAS: {}", stderr);
+    assert!(stderr.contains("Security Block") || stderr.contains("Absolute external URLs are not allowed"));
+    
+    let _ = dir;
+}
