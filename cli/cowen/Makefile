@@ -74,7 +74,7 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
 .PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 windows-x86-cross windows-x86_64-cross \
         windows-plugin-x64 windows-plugin-x86 test-macos-aarch64 \
-        test test-linux test-win test-macos \
+        test test-linux test-win test-macos check-cross \
         package package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
         package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-cross package-windows-x86-cross clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
 
@@ -627,4 +627,14 @@ install:
 
 run:
 	cargo run -- --help
+
+# Makefile 跨平台编译语法检查强校准靶点
+check-cross:
+	@echo "====== 开始 macOS 架构静态编译检查 ======"
+	cargo check --target aarch64-apple-darwin --workspace --all-targets
+	@echo "====== 开始 Linux 架构静态编译检查 ======"
+	cargo check --target x86_64-unknown-linux-gnu --workspace --all-targets
+	@echo "====== 开始 Windows 架构静态编译检查 ======"
+	cargo check --target x86_64-pc-windows-msvc --workspace --all-targets
+	@echo "====== 所有平台跨平台编译静态检查 100% 通过 ======"
 

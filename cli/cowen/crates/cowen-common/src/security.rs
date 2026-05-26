@@ -8,17 +8,10 @@ use rand::{RngCore, thread_rng};
 use std::path::Path;
 
 pub fn get_machine_fingerprint() -> CowenResult<String> {
-    let os = std::env::consts::OS;
-    let arch = std::env::consts::ARCH;
-    let hostname = hostname::get()?.to_string_lossy().to_string();
-    
-    let base = format!("{}-{}-{}", os, arch, hostname);
-    
-    let mut hasher = Sha256::new();
-    hasher.update(base.as_bytes());
-    
-    let hash = hasher.finalize();
-    Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
+    match cowen_infra::sys::get_sys_fingerprint().get_machine_id() {
+        Ok(uuid) => Ok(uuid),
+        Err(e) => Err(CowenError::Security(format!("Failed to retrieve machine fingerprint: {}", e))),
+    }
 }
 
 pub fn derive_key(fingerprint: &str) -> [u8; 32] {

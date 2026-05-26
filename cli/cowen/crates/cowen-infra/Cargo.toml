@@ -17,6 +17,14 @@ sysinfo = "0.38"
 ring = "0.17"
 base64 = "0.22"
 hex = "0.4"
+async-trait = "0.1"
+tokio = { version = "1.50", features = ["full"] }
+sha2 = "0.10"
+hostname = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+winreg = "0.52"
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -14,18 +14,14 @@ use tracing::{info, error};
 
 use cowen_monitor::telemetry::TelemetryControl;
 
-#[cfg(unix)]
-fn is_daemon_alive() -> bool {
+async fn is_daemon_alive() -> bool {
     let app_dir = cowen_common::config::get_app_dir();
     let pid_file = app_dir.join("master_daemon.pid");
     if pid_file.exists() {
         if let Ok(content) = std::fs::read_to_string(&pid_file) {
             if let Some(pid_str) = content.lines().next() {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                    let mut s = sysinfo::System::new();
-                    let sys_pid = sysinfo::Pid::from_u32(pid);
-                    s.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
-                    return s.process(sys_pid).is_some();
+                    return cowen_infra::sys::get_process_manager().is_process_alive(pid).await;
                 }
             }
         }
@@ -136,10 +132,7 @@ async fn preflight_check_and_bind_port(cfg_mgr: &ConfigManager) -> Result<()> {
                                     }
 
                                     tracing::warn!(target: "sys", "Port {} seems occupied by unresponsive cowen daemon (PID: {}). Sending SIGTERM...", m_port, pid);
-                                    #[cfg(unix)]
-                                    let _ = std::process::Command::new("kill").arg("-15").arg(pid.to_string()).status();
-                                    #[cfg(windows)]
-                                    let _ = std::process::Command::new("taskkill").args(&["/F", "/PID", &pid.to_string()]).status();
+                                    let _ = cowen_infra::sys::get_process_manager().kill_process(pid, false).await;
                                     
                                     killed_old = true;
                                 }
@@ -236,7 +229,7 @@ pub async fn start(
             if let Err(e) = err_res {
                 // If the initial connection failed, check if the process is actually dead.
                 // If the socket exists but the process is dead, we clean up the socket and spawn it.
-                if !port_path.exists() || !is_daemon_alive() {
+                if !port_path.exists() || !is_daemon_alive().await {
                      eprintln!("ℹ️ Daemon socket stale or process dead. Spawning in background...");
                      if port_path.exists() { let _ = std::fs::remove_file(&port_path); }
                      

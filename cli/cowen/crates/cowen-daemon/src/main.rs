@@ -29,9 +29,12 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    #[cfg(windows)]
     if args.run_as_service {
-        return run_windows_service();
+        let pid_file_clone = cowen_common::config::get_app_dir().join("master_daemon.pid");
+        return cowen_infra::sys::get_process_manager().run_as_service(Box::new(move || {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(run_main(&pid_file_clone, None))
+        })).await;
     }
 
     let app_dir = cowen_common::config::get_app_dir();
@@ -67,20 +70,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     let target_ipc_token_file = target_ipc_port_file.with_file_name("ipc.token");
     let ipc_token = uuid::Uuid::new_v4().to_string();
     
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create(true).truncate(true).mode(0o600);
-        if let Ok(mut f) = opts.open(&target_ipc_token_file) {
-            use std::io::Write;
-            let _ = f.write_all(ipc_token.as_bytes());
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = cowen_common::utils::secure_write(&target_ipc_token_file, &ipc_token);
-    }
+    let _ = cowen_infra::sys::get_ipc_binder().save_ipc_token(&target_ipc_token_file, &ipc_token).await;
     
     cowen_common::utils::secure_write(&target_ipc_port_file, ipc_port.to_string())?;
 
@@ -165,15 +155,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     // Signal-aware accept loop
     let (stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1);
 
-    #[cfg(unix)]
-    {
-        let stop_tx_unix = stop_tx.clone();
-        tokio::spawn(async move {
-            let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
-            sigterm.recv().await;
-            let _ = stop_tx_unix.send(()).await;
-        });
-    }
+    cowen_infra::sys::get_process_manager().set_stop_channel(stop_tx.clone());
 
     let stop_tx_ctrl_c = stop_tx.clone();
     tokio::spawn(async move {
@@ -183,9 +165,6 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
             let _ = stop_tx_ctrl_c.send(()).await;
         }
     });
-
-    // We also support stop from Windows service control
-    set_global_stop_channel(stop_tx.clone());
 
     loop {
         tokio::select! {
@@ -308,94 +287,4 @@ mod tests {
 }
 
 // --- Global Stop Channel for Windows SCM ---
-static STOP_TX: std::sync::OnceLock<tokio::sync::mpsc::Sender<()>> = std::sync::OnceLock::new();
-
-fn set_global_stop_channel(tx: tokio::sync::mpsc::Sender<()>) {
-    let _ = STOP_TX.set(tx);
-}
-
-#[allow(dead_code)]
-fn trigger_global_stop() {
-    if let Some(tx) = STOP_TX.get() {
-        let _ = tx.blocking_send(());
-    }
-}
-
-// --- Windows Service Entry Point ---
-#[cfg(windows)]
-fn run_windows_service() -> Result<()> {
-    use std::ffi::OsString;
-    use windows_service::service_dispatcher;
-
-    let res = service_dispatcher::start("CowenDaemon", ffi_service_main);
-    if let Err(e) = res {
-        tracing::error!("Failed to start Windows Service dispatcher: {}", e);
-        return Err(anyhow::anyhow!("Service dispatcher error: {}", e));
-    }
-    Ok(())
-}
-
-#[cfg(not(windows))]
-#[allow(dead_code)]
-fn run_windows_service() -> Result<()> {
-    anyhow::bail!("Windows Service is not supported on non-Windows platforms.");
-}
-
-#[cfg(windows)]
-windows_service::define_windows_service!(ffi_service_main, my_service_main);
-
-#[cfg(windows)]
-fn my_service_main(arguments: Vec<std::ffi::OsString>) {
-    if let Err(e) = run_service(arguments) {
-        tracing::error!("Windows Service error: {}", e);
-    }
-}
-
-#[cfg(windows)]
-fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<()> {
-    use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
-    use windows_service::service::ServiceControl;
-
-    let event_handler = move |control_event| -> ServiceControlHandlerResult {
-        match control_event {
-            ServiceControl::Stop => {
-                trigger_global_stop();
-                ServiceControlHandlerResult::NoError
-            }
-            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
-            _ => ServiceControlHandlerResult::NotImplemented,
-        }
-    };
-
-    let status_handle = service_control_handler::register("CowenDaemon", event_handler)?;
-    
-    use windows_service::service::{ServiceState, ServiceStatus, ServiceType};
-    status_handle.set_service_status(ServiceStatus {
-        service_type: ServiceType::OWN_PROCESS,
-        current_state: ServiceState::Running,
-        controls_accepted: windows_service::service::ServiceControlAccept::STOP,
-        exit_code: windows_service::service::ServiceExitCode::Win32(0),
-        checkpoint: 0,
-        wait_hint: std::time::Duration::default(),
-        process_id: None,
-    })?;
-
-    let app_dir = cowen_common::config::get_app_dir();
-    let pid_file = app_dir.join("master_daemon.pid");
-
-    // Run the main async daemon
-    let rt = tokio::runtime::Runtime::new()?;
-    let _ = rt.block_on(run_main(&pid_file, None));
-
-    status_handle.set_service_status(ServiceStatus {
-        service_type: ServiceType::OWN_PROCESS,
-        current_state: ServiceState::Stopped,
-        controls_accepted: windows_service::service::ServiceControlAccept::empty(),
-        exit_code: windows_service::service::ServiceExitCode::Win32(0),
-        checkpoint: 0,
-        wait_hint: std::time::Duration::default(),
-        process_id: None,
-    })?;
-
-    Ok(())
-}
+// Obsolete service functions and static stop channels have been cleanly decoupled and physical isolated to cowen-infra/src/sys/windows.rs.

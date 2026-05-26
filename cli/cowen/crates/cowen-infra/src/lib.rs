@@ -14,3 +14,9 @@ pub use mask::{mask_string, mask_sensitive_json, mask_url_query, mask_tail, mask
 pub use http::{create_client, get_user_agent};
 pub use network::validate_loopback_addr;
 pub use plugin::{PluginLoader, discover_plugins};
+
+pub mod sys;
+pub use sys::{
+    ProcessManager, SysFingerprint, IpcBinder,
+    get_process_manager, get_sys_fingerprint, get_ipc_binder
+};
