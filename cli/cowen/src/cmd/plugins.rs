@@ -143,6 +143,16 @@ pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
         std::fs::set_permissions(&target_path, perms)?;
     }
 
+    let bundle_source_path = source_path.with_extension("bundle");
+    if bundle_source_path.exists() && bundle_source_path.is_file() {
+        let bundle_file_name = bundle_source_path.file_name().unwrap();
+        let bundle_target_path = plugins_dir.join(bundle_file_name);
+        std::fs::copy(&bundle_source_path, &bundle_target_path)?;
+        println!("✅ Automatically copied signature bundle: {}", bundle_file_name.to_string_lossy());
+    } else {
+        println!("⚠️  Warning: No signature bundle (.bundle) found alongside the plugin. It may fail to load due to security policy.");
+    }
+
     println!("✅ Successfully installed plugin '{}' to {:?}", file_name.to_string_lossy(), plugins_dir);
     println!("💡 Use 'cowen plugins list' to view it, and 'cowen plugins enable <name>' to activate it.");
     
