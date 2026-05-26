@@ -72,17 +72,24 @@ cp tests/e2e/scripts/verify-binary.sh "$RESULTS_DIR/tmp_scripts/" 2>/dev/null ||
 echo -n "  Building cowen binary and plugins (release)..."
 export COWEN_BUILD_CLIENT_ID="dummy-parallel-client-id"
 BUILD_ARGS="--release"
-BINARY_PATH="target/release/cowen"
+
+# Respect CARGO_TARGET_DIR if set
+TARGET_BASE=${CARGO_TARGET_DIR:-target}
+BINARY_PATH="$TARGET_BASE/release/cowen"
+
 if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
     BUILD_ARGS="--release --target x86_64-unknown-linux-gnu"
-    BINARY_PATH="target/x86_64-unknown-linux-gnu/release/cowen"
+    BINARY_PATH="$TARGET_BASE/x86_64-unknown-linux-gnu/release/cowen"
 fi
 
 if cargo build --quiet $BUILD_ARGS -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer 2>/dev/null; then
     echo -e " ${GREEN}[OK]${NC}"
     export COWEN_BIN="$(pwd)/$BINARY_PATH"
     # Force common.sh to refresh its SOURCE_BIN
-    [ -f tests/e2e/scripts/common.sh ] && update_source_bin
+    if [ -f tests/e2e/scripts/common.sh ]; then
+        # We need to make sure common.sh uses the same COWEN_BIN
+        update_source_bin
+    fi
 else
     echo -e " ${RED}[FAILED]${NC}"
     exit 1

@@ -219,25 +219,36 @@ prepare-podman-image: prepare-podman-machine
 		$(MAKE) .builder_image_built; \
 	fi
 
+# --- Podman 共享执行宏 (Shared Podman Invocation) ---
+# 定义统一的挂载与环境变量，确保打包与测试复用同一套缓存与构建产物
+# 增加 --memory 与 --shm-size 确保容器有足够的运行资源，防止 OOM
+PODMAN_RUN_BASE = podman run --rm \
+	--memory=12g \
+	--shm-size=2g \
+	-v "$$(pwd)/../..:/workspace" \
+	-v "$(CARGO_CACHE_DIR)/registry:/root/.cargo/registry" \
+	-v "$(CARGO_CACHE_DIR)/git:/root/.cargo/git" \
+	-v "$(CARGO_CACHE_DIR)/target:/workspace/cli/cowen/target_podman" \
+	-w /workspace/cli/cowen \
+	-e CARGO_TARGET_DIR=target_podman \
+	-e CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
+	-e BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
+	-e DEF_OPENAPI_URL=$(PROD_OPENAPI) \
+	-e DEF_STREAM_URL=$(PROD_STREAM) \
+	-e CARGO_BIN_NAME_OVERRIDE=$(BINARY) \
+	-e APP_DIR_NAME=.$(BINARY) \
+	-e CARGO_PROFILE_RELEASE_LTO=false \
+	-e CARGO_PROFILE_RELEASE_CODEGEN_UNITS=256
+
 # 提速版 Podman 构建 (系统依赖 + Rust 依赖双缓存)
 linux-x86_64-with-podman: prepare-podman-image
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] via Podman v$(VERSION)..."
 	@mkdir -p $(OUTPUT_DIR)/linux-x86_64
 	@mkdir -p $(CARGO_CACHE_DIR)/registry $(CARGO_CACHE_DIR)/git $(CARGO_CACHE_DIR)/target
 	@trap '$(MAKE) stop-podman-machine' EXIT; \
-	podman run --rm \
-		-v "$$(pwd)/../..:/workspace" \
-		-v "$(CARGO_CACHE_DIR)/registry:/usr/local/cargo/registry" \
-		-v "$(CARGO_CACHE_DIR)/git:/usr/local/cargo/git" \
-		-v "$(CARGO_CACHE_DIR)/target:/workspace/cli/cowen/target_podman" \
-		-w /workspace/cli/cowen \
+	$(PODMAN_RUN_BASE) \
 		$(BUILDER_IMAGE) \
-		bash -c "export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc && \
-			export CARGO_TARGET_DIR=target_podman && \
-			CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
-			DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-			BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
-			cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer && \
+		bash -c "cargo build --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer && \
 			target_podman/x86_64-unknown-linux-gnu/release/cowen-signer sign-plugin --dylib target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon && \
@@ -486,16 +497,15 @@ test-linux: prepare-podman-machine prepare-podman-image
 	@echo "🧪 Running Full Test Suite in Linux container (All-in-One mode)..."
 	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
 	trap '$(MAKE) stop-podman-machine' EXIT; \
-	podman run --rm -it \
-		-v $(shell pwd)/../..:/workspace \
-		-v $(HOME)/.cargo/registry:/usr/local/cargo/registry \
-		-v $(HOME)/.cargo/git:/usr/local/cargo/git \
+	$(PODMAN_RUN_BASE) \
+		-it \
 		-e DB_HOST=127.0.0.1 \
 		-e MAX_PARALLEL=$(MAX_PARALLEL) \
 		-e QEMU_LD_PREFIX=/usr/x86_64-linux-gnu/ \
-		-w /workspace/cli/cowen \
 		$(BUILDER_IMAGE) \
-		bash -c "COWEN_SKIP_BROWSER=true RUSTFLAGS=\"-D warnings\" cargo test --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true ./tests/runners/run_parallel.sh"
+		bash -c "COWEN_SKIP_BROWSER=true RUSTFLAGS=\"-D warnings\" cargo test --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true ./tests/runners/run_parallel.sh"
+
+# 在 Windows PowerShell 环境下执行测试
 
 # 在 Windows PowerShell 环境下执行测试
 test-win: test-rust

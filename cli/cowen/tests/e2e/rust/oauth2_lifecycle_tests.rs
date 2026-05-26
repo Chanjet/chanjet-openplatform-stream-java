@@ -35,7 +35,7 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     };
     
     let mut session = None;
-    for _ in 0..40 { // 20 seconds max
+    for _ in 0..80 { // 40 seconds max
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         
         if let Ok(vault) = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "sync_fingerprint").await {

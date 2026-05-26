@@ -20,11 +20,25 @@ get_source_bin() {
         return
     fi
     
+    local target_base=${CARGO_TARGET_DIR:-target}
     local bins=()
     if [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
-        bins=("./target/release/cowen-test.exe" "./target/debug/cowen-test.exe" "./target/release/cowen.exe" "./target/debug/cowen.exe")
+        bins=(
+            "$target_base/release/cowen-test.exe" 
+            "$target_base/debug/cowen-test.exe" 
+            "$target_base/release/cowen.exe" 
+            "$target_base/debug/cowen.exe"
+            "$target_base/x86_64-unknown-linux-gnu/release/cowen-test.exe"
+        )
     else
-        bins=("./target/release/cowen-test" "./target/debug/cowen-test" "./target/release/cowen" "./target/debug/cowen")
+        bins=(
+            "$target_base/release/cowen-test" 
+            "$target_base/debug/cowen-test" 
+            "$target_base/release/cowen" 
+            "$target_base/debug/cowen"
+            "$target_base/x86_64-unknown-linux-gnu/release/cowen-test"
+            "$target_base/x86_64-unknown-linux-gnu/release/cowen"
+        )
     fi
 
     # Find the newest existing binary

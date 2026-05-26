@@ -115,15 +115,51 @@ pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile
     let bin_dir = dir.path().join("bin");
     fs::create_dir_all(&bin_dir).unwrap();
 
-    let target_dir = std::env::current_dir().unwrap().join("target").join("debug");
-    let cli_src = target_dir.join("cowen");
-    let daemon_src = target_dir.join("cowen-daemon");
+    let current_dir = std::env::current_dir().unwrap();
+    
+    // Potential target directories to search for binaries
+    let mut search_paths = vec![
+        current_dir.join("target").join("debug"),
+        current_dir.join("target").join("release"),
+    ];
 
-    if cli_src.exists() {
-        fs::copy(&cli_src, bin_dir.join("cowen")).unwrap();
+    // If CARGO_TARGET_DIR is set, prioritize it
+    if let Ok(target_env) = std::env::var("CARGO_TARGET_DIR") {
+        let base = if target_env.starts_with('/') {
+            std::path::PathBuf::from(target_env)
+        } else {
+            current_dir.join(target_env)
+        };
+        
+        // Add common subdirectories within the custom target dir
+        search_paths.insert(0, base.join("x86_64-unknown-linux-gnu").join("release"));
+        search_paths.insert(1, base.join("x86_64-unknown-linux-gnu").join("debug"));
+        search_paths.insert(2, base.join("release"));
+        search_paths.insert(3, base.join("debug"));
     }
-    if daemon_src.exists() {
-        fs::copy(&daemon_src, bin_dir.join("cowen-daemon")).unwrap();
+
+    let mut cli_found = false;
+    let mut daemon_found = false;
+
+    for path in search_paths {
+        let cli_src = path.join("cowen");
+        let daemon_src = path.join("cowen-daemon");
+
+        if !cli_found && cli_src.exists() {
+            fs::copy(&cli_src, bin_dir.join("cowen")).unwrap();
+            cli_found = true;
+        }
+        if !daemon_found && daemon_src.exists() {
+            fs::copy(&daemon_src, bin_dir.join("cowen-daemon")).unwrap();
+            daemon_found = true;
+        }
+        
+        if cli_found && daemon_found { break; }
+    }
+
+    if !cli_found {
+        panic!("Could not find 'cowen' binary in any expected target directory. Search paths: {:?}", 
+            current_dir); // Simplification for error reporting
     }
 
     (dir, cowen_home.to_str().unwrap().to_string())
