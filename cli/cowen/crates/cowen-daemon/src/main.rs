@@ -339,7 +339,10 @@ fn run_windows_service() -> Result<()> {
 }
 
 #[cfg(windows)]
-fn ffi_service_main(arguments: Vec<std::ffi::OsString>) {
+windows_service::define_windows_service!(ffi_service_main, my_service_main);
+
+#[cfg(windows)]
+fn my_service_main(arguments: Vec<std::ffi::OsString>) {
     if let Err(e) = run_service(arguments) {
         tracing::error!("Windows Service error: {}", e);
     }

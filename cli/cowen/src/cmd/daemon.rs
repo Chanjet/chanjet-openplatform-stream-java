@@ -7,6 +7,8 @@ use std::process::Command;
 use std::sync::Arc;
 use cowen_common::vault::Vault;
 use cowen_common::daemon::DaemonService;
+use std::fs;
+use tracing::{info, error};
 
 use cowen_monitor::telemetry::TelemetryControl;
 
@@ -578,7 +580,7 @@ pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<
                 if let Some(pid_str) = content.lines().next() {
                     if let Ok(pid_u32) = pid_str.trim().parse::<u32>() {
                         eprintln!("🛑 Stopping master daemon (PID: {})...", pid_u32);
-                        kill_process(pid_u32);
+                        let _ = std::process::Command::new("taskkill").args(&["/F", "/PID", &pid_u32.to_string()]).status();
 
                         process_dead = false;
                         use sysinfo::{System, Pid, ProcessesToUpdate};
