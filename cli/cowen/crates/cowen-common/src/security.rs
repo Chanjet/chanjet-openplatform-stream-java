@@ -8,7 +8,7 @@ use rand::{RngCore, thread_rng};
 use std::path::Path;
 
 pub fn get_machine_fingerprint() -> CowenResult<String> {
-    match cowen_infra::sys::get_sys_fingerprint().get_machine_id() {
+    match cowen_sys::get_sys_fingerprint().get_machine_id() {
         Ok(uuid) => Ok(uuid),
         Err(e) => Err(CowenError::Security(format!("Failed to retrieve machine fingerprint: {}", e))),
     }

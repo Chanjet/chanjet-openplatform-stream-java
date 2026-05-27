@@ -184,7 +184,7 @@ impl FileStore {
         } else {
             data.as_bytes().to_vec()
         };
-        cowen_infra::sys::fs::secure_open_write(&path)
+        cowen_sys::fs::secure_open_write(&path)
             .and_then(|mut f| {
                 use std::io::Write;
                 f.write_all(&final_data)

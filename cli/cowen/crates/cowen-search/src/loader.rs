@@ -1,5 +1,5 @@
 use crate::{SearchDocument, SearchProvider};
-use cowen_infra::PluginLoader;
+use cowen_sys::plugin::PluginLoader;
 use std::ffi::c_char;
 use tracing::warn;
 

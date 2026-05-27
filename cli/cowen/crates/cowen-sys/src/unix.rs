@@ -17,7 +17,7 @@ impl UnixProcessManager {
 }
 
 #[async_trait::async_trait]
-impl crate::sys::ProcessManager for UnixProcessManager {
+impl cowen_infra::sys::ProcessManager for UnixProcessManager {
     fn current_pid(&self) -> u32 {
         std::process::id()
     }
@@ -65,6 +65,23 @@ impl crate::sys::ProcessManager for UnixProcessManager {
         let child = cmd.spawn()?;
         Ok(child.id())
     }
+
+    async fn get_port_occupier(&self, port: u16) -> Option<u32> {
+        let output = std::process::Command::new("lsof")
+            .arg("-i")
+            .arg(format!("tcp:{}", port))
+            .arg("-t")
+            .output();
+        if let Ok(out) = output {
+            let pid_str = String::from_utf8_lossy(&out.stdout);
+            for line in pid_str.lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    return Some(pid);
+                }
+            }
+        }
+        None
+    }
 }
 
 pub struct UnixIpcBinder;
@@ -76,7 +93,7 @@ impl UnixIpcBinder {
 }
 
 #[async_trait::async_trait]
-impl crate::sys::IpcBinder for UnixIpcBinder {
+impl cowen_infra::sys::IpcBinder for UnixIpcBinder {
     async fn bind_ipc_listener(&self, addr: &str) -> anyhow::Result<TcpListener> {
         let listener = TcpListener::bind(addr).await?;
         Ok(listener)

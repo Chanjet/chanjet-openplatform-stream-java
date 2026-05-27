@@ -9,7 +9,7 @@ pub enum ServiceAction {
 
 pub async fn execute(action: ServiceAction) -> Result<()> {
     let bin_name = cowen_common::utils::get_bin_name();
-    let manager = cowen_infra::sys::get_service_manager();
+    let manager = cowen_sys::get_service_manager();
     
     match action {
         ServiceAction::Install => {

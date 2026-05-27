@@ -13,7 +13,7 @@ pub fn get_bin_name() -> String {
 
 /// 设置当前进程的显示名称 (跨平台实现)
 pub fn set_process_name(name: &str) {
-    crate::sys::set_process_name(name);
+    let _ = name;
 }
 
 /// 检查端口占用情况，返回 PID 和 进程名

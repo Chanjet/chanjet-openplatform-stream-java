@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
 
     if args.run_as_service {
         let pid_file_clone = cowen_common::config::get_app_dir().join("master_daemon.pid");
-        return cowen_infra::sys::get_process_manager().run_as_service(Box::new(move || {
+        return cowen_sys::get_process_manager().run_as_service(Box::new(move || {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(run_main(&pid_file_clone, None))
         })).await;
@@ -70,7 +70,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     let target_ipc_token_file = target_ipc_port_file.with_file_name("ipc.token");
     let ipc_token = uuid::Uuid::new_v4().to_string();
     
-    let _ = cowen_infra::sys::get_ipc_binder().save_ipc_token(&target_ipc_token_file, &ipc_token).await;
+    let _ = cowen_sys::get_ipc_binder().save_ipc_token(&target_ipc_token_file, &ipc_token).await;
     
     cowen_common::utils::secure_write(&target_ipc_port_file, ipc_port.to_string())?;
 
@@ -155,7 +155,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     // Signal-aware accept loop
     let (stop_tx, mut stop_rx) = tokio::sync::mpsc::channel(1);
 
-    cowen_infra::sys::get_process_manager().set_stop_channel(stop_tx.clone());
+    cowen_sys::get_process_manager().set_stop_channel(stop_tx.clone());
 
     let stop_tx_ctrl_c = stop_tx.clone();
     tokio::spawn(async move {

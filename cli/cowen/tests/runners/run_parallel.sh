@@ -98,8 +98,9 @@ fi
 # 🔌 🔌 ENSURE SEARCH PLUGINS ARE SIGNED FOR TESTS
 PLUGIN_NAME="libcowen_search_embedding"
 DYLIB_EXT="so"
-if [[ "$OSTYPE" == "darwin"* ]]; then DYLIB_EXT="dylib"; fi
-if [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* ]]; then DYLIB_EXT="dll"; PLUGIN_NAME="cowen_search_embedding"; fi
+LOCAL_OS_TYPE=${OS_TYPE:-$(uname -s)}
+if [[ "$LOCAL_OS_TYPE" == "Darwin" ]]; then DYLIB_EXT="dylib"; fi
+if [[ "$LOCAL_OS_TYPE" == *"MINGW"* || "$LOCAL_OS_TYPE" == *"MSYS"* || "$LOCAL_OS_TYPE" == *"CYGWIN"* ]]; then DYLIB_EXT="dll"; PLUGIN_NAME="cowen_search_embedding"; fi
 
 BUILD_DIR="$(dirname "$BINARY_PATH")"
 PLUGIN_SRC="$BUILD_DIR/$PLUGIN_NAME.$DYLIB_EXT"

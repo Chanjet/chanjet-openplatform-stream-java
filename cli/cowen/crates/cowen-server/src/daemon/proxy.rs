@@ -48,7 +48,7 @@ pub async fn start_proxy(
             SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4().map_err(|e| CowenError::Store(format!("Failed to create socket: {}", e)))?,
             SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6().map_err(|e| CowenError::Store(format!("Failed to create socket: {}", e)))?,
         };
-        let _ = cowen_infra::sys::configure_socket_reuse(&socket);
+        let _ = cowen_sys::configure_socket_reuse(&socket);
 
         match socket.bind(addr) {
             Ok(_) => {

@@ -45,6 +45,10 @@ impl ProcessManager for MockWindowsSys {
         let child = cmd.spawn()?;
         Ok(child.id())
     }
+
+    async fn get_port_occupier(&self, _port: u16) -> Option<u32> {
+        None
+    }
 }
 
 #[async_trait::async_trait]

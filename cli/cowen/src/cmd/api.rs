@@ -65,7 +65,7 @@ pub async fn list(
         // Try to load the enabled plugin from config
         if !app_cfg.plugins.is_empty() {
             let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
-            let discovered = cowen_infra::discover_plugins(&plugins_dir);
+            let discovered = cowen_sys::discover_plugins(&plugins_dir);
             
             // Iterate over all enabled plugins in config
             for plugin_name in &app_cfg.plugins {
@@ -75,7 +75,7 @@ pub async fn list(
                 }) {
                     // Load and check trait
                     let mut is_search_provider = false;
-                    match cowen_infra::PluginLoader::new(&path) {
+                    match cowen_sys::PluginLoader::new(&path) {
                         Ok(loader) => {
                             unsafe {
                                 if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const std::os::raw::c_char>(b"v1_trait") {

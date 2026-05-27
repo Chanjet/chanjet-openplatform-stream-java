@@ -11,6 +11,7 @@ cowen-monitor = { path = "../cowen-monitor" }
 cowen-auth = { path = "../cowen-auth" }
 cowen-store = { path = "../cowen-store", features = ["all-stores"] }
 cowen-infra = { path = "../cowen-infra" }
+cowen-sys = { path = "../cowen-sys" }
 
 tokio = { version = "1.50", features = ["full"] }
 tokio-stream = "0.1"

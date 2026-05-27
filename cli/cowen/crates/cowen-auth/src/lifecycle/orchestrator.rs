@@ -209,7 +209,7 @@ pub fn spawn_finalizer(profile: &str, session_id: &str) -> CowenResult<u32> {
     .stdout(file.try_clone().map_err(CowenError::from)?)
     .stderr(file);
 
-    let child_id = cowen_infra::sys::get_process_manager().spawn_daemon(&mut cmd)
+    let child_id = cowen_sys::get_process_manager().spawn_daemon(&mut cmd)
         .map_err(|e| CowenError::Auth(e.to_string()))?;
     Ok(child_id)
 }

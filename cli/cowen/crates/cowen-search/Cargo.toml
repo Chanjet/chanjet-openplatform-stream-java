@@ -10,6 +10,7 @@ libloading = "0.8"
 tracing = "0.1"
 anyhow = "1.0"
 cowen-infra = { path = "../cowen-infra" }
+cowen-sys = { path = "../cowen-sys" }
 
 [dev-dependencies]
 tempfile = "3.8"

@@ -41,7 +41,7 @@ impl FileStore {
             json.into_bytes()
         };
 
-        cowen_infra::sys::fs::secure_open_write(&temp_path)
+        cowen_sys::fs::secure_open_write(&temp_path)
             .and_then(|mut f| {
                 use std::io::Write;
                 f.write_all(&data)

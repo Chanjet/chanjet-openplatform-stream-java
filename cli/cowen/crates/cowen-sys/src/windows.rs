@@ -1,7 +1,7 @@
 use std::path::Path;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Sender;
-use crate::sys::{ProcessManager, IpcBinder, SysFingerprint};
+use cowen_infra::sys::{ProcessManager, IpcBinder, SysFingerprint};
 
 pub struct WinProcessManager {
     stop_tx: std::sync::Mutex<Option<Sender<()>>>,
@@ -93,6 +93,10 @@ impl ProcessManager for WinProcessManager {
         let child = cmd.spawn()?;
         Ok(child.id())
     }
+
+    async fn get_port_occupier(&self, _port: u16) -> Option<u32> {
+        None
+    }
 }
 
 pub struct WinServiceManager;
@@ -104,7 +108,7 @@ impl WinServiceManager {
 }
 
 #[async_trait::async_trait]
-impl crate::sys::ServiceManager for WinServiceManager {
+impl cowen_infra::sys::ServiceManager for WinServiceManager {
     async fn install(&self, bin_name: &str, bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
         let service_name = format!("{}Daemon", bin_name);
         let status = std::process::Command::new("sc")
@@ -150,17 +154,17 @@ impl crate::sys::ServiceManager for WinServiceManager {
             Ok(out) if out.status.success() => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 if stdout.contains("RUNNING") {
-                    (true, crate::sys::STATUS_ACTIVE)
+                    (true, cowen_infra::sys::STATUS_ACTIVE)
                 } else if stdout.contains("STOPPED") {
-                    (true, crate::sys::STATUS_INACTIVE)
+                    (true, cowen_infra::sys::STATUS_INACTIVE)
                 } else {
-                    (true, crate::sys::STATUS_UNKNOWN)
+                    (true, cowen_infra::sys::STATUS_UNKNOWN)
                 }
             }
-            _ => (false, crate::sys::STATUS_NOT_REGISTERED),
+            _ => (false, cowen_infra::sys::STATUS_NOT_REGISTERED),
         };
 
-        Ok(crate::sys::format_service_status("Windows", &service_name, is_exists, status_str))
+        Ok(cowen_infra::sys::format_service_status("Windows", &service_name, is_exists, status_str))
     }
 }
 
@@ -273,7 +277,7 @@ impl SysFingerprint for WinFingerprint {
                 }
             }
         }
-        crate::sys::derive_fallback_fingerprint("windows")
+        cowen_infra::sys::derive_fallback_fingerprint("windows")
     }
 }
 

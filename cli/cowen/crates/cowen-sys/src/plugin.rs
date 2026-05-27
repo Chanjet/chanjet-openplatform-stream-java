@@ -14,7 +14,7 @@ impl PluginLoader {
             return Err(anyhow::anyhow!("Plugin path is insecure (wrong owner or world-writable)"));
         }
         
-        crate::pki::verify_plugin_bundle(p)?;
+        cowen_infra::pki::verify_plugin_bundle(p)?;
         
         let lib = unsafe { Library::new(p)? };
         Ok(Self { lib })
@@ -33,7 +33,7 @@ impl PluginLoader {
 }
 
 pub fn is_secure_plugin_path(path: &Path) -> bool {
-    let secure = crate::sys::fs::is_file_secure(path);
+    let secure = crate::fs::is_file_secure(path);
     if !secure {
         tracing::warn!("Plugin file or its parent directory {:?} is insecure (wrong owner or world-writable)", path);
     }
@@ -42,7 +42,7 @@ pub fn is_secure_plugin_path(path: &Path) -> bool {
 
 pub fn discover_plugins<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
     let mut plugins = Vec::new();
-    let supported_exts = crate::sys::get_supported_plugin_extensions();
+    let supported_exts = crate::get_supported_plugin_extensions();
 
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -50,7 +50,7 @@ pub fn discover_plugins<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
             if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                 if supported_exts.contains(&ext) {
                     if is_secure_plugin_path(&path) {
-                        if crate::pki::verify_plugin_bundle(&path).is_ok() {
+                        if cowen_infra::pki::verify_plugin_bundle(&path).is_ok() {
                             tracing::info!("Discovered plugin candidate: {:?}", path);
                             plugins.push(path);
                         } else {

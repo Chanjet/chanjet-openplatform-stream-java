@@ -761,6 +761,7 @@ dependencies = [
  "cowen-search-embedding",
  "cowen-server",
  "cowen-store",
+ "cowen-sys",
  "deadpool-tiberius",
  "directories",
  "fs2",
@@ -823,6 +824,7 @@ dependencies = [
  "cowen-doctor",
  "cowen-infra",
  "cowen-store",
+ "cowen-sys",
  "fs2",
  "hex",
  "indicatif",
@@ -854,6 +856,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "cowen-infra",
+ "cowen-sys",
  "hostname",
  "inventory",
  "ipnet",
@@ -906,6 +909,7 @@ dependencies = [
  "cowen-monitor",
  "cowen-server",
  "cowen-store",
+ "cowen-sys",
  "directories",
  "futures",
  "rustls",
@@ -944,7 +948,6 @@ dependencies = [
  "hex",
  "hostname",
  "libc",
- "libloading",
  "reqwest 0.12.28",
  "ring",
  "serde",
@@ -954,8 +957,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "windows-service",
- "winreg",
 ]
 
 [[package]]
@@ -992,6 +993,7 @@ version = "0.3.5"
 dependencies = [
  "anyhow",
  "cowen-infra",
+ "cowen-sys",
  "libloading",
  "serde",
  "serde_json",
@@ -1025,6 +1027,7 @@ dependencies = [
  "cowen-config",
  "cowen-infra",
  "cowen-store",
+ "cowen-sys",
  "directories",
  "fs2",
  "futures",
@@ -1069,6 +1072,7 @@ dependencies = [
  "cowen-config",
  "cowen-doctor",
  "cowen-infra",
+ "cowen-sys",
  "deadpool-tiberius",
  "fs2",
  "inventory",
@@ -1084,6 +1088,26 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "cowen-sys"
+version = "0.3.5"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "cowen-infra",
+ "directories",
+ "hostname",
+ "libc",
+ "libloading",
+ "sha2 0.10.9",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "windows-service",
+ "winreg",
 ]
 
 [[package]]

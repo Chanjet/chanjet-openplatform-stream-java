@@ -474,7 +474,7 @@ pub async fn enforce_daemon_version_sync(
                     
                     // Kill the old master daemon process to force a full process restart
                     eprintln!("🛑 Stopping master daemon (PID: {})...", info.pid);
-                    let pm = cowen_infra::sys::get_process_manager();
+                    let pm = cowen_sys::get_process_manager();
                     let _ = pm.kill_process(info.pid, false).await;
 
                     // Wait for the process to exit

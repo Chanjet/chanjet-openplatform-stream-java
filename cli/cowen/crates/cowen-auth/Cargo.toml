@@ -27,6 +27,7 @@ axum = "0.7"
 
 cowen-common = { path = "../cowen-common", features = ["reqwest"] }
 cowen-infra = { path = "../cowen-infra" }
+cowen-sys = { path = "../cowen-sys" }
 cowen-config = { path = "../cowen-config" }
 cowen-doctor = { path = "../cowen-doctor" }
 inventory = "0.3"

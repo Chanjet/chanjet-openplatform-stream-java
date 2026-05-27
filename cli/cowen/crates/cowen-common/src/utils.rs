@@ -1,8 +1,10 @@
 use crate::CowenResult;
 pub use cowen_infra::{
-    get_bin_name, mask_string, mask_sensitive_json, mask_url_query, mask_tail, mask_url, set_process_name, obfs
+    get_bin_name, mask_string, mask_sensitive_json, mask_url_query, mask_tail, mask_url, obfs
 };
+pub use cowen_sys::set_process_name;
 use serde::Serialize;
+
 
 pub fn render<T: Serialize>(data: &T, format: &str) -> CowenResult<()> {
     let output = match format {
@@ -46,7 +48,7 @@ pub fn sanitize_credential(s: &str) -> String {
 }
 
 pub fn secure_write<P: std::convert::AsRef<std::path::Path>, C: std::convert::AsRef<[u8]>>(path: P, contents: C) -> std::io::Result<()> {
-    cowen_infra::sys::fs::secure_write(path, contents)
+    cowen_sys::fs::secure_write(path, contents)
 }
 
 pub fn is_cowen_process_name(name: &str, current_exe_name: Option<&str>) -> bool {

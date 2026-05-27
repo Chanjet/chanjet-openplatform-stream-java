@@ -2,7 +2,7 @@ use anyhow::Result;
 use cowen_config::ConfigManager;
 use cowen_common::config::get_app_dir;
 use std::fs;
-use cowen_infra::PluginLoader;
+use cowen_sys::PluginLoader;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
@@ -29,7 +29,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
                 found_any = true;
                 let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
                 
-                if !cowen_infra::plugin::is_secure_plugin_path(&path) {
+                if !cowen_sys::plugin::is_secure_plugin_path(&path) {
                     println!("{:<30} | {:<10} | {:<23} | {}", file_name, "\x1b[31mUNSAFE\x1b[0m", "\x1b[31mIgnored\x1b[0m", "Insecure file permissions or owner");
                     continue;
                 }
@@ -135,7 +135,7 @@ pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
     let target_path = plugins_dir.join(file_name);
     std::fs::copy(source_path, &target_path)?;
     
-    cowen_infra::sys::fs::make_executable(&target_path)?;
+    cowen_sys::fs::make_executable(&target_path)?;
 
     let bundle_source_path = source_path.with_extension("bundle");
     if bundle_source_path.exists() && bundle_source_path.is_file() {

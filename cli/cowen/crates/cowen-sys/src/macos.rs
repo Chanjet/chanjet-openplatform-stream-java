@@ -1,5 +1,5 @@
-use crate::sys::unix::{UnixProcessManager, UnixIpcBinder};
-use crate::sys::SysFingerprint;
+use crate::unix::{UnixProcessManager, UnixIpcBinder};
+use cowen_infra::sys::SysFingerprint;
 
 pub type MacProcessManager = UnixProcessManager;
 pub type MacIpcBinder = UnixIpcBinder;
@@ -34,7 +34,7 @@ impl SysFingerprint for MacFingerprint {
         }
         
         // Fallback to basic fingerprint if ioreg fails or doesn't have UUID
-        crate::sys::derive_fallback_fingerprint("macos")
+        cowen_infra::sys::derive_fallback_fingerprint("macos")
     }
 }
 
@@ -51,11 +51,11 @@ fn get_macos_plist_path(bin_name: &str) -> anyhow::Result<std::path::PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
         .home_dir()
         .to_path_buf();
-    Ok(home.join("Library").join("LaunchAgents").join(format!("{}.{}.daemon.plist", crate::sys::SERVICE_PREFIX, bin_name)))
+    Ok(home.join("Library").join("LaunchAgents").join(format!("{}.{}.daemon.plist", cowen_infra::sys::SERVICE_PREFIX, bin_name)))
 }
 
 #[async_trait::async_trait]
-impl crate::sys::ServiceManager for MacServiceManager {
+impl cowen_infra::sys::ServiceManager for MacServiceManager {
     async fn install(&self, bin_name: &str, bin_path: &str, log_dir: &str) -> anyhow::Result<()> {
         let plist_path = get_macos_plist_path(bin_name)?;
         std::fs::create_dir_all(log_dir)?;
@@ -84,7 +84,7 @@ impl crate::sys::ServiceManager for MacServiceManager {
     <string>{log_path}/service.error.log</string>
 </dict>
 </plist>"#, 
-        prefix = crate::sys::SERVICE_PREFIX,
+        prefix = cowen_infra::sys::SERVICE_PREFIX,
         bin_name = bin_name,
         bin_path = bin_path,
         log_path = log_dir);
@@ -132,7 +132,7 @@ impl crate::sys::ServiceManager for MacServiceManager {
 
     async fn status(&self, bin_name: &str) -> anyhow::Result<String> {
         let plist_path = get_macos_plist_path(bin_name)?;
-        let label = format!("{}.{}.daemon", crate::sys::SERVICE_PREFIX, bin_name);
+        let label = format!("{}.{}.daemon", cowen_infra::sys::SERVICE_PREFIX, bin_name);
 
         let output = std::process::Command::new("launchctl")
             .arg("list")
@@ -140,11 +140,11 @@ impl crate::sys::ServiceManager for MacServiceManager {
             .output();
 
         let status_str = match output {
-            Ok(out) if out.status.success() => crate::sys::STATUS_ACTIVE,
-            _ => crate::sys::STATUS_NOT_REGISTERED,
+            Ok(out) if out.status.success() => cowen_infra::sys::STATUS_ACTIVE,
+            _ => cowen_infra::sys::STATUS_NOT_REGISTERED,
         };
 
-        Ok(crate::sys::format_service_status("macOS", &label, plist_path.exists(), status_str))
+        Ok(cowen_infra::sys::format_service_status("macOS", &label, plist_path.exists(), status_str))
     }
 }
 

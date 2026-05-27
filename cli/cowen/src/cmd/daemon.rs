@@ -21,7 +21,7 @@ async fn is_daemon_alive() -> bool {
         if let Ok(content) = std::fs::read_to_string(&pid_file) {
             if let Some(pid_str) = content.lines().next() {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                    return cowen_infra::sys::get_process_manager().is_process_alive(pid).await;
+                    return cowen_sys::get_process_manager().is_process_alive(pid).await;
                 }
             }
         }
@@ -137,43 +137,30 @@ async fn preflight_check_and_bind_port(cfg_mgr: &ConfigManager) -> Result<()> {
         let is_test_env = std::env::var("COWEN_SKIP_BROWSER").is_ok() || std::env::var("CI").is_ok();
 
         // 🚀 STABILITY: Identify port occupier to distinguish leftover cowen processes from 3rd party processes
-        #[cfg(unix)]
-        {
-            let output = std::process::Command::new("lsof")
-                .arg("-i")
-                .arg(format!("tcp:{}", m_port))
-                .arg("-t")
-                .output();
-            if let Ok(out) = output {
-                let pid_str = String::from_utf8_lossy(&out.stdout);
-                for line in pid_str.lines() {
-                    if let Ok(pid) = line.trim().parse::<u32>() {
-                        use sysinfo::{System, Pid, ProcessesToUpdate};
-                        let mut s = System::new();
-                        let sys_pid = Pid::from_u32(pid);
-                        s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
-                        if let Some(proc) = s.process(sys_pid) {
-                            let name = proc.name().to_string_lossy();
-                            let current_exe_path = std::env::current_exe().ok();
-                            let current_exe_name = current_exe_path
-                                .as_ref()
-                                .and_then(|p| p.file_name().map(|s| s.to_string_lossy()));
-                            
-                            let is_target = cowen_common::utils::is_cowen_process_name(
-                                &name,
-                                current_exe_name.as_deref(),
-                            );
-                                
-                            if is_target {
-                                is_cowen_occupier = true;
-                                if !is_test_env {
-                                    tracing::warn!(target: "sys", "Port {} occupied by leftover cowen process (PID: {}). Killing it for recovery...", m_port, pid);
-                                    let _ = cowen_infra::sys::get_process_manager().kill_process(pid, true).await;
-                                    killed_old = true;
-                                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                                }
-                            }
-                        }
+        if let Some(pid) = cowen_sys::get_process_manager().get_port_occupier(m_port).await {
+            use sysinfo::{System, Pid, ProcessesToUpdate};
+            let mut s = System::new();
+            let sys_pid = Pid::from_u32(pid);
+            s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
+            if let Some(proc) = s.process(sys_pid) {
+                let name = proc.name().to_string_lossy();
+                let current_exe_path = std::env::current_exe().ok();
+                let current_exe_name = current_exe_path
+                    .as_ref()
+                    .and_then(|p| p.file_name().map(|s| s.to_string_lossy()));
+                
+                let is_target = cowen_common::utils::is_cowen_process_name(
+                    &name,
+                    current_exe_name.as_deref(),
+                );
+                    
+                if is_target {
+                    is_cowen_occupier = true;
+                    if !is_test_env {
+                        tracing::warn!(target: "sys", "Port {} occupied by leftover cowen process (PID: {}). Killing it for recovery...", m_port, pid);
+                        let _ = cowen_sys::get_process_manager().kill_process(pid, true).await;
+                        killed_old = true;
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     }
                 }
             }
@@ -219,7 +206,7 @@ async fn preflight_check_and_bind_port(cfg_mgr: &ConfigManager) -> Result<()> {
                                     }
 
                                     tracing::warn!(target: "sys", "Port {} seems occupied by unresponsive cowen daemon (PID: {}). Sending SIGTERM...", m_port, pid);
-                                    let _ = cowen_infra::sys::get_process_manager().kill_process(pid, false).await;
+                                    let _ = cowen_sys::get_process_manager().kill_process(pid, false).await;
                                     killed_old = true;
                                 }
                             }
@@ -341,10 +328,7 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
                 eprintln!("ℹ️ Daemon process not running. Spawning in background...");
                 let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
                 
-                #[cfg(windows)]
-                let bin_name = "cowen-daemon.exe";
-                #[cfg(not(windows))]
-                let bin_name = "cowen-daemon";
+                let bin_name = cowen_sys::get_daemon_binary_name();
                 
                 let daemon_path = std::env::var("COWEN_DAEMON_BIN")
                     .map(std::path::PathBuf::from)
@@ -353,8 +337,8 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
                 let app_dir = cowen_common::config::get_app_dir();
                 let log_dir = app_dir.join("logs");
                 if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
-                let stdout_file = cowen_infra::sys::fs::secure_open_append(log_dir.join("daemon.stdout.log"))?;
-                let stderr_file = cowen_infra::sys::fs::secure_open_append(log_dir.join("daemon.stderr.log"))?;
+                let stdout_file = cowen_sys::fs::secure_open_append(log_dir.join("daemon.stdout.log"))?;
+                let stderr_file = cowen_sys::fs::secure_open_append(log_dir.join("daemon.stderr.log"))?;
 
                 let mut child_cmd = Command::new(&daemon_path);
                 child_cmd.arg("--ipc-port-file")
@@ -363,7 +347,7 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
                     .stdout(std::process::Stdio::from(stdout_file))
                     .stderr(std::process::Stdio::from(stderr_file));
 
-                let _child_id = cowen_infra::sys::get_process_manager().spawn_daemon(&mut child_cmd)?;
+                let _child_id = cowen_sys::get_process_manager().spawn_daemon(&mut child_cmd)?;
                 
                 tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             }
@@ -376,10 +360,7 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
                      
                      let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
                      
-                     #[cfg(windows)]
-                     let bin_name = "cowen-daemon.exe";
-                     #[cfg(not(windows))]
-                     let bin_name = "cowen-daemon";
+                     let bin_name = cowen_sys::get_daemon_binary_name();
                      
                      let daemon_path = std::env::var("COWEN_DAEMON_BIN")
                          .map(std::path::PathBuf::from)
@@ -388,8 +369,8 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
                      let app_dir = cowen_common::config::get_app_dir();
                      let log_dir = app_dir.join("logs");
                      if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
-                     let stdout_file = cowen_infra::sys::fs::secure_open_append(log_dir.join("daemon.stdout.log"))?;
-                     let stderr_file = cowen_infra::sys::fs::secure_open_append(log_dir.join("daemon.stderr.log"))?;
+                     let stdout_file = cowen_sys::fs::secure_open_append(log_dir.join("daemon.stdout.log"))?;
+                     let stderr_file = cowen_sys::fs::secure_open_append(log_dir.join("daemon.stderr.log"))?;
 
                      let mut child_cmd = Command::new(&daemon_path);
                      child_cmd.arg("--ipc-port-file")
@@ -398,7 +379,7 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
                          .stdout(std::process::Stdio::from(stdout_file))
                          .stderr(std::process::Stdio::from(stderr_file));
 
-                     let _child_id = cowen_infra::sys::get_process_manager().spawn_daemon(&mut child_cmd)?;
+                     let _child_id = cowen_sys::get_process_manager().spawn_daemon(&mut child_cmd)?;
                      
                      tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                      
@@ -425,10 +406,7 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
             
             let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
             
-            #[cfg(windows)]
-            let bin_name = "cowen-daemon.exe";
-            #[cfg(not(windows))]
-            let bin_name = "cowen-daemon";
+            let bin_name = cowen_sys::get_daemon_binary_name();
             
             let daemon_path = std::env::var("COWEN_DAEMON_BIN")
                 .map(std::path::PathBuf::from)
@@ -443,7 +421,7 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
             eprintln!("🚀 Starting cowen-daemon in foreground (PID: {})...", child_id);
             
             tokio::spawn(async move {
-                let pm = cowen_infra::sys::get_process_manager();
+                let pm = cowen_sys::get_process_manager();
                 let (tx, mut rx) = tokio::sync::mpsc::channel(1);
                 pm.set_stop_channel(tx);
                 tokio::select! {

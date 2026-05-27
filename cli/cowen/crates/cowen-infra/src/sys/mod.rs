@@ -1,14 +1,3 @@
-use std::sync::Arc;
-
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "linux")]
-mod linux;
-#[cfg(unix)]
-pub mod unix;
-#[cfg(windows)]
-mod windows;
-
 pub mod mock;
 
 pub mod traits {
@@ -32,6 +21,8 @@ pub mod traits {
         async fn run_as_service(&self, f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>) -> anyhow::Result<()>;
         /// 跨平台常驻后台进程启动
         fn spawn_daemon(&self, cmd: &mut std::process::Command) -> anyhow::Result<u32>;
+        /// 获取占用指定本地 TCP 端口的物理进程 PID（若无占用或平台不支持则返回 None）
+        async fn get_port_occupier(&self, port: u16) -> Option<u32>;
     }
 
     pub trait SysFingerprint: Send + Sync {
@@ -61,97 +52,6 @@ pub mod traits {
 }
 
 pub use traits::{ProcessManager, SysFingerprint, IpcBinder, ServiceManager};
-
-pub fn get_process_manager() -> Arc<dyn ProcessManager> {
-    #[cfg(target_os = "macos")]
-    return Arc::new(macos::MacProcessManager::new());
-    
-    #[cfg(target_os = "linux")]
-    return Arc::new(linux::LinuxProcessManager::new());
-    
-    #[cfg(windows)]
-    return Arc::new(windows::WinProcessManager::new());
-    
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    compile_error!("Unsupported platform!");
-}
-
-pub fn get_sys_fingerprint() -> Arc<dyn SysFingerprint> {
-    #[cfg(target_os = "macos")]
-    return Arc::new(macos::MacFingerprint::new());
-    
-    #[cfg(target_os = "linux")]
-    return Arc::new(linux::LinuxFingerprint::new());
-    
-    #[cfg(windows)]
-    return Arc::new(windows::WinFingerprint::new());
-    
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    compile_error!("Unsupported platform!");
-}
-
-pub fn get_ipc_binder() -> Arc<dyn IpcBinder> {
-    #[cfg(target_os = "macos")]
-    return Arc::new(macos::MacIpcBinder::new());
-    
-    #[cfg(target_os = "linux")]
-    return Arc::new(linux::LinuxIpcBinder::new());
-    
-    #[cfg(windows)]
-    return Arc::new(windows::WinIpcBinder::new());
-    
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    compile_error!("Unsupported platform!");
-}
-
-pub fn get_service_manager() -> Arc<dyn ServiceManager> {
-    #[cfg(target_os = "macos")]
-    return Arc::new(macos::MacServiceManager::new());
-    
-    #[cfg(target_os = "linux")]
-    return Arc::new(linux::LinuxServiceManager::new());
-    
-    #[cfg(windows)]
-    return Arc::new(windows::WinServiceManager::new());
-    
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    compile_error!("Unsupported platform!");
-}
-
-#[cfg(target_os = "macos")]
-pub use macos::set_process_name;
-#[cfg(target_os = "linux")]
-pub use linux::set_process_name;
-#[cfg(windows)]
-pub use windows::set_process_name;
-#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-pub fn set_process_name(name: &str) {
-    let _ = name;
-}
-
-#[cfg(unix)]
-pub use unix::fs;
-#[cfg(windows)]
-pub use windows::fs;
-
-pub fn get_supported_plugin_extensions() -> &'static [&'static str] {
-    #[cfg(windows)]
-    return &["dll"];
-    #[cfg(target_os = "macos")]
-    return &["dylib", "so"];
-    #[cfg(not(any(windows, target_os = "macos")))]
-    return &["so"];
-}
-
-pub fn configure_socket_reuse(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
-    socket.set_reuseaddr(true)?;
-    #[cfg(unix)]
-    {
-        socket.set_reuseport(true)?;
-    }
-    Ok(())
-}
-
 
 pub const SERVICE_PREFIX: &str = "com.chanjet";
 
@@ -186,6 +86,7 @@ pub fn format_service_status(platform_title: &str, service_name: &str, is_config
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use crate::sys::mock::MockWindowsSys;
 
     #[tokio::test]
@@ -203,29 +104,5 @@ mod tests {
         assert!(service.uninstall("test").await.is_ok());
         let status = service.status("test").await.unwrap();
         assert!(status.contains("REGISTERED"));
-    }
-
-    #[test]
-    fn test_sys_fs_secure_operations() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("secure_test.txt");
-
-        // Test secure_write
-        assert!(fs::secure_write(&path, b"hello world").is_ok());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello world");
-
-        // Test secure_open_write
-        let open_res = fs::secure_open_write(&path);
-        assert!(open_res.is_ok());
-
-        // Test secure_open_append
-        let append_res = fs::secure_open_append(&path);
-        assert!(append_res.is_ok());
-
-        // Test make_executable
-        assert!(fs::make_executable(&path).is_ok());
-
-        // Test is_file_secure
-        assert!(fs::is_file_secure(&path));
     }
 }

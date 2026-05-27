@@ -47,7 +47,7 @@ get_source_bin() {
     for b in "${bins[@]}"; do
         if [ -f "$b" ]; then
             local t=0
-            if [[ "$OSTYPE" == "darwin"* ]]; then
+            if [[ "$OS_TYPE" == "Darwin" ]]; then
                 t=$(stat -f %m "$b")
             else
                 t=$(stat -c %Y "$b")

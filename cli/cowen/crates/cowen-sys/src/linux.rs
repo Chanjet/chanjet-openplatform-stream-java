@@ -1,5 +1,5 @@
-use crate::sys::unix::{UnixProcessManager, UnixIpcBinder};
-use crate::sys::SysFingerprint;
+use crate::unix::{UnixProcessManager, UnixIpcBinder};
+use cowen_infra::sys::SysFingerprint;
 
 pub type LinuxProcessManager = UnixProcessManager;
 pub type LinuxIpcBinder = UnixIpcBinder;
@@ -29,7 +29,7 @@ impl SysFingerprint for LinuxFingerprint {
         }
         
         // Fallback to basic fingerprint
-        crate::sys::derive_fallback_fingerprint("linux")
+        cowen_infra::sys::derive_fallback_fingerprint("linux")
     }
 }
 
@@ -50,7 +50,7 @@ fn get_linux_service_path(bin_name: &str) -> anyhow::Result<std::path::PathBuf> 
 }
 
 #[async_trait::async_trait]
-impl crate::sys::ServiceManager for LinuxServiceManager {
+impl cowen_infra::sys::ServiceManager for LinuxServiceManager {
     async fn install(&self, bin_name: &str, bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
         let service_path = get_linux_service_path(bin_name)?;
         
@@ -66,7 +66,7 @@ Restart=always
 [Install]
 WantedBy=default.target
 "#, 
-        prefix = crate::sys::SERVICE_PREFIX,
+        prefix = cowen_infra::sys::SERVICE_PREFIX,
         bin_name = bin_name,
         bin_path = bin_path);
 
@@ -122,17 +122,17 @@ WantedBy=default.target
             Ok(out) => {
                 let state = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if state == "active" {
-                    crate::sys::STATUS_ACTIVE
+                    cowen_infra::sys::STATUS_ACTIVE
                 } else if state == "inactive" || state == "failed" {
-                    crate::sys::STATUS_INACTIVE
+                    cowen_infra::sys::STATUS_INACTIVE
                 } else {
-                    crate::sys::STATUS_UNKNOWN
+                    cowen_infra::sys::STATUS_UNKNOWN
                 }
             }
-            _ => crate::sys::STATUS_UNKNOWN,
+            _ => cowen_infra::sys::STATUS_UNKNOWN,
         };
 
-        Ok(crate::sys::format_service_status("Linux", &unit_name, service_path.exists(), status_str))
+        Ok(cowen_infra::sys::format_service_status("Linux", &unit_name, service_path.exists(), status_str))
     }
 }
 

@@ -48,6 +48,7 @@ cowen-store = { path = "crates/cowen-store", features = ["all-stores"] }
 cowen-auth = { path = "crates/cowen-auth" }
 cowen-server = { path = "crates/cowen-server" }
 cowen-infra = { path = "crates/cowen-infra" }
+cowen-sys = { path = "crates/cowen-sys" }
 cowen-config = { path = "crates/cowen-config" }
 cowen-monitor = { path = "crates/cowen-monitor" }
 cowen-search = { path = "crates/cowen-search" }
