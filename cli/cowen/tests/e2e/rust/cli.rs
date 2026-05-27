@@ -68,3 +68,79 @@ fn test_config_list_json_format() {
     
     let _ = dir;
 }
+
+#[test]
+fn test_reset_specific_profile_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_str().unwrap().to_string();
+    
+    // Create basic app config
+    let app_config_path = dir.path().join("app.yaml");
+    std::fs::write(&app_config_path, "openapi_url: \"http://localhost:8080\"").unwrap();
+
+    // Create profile keep
+    let profile_keep_config = dir.path().join("profile_keep.yaml");
+    std::fs::write(&profile_keep_config, "app_key: \"keep_key\"").unwrap();
+    let profile_keep_db = dir.path().join("profile_keep.db");
+    std::fs::write(&profile_keep_db, "mock keep db").unwrap();
+
+    // Create profile reset
+    let profile_reset_config = dir.path().join("profile_reset.yaml");
+    std::fs::write(&profile_reset_config, "app_key: \"reset_key\"").unwrap();
+    let profile_reset_db = dir.path().join("profile_reset.db");
+    std::fs::write(&profile_reset_db, "mock reset db").unwrap();
+
+    // Run reset command for profile_reset
+    let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
+    cmd.args(&["-p", "profile_reset", "reset"]);
+    cmd.assert().success();
+
+    // Assert profile_reset is deleted
+    assert!(!profile_reset_config.exists(), "profile_reset.yaml should have been deleted");
+    assert!(!profile_reset_db.exists(), "profile_reset.db should have been deleted");
+
+    // Assert profile_keep and app.yaml are kept intact
+    assert!(profile_keep_config.exists(), "profile_keep.yaml should NOT have been deleted");
+    assert!(profile_keep_db.exists(), "profile_keep.db should NOT have been deleted");
+    assert!(app_config_path.exists(), "app.yaml should NOT have been deleted");
+}
+
+#[test]
+fn test_reset_all_profiles() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().to_str().unwrap().to_string();
+    
+    // Create basic app config
+    let app_config_path = dir.path().join("app.yaml");
+    std::fs::write(&app_config_path, "openapi_url: \"http://localhost:8080\"").unwrap();
+
+    // Create profile keep
+    let profile_keep_config = dir.path().join("profile_keep.yaml");
+    std::fs::write(&profile_keep_config, "app_key: \"keep_key\"").unwrap();
+    let profile_keep_db = dir.path().join("profile_keep.db");
+    std::fs::write(&profile_keep_db, "mock keep db").unwrap();
+
+    // Create profile reset
+    let profile_reset_config = dir.path().join("profile_reset.yaml");
+    std::fs::write(&profile_reset_config, "app_key: \"reset_key\"").unwrap();
+    let profile_reset_db = dir.path().join("profile_reset.db");
+    std::fs::write(&profile_reset_db, "mock reset db").unwrap();
+
+    // Run reset command with -a
+    let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
+    cmd.args(&["reset", "-a"]);
+    cmd.assert().success();
+
+    // Assert ALL profiles and configurations are deleted
+    assert!(!profile_reset_config.exists(), "profile_reset.yaml should have been deleted");
+    assert!(!profile_reset_db.exists(), "profile_reset.db should have been deleted");
+    assert!(!profile_keep_config.exists(), "profile_keep.yaml should have been deleted");
+    assert!(!profile_keep_db.exists(), "profile_keep.db should have been deleted");
+    assert!(!app_config_path.exists(), "app.yaml should have been deleted");
+}
+
+

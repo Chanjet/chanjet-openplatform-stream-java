@@ -126,6 +126,10 @@ pub enum Commands {
         /// Dry run: 列出将要删除的文件，但不实际删除
         #[arg(long)]
         dry_run: bool,
+
+        /// 重置所有环境配置状态与遥测数据
+        #[arg(short, long)]
+        all: bool,
     },
     /// 生成或自动安装命令行自动补全脚本 (Bash, Zsh, Fish)
     Completion {
@@ -813,7 +817,10 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
             None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format, *all).await?,
         },
-        Commands::Reset { dry_run } => cmd::system::reset(&active_profile, Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus()), *dry_run).await?,
+        Commands::Reset { dry_run, all } => {
+            let target_profile = if *all { None } else { Some(active_profile.clone()) };
+            cmd::system::reset(target_profile.as_deref(), Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus()), *dry_run).await?
+        }
         Commands::Completion { shell, install, uninstall } => {
             if *uninstall { cmd::completion::uninstall_completion()?; }
             else if *install { cmd::completion::install_completion(*shell)?; }

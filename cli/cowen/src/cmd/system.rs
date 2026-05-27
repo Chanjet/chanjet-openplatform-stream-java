@@ -321,7 +321,7 @@ impl StatusCollector for ProviderCollector {
 }
 
 pub async fn reset(
-    profile: &str,
+    target_profile: Option<&str>,
     _vault: Option<&dyn Vault>,
     _cfg_mgr: &ConfigManager,
     event_bus: Option<&cowen_common::events::EventBus>,
@@ -334,16 +334,18 @@ pub async fn reset(
     let app_dir = cowen_common::config::get_app_dir();
     
     let engine = ResetEngine::new()
-        .with(Box::new(ConfigResetTask::new(app_dir.clone())))
-        .with(Box::new(TelemetryResetTask::new(app_dir.clone())));
+        .with(Box::new(ConfigResetTask::new(app_dir.clone(), target_profile.map(|s| s.to_string()))))
+        .with(Box::new(TelemetryResetTask::new(app_dir.clone(), target_profile.map(|s| s.to_string()))));
 
     engine.run(dry_run).await?;
 
     if !dry_run {
         if let Some(bus) = event_bus {
-            bus.publish(cowen_common::events::GlobalEvent::ProfileDeleted {
-                name: profile.to_string(),
-            });
+            if let Some(profile) = target_profile {
+                bus.publish(cowen_common::events::GlobalEvent::ProfileDeleted {
+                    name: profile.to_string(),
+                });
+            }
         }
     }
 
