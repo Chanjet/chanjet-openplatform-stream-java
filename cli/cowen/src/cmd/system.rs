@@ -322,7 +322,7 @@ impl StatusCollector for ProviderCollector {
 
 pub async fn reset(
     target_profile: Option<&str>,
-    _vault: Option<&dyn Vault>,
+    vault: Option<&dyn Vault>,
     _cfg_mgr: &ConfigManager,
     event_bus: Option<&cowen_common::events::EventBus>,
     dry_run: bool,
@@ -340,6 +340,11 @@ pub async fn reset(
     engine.run(dry_run).await?;
 
     if !dry_run {
+        if let Some(profile) = target_profile {
+            if let Some(v) = vault {
+                let _ = v.clear_profile(profile).await;
+            }
+        }
         if let Some(bus) = event_bus {
             if let Some(profile) = target_profile {
                 bus.publish(cowen_common::events::GlobalEvent::ProfileDeleted {

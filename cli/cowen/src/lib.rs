@@ -818,7 +818,11 @@ pub async fn run(cli: Cli) -> Result<()> {
             None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format, *all).await?,
         },
         Commands::Reset { dry_run, all } => {
-            let target_profile = if *all { None } else { Some(active_profile.clone()) };
+            let target_profile = if cli.profile.is_some() && !*all {
+                Some(active_profile.clone())
+            } else {
+                None
+            };
             cmd::system::reset(target_profile.as_deref(), Some(vault.as_ref()), &cfg_mgr, Some(cowen_common::events::event_bus()), *dry_run).await?
         }
         Commands::Completion { shell, install, uninstall } => {
