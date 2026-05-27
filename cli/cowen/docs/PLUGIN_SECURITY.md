@@ -115,5 +115,43 @@ COWEN_DEV_MODE=1 cowen plugins list
 **安全管理与分发原则：**
 1. **私密性隔离**：上述私钥仅托管于内部可信私有 Git 仓库，由 `Makefile` 的 `build-plugins` 阶段在本地或 CI 中自动调用，**绝对不会**被打包进给最终用户的 macOS `.pkg` 或其他操作系统的安装包中。
 2. **免密自动化**：生成密钥对时采用了无密码保护的纯 PKCS#8 格式，以便构建流水线执行自动化签名时无需人工干预或配置复杂的加解密管道。其安全性完全由 Git 内部代码库（如 GitLab 权限）的门禁访问控制进行物理兜底。
-3. **根公钥熔铸**：根证书公钥（Trust Anchor）绝不以传统的磁盘文件形态分发，而是直接硬编码（Hardcode）编译进 `cowen-daemon` 的 Rust 源文件数组（`OFFICIAL_ROOT_PUB_KEY`）内，从根本上杜绝了终端运行环境下的磁盘文件篡改、伪造和替换攻击。
+3. **根公钥熔铸**：根证书公钥（Trust Anchor）绝不以传统的磁盘文件形态分发，而是直接硬编码（Hardcode）编译进 `cowen-daemon` 的 Rust 源文件数组（`OFFICIAL_ROOT_PUB_KEY`）内，从根本上杜绝了终端运行环境下的磁盘文件篡改、伪造 and 替换攻击。
 4. **防检测策略适配**：为顺利在安全审查严格的代码托管平台运转，证书 JSON 字段通过重命名或设置了特定的 Bypass 策略，避免被服务端的泄漏扫描（如 Gitleaks）误伤。
+
+---
+
+## 7. 运行期安全防护架构 (Runtime Sandboxing)
+
+除了静态签名验证（分发信任），`cowen` 在运行期根据不同的挂载方案采用不同的物理隔离与沙箱限制机制。
+
+### 7.1 WebAssembly (Wasm) 的天然沙箱防御 (Guest VM Sandboxing)
+如果插件编译为 Wasm（由 `wasmtime` 驱动），`cowen` 宿主在运行期对其进行硬核的主动防御：
+1. **默认零权限 (Zero-Syscall Default)**：
+   Wasm 虚拟机默认禁绝一切直接的操作系统调用。Wasm 插件绝对无法发起原生 socket 连接、无法访问本机的宿主环境变量，也无法读取 `/etc` 等物理路径。
+2. **虚拟文件系统限制 (Pre-opened WASI Directory)**：
+   如果 Wasm 插件需要读取向量模型或存储临时索引，宿主会在初始化虚拟机时，通过 WASI 手动将一个绝对受控的专有沙箱目录（如 `~/.cowen/plugins/<PLUGIN_ID>/data`）以只读或隔离读写的方式“挂载（Pre-open）”给虚拟机。虚拟机对外部物理磁盘结构完全无感知。
+3. **网络路由白名单桥接 (Host API Network Filtering)**：
+   Wasm 内部无法直接发起 HTTP 请求。所有网络请求必须向宿主发起的特权 FFI 函数申请。宿主 `cowen` 会根据 `plugin.json` 中的 `requested_permissions` 对请求的 Domain 进行白名单审查，彻底防范插件悄悄向未知恶意 IP 泄露敏感 Key。
+4. **算力熔断保护 (Wasmtime Fuel Metering)**：
+   为了防止三方插件由于 Bug 或恶意代码写死循环拖垮 CPU，宿主在执行 Wasm 插件时启动 `wasmtime` 的 **Fuel 计数器**。一旦插件消耗的虚拟指令（Fuel）超过安全阈值，虚拟机会被宿主立即强力熔断并抛出异常，实现 100% 的可用性保护。
+
+### 7.2 RPC/Stdio 子进程的系统级沙箱防御 (OS-level Process Isolation)
+当插件以独立子进程运行并扮演 MCP Server 时，`cowen` 必须通过操作系统层面的手段进行铁笼式的围堵防护：
+1. **进程资源强锁 (Windows Job Objects & Unix rlimit)**：
+   宿主在 `spawn` 子进程时，利用 Unix 操作系统的 `setrlimit` 系统调用，将子进程的最大虚拟内存硬锁（例如最多 256MB）、限制文件描述符最大开启数量，并利用 macOS 的 App Sandbox 机制或 Windows 的 **Job Objects** 限制 CPU 核心占有率，防止 JVM/Node.js 等庞大运行时因内存泄漏耗尽用户资源。
+2. **无特权隔离运行用户 (Least Privilege Execution)**：
+   宿主绝不以当前高权限管理员身份直接执行插件子进程，而是在 Unix 环境下，通过设置 `CommandExt::uid` 将子进程降级运行在一个专门的受限用户（如 `cowen_guest`）下，使其天然失去读写其他用户敏感系统目录的权限。
+3. **基于 OS Namespace 的网络断联**：
+   在 Linux 下启动子进程时，利用 `unshare` 限制插件在完全独立的网络命名空间（Network Namespace）中运行，剥夺其物理网卡访问权。子进程只能且必须通过 `stdin/stdout` 管道或本地的 Unix Domain Socket 与宿主 `cowen` 进行双向 IPC，彻底斩断了数据从子进程直接向外网偷跑的物理通道。
+
+---
+
+## 8. 三种挂载方案在安全维度上的终极比对
+
+| 安全保障维度 | 1. 动态链接库 (Native DLL) | 2. WebAssembly (Wasm) | 3. RPC/Stdio 子进程 |
+| :--- | :--- | :--- | :--- |
+| **内存逃逸防范** | 🔴 **极差**（可直接扫描宿主主进程的全部内存） | 🟢 **天然免疫**（Wasm 内存完全物理硬隔离） | 🟢 **完美隔离**（操作系统地址空间完全独立） |
+| **敏感数据外流** | 🔴 **无法防范**（可绕过宿主直接调 system socket） | 🟢 **100% 阻断**（所有请求需过 Host API 过滤）| 🟢 **可严密防御**（通过 OS Network Namespace 禁网）|
+| **宿主磁盘劫持** | 🔴 **无法防范**（能随意删除/格式化宿主机） | 🟢 **天然免疫**（仅能在 WASI 虚拟映射区操作） | 🟡 **可防御**（需额外配置 chroot / 降权运行） |
+| **CPU/内存恶意耗尽**| 🔴 **无法防范**（死循环将直接卡死主线程） | 🟢 **极佳**（通过 Wasmtime Fuel 进行指令熔断）| 🟢 **极佳**（利用 OS rlimit / Job Objects 限制） |
+| **安全控制复杂度** | 🔴 **极高**（宿主内部无计可施，需全套外部容器）| 🟢 **极低**（虚拟机底层开箱即用，纯 Rust 实现）| 🟡 **中等**（依赖各系统专属的 IPC 与降权 API）|
