@@ -12,6 +12,7 @@ Write-Host "🔍 [Verify] 开始自动验证打包产物: $SetupExePath"
 
 # 第一步：安装
 Write-Host "➡️ 第1步: 执行安装..."
+$env:__compat_layer = "RunAsInvoker"
 cmd /c "echo. | `"$SetupExePath`""
 if ($LASTEXITCODE -ne 0) {
     Write-Error "❌ 安装包执行失败！"

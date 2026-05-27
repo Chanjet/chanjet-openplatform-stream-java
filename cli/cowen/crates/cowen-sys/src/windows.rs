@@ -111,6 +111,25 @@ impl WinServiceManager {
 impl cowen_infra::sys::ServiceManager for WinServiceManager {
     async fn install(&self, bin_name: &str, bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
         let service_name = format!("{}Daemon", bin_name);
+        
+        let check_output = std::process::Command::new("sc")
+            .arg("query")
+            .arg(&service_name)
+            .output();
+
+        let exists = check_output.map(|out| out.status.success()).unwrap_or(false);
+
+        if exists {
+            let _ = std::process::Command::new("sc")
+                .arg("config")
+                .arg(&service_name)
+                .arg("binPath=")
+                .arg(format!("\"{}\" daemon start --all --run-as-service", bin_path))
+                .status();
+            println!("✅ Windows Service '{}' already exists. Configuration updated.", service_name);
+            return Ok(());
+        }
+
         let status = std::process::Command::new("sc")
             .arg("create")
             .arg(&service_name)
