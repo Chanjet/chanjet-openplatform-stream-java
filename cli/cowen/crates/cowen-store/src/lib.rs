@@ -14,6 +14,9 @@ pub mod redis_store;
 #[cfg(any(feature = "sqlite", feature = "postgres", feature = "mysql", feature = "mssql"))]
 pub mod sql;
 
+#[cfg(feature = "sqlite")]
+pub mod dlq_store;
+
 pub mod vault_impl;
 pub mod migration;
 pub mod diagnostics;

@@ -27,7 +27,7 @@ pub async fn run(
     shutdown_gate: ShutdownGate,
 ) -> Result<()> {
     let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
-    let opts = build_client_options(config, &app_cfg);
+    let opts = build_client_options(profile, config, &app_cfg).await;
     let client = connector_sdk::GatewayClient::new(opts);
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
     let auth = cowen_auth::create_auth_client(pool.clone());
@@ -246,7 +246,16 @@ pub async fn run(
     }
 }
 
-pub fn build_client_options(config: &Config, app_cfg: &cowen_common::config::AppConfig) -> connector_sdk::ClientOptions {
+pub async fn build_client_options(profile: &str, config: &Config, app_cfg: &cowen_common::config::AppConfig) -> connector_sdk::ClientOptions {
+    let mut dlq_provider: Option<std::sync::Arc<dyn connector_sdk::dlq::DlqProvider>> = None;
+    
+    let app_dir = cowen_common::config::get_app_dir();
+    let dlq_db_path = app_dir.join(format!("{}_dlq.db", profile));
+    match cowen_store::dlq_store::sqlite::SqliteDlqProvider::new(&dlq_db_path).await {
+        Ok(provider) => dlq_provider = Some(std::sync::Arc::new(provider)),
+        Err(e) => tracing::warn!("Failed to initialize DLQ store at {:?}: {}", dlq_db_path, e),
+    }
+
     connector_sdk::ClientOptions {
         app_key: config.app_key.clone(),
         app_secret: config.app_secret.clone(),
@@ -259,6 +268,7 @@ pub fn build_client_options(config: &Config, app_cfg: &cowen_common::config::App
         reconnect_interval: Duration::from_secs(1),
         max_backoff: Duration::from_secs(60),
         exclusive: config.exclusive.unwrap_or(false),
+        dlq_provider,
     }
 }
 

@@ -6,6 +6,7 @@ import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.resilience.IResilienceManager;
 import com.chanjet.connector.api.store.ILoadBalancer;
 import com.chanjet.connector.api.store.IRouteStore;
+import com.chanjet.connector.core.dispatcher.AckManager;
 import com.chanjet.connector.core.dispatcher.MessageDispatcher;
 import com.chanjet.connector.core.loadbalance.RandomLoadBalancer;
 import com.chanjet.connector.core.resilience.InMemResilienceManager;
@@ -37,6 +38,11 @@ public class AppConfig {
     }
 
     @Bean
+    public AckManager ackManager() {
+        return new AckManager();
+    }
+
+    @Bean
     public MessageDispatcher messageDispatcher(
             NodeIdResolver nodeIdResolver,
             IRouteStore routeStore,
@@ -44,9 +50,10 @@ public class AppConfig {
             IP2PClient p2pClient,
             ILoadBalancer loadBalancer,
             ToleranceManager toleranceManager,
-            IResilienceManager resilienceManager) {
+            IResilienceManager resilienceManager,
+            AckManager ackManager) {
         
-        return new MessageDispatcher(nodeIdResolver.getResolvedNodeId(), routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager);
+        return new MessageDispatcher(nodeIdResolver.getResolvedNodeId(), routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager, ackManager);
     }
 
     @Bean

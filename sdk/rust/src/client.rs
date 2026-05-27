@@ -18,6 +18,8 @@ pub enum ConnectionState {
     DisconnectedWithError(String),
 }
 
+use crate::dlq::DlqProvider;
+
 pub struct ClientOptions {
     pub app_key: String,
     pub app_secret: String,
@@ -29,6 +31,8 @@ pub struct ClientOptions {
     pub max_backoff: Duration,
     /// Whether to use exclusive connection mode (kicks other connections for same app_key)
     pub exclusive: bool,
+    /// Optional DLQ provider for reliable message processing
+    pub dlq_provider: Option<Arc<dyn DlqProvider>>,
 }
 
 impl Default for ClientOptions {
@@ -41,6 +45,7 @@ impl Default for ClientOptions {
             reconnect_interval: Duration::from_secs(1),
             max_backoff: Duration::from_secs(60),
             exclusive: false,
+            dlq_provider: None,
         }
     }
 }
@@ -309,23 +314,52 @@ impl GatewayClient {
                                             }
                                         };
 
-                                        tracing::info!(target: "sys", msg_id = %frame.msg_id, "Processing event frame");
+                                        let msg_id_clone = frame.msg_id.clone();
+                                        
+                                        // 1. Store in DLQ first
+                                        let mut dlq_stored = false;
+                                        if let Some(dlq) = &options.dlq_provider {
+                                            if let Err(e) = dlq.store(&msg_id_clone, &text).await {
+                                                tracing::error!("Failed to store message in DLQ, rejecting dispatch. MsgID: {}, Error: {}", msg_id_clone, e);
+                                                // Send 500 ACK immediately to trigger server-side retry
+                                                let ack = AckFrame {
+                                                    msg_id: msg_id_clone,
+                                                    code: 500,
+                                                    message: format!("DLQ store failed: {}", e),
+                                                    timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+                                                };
+                                                let _ = write_tx.send(Message::Text(serde_json::to_string(&ack)?.into())).await;
+                                                continue;
+                                            }
+                                            dlq_stored = true;
+                                        }
 
-                                        let (msg_id, success) = {
+                                        tracing::info!(target: "sys", msg_id = %msg_id_clone, "Processing event frame");
+
+                                        // 2. Dispatch
+                                        let success = {
                                             let dispatcher_lock = dispatcher.lock().unwrap();
-                                            let s = match dispatcher_lock.dispatch(&frame, &encrypt_key) {
+                                            match dispatcher_lock.dispatch(&frame, &encrypt_key) {
                                                 Ok(s) => s,
                                                 Err(e) => {
-                                                    tracing::error!("Error dispatching event {}: {}", frame.msg_id, e);
+                                                    tracing::error!("Error dispatching event {}: {}", msg_id_clone, e);
                                                     false
                                                 }
-                                            };
-                                            (frame.msg_id, s)
+                                            }
                                         };
+
+                                        // 3. Remove from DLQ if successful
+                                        if success && dlq_stored {
+                                            if let Some(dlq) = &options.dlq_provider {
+                                                if let Err(e) = dlq.remove(&msg_id_clone).await {
+                                                    tracing::error!("Failed to remove message from DLQ after successful processing. MsgID: {}, Error: {}", msg_id_clone, e);
+                                                }
+                                            }
+                                        }
 
                                         // Send ACK via channel
                                         let ack = AckFrame {
-                                            msg_id,
+                                            msg_id: msg_id_clone,
                                             code: if success { 200 } else { 500 },
                                             message: if success { "success".into() } else { "failed".into() },
                                             timestamp: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,

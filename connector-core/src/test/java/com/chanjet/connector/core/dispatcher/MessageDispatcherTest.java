@@ -29,6 +29,7 @@ class MessageDispatcherTest {
     private ILoadBalancer loadBalancer;
     private ToleranceManager toleranceManager;
     private IResilienceManager resilienceManager;
+    private AckManager ackManager;
 
     @BeforeEach
     void setUp() {
@@ -38,9 +39,11 @@ class MessageDispatcherTest {
         loadBalancer = mock(ILoadBalancer.class);
         toleranceManager = mock(ToleranceManager.class);
         resilienceManager = mock(IResilienceManager.class);
+        ackManager = mock(AckManager.class);
 
         when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
         when(connectionManager.push(anyString(), any())).thenReturn(true);
+        when(ackManager.registerAck(anyString(), anyLong())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(true));
 
         dispatcher = new MessageDispatcher(
                 "node-1",
@@ -49,7 +52,8 @@ class MessageDispatcherTest {
                 p2pClient,
                 loadBalancer,
                 toleranceManager,
-                resilienceManager
+                resilienceManager,
+                ackManager
         );
     }
 
@@ -61,7 +65,7 @@ class MessageDispatcherTest {
         // 模拟本地存在连接
         when(connectionManager.getClientsByAppKey(appKey)).thenReturn(List.of("client-local"));
 
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         // 验证：直接进行本地推送，不查询 Redis
         verify(connectionManager).push(eq("client-local"), any());
@@ -81,7 +85,7 @@ class MessageDispatcherTest {
         when(loadBalancer.select(anySet())).thenReturn(Optional.of("node-2:c2"));
         when(p2pClient.forward(anyString(), any())).thenReturn(true);
 
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         // 验证：发起了 P2P 转发
         verify(p2pClient).forward(eq("node-2"), any());
@@ -99,11 +103,8 @@ class MessageDispatcherTest {
         // 2. 集群路由也为空 (模拟最糟糕情况)
         when(routeStore.getNodes(appKey)).thenReturn(Collections.emptySet());
 
-        try {
-            dispatcher.dispatch(frame);
-        } catch (com.chanjet.connector.api.exception.NoOnlineClientException e) {
-            // Expected
-        }
+        boolean result = dispatcher.dispatch(frame).join();
+        org.junit.jupiter.api.Assertions.assertFalse(result);
 
         // 验证：因为全部推送失败，绝对不能调用 handleReconnect (即不能清除容忍计时)
         verify(toleranceManager, never()).handleReconnect(anyString());

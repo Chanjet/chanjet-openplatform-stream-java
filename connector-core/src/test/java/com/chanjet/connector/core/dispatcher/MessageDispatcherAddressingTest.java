@@ -39,7 +39,7 @@ class MessageDispatcherAddressingTest {
 
     @BeforeEach
     void setUp() {
-        dispatcher = new MessageDispatcher(LOCAL_NODE, routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager);
+        dispatcher = new MessageDispatcher(LOCAL_NODE, routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager, new com.chanjet.connector.core.dispatcher.AckManager());
     }
 
     @Test
@@ -56,7 +56,7 @@ class MessageDispatcherAddressingTest {
         when(loadBalancer.select(any())).thenReturn(Optional.of(remoteRoute));
 
         // Act
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         // Assert
         ArgumentCaptor<EventFrame> frameCaptor = ArgumentCaptor.forClass(EventFrame.class);

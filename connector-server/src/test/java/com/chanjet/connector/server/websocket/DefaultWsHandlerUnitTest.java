@@ -3,6 +3,7 @@ package com.chanjet.connector.server.websocket;
 import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.core.state.ToleranceManager;
+import com.chanjet.connector.core.dispatcher.AckManager;
 import com.chanjet.connector.server.config.NodeIdResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,7 @@ class DefaultWsHandlerUnitTest {
     private PushAuditLogger auditLogger;
     private ObjectMapper objectMapper;
     private EvictionArbitrator evictionArbitrator;
+    private AckManager ackManager;
 
     @BeforeEach
     void setUp() {
@@ -37,6 +39,7 @@ class DefaultWsHandlerUnitTest {
         auditLogger = mock(PushAuditLogger.class);
         objectMapper = mock(ObjectMapper.class);
         evictionArbitrator = mock(EvictionArbitrator.class);
+        ackManager = mock(AckManager.class);
 
         when(nodeIdResolver.getResolvedNodeId()).thenReturn("node-1");
 
@@ -48,7 +51,8 @@ class DefaultWsHandlerUnitTest {
             p2pClient, 
             auditLogger, 
             objectMapper, 
-            evictionArbitrator
+            evictionArbitrator,
+            ackManager
         );
     }
 

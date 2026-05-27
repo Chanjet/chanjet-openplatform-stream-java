@@ -37,13 +37,22 @@ class WebhookControllerTest {
     @MockBean
     private com.chanjet.connector.api.config.ConnectorProperties connectorProperties;
 
+    @MockBean
+    private com.chanjet.connector.core.dispatcher.AckManager ackManager;
+
     @Test
     void shouldReturn200WhenDispatchSucceeds() throws Exception {
-        mockMvc.perform(post("/internal/v1/webhook/dispatch")
+        org.mockito.Mockito.when(messageDispatcher.dispatch(any())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(true));
+        
+        org.springframework.test.web.servlet.MvcResult result = mockMvc.perform(post("/internal/v1/webhook/dispatch")
                         .header("X-C-APP_KEY", "test-app")
                         .header("X-MSG-ID", "msg-123")
                         .content("{\"data\":\"hello\"}")
                         .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.request().asyncStarted())
+                .andReturn();
+                
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(result))
                 .andExpect(status().isOk());
 
         verify(messageDispatcher).dispatch(any());
@@ -60,13 +69,18 @@ class WebhookControllerTest {
     @Test
     void shouldReturn503WhenDomainErrorOccurs() throws Exception {
         // 模拟由于无在线客户端导致的异常（待后续定义具体的领域异常类）
-        doThrow(new RuntimeException("No client online"))
-                .when(messageDispatcher).dispatch(any());
+        java.util.concurrent.CompletableFuture<Boolean> future = new java.util.concurrent.CompletableFuture<>();
+        future.completeExceptionally(new RuntimeException("No client online"));
+        org.mockito.Mockito.when(messageDispatcher.dispatch(any())).thenReturn(future);
 
-        mockMvc.perform(post("/internal/v1/webhook/dispatch")
+        org.springframework.test.web.servlet.MvcResult result = mockMvc.perform(post("/internal/v1/webhook/dispatch")
                         .header("X-C-APP_KEY", "offline-app")
                         .header("X-MSG-ID", "msg-1")
                         .content("data"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.request().asyncStarted())
+                .andReturn();
+                
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch(result))
                 .andExpect(status().isServiceUnavailable());
     }
 

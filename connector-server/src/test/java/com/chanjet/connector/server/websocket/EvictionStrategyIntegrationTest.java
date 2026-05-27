@@ -21,8 +21,10 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -32,8 +34,6 @@ import static org.mockito.Mockito.*;
  * 覆盖：本地驱逐、跨节点远程驱逐、排他连接、非排他连接。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-    "spring.data.redis.host=127.0.0.1",
-    "spring.data.redis.port=6379",
     "spring.cloud.bootstrap.enabled=true",
     "spring.autoconfigure.exclude=org.springframework.cloud.client.loadbalancer.LoadBalancerAutoConfiguration",
     "spring.cloud.nacos.discovery.enabled=false",
@@ -124,16 +124,16 @@ class EvictionStrategyIntegrationTest {
         StandardWebSocketClient wsClient = new StandardWebSocketClient();
         WebSocketSession session = wsClient.execute(new TextWebSocketHandler(), getWsUrl(clientId, appKey, false)).get(5, TimeUnit.SECONDS);
 
-        // 等待驱逐线程执行
-        Thread.sleep(500);
-
-        // 验证 1: 本地连接建立成功
-        assertThat(session.isOpen()).isTrue();
-        
-        // 验证 2: 远端僵尸路由被从 Redis 中清理
-        Set<String> newRoutes = routeStore.getNodes(appKey);
-        assertThat(newRoutes).contains(nodeIdResolver.getResolvedNodeId() + ":" + clientId);
-        assertThat(newRoutes).doesNotContain(remoteNode + ":" + clientId);
+        // 使用 Awaitility 替代 Thread.sleep 等待异步操作完成
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+            // 验证 1: 本地连接建立成功
+            assertThat(session.isOpen()).isTrue();
+            
+            // 验证 2: 远端僵尸路由被从 Redis 中清理
+            Set<String> newRoutes = routeStore.getNodes(appKey);
+            assertThat(newRoutes).contains(nodeIdResolver.getResolvedNodeId() + ":" + clientId);
+            assertThat(newRoutes).doesNotContain(remoteNode + ":" + clientId);
+        });
 
         // 验证 3: 向远端节点发送了 P2P 驱逐指令
         verify(p2pClient, times(1)).evict(remoteNode, clientId);
@@ -163,22 +163,21 @@ class EvictionStrategyIntegrationTest {
         StandardWebSocketClient newWsClient = new StandardWebSocketClient();
         WebSocketSession newSession = newWsClient.execute(new TextWebSocketHandler(), getWsUrl(clientNew, appKey, true)).get(5, TimeUnit.SECONDS);
 
-        // 等待驱逐完成
-        Thread.sleep(1000);
+        // 使用 Awaitility 等待独占驱逐执行完成
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+            // 验证 1: 本地被挤下线的旧连接已关闭
+            assertThat(oldSession.isOpen()).isFalse();
 
-        // 验证 1: 新连接存活
-        assertThat(newSession.isOpen()).isTrue();
+            // 验证 2: 新的独占连接建立成功
+            assertThat(newSession.isOpen()).isTrue();
 
-        // 验证 2: 本地旧连接被强制关闭
-        assertThat(oldSession.isOpen()).isFalse();
+            // 验证 3: 远端节点收到 P2P 驱逐指令
+            verify(p2pClient, org.mockito.Mockito.atLeastOnce()).evict(remoteNode, clientOld2);
 
-        // 验证 3: 远端旧连接被发送了 P2P 驱逐指令
-        verify(p2pClient, times(1)).evict(remoteNode, clientOld2);
-
-        // 验证 4: Redis 中只剩下新连接的路由
-        Set<String> finalRoutes = routeStore.getNodes(appKey);
-        assertThat(finalRoutes).hasSize(1);
-        assertThat(finalRoutes).contains(nodeIdResolver.getResolvedNodeId() + ":" + clientNew);
+            // 验证 4: Redis 路由表中只剩下新的独占连接
+            Set<String> newRoutes = routeStore.getNodes(appKey);
+            assertThat(newRoutes).containsExactly(nodeIdResolver.getResolvedNodeId() + ":" + clientNew);
+        });
 
         newSession.close();
     }

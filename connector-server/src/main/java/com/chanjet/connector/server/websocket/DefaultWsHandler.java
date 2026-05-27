@@ -4,6 +4,7 @@ import com.chanjet.connector.api.connection.IP2PClient;
 import com.chanjet.connector.api.store.IRouteStore;
 import com.chanjet.connector.core.state.ToleranceManager;
 import com.chanjet.connector.server.config.NodeIdResolver;
+import com.chanjet.connector.core.dispatcher.AckManager;
 import com.chanjet.connector.common.protocol.AckFrame;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,6 +34,7 @@ public class DefaultWsHandler extends TextWebSocketHandler {
     private final PushAuditLogger auditLogger;
     private final ObjectMapper objectMapper;
     private final EvictionArbitrator evictionArbitrator;
+    private final AckManager ackManager;
 
     public DefaultWsHandler(NodeIdResolver nodeIdResolver,
             WsSessionRegistry sessionRegistry,
@@ -41,7 +43,8 @@ public class DefaultWsHandler extends TextWebSocketHandler {
             IP2PClient p2pClient,
             PushAuditLogger auditLogger,
             ObjectMapper objectMapper,
-            EvictionArbitrator evictionArbitrator) {
+            EvictionArbitrator evictionArbitrator,
+            AckManager ackManager) {
         this.nodeId = nodeIdResolver.getResolvedNodeId();
         this.sessionRegistry = sessionRegistry;
         this.routeStore = routeStore;
@@ -50,6 +53,7 @@ public class DefaultWsHandler extends TextWebSocketHandler {
         this.auditLogger = auditLogger;
         this.objectMapper = objectMapper;
         this.evictionArbitrator = evictionArbitrator;
+        this.ackManager = ackManager;
     }
 
     @Override
@@ -134,6 +138,9 @@ public class DefaultWsHandler extends TextWebSocketHandler {
                     // Override traceId for actual ACK messages to match the original message
                     MDC.put("traceId", ack.msgId());
                     auditLogger.logAck(clientId, ack);
+                    
+                    // 通知 AckManager，解除 Webhook 的挂起状态
+                    ackManager.completeAck(ack.msgId(), ack.code() == 200);
                 }
             } catch (Exception e) {
                 // Ignore non-ACK messages or malformed JSON

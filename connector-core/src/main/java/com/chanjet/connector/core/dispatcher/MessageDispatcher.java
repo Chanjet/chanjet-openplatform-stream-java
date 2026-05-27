@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 消息分发器核心逻辑实现。
@@ -29,6 +30,7 @@ public class MessageDispatcher {
     private final ILoadBalancer loadBalancer;
     private final ToleranceManager toleranceManager;
     private final IResilienceManager resilienceManager;
+    private final AckManager ackManager;
 
     public MessageDispatcher(String nodeId,
                              IRouteStore routeStore,
@@ -36,7 +38,8 @@ public class MessageDispatcher {
                              IP2PClient p2pClient,
                              ILoadBalancer loadBalancer,
                              ToleranceManager toleranceManager,
-                             IResilienceManager resilienceManager) {
+                             IResilienceManager resilienceManager,
+                             AckManager ackManager) {
         this.nodeId = nodeId;
         this.routeStore = routeStore;
         this.connectionManager = connectionManager;
@@ -44,27 +47,33 @@ public class MessageDispatcher {
         this.loadBalancer = loadBalancer;
         this.toleranceManager = toleranceManager;
         this.resilienceManager = resilienceManager;
+        this.ackManager = ackManager;
     }
 
-    public void dispatch(EventFrame frame) {
+    public CompletableFuture<Boolean> dispatch(EventFrame frame) {
         AcquisitionResult result = resilienceManager.tryAcquire(frame.appKey());
         if (result != AcquisitionResult.ALLOWED) {
             log.warn("[THROTTLED] MsgId: {}, AppKey: {}", frame.msgId(), frame.appKey());
-            return;
+            return CompletableFuture.completedFuture(false);
         }
 
         log.info("[DISPATCH_START] Node: {}, MsgId: {}, AppKey: {}, TraceId: {}", 
             nodeId, frame.msgId(), frame.appKey(), frame.traceId());
 
-        boolean success = false;
-        try {
-            success = doDispatch(frame);
-        } finally {
-            resilienceManager.release(frame.appKey(), success);
-        }
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return doDispatch(frame);
+            } catch (Exception e) {
+                log.error("[DISPATCH_EXCEPTION] MsgId: {}, AppKey: {}", frame.msgId(), frame.appKey(), e);
+                return CompletableFuture.completedFuture(false);
+            }
+        }).thenCompose(f -> f).whenComplete((success, ex) -> {
+            boolean finalSuccess = (success != null && success) && (ex == null);
+            resilienceManager.release(frame.appKey(), finalSuccess);
+        });
     }
 
-    private boolean doDispatch(EventFrame frame) {
+    private CompletableFuture<Boolean> doDispatch(EventFrame frame) {
         String appKey = frame.appKey();
 
         // 1. 本地优先策略
@@ -79,7 +88,8 @@ public class MessageDispatcher {
             }
             if (anySuccess) {
                 toleranceManager.handleReconnect(appKey);
-                return true;
+                // 注册等待端到端 ACK，超时设置为 10 秒
+                return ackManager.registerAck(frame.msgId(), 10000);
             }
             // 如果本地所有连接都推送失败（可能是僵尸连接），则 fallback 到集群查找或失败处理
             log.warn("Local-First: All {} local clients failed to receive push for AppKey [{}]. MsgId: {}", localClients.size(), appKey, frame.msgId());
@@ -89,7 +99,7 @@ public class MessageDispatcher {
         String hopCountStr = frame.headers().getOrDefault("X-GW-Hop-Count", "0");
         if (Integer.parseInt(hopCountStr) > 0) {
             log.warn("P2P Loop Prevention: Message [{}] already hopped, local push failed. Dropping. MsgId: {}", frame.msgId(), frame.msgId());
-            return false;
+            return CompletableFuture.completedFuture(false);
         }
 
         // 3. 集群重试逻辑
@@ -134,7 +144,7 @@ public class MessageDispatcher {
             if (p2pClient.forward(targetNodeId, targetedFrame)) {
                 log.info("[FORWARD_SUCCESS] MsgId: {}, TargetNode: {}", frame.msgId(), targetNodeId);
                 toleranceManager.handleReconnect(appKey);
-                return true; // 转发成功，流程结束
+                return CompletableFuture.completedFuture(true); // 转发成功，流程结束
             }
             log.warn("[FORWARD_FAILED] MsgId: {}, TargetNode: {}", frame.msgId(), targetNodeId);
             log.warn("P2P attempt {} failed for node {}, trying next...", i + 1, targetNodeId);
@@ -142,6 +152,6 @@ public class MessageDispatcher {
 
         log.error("[DISPATCH_FAILED] All P2P attempts failed for message [{}] under AppKey [{}]", frame.msgId(), appKey);
         toleranceManager.handleFailure(appKey, System.currentTimeMillis());
-        return false;
+        return CompletableFuture.completedFuture(false);
     }
 }

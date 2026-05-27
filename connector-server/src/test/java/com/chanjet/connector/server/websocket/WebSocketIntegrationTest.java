@@ -48,18 +48,21 @@ class WebSocketIntegrationTest {
     @MockBean private IFailStore failStore;
     @MockBean private ILoadBalancer loadBalancer;
     @MockBean private ToleranceManager toleranceManager;
+    @MockBean private IAuthService authService;
+    @MockBean private EvictionArbitrator evictionArbitrator;
     
     @MockBean private IInternalHttpClient httpClient;
 
     @Autowired
     private IConnectionManager connectionManager;
 
-    @Autowired
+    @MockBean
     private IPushControl pushControl;
 
     @BeforeEach
     void setUp() {
         when(nonceStore.verifyAndConsume(anyString(), anyString())).thenReturn(true);
+        when(authService.verifySign(anyString(), anyString(), anyString())).thenReturn(true);
         // 允许所有签名校验通过
         when(httpClient.post(anyString(), any(), any(), any()))
                 .thenReturn(new RemoteCjtCoreAdapter.AuthResponse(true));

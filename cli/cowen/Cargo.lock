@@ -641,6 +641,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "futures-util",
  "hex",
@@ -1068,6 +1069,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "connector-sdk",
  "cowen-common",
  "cowen-config",
  "cowen-doctor",

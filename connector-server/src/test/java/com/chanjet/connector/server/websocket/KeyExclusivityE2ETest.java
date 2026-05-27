@@ -32,8 +32,6 @@ import static org.mockito.Mockito.when;
  * 核心 E2E 测试：验证在 Redis 真实环境下，route 和 fail_start 键的互斥性。
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-    "spring.data.redis.host=127.0.0.1",
-    "spring.data.redis.port=6379",
     "spring.cloud.bootstrap.enabled=true",
     "spring.autoconfigure.exclude=org.springframework.cloud.client.loadbalancer.LoadBalancerAutoConfiguration",
     "spring.cloud.nacos.discovery.enabled=false",

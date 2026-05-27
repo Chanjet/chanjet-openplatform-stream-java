@@ -21,14 +21,14 @@ class MessageDispatcherThrottlingTest {
         var toleranceManager = mock(com.chanjet.connector.core.state.ToleranceManager.class);
         var resilienceManager = mock(com.chanjet.connector.api.resilience.IResilienceManager.class);
 
-        var dispatcher = new MessageDispatcher("n1", routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager);
+        var dispatcher = new MessageDispatcher("n1", routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager, new com.chanjet.connector.core.dispatcher.AckManager());
         
         EventFrame frame = new EventFrame("event", "m1", "t1", "app", null, Map.of(), "data", 1000L);
 
         // 模拟限流拒绝
         when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.TENANT_LIMITED);
 
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         // 验证：直接退出，不执行后续逻辑
         verify(connectionManager, never()).getClientsByAppKey(anyString());

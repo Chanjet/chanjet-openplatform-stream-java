@@ -27,6 +27,7 @@ cowen-sys = { path = "../cowen-sys" }
 cowen-config = { path = "../cowen-config" }
 cowen-doctor = { path = "../cowen-doctor" }
 url = "2.5.8"
+connector-sdk = { version = "0.1.0", path = "../../../../sdk/rust" }
 
 [features]
 default = ["sqlite"]

@@ -26,6 +26,7 @@ class P2PResilienceIntegrationTest {
     private ILoadBalancer loadBalancer;
     private ToleranceManager toleranceManager;
     private IResilienceManager resilienceManager;
+    private AckManager ackManager;
 
     @BeforeEach
     void setUp() {
@@ -35,8 +36,10 @@ class P2PResilienceIntegrationTest {
         loadBalancer = mock(ILoadBalancer.class);
         toleranceManager = mock(ToleranceManager.class);
         resilienceManager = mock(IResilienceManager.class);
+        ackManager = mock(AckManager.class);
 
         when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
+        when(ackManager.registerAck(anyString(), anyLong())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(true));
 
         dispatcher = new MessageDispatcher(
                 "self-node:8080",
@@ -45,7 +48,8 @@ class P2PResilienceIntegrationTest {
                 p2pClient,
                 loadBalancer,
                 toleranceManager,
-                resilienceManager
+                resilienceManager,
+                ackManager
         );
     }
 
@@ -67,7 +71,7 @@ class P2PResilienceIntegrationTest {
         when(p2pClient.forward(eq("node-failed:8080"), any())).thenReturn(false); // 第一次失败
         when(p2pClient.forward(eq("node-success:8080"), any())).thenReturn(true);  // 第二次成功
 
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         // 验证：最终成功转发到了 node-success
         verify(p2pClient, times(2)).forward(anyString(), any());
@@ -82,7 +86,7 @@ class P2PResilienceIntegrationTest {
 
         when(connectionManager.getClientsByAppKey(appKey)).thenReturn(Collections.emptyList());
 
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         // 验证：禁止再次发起 P2P 转发
         verify(p2pClient, never()).forward(anyString(), any());

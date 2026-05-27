@@ -27,6 +27,7 @@ class MessageDispatcherEdgeCaseTest {
     private ILoadBalancer loadBalancer;
     private ToleranceManager toleranceManager;
     private IResilienceManager resilienceManager;
+    private AckManager ackManager;
 
     @BeforeEach
     void setUp() {
@@ -36,11 +37,13 @@ class MessageDispatcherEdgeCaseTest {
         loadBalancer = mock(ILoadBalancer.class);
         toleranceManager = mock(ToleranceManager.class);
         resilienceManager = mock(IResilienceManager.class);
+        ackManager = mock(AckManager.class);
 
         when(resilienceManager.tryAcquire(anyString())).thenReturn(AcquisitionResult.ALLOWED);
+        when(ackManager.registerAck(anyString(), anyLong())).thenReturn(java.util.concurrent.CompletableFuture.completedFuture(true));
 
         dispatcher = new MessageDispatcher(
-                "node-1", routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager
+                "node-1", routeStore, connectionManager, p2pClient, loadBalancer, toleranceManager, resilienceManager, ackManager
         );
     }
 
@@ -52,8 +55,9 @@ class MessageDispatcherEdgeCaseTest {
         when(connectionManager.getClientsByAppKey(appKey)).thenReturn(Collections.emptyList());
         when(routeStore.getNodes(appKey)).thenReturn(Collections.emptySet());
 
-        // 验证：没有任何路由时抛出 NoOnlineClientException
-        assertThrows(NoOnlineClientException.class, () -> dispatcher.dispatch(frame));
+        // 验证：没有任何路由时返回 false
+        boolean result = dispatcher.dispatch(frame).join();
+        org.junit.jupiter.api.Assertions.assertFalse(result);
     }
 
     @Test
@@ -65,7 +69,7 @@ class MessageDispatcherEdgeCaseTest {
         when(routeStore.getNodes(appKey)).thenReturn(Set.of("invalid-route-no-colon"));
         when(loadBalancer.select(anySet())).thenReturn(Optional.of("invalid-route-no-colon"));
 
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         // 验证：格式错误时循环继续或退出，不抛异常
         verify(p2pClient, never()).forward(anyString(), any());
@@ -79,7 +83,7 @@ class MessageDispatcherEdgeCaseTest {
 
         when(connectionManager.getClientsByAppKey(appKey)).thenReturn(Collections.emptyList());
 
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         // 验证：跳数为 1 且本地没连接时，直接放弃，不查 Redis，不继续转发
         verify(routeStore, never()).getNodes(anyString());
@@ -99,7 +103,7 @@ class MessageDispatcherEdgeCaseTest {
         
         when(p2pClient.forward(anyString(), any())).thenReturn(false);
 
-        dispatcher.dispatch(frame);
+        dispatcher.dispatch(frame).join();
 
         verify(p2pClient, times(2)).forward(anyString(), any());
         verify(toleranceManager).handleFailure(eq(appKey), anyLong());
