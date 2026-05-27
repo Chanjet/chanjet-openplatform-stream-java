@@ -79,16 +79,6 @@ impl ConfigManager {
     }
 
     fn load_app_config_sync(app_dir: &std::path::Path) -> CowenResult<AppConfig> {
-        // 🚀 SYNC: Environment variables have highest priority
-        if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
-             let mut cfg = AppConfig { 
-                 storage: StorageConfig { store: st, db_url: Some(url), ..Default::default() }, 
-                 ..Default::default() 
-             };
-             cfg.apply_env_overrides();
-             return Ok(cfg);
-        }
-
         let path = app_dir.join("app.yaml");
         let mut config = if !path.exists() {
             AppConfig::default()
@@ -96,6 +86,13 @@ impl ConfigManager {
             let content = fs::read_to_string(path)?;
             serde_yaml::from_str(&content)?
         };
+
+        // 🚀 SYNC: Environment variables have highest priority for storage settings
+        if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
+            config.storage.store = st;
+            config.storage.db_url = Some(url);
+        }
+
         config.apply_env_overrides();
         Ok(config)
     }
@@ -578,12 +575,6 @@ impl ConfigManager {
     }
 
     pub async fn load_app_config(&self) -> CowenResult<AppConfig> {
-        if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
-             let mut cfg = AppConfig { storage: StorageConfig { store: st, db_url: Some(url), ..Default::default() }, ..Default::default() };
-             cfg.apply_env_overrides();
-             return Ok(cfg);
-        }
-
         let app_file = self.app_dir.join("app.yaml");
         let mut config = if app_file.exists() {
             let content = tokio::fs::read_to_string(&app_file).await?;
@@ -591,6 +582,12 @@ impl ConfigManager {
         } else {
             AppConfig::default()
         };
+
+        if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
+            config.storage.store = st;
+            config.storage.db_url = Some(url);
+        }
+
         config.apply_env_overrides();
 
         Ok(config)

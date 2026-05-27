@@ -134,6 +134,25 @@ pub use unix::fs;
 #[cfg(windows)]
 pub use windows::fs;
 
+pub fn get_supported_plugin_extensions() -> &'static [&'static str] {
+    #[cfg(windows)]
+    return &["dll"];
+    #[cfg(target_os = "macos")]
+    return &["dylib", "so"];
+    #[cfg(not(any(windows, target_os = "macos")))]
+    return &["so"];
+}
+
+pub fn configure_socket_reuse(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
+    socket.set_reuseaddr(true)?;
+    #[cfg(unix)]
+    {
+        socket.set_reuseport(true)?;
+    }
+    Ok(())
+}
+
+
 pub const SERVICE_PREFIX: &str = "com.chanjet";
 
 /// 生成统一的操作系统硬件指纹 fallback 哈希

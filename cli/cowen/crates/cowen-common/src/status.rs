@@ -147,11 +147,9 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
                 s.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
 
                 if let Some(process) = s.process(sys_pid) {
-                    let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-                    let name = process.name().to_string_lossy().to_lowercase();
-                    let bin_name = get_bin_name().to_lowercase();
-                    
-                    if name.contains(&bin_name) || cmdline.contains(&bin_name) || name.contains("cowen") || cmdline.contains("cowen") {
+                    let name = process.name().to_string_lossy();
+                    let is_target = crate::utils::is_cowen_process_name(&name, None);
+                    if is_target {
                         let mut info = DaemonInfo {
                             pid: pid_val,
                             build_id: None,

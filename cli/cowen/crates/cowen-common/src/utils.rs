@@ -49,9 +49,46 @@ pub fn secure_write<P: std::convert::AsRef<std::path::Path>, C: std::convert::As
     cowen_infra::sys::fs::secure_write(path, contents)
 }
 
+pub fn is_cowen_process_name(name: &str, current_exe_name: Option<&str>) -> bool {
+    let name_lower = name.to_lowercase();
+    let bin_name = get_bin_name().to_lowercase();
+
+    if name_lower == bin_name 
+        || name_lower == "cowen" 
+        || name_lower == "cowen.exe" 
+        || name_lower == "cowen-daemon" 
+        || name_lower == "cowen-daemon.exe"
+        || name_lower.starts_with("cowen-daemon")
+        || name_lower.starts_with("cowen_daemon")
+        || (name_lower.starts_with("cowen") && name_lower.contains("daemon"))
+    {
+        return true;
+    }
+
+    if let Some(curr_exe) = current_exe_name {
+        if name_lower == curr_exe.to_lowercase() {
+            return true;
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_cowen_process_name() {
+        assert!(is_cowen_process_name("cowen", None));
+        assert!(is_cowen_process_name("cowen.exe", None));
+        assert!(is_cowen_process_name("cowen-daemon", None));
+        assert!(is_cowen_process_name("cowen-daemon.exe", None));
+        assert!(is_cowen_process_name("cowen-daemon-something", None));
+        assert!(is_cowen_process_name("cowen_daemon_something", None));
+        assert!(is_cowen_process_name("cowen_case_60", Some("cowen_case_60")));
+        assert!(!is_cowen_process_name("some-other-app", None));
+    }
 
     #[test]
     fn test_mask_url() {

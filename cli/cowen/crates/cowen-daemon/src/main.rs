@@ -120,7 +120,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     let daemon_svc: Arc<dyn DaemonService> = Arc::new(ServerDaemonService::new(cfg_mgr.clone()));
 
     let mut m_port = app_cfg.monitor_port;
-    let mut allow_fallback = false;
+    let mut allow_fallback = std::env::var("COWEN_SKIP_BROWSER").is_ok() || std::env::var("CI").is_ok();
     if m_port == 0 {
         m_port = 1588;
         allow_fallback = true;
@@ -288,3 +288,5 @@ mod tests {
 
 // --- Global Stop Channel for Windows SCM ---
 // Obsolete service functions and static stop channels have been cleanly decoupled and physical isolated to cowen-infra/src/sys/windows.rs.
+
+

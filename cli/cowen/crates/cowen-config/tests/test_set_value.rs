@@ -52,7 +52,7 @@ log:
     assert_eq!(val.as_str().unwrap(), "info");
 
     // Also double check file persistence contains lowercase "level: info"
-    let file_content = fs::read_to_string(&profile_path).unwrap();
+    let file_content = fs::read_to_string(&app_yaml_path).unwrap();
     assert!(file_content.contains("level: info"));
 }
 

@@ -42,13 +42,7 @@ pub fn is_secure_plugin_path(path: &Path) -> bool {
 
 pub fn discover_plugins<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
     let mut plugins = Vec::new();
-    let supported_exts = if cfg!(target_os = "windows") {
-        vec!["dll"]
-    } else if cfg!(target_os = "macos") {
-        vec!["dylib", "so"]
-    } else {
-        vec!["so"]
-    };
+    let supported_exts = crate::sys::get_supported_plugin_extensions();
 
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
