@@ -2,7 +2,7 @@
 pub mod sqlite {
     use anyhow::{anyhow, Result};
     use connector_sdk::dlq::DlqProvider;
-    use sqlx::{SqlitePool, Row};
+    use sqlx::SqlitePool;
     use std::path::Path;
 
     pub struct SqliteDlqProvider {
