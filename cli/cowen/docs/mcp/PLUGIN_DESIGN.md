@@ -19,9 +19,11 @@
 插件开发者只需编写极少量的 Go 代码，负责 JSON-RPC 与宿主 RESTful API 之间的翻译：
 
 *   **零业务硬编码**：插件中不硬编码具体工具（如 `github_create_issue`）的 URL 或处理逻辑。
+*   **统一序列化约束 (RPC Serialization)**：不论底层采用 Dylib 还是独立进程沙箱，插件绝不直接操作宿主的内存结构。所有交互必须通过 JSON-RPC 或 Protobuf 等标准协议序列化后，经由 HTTP/RPC 协议交由宿主底层网关进行一致性鉴权。
 *   **路由代理透传**：
-    1.  当接收到调用方（如 MCP Agent）的 `tools/list` 请求时，插件直接向宿主发起 `GET /v1/plugin/registry` 或 `GET /v1/mcp/tools` 请求，并将返回的动态工具注册表响应给 Agent。
+    1.  当接收到调用方（如 MCP Agent）的 `tools/list` 请求时，插件直接向宿主发起 `GET /v1/api/registry` 请求，并将返回的动态工具注册表响应给 Agent。
     2.  当接收到 `tools/call` 请求时，插件作为无状态的空壳，将 `tool_name` 和 `arguments` 打包成 HTTP 请求发往宿主的本地代理接口。宿主返回结果后，插件再原样通过 JSON-RPC 抛回给调用方。
+*   **严禁破坏标准输出 (Stdout)**：插件的主干道是 Stdio，任何调试日志或错误堆栈**绝对禁止**打印到标准输出（会导致 JSON-RPC 解析崩溃）。所有调试信息必须写入 `stderr`，由宿主统一截获并审计。
 
 ### 2.1 Go 语言空壳中继伪代码示例
 
@@ -53,7 +55,7 @@ func handleToolCall(toolName string, args map[string]interface{}) (interface{}, 
 	}
 	body, _ := json.Marshal(payload)
 
-	req, _ := http.NewRequest("POST", apiEndpoint+"/v1/mcp/tools/call", bytes.NewBuffer(body))
+	req, _ := http.NewRequest("POST", apiEndpoint+"/v1/api/call", bytes.NewBuffer(body))
 	req.Header.Set("X-Bridge-Token", bridgeToken)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -113,4 +115,58 @@ func handleToolCall(toolName string, args map[string]interface{}) (interface{}, 
 
 ### 3.3 租户隔离模式声明 (`tenant_mode`)
 *   `"tenant_mode": "exclusive"`（默认）：宿主在切换不同的 Profile 时，会强制为该插件重新拉起独立的 Go 进程，避免内存中的租户上下文串流。
-*   `"tenant_mode": "shared"`（Go 语言极其推荐）：声明该插件是轻量级、无状态的。宿主在全局仅维持该 Go 进程的一个实例，利用 Goroutine 的高并发处理多租户请求。插件请求宿主时携带显式的租户路径（如 `/v1/tenant_a/mcp/tools/call`），由宿主核心网关动态审查越权行为。
+*   `"tenant_mode": "shared"`（Go 语言极其推荐）：声明该插件是轻量级、无状态的。宿主在全局仅维持该 Go 进程的一个实例，利用 Goroutine 的高并发处理多租户请求。插件请求宿主时携带显式的租户路径（如 `/v1/tenant_a/api/call`），由宿主核心网关动态审查越权行为。
+
+### 3.4 细粒度能力依赖声明 (Capability-Based Contract)
+为了避免宿主非兼容性升级导致历史插件无辜失效，彻底废弃了单体版本号（Monolithic Versioning）。插件必须在 `plugin.json` 中显式声明自身需要的底层网关能力矩阵：
+```json
+  "required_capabilities": {
+    "core.rpc.stdio": "v1",
+    "native.api.proxy": "^1.0.0",
+    "native.api.search": "v2" 
+  }
+```
+宿主的 `PluginManager` 将在扫描阶段作为“能力适配漏斗”，如果宿主无法提供相应的能力和版本，将在加载前直接拒绝拉起该插件，从而 100% 防止运行时兼容性崩溃。
+
+---
+
+## 4. 声明式扩展点注入 (Declarative Contributions)
+
+插件不仅可以作为被动的 MCP 工具提供者，还可以通过在 `plugin.json` 中定义 `contributes` 块，主动向 `cowen` 宿主的控制面（如 CLI、HTTP 服务器、定时调度器）注入自己的扩展能力。
+
+### 4.1 多态扩展目标配置示例
+
+```json
+{
+  "id": "my-monitor-plugin",
+  "contributes": {
+    "cli_commands": [
+      { "name": "github-issue", "target_mcp_tool": "create_issue" }
+    ],
+    "http_routes": [
+      {
+        "port": "monitor",                 // 注入到宿主的监控端点组
+        "path": "/v1/metrics/custom",
+        "target": {
+          "type": "http_tunnel",           // 【核心】HTTP 隧道协议透传
+          "method": "cowen/http_tunnel"    // 映射到插件内部的 JSON-RPC 处理器
+        }
+      }
+    ],
+    "cron_jobs": [
+      { "schedule": "*/5 * * * *", "target_mcp_tool": "health_check" }
+    ]
+  }
+}
+```
+
+### 4.2 零端口沙箱与 HTTP 隧道透传 (HTTP Tunneling)
+
+为捍卫插件隔离底线，本架构**严禁**插件在本地绑定任何 TCP 端口、Unix Domain Socket 或命名管道。
+所有 `http_routes` 的扩展注入，必须使用 `http_tunnel` 多态网关代理：
+
+1. **宿主反向代理**：外部 HTTP 流量由宿主统一在 `monitor_port` 等端口接管并执行鉴权拦截。
+2. **协议坍缩**：宿主将 HTTP Header、Body 等信息全量序列化打包，转化为一条普通的 JSON-RPC 消息通过 **Stdio** 传递给插件。
+3. **协议重组**：插件仅需按特定格式在 Stdio 吐出 JSON 结果，宿主负责将其“升维”为标准的 HTTP Response 返回给外网。
+
+通过此设计，插件能在保持 100% 网络隔离与跨平台一致性的前提下，实现暴露富媒体网页、流式下载、SSE 等高级 Web 能力。
