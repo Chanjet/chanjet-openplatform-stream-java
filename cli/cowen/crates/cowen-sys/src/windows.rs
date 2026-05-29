@@ -120,21 +120,23 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
         let exists = check_output.map(|out| out.status.success()).unwrap_or(false);
 
         if exists {
+            let app_dir = cowen_infra::path::get_app_dir();
             let _ = std::process::Command::new("sc")
                 .arg("config")
                 .arg(&service_name)
                 .arg("binPath=")
-                .arg(format!("\"{}\" --auto-start-all --run-as-service", bin_path))
+                .arg(format!("\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"", bin_path, app_dir.to_string_lossy()))
                 .status();
             println!("✅ Windows Service '{}' already exists. Configuration updated.", service_name);
             return Ok(());
         }
 
+        let app_dir = cowen_infra::path::get_app_dir();
         let status = std::process::Command::new("sc")
             .arg("create")
             .arg(&service_name)
             .arg("binPath=")
-            .arg(format!("\"{}\" --auto-start-all --run-as-service", bin_path))
+            .arg(format!("\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"", bin_path, app_dir.to_string_lossy()))
             .arg("start=")
             .arg("auto")
             .status()?;

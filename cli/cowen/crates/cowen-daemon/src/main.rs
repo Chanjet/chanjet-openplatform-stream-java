@@ -29,11 +29,19 @@ struct Args {
     /// Automatically start all profiles on startup
     #[arg(long)]
     auto_start_all: bool,
+
+    /// Force specific app directory (useful for Windows Service running as SYSTEM)
+    #[arg(long)]
+    app_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+
+    if let Some(dir) = &args.app_dir {
+        std::env::set_var("COWEN_HOME", dir);
+    }
 
     if args.run_as_service {
         let pid_file_clone = cowen_common::config::get_app_dir().join("master_daemon.pid");
