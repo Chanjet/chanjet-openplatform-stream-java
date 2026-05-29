@@ -21,6 +21,8 @@
 - **运行态噪音抑制**:
   - `cowen-daemon` 的标准追踪 (`tracing`) 流重构为智能双分流管道。所有业务层级的信息与诊断日志均被拦截至 `stdout`，仅允许纯正的 `ERROR/WARN` 落地至系统服务捕获的 `stderr`。
   - 在 `telemetry.rs` 中重构了探针上报行为的容错退避策略，网络级卡顿所造成的丢包已被抑制到不可见的 `TRACE` 级别，并辅以自动放宽的三秒超时保护。
+- **智能协议转换 (Intelligent Header Stripping)**:
+  - 扩展了代理中间件（`cowen-server/src/daemon/proxy.rs`）的前置预检逻辑。当侦测到 HTTP 协议栈的请求方法为 `GET`/`HEAD`/`DELETE` 且请求体为空时，会在请求出站前进行底层请求头的干预并删除 `Content-Type`。此架构优化杜绝了在代理透传时上游严格校验环境（如 Tomcat 9）触发 `415 Unsupported Media Type` 的问题。
 
 ---
 

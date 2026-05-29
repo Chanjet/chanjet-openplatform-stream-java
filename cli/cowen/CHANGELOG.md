@@ -7,21 +7,14 @@
 ## [0.3.6] - 2026-05-29
 
 ### 🚀 新特性 (Features)
-- **守护进程原生自启与物理脱壳 (Daemon Native Auto-start & Decoupling)**:
-  - 彻底解除了 `cowen` CLI 在开机启动阶段的套壳代理行为。系统服务（launchd / systemd / sc）现在直接拉起底层的 `cowen-daemon` 二进制执行体。
-  - `cowen-daemon` 原生支持 `--auto-start-all` 参数，可独立完成环境配置加载与 IPC 调度，实现真正的单进程后台驻留，大幅降低系统资源开销。
-- **Windows 环境静默启动 (Windows Silent Boot)**:
-  - 为 Windows 平台的守护进程引入了 `windows_subsystem = "windows"` 编译属性。现在 Windows 系统开机自启后台服务时将完全静默运行，彻底消除了开机时残留命令行黑窗（Console Window）闪烁的问题。
+- **更轻量的后台驻留 (Lightweight Daemon)**: 优化了开机自启流程，使得后台服务实现了真正的单进程独立驻留，大幅降低系统资源开销。
+- **Windows 环境静默启动 (Windows Silent Boot)**: 彻底消除了 Windows 系统在开机自启后台服务时残留命令行黑窗（Console Window）闪烁的问题，实现了完全的静默运行。
 
 ### 🔧 改进与修复 (Improvements & Fixes)
-- **Daemon 稳定性与容错加固 (Daemon Stability & Fault Tolerance)**:
-  - **端口重用与死锁解除**: 针对 Monitor Server 引入了 `SO_REUSEADDR` 底层 Socket 配置，彻底解决了 Daemon 重启或 Crash 恢复时因 `TIME_WAIT` 状态导致的 1588 端口“假性占用”问题。
-  - **IPC 凭据写入原子化**: 重构了全平台 (Unix/Windows) 的 IPC Token 存储逻辑，采用 `.tmp` 文件写入并执行原子 `rename` 覆盖，根除了 CLI 读取过程中遭遇的 401 Unauthorized 竞态空隙。
-- **运行日志与遥测降噪 (Log Separation & Telemetry Noise Reduction)**:
-  - **日志流智能分流**: 对守护进程日志引擎实施了级别路由拦截，`WARN`/`ERROR` 等核心故障日志被精准导向 `daemon.stderr.log`，常规的心跳 (`ping`) 等 `INFO` 日志转至 `stdout`，确保了 Launchd/Systemd 所守护的错误日志绝对纯净。
-  - **弱网环境遥测容忍**: 将遥测上报的心跳超时限制由 500ms 宽限至 3000ms，并将真正的网络死锁导致的失败日志降级为 `TRACE` 层级，大幅减少了弱网环境下的日志刷屏。
-- **智能 Header 剥离 (Intelligent Header Stripping)**:
-  - 在 Proxy 代理中间件中实现智能协议检查。当客户端发起 `GET`、`HEAD` 或 `DELETE` 请求且未携带任何载荷 (Body) 时，Proxy 将自动从请求中剥离 `Content-Type` Header。此举彻底解决了部分客户端工具默认发送此 Header 导致老旧上游节点（如 Tomcat 9）抛出 `415 Unsupported Media Type` 异常的问题。
+- **智能 Header 剥离解决 415 报错**: 针对部分客户端工具（如 Postman、Axios）在发送无请求体（Body）的 `GET` / `HEAD` / `DELETE` 请求时默认带上 `Content-Type` 导致老旧服务端（如 Tomcat 9）抛出 `415 Unsupported Media Type` 错误的问题，代理服务现已自动支持在转发前智能剥离冗余的 `Content-Type` 头。
+- **端口被占用与重启失败修复**: 彻底解决了后台服务异常重启或崩溃恢复时，因 `1588` 端口“假性占用”导致的长时间无法恢复服务的问题。
+- **并发请求偶发 401 失败修复**: 根除了 CLI 与守护进程高并发交互过程中偶尔遭遇的 `401 Unauthorized` 认证失败问题。
+- **日志与网络遥测降噪**: 显著净化了系统后台的错误日志文件。对于网络质量较差环境下的探测连接采取了更大的超时容忍度，减少了无意义的错误刷屏。
 
 ---
 
