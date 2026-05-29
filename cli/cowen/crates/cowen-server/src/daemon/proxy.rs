@@ -315,4 +315,107 @@ mod tests {
         proxy_task.abort();
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_proxy_intelligent_header_stripping() {
+        // 1. Setup mock upstream server
+        let mock_app = Router::new()
+            .route("/test-get", axum::routing::get(|req: Request| async move {
+                // For GET, the Content-Type should be stripped
+                let has_content_type = req.headers().contains_key("Content-Type");
+                if has_content_type {
+                    axum::response::Response::builder()
+                        .status(axum::http::StatusCode::BAD_REQUEST)
+                        .body(axum::body::Body::from("Should not have Content-Type"))
+                        .unwrap()
+                } else {
+                    axum::response::Response::builder()
+                        .status(axum::http::StatusCode::OK)
+                        .body(axum::body::Body::from("GET OK"))
+                        .unwrap()
+                }
+            }))
+            .route("/test-post", axum::routing::post(|req: Request| async move {
+                // For POST, the Content-Type should be preserved
+                let has_content_type = req.headers().contains_key("Content-Type");
+                if !has_content_type {
+                    axum::response::Response::builder()
+                        .status(axum::http::StatusCode::BAD_REQUEST)
+                        .body(axum::body::Body::from("Missing Content-Type"))
+                        .unwrap()
+                } else {
+                    axum::response::Response::builder()
+                        .status(axum::http::StatusCode::OK)
+                        .body(axum::body::Body::from("POST OK"))
+                        .unwrap()
+                }
+            }));
+
+        let mock_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mock_addr = mock_listener.local_addr().unwrap();
+        let mock_server_handle = tokio::spawn(async move {
+            axum::serve(mock_listener, mock_app).await.unwrap();
+        });
+
+        // 2. Setup temp directory for local Vault using UUID
+        let temp_dir = std::env::temp_dir().join(format!("cowen_proxy_test_headers_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let app_cfg = AppConfig::default();
+        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint").await.unwrap();
+
+        // Seed some configs
+        vault.set_config("test_profile", "app_key", "test_key").await.unwrap();
+        vault.set_secret("test_profile", "app_secret", "test_secret").await.unwrap();
+        vault.save_app_access_token("test_key", cowen_common::models::Token {
+            value: "mock_at_sb_12345".to_string(),
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+            created_at: chrono::Utc::now(),
+        }).await.unwrap();
+
+        // 3. Start proxy
+        let mut config = Config::default_with_profile("test_profile");
+        config.app_key = "test_key".to_string();
+        config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
+        std::env::set_var("COWEN_OPENAPI_URL", format!("http://{}", mock_addr));
+        std::env::set_var("COWEN_STREAM_URL", format!("http://{}", mock_addr));
+        config.webhook_target = "http://localhost:8080".to_string();
+
+        let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+        let p_vault = vault.clone();
+        let p_config = config.clone();
+
+        let proxy_task = tokio::spawn(async move {
+            start_proxy("test_profile", &p_config, p_vault, 0, Some(port_tx)).await.unwrap();
+        });
+
+        let proxy_port = port_rx.await.unwrap();
+        let client = reqwest::Client::new();
+
+        // 4. Test GET request WITH Content-Type but NO Body
+        let get_url = format!("http://127.0.0.1:{}/test-get", proxy_port);
+        let resp_get = client.get(&get_url)
+            .header("Content-Type", "application/json")
+            .send().await.unwrap();
+        
+        assert_eq!(resp_get.status(), axum::http::StatusCode::OK);
+        let text_get = resp_get.text().await.unwrap();
+        assert_eq!(text_get, "GET OK"); // Means upstream confirmed Content-Type was stripped
+
+        // 5. Test POST request WITH Content-Type AND Body
+        let post_url = format!("http://127.0.0.1:{}/test-post", proxy_port);
+        let resp_post = client.post(&post_url)
+            .header("Content-Type", "application/json")
+            .body(r#"{"data":"test"}"#)
+            .send().await.unwrap();
+
+        assert_eq!(resp_post.status(), axum::http::StatusCode::OK);
+        let text_post = resp_post.text().await.unwrap();
+        assert_eq!(text_post, "POST OK"); // Means upstream confirmed Content-Type was preserved
+
+        // Cleanup and shutdown mock server/proxy
+        mock_server_handle.abort();
+        proxy_task.abort();
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
