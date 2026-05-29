@@ -592,7 +592,7 @@ db-down:
 
 clean:
 	cargo clean
-	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-x86_64-legacy $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/windows-x86_64-cross $(OUTPUT_DIR)/windows-x86_64-legacy $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
+	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/windows-x86_64-cross $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
 
 install:
 	@$(MAKE) macos-aarch64
