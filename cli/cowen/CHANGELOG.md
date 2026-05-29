@@ -20,6 +20,8 @@
 - **运行日志与遥测降噪 (Log Separation & Telemetry Noise Reduction)**:
   - **日志流智能分流**: 对守护进程日志引擎实施了级别路由拦截，`WARN`/`ERROR` 等核心故障日志被精准导向 `daemon.stderr.log`，常规的心跳 (`ping`) 等 `INFO` 日志转至 `stdout`，确保了 Launchd/Systemd 所守护的错误日志绝对纯净。
   - **弱网环境遥测容忍**: 将遥测上报的心跳超时限制由 500ms 宽限至 3000ms，并将真正的网络死锁导致的失败日志降级为 `TRACE` 层级，大幅减少了弱网环境下的日志刷屏。
+- **智能 Header 剥离 (Intelligent Header Stripping)**:
+  - 在 Proxy 代理中间件中实现智能协议检查。当客户端发起 `GET`、`HEAD` 或 `DELETE` 请求且未携带任何载荷 (Body) 时，Proxy 将自动从请求中剥离 `Content-Type` Header。此举彻底解决了部分客户端工具默认发送此 Header 导致老旧上游节点（如 Tomcat 9）抛出 `415 Unsupported Media Type` 异常的问题。
 
 ---
 

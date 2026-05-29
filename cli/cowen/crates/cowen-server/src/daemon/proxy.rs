@@ -155,6 +155,12 @@ async fn handle_proxy(
         }
     }
 
+    // 🚀 Intelligent Header Stripping: Some upstream servers (e.g. Tomcat 9) strictly reject
+    // GET/HEAD/DELETE requests with a Content-Type if there's no actual body payload.
+    if bytes.is_empty() && (parts.method == axum::http::Method::GET || parts.method == axum::http::Method::HEAD || parts.method == axum::http::Method::DELETE) {
+        headers.remove(reqwest::header::CONTENT_TYPE);
+    }
+
     // 1.2. Pre-flight Interceptor
     let fallback_spec = serde_json::Value::Null;
     let intercept_result = match provider.intercept_request(&state.profile, &state.config, &req_path, &method_str, headers, &bytes, &fallback_spec).await {
