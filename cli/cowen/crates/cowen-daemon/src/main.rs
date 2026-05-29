@@ -148,8 +148,9 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     }
     let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone(), Some(telemetry_db.clone()));
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let (monitor_shutdown_tx, monitor_shutdown_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        if let Err(e) = m_server.start(Some(port_tx), allow_fallback).await {
+        if let Err(e) = m_server.start(Some(port_tx), allow_fallback, monitor_shutdown_rx).await {
             tracing::error!("Monitor server error: {}", e);
         }
     });
@@ -220,6 +221,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
             }
             _ = stop_rx.recv() => {
                 info!("Shutdown signal received, initiating graceful shutdown...");
+                let _ = monitor_shutdown_tx.send(());
                 let stopped_file = cowen_common::config::get_app_dir().join("master_daemon.stopped");
                 let _ = cowen_common::utils::secure_write(stopped_file, "1");
                 break;

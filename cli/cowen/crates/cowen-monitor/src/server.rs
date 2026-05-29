@@ -25,7 +25,7 @@ impl MonitorServer {
         }
     }
 
-    pub async fn start(&self, port_tx: Option<oneshot::Sender<u16>>, allow_fallback: bool) -> anyhow::Result<()> {
+    pub async fn start(&self, port_tx: Option<oneshot::Sender<u16>>, allow_fallback: bool, shutdown_rx: oneshot::Receiver<()>) -> anyhow::Result<()> {
         // Subscribe to EventBus and record events to TelemetryDb asynchronously
         if let Some(db) = &self.telemetry_db {
             let db_clone = db.clone();
@@ -105,7 +105,12 @@ impl MonitorServer {
             let _ = tx.send(actual_port);
         }
 
-        axum::serve(listener, app).await?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+                tracing::info!(target: "sys", "Monitor server graceful shutdown triggered");
+            })
+            .await?;
         Ok(())
     }
 }

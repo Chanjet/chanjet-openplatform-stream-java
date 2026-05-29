@@ -1,9 +1,0 @@
-【SYKFPT-1093】
-
-refactor: 守护进程稳定性与可观测性加固
-1. 监控服务启用 SO_REUSEADDR 解决端口占用竞争
-2. Unix/Windows IPC Token 存储实现临时文件原子替换避免鉴权空隙
-3. 守护进程日志拆分，拆分 INFO 与 WARN/ERROR 分别输出
-4. 弱网环境 telemetry 超时放宽至 3s 并降低断网失败的日志级别
-5. 补充相应的原子写入与 E2E 隔离断言测试
-6. 更新 CHANGELOG 及 CHANGELOG_INTERNAL 文档

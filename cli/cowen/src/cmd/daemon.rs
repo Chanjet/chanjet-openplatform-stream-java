@@ -316,15 +316,28 @@ impl DaemonCoordinator for GenericDaemonCoordinator {
             let _ = std::fs::remove_file(&stopped_file);
         }
 
-        // 1. Preflight Check
+        let port_path = cowen_common::ipc::get_ipc_port_path();
+
+        // 🚀 FAST IPC PING: If daemon is already running and healthy, skip heavy preflight check and triggering logs
+        if !foreground && port_path.exists() {
+            let client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+            if client.ping().await.is_ok() {
+                tracing::debug!(target: "sys", "Fast IPC Ping successful, daemon is healthy. Bypassing spawn.");
+                daemon_svc.start_daemon(profile, config, vault.clone()).await?;
+                eprintln!("✅ Startup command sent to daemon.");
+                let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+                let original_port = if app_cfg.monitor_port == 0 { 1588 } else { app_cfg.monitor_port };
+                sync_feedback(original_port).await?;
+                return Ok(());
+            }
+        }
+
+        // 1. Preflight Check (Port Occupancy & Zombie Cleanup)
         preflight_check_and_bind_port(cfg_mgr).await?;
 
         if !foreground {
-            eprintln!("🚀 Triggering standalone daemon for profile '{}'...", profile);
-            
-            let port_path = cowen_common::ipc::get_ipc_port_path();
-            
             if !port_path.exists() {
+                eprintln!("🚀 Triggering standalone daemon for profile '{}'...", profile);
                 eprintln!("ℹ️ Daemon process not running. Spawning in background...");
                 let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
                 
