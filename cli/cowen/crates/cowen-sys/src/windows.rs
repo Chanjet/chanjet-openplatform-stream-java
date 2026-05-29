@@ -124,7 +124,7 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
                 .arg("config")
                 .arg(&service_name)
                 .arg("binPath=")
-                .arg(format!("\"{}\" daemon start --all --run-as-service", bin_path))
+                .arg(format!("\"{}\" --auto-start-all --run-as-service", bin_path))
                 .status();
             println!("✅ Windows Service '{}' already exists. Configuration updated.", service_name);
             return Ok(());
@@ -134,7 +134,7 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
             .arg("create")
             .arg(&service_name)
             .arg("binPath=")
-            .arg(format!("\"{}\" daemon start --all --run-as-service", bin_path))
+            .arg(format!("\"{}\" --auto-start-all --run-as-service", bin_path))
             .arg("start=")
             .arg("auto")
             .status()?;

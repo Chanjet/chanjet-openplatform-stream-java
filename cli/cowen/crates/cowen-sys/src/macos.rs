@@ -69,10 +69,7 @@ impl cowen_infra::sys::ServiceManager for MacServiceManager {
     <key>ProgramArguments</key>
     <array>
         <string>{bin_path}</string>
-        <string>daemon</string>
-        <string>start</string>
-        <string>--all</string>
-        <string>--foreground</string>
+        <string>--auto-start-all</string>
     </array>
     <key>KeepAlive</key>
     <true/>

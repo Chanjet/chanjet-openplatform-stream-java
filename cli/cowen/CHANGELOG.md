@@ -4,6 +4,17 @@
 
 ---
 
+## [0.3.6] - 2026-05-29
+
+### 🚀 新特性 (Features)
+- **守护进程原生自启与物理脱壳 (Daemon Native Auto-start & Decoupling)**:
+  - 彻底解除了 `cowen` CLI 在开机启动阶段的套壳代理行为。系统服务（launchd / systemd / sc）现在直接拉起底层的 `cowen-daemon` 二进制执行体。
+  - `cowen-daemon` 原生支持 `--auto-start-all` 参数，可独立完成环境配置加载与 IPC 调度，实现真正的单进程后台驻留，大幅降低系统资源开销。
+- **Windows 环境静默启动 (Windows Silent Boot)**:
+  - 为 Windows 平台的守护进程引入了 `windows_subsystem = "windows"` 编译属性。现在 Windows 系统开机自启后台服务时将完全静默运行，彻底消除了开机时残留命令行黑窗（Console Window）闪烁的问题。
+
+---
+
 ## [0.3.5] - 2026-05-22
 
 ### 🚀 新特性 (Features)

@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use anyhow::Result;
 use clap::Parser;
 use tracing::{info, error};
@@ -23,6 +25,10 @@ struct Args {
     /// Run as Windows Service
     #[arg(long)]
     run_as_service: bool,
+
+    /// Automatically start all profiles on startup
+    #[arg(long)]
+    auto_start_all: bool,
 }
 
 #[tokio::main]
@@ -31,16 +37,17 @@ async fn main() -> Result<()> {
 
     if args.run_as_service {
         let pid_file_clone = cowen_common::config::get_app_dir().join("master_daemon.pid");
+        let auto_start = args.auto_start_all;
         return cowen_sys::get_process_manager().run_as_service(Box::new(move || {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(run_main(&pid_file_clone, None))
+            rt.block_on(run_main(&pid_file_clone, None, auto_start))
         })).await;
     }
 
     let app_dir = cowen_common::config::get_app_dir();
     let pid_file = app_dir.join("master_daemon.pid");
 
-    let result = run_main(&pid_file, args.ipc_port_file.clone()).await;
+    let result = run_main(&pid_file, args.ipc_port_file.clone(), args.auto_start_all).await;
     if let Err(e) = &result {
         // FATAL CRASH: Write LAST_ERROR to PID file so CLI can report it synchronously
         let current_pid = std::process::id();
@@ -51,7 +58,7 @@ async fn main() -> Result<()> {
     result
 }
 
-async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<()> {
+async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start_all: bool) -> Result<()> {
     // Initialize Rustls Crypto Provider (Mandatory for Rustls 0.23+)
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -165,6 +172,18 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
             let _ = stop_tx_ctrl_c.send(()).await;
         }
     });
+
+    if auto_start_all {
+        if let Ok(profiles) = cfg_mgr.list_profiles().await {
+            for p in profiles {
+                let p_cfg = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::config::Config::default_with_profile(&p));
+                info!("Auto-starting worker for profile: {}", p);
+                if let Err(e) = daemon_svc.start_daemon(&p, &p_cfg, vault.clone()).await {
+                    error!("Failed to auto-start worker for profile {}: {}", p, e);
+                }
+            }
+        }
+    }
 
     loop {
         tokio::select! {

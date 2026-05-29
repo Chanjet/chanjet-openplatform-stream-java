@@ -4,6 +4,17 @@
 
 ---
 
+## [0.3.6] - 2026-05-29
+
+### 🏗️ 架构重构 (Architectural Refactoring)
+- **进程树结构优化 (Process Tree Optimization)**:
+  - 重构了 `cowen-sys` 中全平台的服务注册逻辑。修改了 macOS `plist`、Linux `.service` 及 Windows `sc create` 的执行入口，从原本的 `cowen daemon start --all` 变更为直接指向物理的 `cowen-daemon` 路径并传递 `--auto-start-all` 指令。
+  - 移除了守护进程依赖父进程（CLI）进行配置注入的耦合，使 `cowen-daemon` 具备了完全自治的冷启动与初始化能力。
+- **跨平台编译隔离加固 (Cross-Platform Compilation)**:
+  - 通过条件编译 `#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]`，在不影响 Linux/macOS 标准输出流测试的前提下，将 Windows 版本的守护进程彻底转换为无 GUI/Console 窗口分配的纯后台执行体。
+
+---
+
 ## [0.3.5] - 2026-05-22
 
 ### 🏗️ 架构重构 (Architectural Refactoring)
