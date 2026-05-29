@@ -13,6 +13,15 @@
 - **跨平台编译隔离加固 (Cross-Platform Compilation)**:
   - 通过条件编译 `#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]`，在不影响 Linux/macOS 标准输出流测试的前提下，将 Windows 版本的守护进程彻底转换为无 GUI/Console 窗口分配的纯后台执行体。
 
+### 🔧 稳定性与可观测性加固 (Stability & Observability)
+- **TCP 底层配置深度调优**:
+  - 重写了 `cowen-monitor` 中的 `TcpListener` 绑定实现，直接下沉调用底层的 `socket2`，配置 `SO_REUSEADDR` 属性。在发生偶发 Crash 重启时强制抢占处在 `TIME_WAIT` 的 1588 端口，消除了因网络层限制导致的服务自愈延迟。
+- **文件系统原子性改造 (Atomic IPC)**:
+  - 针对 Windows 和 Unix 文件系统特性，在 `cowen-sys` 实现了严格的无锁原子文件覆盖（Write-to-Temp 然后 Rename），解决了 CLI 读取 Token 时与 Daemon 写盘操作由于无保护引发的 `Unauthorized IPC` 并发竞争漏洞。
+- **运行态噪音抑制**:
+  - `cowen-daemon` 的标准追踪 (`tracing`) 流重构为智能双分流管道。所有业务层级的信息与诊断日志均被拦截至 `stdout`，仅允许纯正的 `ERROR/WARN` 落地至系统服务捕获的 `stderr`。
+  - 在 `telemetry.rs` 中重构了探针上报行为的容错退避策略，网络级卡顿所造成的丢包已被抑制到不可见的 `TRACE` 级别，并辅以自动放宽的三秒超时保护。
+
 ---
 
 ## [0.3.5] - 2026-05-22

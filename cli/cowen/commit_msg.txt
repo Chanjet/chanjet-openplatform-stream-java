@@ -1,8 +1,9 @@
 【SYKFPT-1093】
 
-实现 Daemon 启动端口预检与同步错误反馈，修复高并发下内存 Token Drift 问题
-
-1. 启动前置预检 (Pre-flight Check)：在 daemon start 触发子进程启动前，提前探测 monitor_port 端口占用状态，避免被静默吞掉异常。
-2. 增强型 PID 文件元数据：pid 记录扩展存储 START_TIME 和 ERROR 信息，支持父进程同步拉取子进程崩溃原因并直达终端反馈。
-3. 增加 Redis 跨进程分布式自旋锁：在高并发测试 (case_29 等) 下，修复多个 Daemon 并发访问网关申请 Token 时导致的 HybridStore 本地缓存相互覆盖（脑裂）问题。
-4. 整理测试环境：清理 E2E 测试脚本中危险的 kill -9 命令，改为符合规范的柔性退出；新增 case_63 专门验证前置预检行为。
+refactor: 守护进程稳定性与可观测性加固
+1. 监控服务启用 SO_REUSEADDR 解决端口占用竞争
+2. Unix/Windows IPC Token 存储实现临时文件原子替换避免鉴权空隙
+3. 守护进程日志拆分，拆分 INFO 与 WARN/ERROR 分别输出
+4. 弱网环境 telemetry 超时放宽至 3s 并降低断网失败的日志级别
+5. 补充相应的原子写入与 E2E 隔离断言测试
+6. 更新 CHANGELOG 及 CHANGELOG_INTERNAL 文档

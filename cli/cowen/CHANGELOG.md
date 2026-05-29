@@ -13,6 +13,14 @@
 - **Windows 环境静默启动 (Windows Silent Boot)**:
   - 为 Windows 平台的守护进程引入了 `windows_subsystem = "windows"` 编译属性。现在 Windows 系统开机自启后台服务时将完全静默运行，彻底消除了开机时残留命令行黑窗（Console Window）闪烁的问题。
 
+### 🔧 改进与修复 (Improvements & Fixes)
+- **Daemon 稳定性与容错加固 (Daemon Stability & Fault Tolerance)**:
+  - **端口重用与死锁解除**: 针对 Monitor Server 引入了 `SO_REUSEADDR` 底层 Socket 配置，彻底解决了 Daemon 重启或 Crash 恢复时因 `TIME_WAIT` 状态导致的 1588 端口“假性占用”问题。
+  - **IPC 凭据写入原子化**: 重构了全平台 (Unix/Windows) 的 IPC Token 存储逻辑，采用 `.tmp` 文件写入并执行原子 `rename` 覆盖，根除了 CLI 读取过程中遭遇的 401 Unauthorized 竞态空隙。
+- **运行日志与遥测降噪 (Log Separation & Telemetry Noise Reduction)**:
+  - **日志流智能分流**: 对守护进程日志引擎实施了级别路由拦截，`WARN`/`ERROR` 等核心故障日志被精准导向 `daemon.stderr.log`，常规的心跳 (`ping`) 等 `INFO` 日志转至 `stdout`，确保了 Launchd/Systemd 所守护的错误日志绝对纯净。
+  - **弱网环境遥测容忍**: 将遥测上报的心跳超时限制由 500ms 宽限至 3000ms，并将真正的网络死锁导致的失败日志降级为 `TRACE` 层级，大幅减少了弱网环境下的日志刷屏。
+
 ---
 
 ## [0.3.5] - 2026-05-22

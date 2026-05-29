@@ -152,7 +152,7 @@ pub async fn send_telemetry_request(config: &cowen_common::Config, app_cfg: &cow
     };
 
     tokio::time::timeout(
-        std::time::Duration::from_millis(500),
+        std::time::Duration::from_millis(3000),
         client.post(&url).json(&event).send()
     ).await.map_err(|_| anyhow::anyhow!("Telemetry report timed out"))??;
     
@@ -169,7 +169,7 @@ pub fn report_event(config: &cowen_common::Config, app_cfg: &cowen_common::confi
     
     tokio::spawn(async move {
         if let Err(e) = send_telemetry_request(&config, &app_cfg, event_name, payload).await {
-            tracing::debug!(target: "sys", "Telemetry report failed (silently ignored): {}", e);
+            tracing::trace!(target: "sys", "Telemetry report failed (silently ignored): {}", e);
         }
     });
 }
@@ -235,7 +235,7 @@ mod tests {
         
         assert!(res.is_err());
         assert!(
-            duration < std::time::Duration::from_millis(1500),
+            duration < std::time::Duration::from_millis(4000),
             "Telemetry request took too long without timeout mechanism: {:?}",
             duration
         );

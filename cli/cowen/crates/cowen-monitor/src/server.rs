@@ -64,7 +64,22 @@ impl MonitorServer {
         let mut addr = SocketAddr::from(([127, 0, 0, 1], current_port));
         let mut retry_count = 0;
         let listener = loop {
-            match tokio::net::TcpListener::bind(addr).await {
+            let bind_result = async {
+                let socket = socket2::Socket::new(
+                    socket2::Domain::IPV4,
+                    socket2::Type::STREAM,
+                    None,
+                )?;
+                socket.set_reuse_address(true)?;
+                let sockaddr = socket2::SockAddr::from(addr);
+                socket.bind(&sockaddr)?;
+                socket.listen(1024)?;
+                let std_listener: std::net::TcpListener = socket.into();
+                std_listener.set_nonblocking(true)?;
+                tokio::net::TcpListener::from_std(std_listener)
+            }.await;
+
+            match bind_result {
                 Ok(l) => break l,
                 Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                     if current_port != 0 && retry_count < 2 {

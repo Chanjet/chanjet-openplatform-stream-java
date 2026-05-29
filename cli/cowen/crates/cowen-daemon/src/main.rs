@@ -117,8 +117,14 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!("Failed to init Vault: {}", e))?;
 
     use tracing_subscriber::prelude::*;
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+    
+    let make_writer = std::io::stderr
+        .with_max_level(tracing::Level::WARN)
+        .or_else(std::io::stdout);
+
     let console_layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr)
+        .with_writer(make_writer)
         .with_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")));
     
     let (_vault_tx, vault_rx) = tokio::sync::watch::channel(Some(vault.clone()));
