@@ -30,7 +30,6 @@ pub fn check_port_occupancy(port: u16, bin_name: &str) -> Option<(u32, String)> 
     
     // Scan all processes
     let bin_name_lower = bin_name.to_lowercase();
-    let port_str = port.to_string();
     
     for (pid, process) in s.processes() {
         let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>();
