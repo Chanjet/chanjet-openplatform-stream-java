@@ -13,7 +13,7 @@ pub struct SearchDocument {
 }
 
 /// Persistent Search Index
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct SearchIndex {
     pub docs: Vec<SearchDocument>,
 }

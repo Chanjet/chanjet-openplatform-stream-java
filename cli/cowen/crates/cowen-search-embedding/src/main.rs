@@ -144,18 +144,54 @@ fn process_line(line: &str) -> JsonRpcResponse {
                 Err(e) => return invalid_params_error(req.id, e),
             };
 
-            // Option A: Metadata Partitioning - select/insert the tenant's partition
-            let index = engine.indexes.entry(params.tenant_id).or_default();
+            let cache_dir = cowen_common::config::get_app_dir().join("search").join("cache");
+            let cache_file = cache_dir.join(format!("{}.json", &params.tenant_id));
+
+            // Load existing disk cache to reuse unmodified vector embeddings
+            let mut cached_map = std::collections::HashMap::new();
+            if cache_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&cache_file) {
+                    if let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content) {
+                        for doc in cached_index.docs {
+                            cached_map.insert(doc.id.clone(), doc);
+                        }
+                    }
+                }
+            }
+
+            let mut index = SearchIndex::default();
             for doc in params.documents {
-                let text = format!("{} {}", doc.summary, doc.description);
-                if let Ok(vector) = engine.embedder.embed(&text) {
+                let mut vector = None;
+                if let Some(cached_doc) = cached_map.get(&doc.id) {
+                    if cached_doc.summary == doc.summary && cached_doc.description == doc.description && !cached_doc.vector.is_empty() {
+                        vector = Some(cached_doc.vector.clone());
+                    }
+                }
+
+                if vector.is_none() {
+                    let text = format!("{} {}", doc.summary, doc.description);
+                    if let Ok(v) = engine.embedder.embed(&text) {
+                        vector = Some(v);
+                    }
+                }
+
+                if let Some(v) = vector {
                     index.push(AiDocument {
                         id: doc.id,
                         summary: doc.summary,
                         description: doc.description,
-                        vector,
+                        vector: v,
                     });
                 }
+            }
+
+            // Update memory index
+            engine.indexes.insert(params.tenant_id.clone(), index.clone());
+
+            // Write back to disk cache
+            let _ = std::fs::create_dir_all(&cache_dir);
+            if let Ok(serialized) = serde_json::to_string(&index) {
+                let _ = std::fs::write(&cache_file, serialized);
             }
 
             JsonRpcResponse {
@@ -176,8 +212,30 @@ fn process_line(line: &str) -> JsonRpcResponse {
                 Err(e) => return invalid_params_error(req.id, e),
             };
 
-            // Option A: Strictly filter by query.tenant_id
-            let results = if let Some(index) = engine.indexes.get(&params.tenant_id) {
+            // Lazily pre-load index from disk cache if not in memory
+            let has_index = if engine.indexes.contains_key(&params.tenant_id) {
+                true
+            } else {
+                let cache_dir = cowen_common::config::get_app_dir().join("search").join("cache");
+                let cache_file = cache_dir.join(format!("{}.json", &params.tenant_id));
+                if cache_file.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&cache_file) {
+                        if let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content) {
+                            engine.indexes.insert(params.tenant_id.clone(), cached_index);
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+
+            let results = if has_index {
+                let index = engine.indexes.get(&params.tenant_id).unwrap();
                 if let Ok(query_vector) = engine.embedder.embed(&params.query) {
                     let raw_results = index.search(&query_vector, &params.query, params.top);
                     raw_results.into_iter().map(|(score, ai_doc)| {
@@ -237,3 +295,124 @@ fn invalid_params_error(id: Option<serde_json::Value>, err: serde_json::Error) -
         }),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn setup_test_engine(temp_dir: &std::path::Path) {
+        unsafe {
+            std::env::set_var("COWEN_HOME", temp_dir.to_str().unwrap());
+        }
+        let app_dir = cowen_common::config::get_app_dir();
+        
+        // Extract embedded ONNX models to sandbox
+        let _ = cowen_ai::SearchIndex::ensure_assets(&app_dir);
+        let default_model = app_dir.join("search").join("models").join("model_quantized.onnx");
+        let default_tokenizer = app_dir.join("search").join("models").join("tokenizer.json");
+
+        match ONNXEmbedder::new(&default_model.to_string_lossy(), &default_tokenizer.to_string_lossy()) {
+            Ok(embedder) => {
+                let engine = SidecarEngine {
+                    embedder,
+                    indexes: HashMap::new(),
+                };
+                *ENGINE.lock().unwrap() = Some(engine);
+            }
+            Err(e) => {
+                panic!("Failed to initialize ONNXEmbedder in test setup: {:?}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_disk_cache_reuse_and_invalidation() {
+        let tmp = tempdir().unwrap();
+        setup_test_engine(tmp.path());
+
+        let tenant_id = "test_tenant_123";
+        
+        let update_req = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "search/update_index",
+            "params": {
+                "tenant_id": tenant_id,
+                "documents": [
+                    {
+                        "id": "GET /v1/test",
+                        "summary": "测试接口",
+                        "description": "用于测试缓存的接口",
+                        "vector": []
+                    }
+                ]
+            }
+        });
+
+        let resp1 = process_line(&serde_json::to_string(&update_req).unwrap());
+        if let Some(ref e) = resp1.error {
+            panic!("resp1 error: code={}, message={}", e.code, e.message);
+        }
+        assert!(resp1.error.is_none());
+
+        // Verify cache file created on disk
+        let cache_file = tmp.path().join("search").join("cache").join(format!("{}.json", tenant_id));
+        assert!(cache_file.exists(), "Cache file should be created on disk");
+
+        // Read vector from disk cache and inject a recognizable custom vector to prove cache hit reuse
+        let cache_content = fs::read_to_string(&cache_file).unwrap();
+        let mut index: SearchIndex = serde_json::from_str(&cache_content).unwrap();
+        assert_eq!(index.docs.len(), 1);
+        
+        // Inject mock vector
+        let injected_vector = vec![42.0f32, 99.0f32];
+        index.docs[0].vector = injected_vector.clone();
+        fs::write(&cache_file, serde_json::to_string(&index).unwrap()).unwrap();
+
+        // Clear in-memory indexes to force loading from disk cache
+        if let Some(ref mut engine) = *ENGINE.lock().unwrap() {
+            engine.indexes.clear();
+        }
+
+        // 2. Second update with identical content (Cache Hit, should load from cache and reuse our injected vector)
+        let resp2 = process_line(&serde_json::to_string(&update_req).unwrap());
+        assert!(resp2.error.is_none());
+
+        // Verify the injected vector was reused
+        let engine_guard = ENGINE.lock().unwrap();
+        let engine = engine_guard.as_ref().unwrap();
+        let stored_index = engine.indexes.get(tenant_id).unwrap();
+        assert_eq!(stored_index.docs[0].vector, injected_vector, "Should reuse cached vector without embedding again");
+        drop(engine_guard);
+
+        // 3. Third update with modified content (Cache Miss / Invalidation, should re-embed and overwrite injected vector)
+        let modified_req = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "search/update_index",
+            "params": {
+                "tenant_id": tenant_id,
+                "documents": [
+                    {
+                        "id": "GET /v1/test",
+                        "summary": "修改后的测试接口",
+                        "description": "用于测试缓存的接口",
+                        "vector": []
+                    }
+                ]
+            }
+        });
+
+        let resp3 = process_line(&serde_json::to_string(&modified_req).unwrap());
+        assert!(resp3.error.is_none());
+
+        // Verify the vector is regenerated (not matching the injected one anymore)
+        let engine_guard = ENGINE.lock().unwrap();
+        let engine = engine_guard.as_ref().unwrap();
+        let stored_index = engine.indexes.get(tenant_id).unwrap();
+        assert_ne!(stored_index.docs[0].vector, injected_vector, "Should regenerate vector because content changed");
+    }
+}
+

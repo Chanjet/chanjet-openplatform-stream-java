@@ -1015,6 +1015,7 @@ dependencies = [
  "cowen-search",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
