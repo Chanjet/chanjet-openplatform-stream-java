@@ -111,7 +111,8 @@ if [ -f "$PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
         --version "0.4.0" \
         --dev-key dist_assets/keys/official_dev.pk8 \
         --dev-cert dist_assets/keys/official_dev_cert.json \
-        --out-bundle "$BUILD_DIR/libcowen_search_embedding.bundle" 2>/dev/null || true
+        --out-bundle "$BUILD_DIR/libcowen_search_embedding.bundle" \
+        --permissions SearchProvider 2>/dev/null || true
 fi
 
 cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"

@@ -155,7 +155,7 @@ mod tests {
             name: "fake".to_string(),
             version: "1.0".to_string(),
             binary_hash: hash_hex,
-            permissions: vec!["all".to_string()],
+            permissions: vec!["SearchProvider".to_string()],
         };
         let manifest_str = serde_json::to_string(&manifest).unwrap();
         let manifest_sig = dev_pair.sign(manifest_str.as_bytes());
@@ -202,7 +202,7 @@ mod tests {
             name: "fake".to_string(),
             version: "1.0".to_string(),
             binary_hash: "wrong_hash".to_string(),
-            permissions: vec!["all".to_string()],
+            permissions: vec!["SearchProvider".to_string()],
         };
         let manifest_str = serde_json::to_string(&manifest).unwrap();
         let manifest_sig = dev_pair.sign(manifest_str.as_bytes());

@@ -117,10 +117,10 @@ build-plugins:
 	cargo build --release -p cowen-search-embedding
 	@echo "🔐 Signing plugins natively..."
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/release/libcowen_search_embedding.exe') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding.exe --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle } }"
+	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/release/libcowen_search_embedding.exe') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding.exe --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle --permissions SearchProvider } }"
 else
 	@if [ -f "dist_assets/keys/official_dev.pk8" ]; then \
-		if [ -f "target/release/libcowen_search_embedding" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle; fi; \
+		if [ -f "target/release/libcowen_search_embedding" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle --permissions SearchProvider; fi; \
 	fi
 endif
 
@@ -231,7 +231,7 @@ linux-x86_64-with-podman: prepare-podman-image
 	$(PODMAN_RUN_BASE) \
 		$(BUILDER_IMAGE) \
 		bash -c "cargo build --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer && \
-			target_podman/x86_64-unknown-linux-gnu/release/cowen-signer sign-plugin --dylib target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle && \
+			target_podman/x86_64-unknown-linux-gnu/release/cowen-signer sign-plugin --dylib target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle --permissions SearchProvider && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding ../../bin/linux-x86_64/ && \
@@ -258,7 +258,7 @@ windows-x86_64: build-plugins
 	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc -p cowen -p cowen-daemon"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen-daemon.exe -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-daemon.exe -Force"
-	powershell -NoProfile -Command "if (Test-Path target/release/cowen_search_embedding.dll) { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen_search_embedding.bundle; Copy-Item -Path target/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force; Copy-Item -Path target/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.bundle -Force }"
+	powershell -NoProfile -Command "if (Test-Path target/release/cowen_search_embedding.dll) { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen_search_embedding.bundle --permissions SearchProvider; Copy-Item -Path target/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force; Copy-Item -Path target/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.bundle -Force }"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 
@@ -290,7 +290,7 @@ windows-plugin-x64:
 	@echo "🪟 Building Windows x86_64 AI plugin (MSVC Release)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
 	powershell -NoProfile -Command "cargo build --release --target x86_64-pc-windows-msvc -p cowen-search-embedding"
-	powershell -NoProfile -Command "cargo run --release -p cowen-signer -- sign-plugin --dylib target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/x86_64-pc-windows-msvc/release/cowen_search_embedding.bundle"
+	powershell -NoProfile -Command "cargo run --release -p cowen-signer -- sign-plugin --dylib target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/x86_64-pc-windows-msvc/release/cowen_search_embedding.bundle --permissions SearchProvider"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.bundle -Force"
 
@@ -298,7 +298,7 @@ windows-plugin-x86:
 	@echo "🪟 Building Windows x86 (32-bit) AI plugin (MSVC Release)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86"
 	powershell -NoProfile -Command "cargo build --release --target i686-pc-windows-msvc -p cowen-search-embedding"
-	powershell -NoProfile -Command "cargo run --release -p cowen-signer -- sign-plugin --dylib target/i686-pc-windows-msvc/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle"
+	powershell -NoProfile -Command "cargo run --release -p cowen-signer -- sign-plugin --dylib target/i686-pc-windows-msvc/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle --permissions SearchProvider"
 	powershell -NoProfile -Command "Copy-Item -Path target/i686-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll -Force"
 	powershell -NoProfile -Command "Copy-Item -Path target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.bundle -Force"
 # --- 打包目标 ---

@@ -52,7 +52,7 @@ enum Commands {
         dev_cert: PathBuf,
         #[arg(long, help = "Output path for the signature bundle JSON")]
         out_bundle: PathBuf,
-        #[arg(long, help = "Permissions/Capabilities", default_value = "SearchProvider", value_delimiter = ',')]
+        #[arg(long, help = "Permissions/Capabilities (e.g. SearchProvider, StorageProvider)", value_delimiter = ',')]
         permissions: Vec<String>,
     },
 }

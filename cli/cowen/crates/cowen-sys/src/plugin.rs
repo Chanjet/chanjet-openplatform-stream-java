@@ -28,11 +28,30 @@ impl PluginLoader {
                 let bundle: cowen_infra::pki::SignatureBundle = serde_json::from_str(&bundle_str)?;
                 bundle.manifest
             } else {
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
+                let clean_stem = stem.replace("libcowen_", "").replace("cowen_", "");
+                let camel = clean_stem.split('_')
+                    .flat_map(|s| s.split('-'))
+                    .map(|s| {
+                        let mut c = s.chars();
+                        match c.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                        }
+                    })
+                    .collect::<String>();
+                let deduced_capability = format!("{}Provider", camel);
+                
+                let mut permissions = vec![deduced_capability];
+                if stem.contains("search") || stem.contains("embedding") {
+                    permissions.push("SearchProvider".to_string());
+                }
+
                 cowen_infra::pki::PluginManifest {
-                    name: p.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
+                    name: stem,
                     version: "dev".to_string(),
                     binary_hash: String::new(),
-                    permissions: vec!["SearchProvider".to_string()],
+                    permissions,
                 }
             }
         } else {
@@ -58,13 +77,24 @@ impl PluginLoader {
 
     /// Declarative check for supported traits in Phase 1 (0-FFI).
     pub fn supports_trait(&self, trait_name: &str) -> bool {
-        if trait_name == "SearchProvider" {
-            self.manifest.name.contains("search") 
-                || self.manifest.name.contains("embedding") 
-                || self.manifest.permissions.iter().any(|p| p == "all" || p == "SearchProvider")
-        } else {
-            false
+        // Strict blocking of wildcard "all" permission to prevent capability abuse
+        if self.manifest.permissions.iter().any(|p| p == "all") {
+            tracing::warn!("⚠️  Blocking plugin '{}': wildcard 'all' permission is deprecated and strictly forbidden.", self.manifest.name);
+            eprintln!("⚠️  Blocking plugin '{}': wildcard 'all' permission is deprecated and strictly forbidden. Please re-sign the plugin using specific capabilities.", self.manifest.name);
+            return false;
         }
+
+        // 1. Direct match: permissions in manifest directly match the capability (fully extensible!)
+        if self.manifest.permissions.iter().any(|p| p == trait_name) {
+            return true;
+        }
+
+        // 2. Name signature fallback for search plugins (robust backward compatibility)
+        if trait_name == "SearchProvider" && (self.manifest.name.contains("search") || self.manifest.name.contains("embedding")) {
+            return true;
+        }
+
+        false
     }
 }
 
@@ -245,5 +275,38 @@ mod tests {
         }
         
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_supports_trait_strict_blocking_of_all() {
+        let manifest_with_all = cowen_infra::pki::PluginManifest {
+            name: "test-plugin".to_string(),
+            version: "1.0.0".to_string(),
+            binary_hash: String::new(),
+            permissions: vec!["all".to_string()],
+        };
+
+        let loader = PluginLoader {
+            path: std::path::PathBuf::from("/tmp/test_plugin"),
+            manifest: manifest_with_all,
+        };
+
+        // Even if we query for "SearchProvider", "all" must be blocked!
+        assert!(!loader.supports_trait("SearchProvider"), "Wildcard 'all' permission must be blocked and rejected!");
+        assert!(!loader.supports_trait("SomeOtherCapability"), "Wildcard 'all' permission must be blocked and rejected!");
+
+        let manifest_with_valid = cowen_infra::pki::PluginManifest {
+            name: "test-plugin".to_string(),
+            version: "1.0.0".to_string(),
+            binary_hash: String::new(),
+            permissions: vec!["SearchProvider".to_string()],
+        };
+
+        let loader_valid = PluginLoader {
+            path: std::path::PathBuf::from("/tmp/test_plugin"),
+            manifest: manifest_with_valid,
+        };
+
+        assert!(loader_valid.supports_trait("SearchProvider"), "Valid SearchProvider capability should be accepted");
     }
 }
