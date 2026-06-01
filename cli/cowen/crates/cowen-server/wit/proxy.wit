@@ -1,0 +1,26 @@
+package cowen:proxy;
+
+interface auth {
+    record http-request {
+        method: string,
+        uri: string,
+        headers: list<tuple<string, string>>,
+    }
+
+    record auth-result {
+        authorized: bool,
+        error-message: option<string>,
+        injected-headers: list<tuple<string, string>>,
+    }
+
+    authenticate: func(req: http-request) -> auth-result;
+}
+
+interface filter {
+    filter-body: func(body: list<u8>) -> list<u8>;
+}
+
+world proxy-pipeline {
+    import auth;
+    import filter;
+}

@@ -17,6 +17,7 @@ pub struct ProxyState {
     pub config: Config,
     pub profile: String,
     pub vault: Arc<dyn Vault>,
+    pub wasm_manager: Option<Arc<crate::daemon::wasm_runtime::WasmPipelineManager>>,
 }
 
 pub async fn start_proxy(
@@ -31,6 +32,7 @@ pub async fn start_proxy(
         config: config.clone(),
         profile: profile.to_string(),
         vault,
+        wasm_manager: Some(Arc::new(crate::daemon::wasm_runtime::WasmPipelineManager::new())),
     };
 
     let app = Router::new()
@@ -133,6 +135,19 @@ async fn handle_proxy(
 
     let req_path = parts.uri.path().to_string();
 
+    // Wasm Custom Auth Filter Hook (Phase 3)
+    if let Some(wasm_mgr) = &state.wasm_manager {
+        match wasm_mgr.authenticate(parts.method.as_str(), &req_path, &[]) {
+            Ok(allowed) => {
+                if !allowed {
+                    return cors_error(axum::http::StatusCode::UNAUTHORIZED, "Blocked by custom Wasm Auth Policy".to_string());
+                }
+            }
+            Err(e) => {
+                tracing::error!(target: "sys", "Wasm Auth Policy execution failed: {}", e);
+            }
+        }
+    }
 
     // 1. Resolve Auth directly reusing the shared Vault O(1)
     let auth_cli = cowen_auth::create_auth_client_with_vault(state.vault.clone());
@@ -142,6 +157,15 @@ async fn handle_proxy(
         Ok(b) => b,
         Err(e) => return cors_error(axum::http::StatusCode::BAD_REQUEST, format!("Failed to read body: {}", e)),
     };
+
+    // Wasm Body Filter Hook (Phase 3)
+    let bytes_vec = bytes.to_vec();
+    let filtered_bytes = if let Some(wasm_mgr) = &state.wasm_manager {
+        wasm_mgr.filter_body(bytes_vec)
+    } else {
+        bytes_vec
+    };
+    let bytes = axum::body::Bytes::from(filtered_bytes);
 
     let provider = auth_cli.provider(&state.config.app_mode);
 

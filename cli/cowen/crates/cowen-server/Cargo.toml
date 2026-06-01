@@ -26,6 +26,8 @@ cowen-config = { path = "../cowen-config" }
 cowen-auth = { path = "../cowen-auth" }
 cowen-store = { path = "../cowen-store" }
 prometheus = "0.13"
+wasmtime = "22.0.0"
+arc-swap = "1.9.1"
 
 scopeguard = "1.2"
 rand = "0.8"
@@ -37,4 +39,6 @@ chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3.8"
+wat = "1.251.0"
+
 
