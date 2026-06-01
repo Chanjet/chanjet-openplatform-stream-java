@@ -101,7 +101,7 @@ pub async fn run(
     let p_vault = vault.clone();
     let proxy_fut = async move {
         if enable_proxy {
-            if let Err(e) = crate::daemon::proxy::start_proxy(&p_profile, &p_config, p_vault, proxy_port, Some(port_tx)).await {
+            if let Err(e) = crate::daemon::proxy::start_proxy(&p_profile, &p_config, p_vault, proxy_port, Some(port_tx), cowen_common::config::get_app_dir()).await {
                 return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
             }
         }

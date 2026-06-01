@@ -38,7 +38,6 @@ enum Commands {
         #[arg(long, help = "Country", default_value = "")]
         country: String,
     },
-    /// Sign a plugin dynamic library
     SignPlugin {
         #[arg(long, help = "Path to the .dylib/.so binary")]
         dylib: PathBuf,
@@ -52,8 +51,12 @@ enum Commands {
         dev_cert: PathBuf,
         #[arg(long, help = "Output path for the signature bundle JSON")]
         out_bundle: PathBuf,
-        #[arg(long, help = "Permissions/Capabilities (e.g. SearchProvider, StorageProvider)", value_delimiter = ',')]
+        #[arg(long, help = "Deprecated: use capabilities and required-privileges instead", value_delimiter = ',')]
         permissions: Vec<String>,
+        #[arg(long, help = "Capabilities/Interfaces provided by the plugin", value_delimiter = ',')]
+        capabilities: Vec<String>,
+        #[arg(long, help = "Sensitive privileges consumed by the plugin", value_delimiter = ',')]
+        required_privileges: Vec<String>,
     },
 }
 
@@ -115,7 +118,7 @@ fn main() -> Result<()> {
             println!("✅ Developer certificate issued: {:?}", out_cert);
             println!("✅ Developer private key generated: {:?}", out_dev_key);
         }
-        Commands::SignPlugin { dylib, name, version, dev_key, dev_cert, out_bundle, permissions } => {
+        Commands::SignPlugin { dylib, name, version, dev_key, dev_cert, out_bundle, permissions, capabilities, required_privileges } => {
             let dev_bytes = std::fs::read(&dev_key).context("Failed to read dev key")?;
             let dev_pair = Ed25519KeyPair::from_pkcs8(&dev_bytes).map_err(|_| anyhow::anyhow!("Invalid dev pk8 key"))?;
 
@@ -138,6 +141,8 @@ fn main() -> Result<()> {
                 version,
                 binary_hash: hash,
                 permissions,
+                capabilities,
+                required_privileges,
             };
 
             let manifest_str = serde_json::to_string(&manifest)?;

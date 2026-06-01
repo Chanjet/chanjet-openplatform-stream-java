@@ -12,11 +12,13 @@ use std::sync::Arc;
 
 // --- Manual Mocks ---
 
-struct MockVault {}
+struct MockVault {
+    store: Arc<dyn cowen_store::Store>,
+}
 #[async_trait]
 impl cowen_common::vault::Vault for MockVault {
     fn primary_store(&self) -> Arc<dyn cowen_store::Store> {
-        unimplemented!()
+        self.store.clone()
     }
 }
 
@@ -239,7 +241,9 @@ impl HttpSender for MockHttpSender {
 
 #[tokio::test]
 async fn test_get_token_missing_org_id_rejection() {
-    let vault = Arc::new(MockVault {});
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Arc::new(cowen_store::FileStore::new(tmp.path().join("vault"), None).unwrap());
+    let vault = Arc::new(MockVault { store });
     let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault));
     let sender = Arc::new(MockHttpSender {});
     let provider = StoreAppProvider::new(pool, sender);

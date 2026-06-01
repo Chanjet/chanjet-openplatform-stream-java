@@ -25,7 +25,36 @@ pub struct PluginManifest {
     pub name: String,
     pub version: String,
     pub binary_hash: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub permissions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_privileges: Vec<String>,
+}
+
+impl PluginManifest {
+    pub fn normalize(&mut self) {
+        if self.capabilities.is_empty() && self.required_privileges.is_empty() && !self.permissions.is_empty() {
+            // Backward compatibility mapping
+            for p in &self.permissions {
+                if p == "SearchProvider" || p == "AuthProvider" || p == "StorageProvider" {
+                    self.capabilities.push(p.clone());
+                } else {
+                    self.required_privileges.push(p.clone());
+                }
+            }
+            // Auto-enrich old plugins
+            if self.capabilities.iter().any(|c| c == "SearchProvider") {
+                if !self.required_privileges.iter().any(|r| r == "LocalCacheAccess") {
+                    self.required_privileges.push("LocalCacheAccess".to_string());
+                }
+                if !self.required_privileges.iter().any(|r| r == "ModelAssetFetch") {
+                    self.required_privileges.push("ModelAssetFetch".to_string());
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -59,7 +88,7 @@ pub fn verify_plugin_bundle_with_root(dylib_path: &Path, root_pub_key: &[u8]) ->
     }
 
     let bundle_str = std::fs::read_to_string(&bundle_path)?;
-    let bundle: SignatureBundle = serde_json::from_str(&bundle_str)?;
+    let mut bundle: SignatureBundle = serde_json::from_str(&bundle_str)?;
 
     // 1. Verify DeveloperCert using Root Key
     let cert_msg = if bundle.cert.organization.is_empty() && bundle.cert.country.is_empty() {
@@ -83,6 +112,9 @@ pub fn verify_plugin_bundle_with_root(dylib_path: &Path, root_pub_key: &[u8]) ->
     let manifest_str = serde_json::to_string(&bundle.manifest)?;
     verify_signature(&dev_pub_key, manifest_str.as_bytes(), &bundle.manifest_signature_hex)
         .map_err(|e| anyhow::anyhow!("Invalid Plugin Manifest signature: {}", e))?;
+
+    // Normalize capabilities and required_privileges after verifying the signature
+    bundle.manifest.normalize();
 
     // 3. Verify Dylib Hash
     use ring::digest::{Context, SHA256};
@@ -156,6 +188,8 @@ mod tests {
             version: "1.0".to_string(),
             binary_hash: hash_hex,
             permissions: vec!["SearchProvider".to_string()],
+            capabilities: vec![],
+            required_privileges: vec![],
         };
         let manifest_str = serde_json::to_string(&manifest).unwrap();
         let manifest_sig = dev_pair.sign(manifest_str.as_bytes());
@@ -203,6 +237,8 @@ mod tests {
             version: "1.0".to_string(),
             binary_hash: "wrong_hash".to_string(),
             permissions: vec!["SearchProvider".to_string()],
+            capabilities: vec![],
+            required_privileges: vec![],
         };
         let manifest_str = serde_json::to_string(&manifest).unwrap();
         let manifest_sig = dev_pair.sign(manifest_str.as_bytes());
@@ -238,5 +274,23 @@ mod tests {
         
         // Clean up env for other tests
         std::env::remove_var("COWEN_DEV_MODE");
+    }
+
+    #[test]
+    fn test_manifest_normalization_backward_compatibility() {
+        let mut manifest = PluginManifest {
+            name: "cowen_search_embedding".to_string(),
+            version: "0.4.0".to_string(),
+            binary_hash: "hash".to_string(),
+            permissions: vec!["SearchProvider".to_string(), "LocalCacheAccess".to_string()],
+            capabilities: vec![],
+            required_privileges: vec![],
+        };
+
+        manifest.normalize();
+
+        assert_eq!(manifest.capabilities, vec!["SearchProvider".to_string()]);
+        assert!(manifest.required_privileges.contains(&"LocalCacheAccess".to_string()));
+        assert!(manifest.required_privileges.contains(&"ModelAssetFetch".to_string()));
     }
 }

@@ -42,7 +42,10 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     pub fn new() -> CowenResult<Self> {
-        let app_dir = get_app_dir();
+        Self::new_with_dir(get_app_dir())
+    }
+
+    pub fn new_with_dir(app_dir: PathBuf) -> CowenResult<Self> {
         if !app_dir.exists() {
             fs::create_dir_all(&app_dir).context("Failed to create app directory")?;
         }

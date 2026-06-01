@@ -526,11 +526,9 @@ mod tests {
     async fn test_preflight_check_when_monitor_port_is_zero() {
         // Set up temporary environment
         let temp_dir = tempfile::tempdir().unwrap();
-        let original_home = std::env::var("COWEN_HOME");
-        std::env::set_var("COWEN_HOME", temp_dir.path());
 
         // Create a config manager in the temp home (monitor_port defaults to 0)
-        let config_mgr = ConfigManager::new().unwrap();
+        let config_mgr = ConfigManager::new_with_dir(temp_dir.path().to_path_buf()).unwrap();
         
         // Assert monitor port is 0
         let app_cfg = config_mgr.load_app_config().await.unwrap();
@@ -542,13 +540,6 @@ mod tests {
         // Run preflight check. It must NOT return an error or attempt to kill the listener.
         let res = preflight_check_and_bind_port(&config_mgr).await;
         assert!(res.is_ok(), "Preflight check should succeed even if port 1588 is occupied when monitor_port is 0");
-
-        // Clean up environment
-        if let Ok(home) = original_home {
-            std::env::set_var("COWEN_HOME", home);
-        } else {
-            std::env::remove_var("COWEN_HOME");
-        }
     }
 }
 

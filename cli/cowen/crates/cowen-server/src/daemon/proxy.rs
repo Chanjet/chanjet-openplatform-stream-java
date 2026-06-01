@@ -18,6 +18,7 @@ pub struct ProxyState {
     pub profile: String,
     pub vault: Arc<dyn Vault>,
     pub wasm_manager: Option<Arc<crate::daemon::wasm_runtime::WasmPipelineManager>>,
+    pub config_manager: cowen_config::ConfigManager,
 }
 
 pub async fn start_proxy(
@@ -26,13 +27,16 @@ pub async fn start_proxy(
     vault: Arc<dyn Vault>,
     port: u16,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
+    app_dir: std::path::PathBuf,
 ) -> CowenResult<()> {
+    let config_manager = cowen_config::ConfigManager::new_with_dir(app_dir)?;
     let state = ProxyState {
-        client: Client::new(),
+        client: Client::builder().no_proxy().build().unwrap(),
         config: config.clone(),
         profile: profile.to_string(),
         vault,
         wasm_manager: Some(Arc::new(crate::daemon::wasm_runtime::WasmPipelineManager::new())),
+        config_manager,
     };
 
     let app = Router::new()
@@ -119,11 +123,8 @@ async fn handle_proxy(
             .unwrap()
     };
 
-    let app_cfg = match cowen_config::ConfigManager::new() {
-        Ok(mgr) => match mgr.load_app_config().await {
-            Ok(cfg) => cfg,
-            Err(e) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-        },
+    let app_cfg = match state.config_manager.load_app_config().await {
+        Ok(cfg) => cfg,
         Err(e) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     };
 
@@ -301,20 +302,23 @@ mod tests {
         let mut config = Config::default_with_profile("test_profile");
         config.app_key = "test_key".to_string();
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
-        std::env::set_var("COWEN_OPENAPI_URL", format!("http://{}", mock_addr));
-        std::env::set_var("COWEN_STREAM_URL", format!("http://{}", mock_addr));
+        
+        let app_yaml_content = format!("openapi_url: http://{}\nstream_url: http://{}\n", mock_addr, mock_addr);
+        std::fs::write(temp_dir.join("app.yaml"), app_yaml_content).unwrap();
+        
         config.webhook_target = "http://localhost:8080".to_string();
 
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();
         let p_vault = vault.clone();
         let p_config = config.clone();
+        let p_temp_dir = temp_dir.clone();
 
         let proxy_task = tokio::spawn(async move {
-            start_proxy("test_profile", &p_config, p_vault, 0, Some(port_tx)).await.unwrap();
+            start_proxy("test_profile", &p_config, p_vault, 0, Some(port_tx), p_temp_dir).await.unwrap();
         });
 
         let proxy_port = port_rx.await.unwrap();
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
         // 4. Send concurrent requests to the proxy
         let mut futures = vec![];
@@ -401,20 +405,23 @@ mod tests {
         let mut config = Config::default_with_profile("test_profile");
         config.app_key = "test_key".to_string();
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
-        std::env::set_var("COWEN_OPENAPI_URL", format!("http://{}", mock_addr));
-        std::env::set_var("COWEN_STREAM_URL", format!("http://{}", mock_addr));
+        
+        let app_yaml_content = format!("openapi_url: http://{}\nstream_url: http://{}\n", mock_addr, mock_addr);
+        std::fs::write(temp_dir.join("app.yaml"), app_yaml_content).unwrap();
+        
         config.webhook_target = "http://localhost:8080".to_string();
 
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();
         let p_vault = vault.clone();
         let p_config = config.clone();
+        let p_temp_dir = temp_dir.clone();
 
         let proxy_task = tokio::spawn(async move {
-            start_proxy("test_profile", &p_config, p_vault, 0, Some(port_tx)).await.unwrap();
+            start_proxy("test_profile", &p_config, p_vault, 0, Some(port_tx), p_temp_dir).await.unwrap();
         });
 
         let proxy_port = port_rx.await.unwrap();
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
         // 4. Test GET request WITH Content-Type but NO Body
         let get_url = format!("http://127.0.0.1:{}/test-get", proxy_port);
