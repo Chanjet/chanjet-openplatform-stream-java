@@ -218,11 +218,11 @@ setup_workspace() {
     fi
 
     # Also copy search embedding plugin if exists
-    if [ -f "$build_dir/libcowen_search_embedding.dylib" ]; then
-        cp "$build_dir/libcowen_search_embedding.dylib" "$COWEN_HOME/"
+    if [ -f "$build_dir/libcowen_search_embedding" ]; then
+        cp "$build_dir/libcowen_search_embedding" "$COWEN_HOME/"
     fi
-    if [ -f "$build_dir/libcowen_search_embedding.so" ]; then
-        cp "$build_dir/libcowen_search_embedding.so" "$COWEN_HOME/"
+    if [ -f "$build_dir/libcowen_search_embedding.exe" ]; then
+        cp "$build_dir/libcowen_search_embedding.exe" "$COWEN_HOME/"
     fi
 
     # Ensure it is executable

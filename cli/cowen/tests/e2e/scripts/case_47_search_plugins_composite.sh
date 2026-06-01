@@ -18,21 +18,26 @@ start_mock
 
 # 1. Setup paths
 PLUGIN_DIR="$COWEN_HOME/dist_assets"
-LIB_NAME="libcowen_search_embedding.dylib"
-[ "$IS_WINDOWS" = "true" ] && LIB_NAME="libcowen_search_embedding.dll"
+LIB_NAME="libcowen_search_embedding"
+[ "$IS_WINDOWS" = "true" ] && LIB_NAME="libcowen_search_embedding.exe"
 
 echo "🧪 Starting case_50_search_plugins_composite..."
 
 # 1. Use 'init' to properly set up the profile in the Vault
-"$COWEN_BIN" init --profile main --app-mode self_built --app-key "AK_SB" --app-secret "AS_SB" \
+"$COWEN_BIN" init --profile main --app-mode self-built --app-key "AK_SB" --app-secret "AS_SB" \
     --certificate "test-cert" --openapi-url "$MOCK_URL" --stream-url "$MOCK_URL" --encrypt-key "1234567890123456" \
     --webhook-target "http://127.0.0.1:8080" --no-telemetry >/dev/null
 
 # 2. Setup multiple plugins
 rm -rf "$PLUGIN_DIR"
 mkdir -p "$PLUGIN_DIR"
-cp "$COWEN_BUILD_DIR/$LIB_NAME" "$PLUGIN_DIR/libembedding_a.dylib"
-cp "$COWEN_BUILD_DIR/$LIB_NAME" "$PLUGIN_DIR/libranker_b.dylib"
+if [ "$IS_WINDOWS" = "true" ]; then
+    cp "$COWEN_BUILD_DIR/$LIB_NAME" "$PLUGIN_DIR/libembedding_a.exe"
+    cp "$COWEN_BUILD_DIR/$LIB_NAME" "$PLUGIN_DIR/libranker_b.exe"
+else
+    cp "$COWEN_BUILD_DIR/$LIB_NAME" "$PLUGIN_DIR/libembedding_a"
+    cp "$COWEN_BUILD_DIR/$LIB_NAME" "$PLUGIN_DIR/libranker_b"
+fi
 
 # 3. Verify search works with plugins present
 echo "Test: Verify search with multiple plugins present"

@@ -19,11 +19,9 @@ echo "🧪 Starting case_59_plugins_management..."
     --webhook-target "http://127.0.0.1:8080" --no-telemetry >/dev/null
 
 PLUGIN_DIR="$COWEN_HOME/plugins"
-PLUGIN_NAME="libcowen_search_embedding.dylib"
+PLUGIN_NAME="libcowen_search_embedding"
 if [ "$IS_WINDOWS" = "true" ]; then
-    PLUGIN_NAME="libcowen_search_embedding.dll"
-elif [ "$(uname)" = "Linux" ]; then
-    PLUGIN_NAME="libcowen_search_embedding.so"
+    PLUGIN_NAME="libcowen_search_embedding.exe"
 fi
 PLUGIN_PATH="$PLUGIN_DIR/$PLUGIN_NAME"
 

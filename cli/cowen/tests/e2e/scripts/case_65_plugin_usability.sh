@@ -15,11 +15,11 @@ echo "🧪 Starting case_65_plugin_usability..."
 # Create the plugins directory and copy the signed plugin
 PLUGIN_DIR="$COWEN_HOME/plugins"
 mkdir -p "$PLUGIN_DIR"
-if [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.dylib" ]; then
-    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.dylib" "$PLUGIN_DIR/"
+if [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding" ]; then
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding" "$PLUGIN_DIR/"
     cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
-elif [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.so" ]; then
-    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.so" "$PLUGIN_DIR/"
+elif [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.exe" ]; then
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.exe" "$PLUGIN_DIR/"
     cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
 fi
 

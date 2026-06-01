@@ -88,11 +88,9 @@ pub use windows::fs;
 
 pub fn get_supported_plugin_extensions() -> &'static [&'static str] {
     #[cfg(windows)]
-    return &["dll"];
-    #[cfg(target_os = "macos")]
-    return &["dylib", "so"];
-    #[cfg(not(any(windows, target_os = "macos")))]
-    return &["so"];
+    return &["exe"];
+    #[cfg(not(windows))]
+    return &[""];
 }
 
 pub fn get_daemon_binary_name() -> &'static str {

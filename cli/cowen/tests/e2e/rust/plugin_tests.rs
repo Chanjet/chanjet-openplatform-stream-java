@@ -13,14 +13,11 @@ fn test_plugin_auto_discovery() {
     let plugins_dir = dir.path().join("plugins");
     fs::create_dir_all(&plugins_dir).unwrap();
     
-    // 2. Find and copy the actual plugin library to the plugins folder
-    // We expect the library to be in target/debug/deps/ (standard for cargo test environment)
-    let search_pattern = if cfg!(target_os = "macos") {
-        "libcowen_search_embedding.dylib"
-    } else if cfg!(target_os = "windows") {
-        "cowen_search_embedding.dll"
+    // 2. Find and copy the actual plugin executable to the plugins folder
+    let search_pattern = if cfg!(target_os = "windows") {
+        "libcowen_search_embedding.exe"
     } else {
-        "libcowen_search_embedding.so"
+        "libcowen_search_embedding"
     };
 
     // Locate the built plugin in the target directory
@@ -42,11 +39,9 @@ fn test_plugin_auto_discovery() {
 
     // Official naming convention: libcowen_search_embedding
     let target_name = if cfg!(target_os = "windows") {
-        "cowen_search_embedding.dll"
-    } else if cfg!(target_os = "macos") {
-        "libcowen_search_embedding.dylib"
+        "libcowen_search_embedding.exe"
     } else {
-        "libcowen_search_embedding.so"
+        "libcowen_search_embedding"
     };
     
     fs::copy(&plugin_src, plugins_dir.join(target_name)).unwrap();

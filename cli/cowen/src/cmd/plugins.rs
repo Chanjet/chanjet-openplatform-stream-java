@@ -23,7 +23,13 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
         let path = entry.path();
         if path.is_file() {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if ext == "so" || ext == "dylib" || ext == "dll" {
+            if cowen_sys::get_supported_plugin_extensions().contains(&ext) {
+                if ext.is_empty() {
+                    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                    if file_name.starts_with('.') || file_name.contains('.') {
+                        continue;
+                    }
+                }
                 found_any = true;
                 let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
                 
@@ -69,11 +75,13 @@ pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     let mut app_config = cfg_mgr.load_app_config().await?;
     let plugins_dir = get_app_dir().join("plugins");
 
-    let expected_path_dylib = plugins_dir.join(format!("{}.dylib", name));
-    let expected_path_so = plugins_dir.join(format!("{}.so", name));
-    let expected_path_dll = plugins_dir.join(format!("{}.dll", name));
+    let expected_path = if cfg!(target_os = "windows") {
+        plugins_dir.join(format!("{}.exe", name))
+    } else {
+        plugins_dir.join(name)
+    };
 
-    if expected_path_dylib.exists() || expected_path_so.exists() || expected_path_dll.exists() {
+    if expected_path.exists() {
         if !app_config.plugins.contains(name) {
             app_config.plugins.push(name.to_string());
             println!("✅ Enabled plugin '{}'.", name);
@@ -141,19 +149,17 @@ pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
 pub async fn refresh_signature(_cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
     
-    let expected_path_dylib = plugins_dir.join(format!("{}.dylib", name));
-    let expected_path_so = plugins_dir.join(format!("{}.so", name));
-    let expected_path_dll = plugins_dir.join(format!("{}.dll", name));
-
-    let target_path = if expected_path_dylib.exists() {
-        expected_path_dylib
-    } else if expected_path_so.exists() {
-        expected_path_so
-    } else if expected_path_dll.exists() {
-        expected_path_dll
+    let expected_path = if cfg!(target_os = "windows") {
+        plugins_dir.join(format!("{}.exe", name))
     } else {
-        return Err(anyhow::anyhow!("❌ Plugin file for '{}' not found in {:?}", name, plugins_dir));
+        plugins_dir.join(name)
     };
+
+    if !expected_path.exists() {
+        return Err(anyhow::anyhow!("❌ Plugin file for '{}' not found in {:?}", name, plugins_dir));
+    }
+
+    let target_path = expected_path;
 
     let bundle_path = target_path.with_extension("bundle");
 

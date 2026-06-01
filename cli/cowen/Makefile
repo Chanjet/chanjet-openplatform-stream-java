@@ -115,21 +115,12 @@ PREVIEW_APP_KEY  ?= RjP3LPoI   # 预览/集成测试环境 AppKey (Preview/INTE)
 build-plugins:
 	@echo "🛠️ Building search-embedding plugin (Release)..."
 	cargo build --release -p cowen-search-embedding
-ifeq ($(OS),Windows_NT)
-	@if exist target\release\libcowen_search_embedding.exe copy /y target\release\libcowen_search_embedding.exe target\release\cowen_search_embedding.dll
-else
-	@if [ -f "target/release/libcowen_search_embedding" ]; then \
-		cp target/release/libcowen_search_embedding target/release/libcowen_search_embedding.dylib || true; \
-		cp target/release/libcowen_search_embedding target/release/libcowen_search_embedding.so || true; \
-	fi
-endif
 	@echo "🔐 Signing plugins natively..."
 ifeq ($(OS),Windows_NT)
-	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/release/cowen_search_embedding.dll') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen_search_embedding.bundle } }"
+	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/release/libcowen_search_embedding.exe') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding.exe --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle } }"
 else
 	@if [ -f "dist_assets/keys/official_dev.pk8" ]; then \
-		if [ -f "target/release/libcowen_search_embedding.dylib" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding.dylib --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle; fi; \
-		if [ -f "target/release/libcowen_search_embedding.so" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding.so --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle; fi; \
+		if [ -f "target/release/libcowen_search_embedding" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle; fi; \
 	fi
 endif
 
@@ -139,7 +130,7 @@ macos-aarch64: build-plugins
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release -p cowen -p cowen-daemon
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/macos-aarch64/$(BINARY)
 	cp target/release/cowen-daemon $(OUTPUT_DIR)/macos-aarch64/cowen-daemon
-	cp target/release/libcowen_search_embedding.dylib $(OUTPUT_DIR)/macos-aarch64/ || true
+	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/macos-aarch64/ || true
 	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/macos-aarch64/ || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/cowen-daemon 2>/dev/null || true
@@ -167,7 +158,7 @@ linux-x86_64: build-plugins
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
 	cp target/x86_64-unknown-linux-gnu/release/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
-	cp target/release/libcowen_search_embedding.so $(OUTPUT_DIR)/linux-x86_64/ || true
+	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-x86_64/ || true
 	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-x86_64/ || true
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -240,11 +231,10 @@ linux-x86_64-with-podman: prepare-podman-image
 	$(PODMAN_RUN_BASE) \
 		$(BUILDER_IMAGE) \
 		bash -c "cargo build --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer && \
-			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so && \
-			target_podman/x86_64-unknown-linux-gnu/release/cowen-signer sign-plugin --dylib target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle && \
+			target_podman/x86_64-unknown-linux-gnu/release/cowen-signer sign-plugin --dylib target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon && \
-			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so ../../bin/linux-x86_64/ && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding ../../bin/linux-x86_64/ && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle ../../bin/linux-x86_64/" && \
 	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
@@ -256,7 +246,7 @@ linux-aarch64: build-plugins
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features -p cowen -p cowen-daemon
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)
 	cp target/aarch64-unknown-linux-musl/release/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
-	cp target/release/libcowen_search_embedding.so $(OUTPUT_DIR)/linux-aarch64/ || true
+	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-aarch64/ || true
 	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-aarch64/ || true
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
@@ -326,7 +316,7 @@ impl-package-macos:
 	cp dist_assets/macos/cowen-uninstall pkg_core_root/usr/local/bin/cowen-uninstall
 	cp CHANGELOG.md pkg_core_root/usr/local/share/doc/cowen/
 	cp -r dist_assets/usage pkg_core_root/usr/local/share/doc/cowen/usage
-	cp target/release/libcowen_search_embedding.dylib pkg_plugin_root/usr/local/share/cowen/staging/ || true
+	cp target/release/libcowen_search_embedding pkg_plugin_root/usr/local/share/cowen/staging/ || true
 	cp target/release/libcowen_search_embedding.bundle pkg_plugin_root/usr/local/share/cowen/staging/ || true
 	@chmod +x dist_assets/macos/scripts_core/postinstall
 	@chmod +x dist_assets/macos/scripts_plugin/postinstall
@@ -358,7 +348,7 @@ package-linux-x86_64-with-podman: clean linux-x86_64-with-podman
 package-linux-aarch64: clean linux-aarch64
 	@echo "📦 Packaging Linux aarch64..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
-	cp target/release/libcowen_search_embedding.so pkg_root_aarch64/lib/ || true
+	cp target/release/libcowen_search_embedding pkg_root_aarch64/lib/ || true
 	cp target/release/libcowen_search_embedding.bundle pkg_root_aarch64/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
@@ -450,7 +440,7 @@ package-windows-x86-cross: windows-x86-cross
 # 内部复用的 Linux 打包逻辑
 impl-package-linux-x86_64:
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
-	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.so pkg_root/lib/ || true
+	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding pkg_root/lib/ || true
 	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.bundle pkg_root/lib/ || true
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt

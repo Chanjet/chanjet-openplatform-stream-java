@@ -17,18 +17,25 @@ TMP_PLUGIN_SRC="$COWEN_HOME/plugin_source"
 mkdir -p "$TMP_PLUGIN_SRC"
 
 # Copy the built plugin and bundle to the temporary source directory
-if [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.dylib" ]; then
-    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.dylib" "$TMP_PLUGIN_SRC/"
+if [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding" ]; then
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding" "$TMP_PLUGIN_SRC/"
     cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$TMP_PLUGIN_SRC/" 2>/dev/null || true
-    PLUGIN_EXT="dylib"
-elif [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.so" ]; then
-    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.so" "$TMP_PLUGIN_SRC/"
+    PLUGIN_EXT=""
+elif [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.exe" ]; then
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.exe" "$TMP_PLUGIN_SRC/"
     cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$TMP_PLUGIN_SRC/" 2>/dev/null || true
-    PLUGIN_EXT="so"
+    PLUGIN_EXT="exe"
 fi
 
-PLUGIN_SRC_PATH="$TMP_PLUGIN_SRC/libcowen_search_embedding.$PLUGIN_EXT"
 PLUGIN_TARGET_DIR="$COWEN_HOME/plugins"
+
+if [ -n "$PLUGIN_EXT" ]; then
+    PLUGIN_SRC_PATH="$TMP_PLUGIN_SRC/libcowen_search_embedding.$PLUGIN_EXT"
+    PLUGIN_TARGET_PATH="$PLUGIN_TARGET_DIR/libcowen_search_embedding.$PLUGIN_EXT"
+else
+    PLUGIN_SRC_PATH="$TMP_PLUGIN_SRC/libcowen_search_embedding"
+    PLUGIN_TARGET_PATH="$PLUGIN_TARGET_DIR/libcowen_search_embedding"
+fi
 
 # Clean up existing plugins directory just to be safe
 rm -rf "$PLUGIN_TARGET_DIR"
@@ -36,8 +43,8 @@ rm -rf "$PLUGIN_TARGET_DIR"
 echo "Installing plugin from $PLUGIN_SRC_PATH..."
 "$COWEN_BIN" plugins install "$PLUGIN_SRC_PATH"
 
-# Verify that both the dylib/so and the .bundle were copied to $COWEN_HOME/plugins
-if [ ! -f "$PLUGIN_TARGET_DIR/libcowen_search_embedding.$PLUGIN_EXT" ]; then
+# Verify that both the executable and the .bundle were copied to $COWEN_HOME/plugins
+if [ ! -f "$PLUGIN_TARGET_PATH" ]; then
     echo "❌ Plugin binary was not installed to $PLUGIN_TARGET_DIR."
     exit 1
 fi

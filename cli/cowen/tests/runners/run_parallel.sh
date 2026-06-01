@@ -84,17 +84,6 @@ fi
 
 if cargo build --quiet $BUILD_ARGS -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer 2>/dev/null; then
     echo -e " ${GREEN}[OK]${NC}"
-    # Copy standalone binary to expected extension-based names for backward compatibility with E2E scripts
-    if [ -f "$TARGET_BASE/release/libcowen_search_embedding" ]; then
-        cp "$TARGET_BASE/release/libcowen_search_embedding" "$TARGET_BASE/release/libcowen_search_embedding.dylib" 2>/dev/null || true
-        cp "$TARGET_BASE/release/libcowen_search_embedding" "$TARGET_BASE/release/libcowen_search_embedding.so" 2>/dev/null || true
-    fi
-    if [ -f "$TARGET_BASE/x86_64-unknown-linux-gnu/release/libcowen_search_embedding" ]; then
-        cp "$TARGET_BASE/x86_64-unknown-linux-gnu/release/libcowen_search_embedding" "$TARGET_BASE/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so" 2>/dev/null || true
-    fi
-    if [ -f "$TARGET_BASE/release/libcowen_search_embedding.exe" ]; then
-        cp "$TARGET_BASE/release/libcowen_search_embedding.exe" "$TARGET_BASE/release/cowen_search_embedding.dll" 2>/dev/null || true
-    fi
     export COWEN_BIN="$(pwd)/$BINARY_PATH"
     # Force common.sh to refresh its SOURCE_BIN
     if [ -f tests/e2e/scripts/common.sh ]; then
@@ -108,23 +97,21 @@ fi
 
 # 🔌 🔌 ENSURE SEARCH PLUGINS ARE SIGNED FOR TESTS
 PLUGIN_NAME="libcowen_search_embedding"
-DYLIB_EXT="so"
 LOCAL_OS_TYPE=${OS_TYPE:-$(uname -s)}
-if [[ "$LOCAL_OS_TYPE" == "Darwin" ]]; then DYLIB_EXT="dylib"; fi
-if [[ "$LOCAL_OS_TYPE" == *"MINGW"* || "$LOCAL_OS_TYPE" == *"MSYS"* || "$LOCAL_OS_TYPE" == *"CYGWIN"* ]]; then DYLIB_EXT="dll"; PLUGIN_NAME="cowen_search_embedding"; fi
+if [[ "$LOCAL_OS_TYPE" == *"MINGW"* || "$LOCAL_OS_TYPE" == *"MSYS"* || "$LOCAL_OS_TYPE" == *"CYGWIN"* ]]; then PLUGIN_NAME="libcowen_search_embedding.exe"; fi
 
 BUILD_DIR="$(dirname "$BINARY_PATH")"
-PLUGIN_SRC="$BUILD_DIR/$PLUGIN_NAME.$DYLIB_EXT"
+PLUGIN_SRC="$BUILD_DIR/$PLUGIN_NAME"
 
 # If the plugin was built and we have dev keys, sign it so E2E tests pass PKI validation
 if [ -f "$PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
     cargo run --quiet $BUILD_ARGS -p cowen-signer -- sign-plugin \
         --dylib "$PLUGIN_SRC" \
         --name cowen-search-embedding \
-        --version "0.3.5" \
+        --version "0.4.0" \
         --dev-key dist_assets/keys/official_dev.pk8 \
         --dev-cert dist_assets/keys/official_dev_cert.json \
-        --out-bundle "$BUILD_DIR/$PLUGIN_NAME.bundle" 2>/dev/null || true
+        --out-bundle "$BUILD_DIR/libcowen_search_embedding.bundle" 2>/dev/null || true
 fi
 
 cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"

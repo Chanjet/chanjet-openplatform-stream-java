@@ -173,18 +173,24 @@ pub fn discover_plugins<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                if supported_exts.contains(&ext) {
-                    if is_secure_plugin_path(&path) {
-                        if cowen_infra::pki::verify_plugin_bundle(&path).is_ok() {
-                            tracing::info!("Discovered plugin candidate: {:?}", path);
-                            plugins.push(path);
-                        } else {
-                            tracing::error!("Skipping plugin with invalid or missing signature: {:?}", path);
-                        }
-                    } else {
-                        tracing::error!("Skipping insecure plugin candidate: {:?}", path);
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            if supported_exts.contains(&ext) {
+                // Ignore .bundle, .md5, .sha1 files etc. when matching empty extension on Unix
+                if ext.is_empty() {
+                    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                    if file_name.starts_with('.') || file_name.contains('.') {
+                        continue;
                     }
+                }
+                if is_secure_plugin_path(&path) {
+                    if cowen_infra::pki::verify_plugin_bundle(&path).is_ok() {
+                        tracing::info!("Discovered plugin candidate: {:?}", path);
+                        plugins.push(path);
+                    } else {
+                        tracing::error!("Skipping plugin with invalid or missing signature: {:?}", path);
+                    }
+                } else {
+                    tracing::error!("Skipping insecure plugin candidate: {:?}", path);
                 }
             }
         }

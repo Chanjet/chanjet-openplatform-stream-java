@@ -13,8 +13,8 @@ start_mock
 
 # 1. Setup paths
 PLUGIN_DIR="$COWEN_HOME/plugins"
-PLUGIN_NAME="libcowen_search_embedding.dylib"
-[ "$IS_WINDOWS" = "true" ] && PLUGIN_NAME="libcowen_search_embedding.dll"
+PLUGIN_NAME="libcowen_search_embedding"
+[ "$IS_WINDOWS" = "true" ] && PLUGIN_NAME="libcowen_search_embedding.exe"
 PLUGIN_PATH="$PLUGIN_DIR/$PLUGIN_NAME"
 mkdir -p "$PLUGIN_DIR"
 cp "$COWEN_BUILD_DIR/$PLUGIN_NAME" "$PLUGIN_PATH"
