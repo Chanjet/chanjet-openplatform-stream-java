@@ -23,6 +23,9 @@ echo -e "${BOLD}2. Start Daemon${NC}"
 wait_for_daemon pxt 10
 assert_pass "Daemon is running"
 
+# Ensure websocket connection is established and app ticket is received
+wait_for_connections 1 15 >/dev/null
+
 echo -e "${BOLD}3. Transparent Token Injection${NC}"
 # First login to get a token
 "$COWEN_BIN" auth login --profile pxt --force >/dev/null
