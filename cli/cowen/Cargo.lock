@@ -739,7 +739,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "cowen"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -759,7 +759,6 @@ dependencies = [
  "cowen-infra",
  "cowen-monitor",
  "cowen-search",
- "cowen-search-embedding",
  "cowen-server",
  "cowen-store",
  "cowen-sys",
@@ -799,7 +798,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-ai"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "cowen-common",
@@ -813,7 +812,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-auth"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -849,7 +848,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-common"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -879,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-config"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -898,7 +897,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-daemon"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -927,7 +926,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-doctor"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -940,7 +939,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-infra"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -962,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-monitor"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -995,12 +994,11 @@ version = "0.1.0"
 
 [[package]]
 name = "cowen-search"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "cowen-infra",
  "cowen-sys",
- "libloading",
  "serde",
  "serde_json",
  "tempfile",
@@ -1009,7 +1007,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-search-embedding"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "cowen-ai",
@@ -1017,11 +1015,12 @@ dependencies = [
  "cowen-search",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
 name = "cowen-server"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1068,7 +1067,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-store"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1099,7 +1098,7 @@ dependencies = [
 
 [[package]]
 name = "cowen-sys"
-version = "0.3.6"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1107,12 +1106,13 @@ dependencies = [
  "directories",
  "hostname",
  "libc",
- "libloading",
+ "serde_json",
  "sha2 0.10.9",
  "sysinfo",
  "tempfile",
  "tokio",
  "tracing",
+ "uuid",
  "windows-service",
  "winreg",
 ]
@@ -2567,16 +2567,6 @@ name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
-
-[[package]]
-name = "libloading"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
-dependencies = [
- "cfg-if",
- "windows-link",
-]
 
 [[package]]
 name = "libm"

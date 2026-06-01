@@ -3,6 +3,7 @@ use serde::{Serialize, Deserialize};
 pub mod provider;
 pub mod loader;
 pub use provider::StringMatchProvider;
+pub use loader::SidecarSearchProvider;
 
 /// API Document model
 #[derive(Debug, Serialize, Deserialize, Clone)]

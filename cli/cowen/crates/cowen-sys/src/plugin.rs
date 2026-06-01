@@ -1,9 +1,12 @@
-use libloading::{Library, Symbol};
 use std::path::{Path, PathBuf};
 use std::fs;
+use std::process::{Command as StdCommand, Child, Stdio};
+use std::io::{BufRead, BufReader, Write};
+use std::sync::Mutex;
 
 pub struct PluginLoader {
-    lib: Library,
+    path: PathBuf,
+    manifest: cowen_infra::pki::PluginManifest,
 }
 
 impl PluginLoader {
@@ -16,19 +19,142 @@ impl PluginLoader {
         
         cowen_infra::pki::verify_plugin_bundle(p)?;
         
-        let lib = unsafe { Library::new(p)? };
-        Ok(Self { lib })
+        let is_dev = std::env::var("COWEN_DEV_MODE").unwrap_or_default() == "1";
+        
+        let manifest = if is_dev {
+            let bundle_path = p.with_extension("bundle");
+            if bundle_path.exists() {
+                let bundle_str = std::fs::read_to_string(&bundle_path)?;
+                let bundle: cowen_infra::pki::SignatureBundle = serde_json::from_str(&bundle_str)?;
+                bundle.manifest
+            } else {
+                cowen_infra::pki::PluginManifest {
+                    name: p.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
+                    version: "dev".to_string(),
+                    binary_hash: String::new(),
+                    permissions: vec!["all".to_string()],
+                }
+            }
+        } else {
+            let bundle_path = p.with_extension("bundle");
+            let bundle_str = std::fs::read_to_string(&bundle_path)?;
+            let bundle: cowen_infra::pki::SignatureBundle = serde_json::from_str(&bundle_str)?;
+            bundle.manifest
+        };
+        
+        Ok(Self {
+            path: p.to_path_buf(),
+            manifest,
+        })
     }
 
-    /// Retrieves a symbol from the loaded plugin library.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that:
-    /// - The generic type `T` accurately represents the function signature or variable type of the loaded symbol.
-    /// - The plugin library is trusted, as executing arbitrary code can lead to undefined behavior or compromise the system.
-    pub unsafe fn get_symbol<T>(&self, name: &[u8]) -> anyhow::Result<Symbol<'_, T>> {
-        Ok(self.lib.get(name)?)
+    pub fn manifest(&self) -> &cowen_infra::pki::PluginManifest {
+        &self.manifest
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Declarative check for supported traits in Phase 1 (0-FFI).
+    pub fn supports_trait(&self, trait_name: &str) -> bool {
+        if trait_name == "SearchProvider" {
+            self.manifest.name.contains("search") 
+                || self.manifest.name.contains("embedding") 
+                || self.manifest.permissions.iter().any(|p| p == "all" || p == "SearchProvider")
+        } else {
+            false
+        }
+    }
+}
+
+/// Generic Stdio JSON-RPC Client for Rust standalone Sidecar processes (Phase 2)
+pub struct RpcPluginClient {
+    child: Mutex<Option<Child>>,
+    binary_path: PathBuf,
+    tenant_id: String,
+    bridge_token: String,
+}
+
+impl RpcPluginClient {
+    pub fn new(binary_path: PathBuf, tenant_id: String) -> Self {
+        // Generate a cryptographically secure-ish random协商 Token
+        let bridge_token = format!("{:x}", uuid::Uuid::new_v4().simple());
+        
+        Self {
+            child: Mutex::new(None),
+            binary_path,
+            tenant_id,
+            bridge_token,
+        }
+    }
+
+    pub fn tenant_id(&self) -> &str {
+        &self.tenant_id
+    }
+
+    /// Sends a JSON-RPC method call to the Sidecar process via Stdio.
+    pub fn call_tool(&self, method: &str, params: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+        let mut child_guard = self.child.lock().unwrap();
+        
+        // Spawn the Rust Sidecar process on demand if not already running
+        if child_guard.is_none() {
+            tracing::info!(target: "sys", "Spawning Rust Sidecar: {:?}", self.binary_path);
+            let child = StdCommand::new(&self.binary_path)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                // Safe credential injection in-memory (Option A requirement)
+                .env("COWEN_BRIDGE_TOKEN", &self.bridge_token)
+                .spawn()
+                .map_err(|e| anyhow::anyhow!("Failed to spawn Sidecar child process: {}", e))?;
+            *child_guard = Some(child);
+        }
+
+        let child = child_guard.as_mut().unwrap();
+
+        // 1. Write request line to Stdio
+        let stdin = child.stdin.as_mut().ok_or_else(|| anyhow::anyhow!("Sidecar stdin pipeline closed"))?;
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params,
+        });
+
+        let request_str = serde_json::to_string(&request)?;
+        stdin.write_all(request_str.as_bytes())?;
+        stdin.write_all(b"\n")?;
+        stdin.flush()?;
+
+        // 2. Read single line response from Stdio
+        let stdout = child.stdout.as_mut().ok_or_else(|| anyhow::anyhow!("Sidecar stdout pipeline closed"))?;
+        let mut reader = BufReader::new(stdout);
+        let mut response_line = String::new();
+        reader.read_line(&mut response_line)?;
+
+        if response_line.trim().is_empty() {
+            // Child process might have died or EOF. Kill and clear child cache.
+            let _ = child.kill();
+            *child_guard = None;
+            return Err(anyhow::anyhow!("Sidecar returned empty stdout/EOF"));
+        }
+
+        let response: serde_json::Value = serde_json::from_str(&response_line)?;
+        if let Some(err) = response.get("error") {
+            return Err(anyhow::anyhow!("Sidecar JSON-RPC Error: {:?}", err));
+        }
+
+        Ok(response.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    }
+}
+
+impl Drop for RpcPluginClient {
+    fn drop(&mut self) {
+        if let Ok(mut child_guard) = self.child.lock() {
+            if let Some(mut child) = child_guard.take() {
+                let _ = child.kill();
+            }
+        }
     }
 }
 

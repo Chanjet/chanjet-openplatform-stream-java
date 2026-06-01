@@ -84,6 +84,17 @@ fi
 
 if cargo build --quiet $BUILD_ARGS -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer 2>/dev/null; then
     echo -e " ${GREEN}[OK]${NC}"
+    # Copy standalone binary to expected extension-based names for backward compatibility with E2E scripts
+    if [ -f "$TARGET_BASE/release/libcowen_search_embedding" ]; then
+        cp "$TARGET_BASE/release/libcowen_search_embedding" "$TARGET_BASE/release/libcowen_search_embedding.dylib" 2>/dev/null || true
+        cp "$TARGET_BASE/release/libcowen_search_embedding" "$TARGET_BASE/release/libcowen_search_embedding.so" 2>/dev/null || true
+    fi
+    if [ -f "$TARGET_BASE/x86_64-unknown-linux-gnu/release/libcowen_search_embedding" ]; then
+        cp "$TARGET_BASE/x86_64-unknown-linux-gnu/release/libcowen_search_embedding" "$TARGET_BASE/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so" 2>/dev/null || true
+    fi
+    if [ -f "$TARGET_BASE/release/libcowen_search_embedding.exe" ]; then
+        cp "$TARGET_BASE/release/libcowen_search_embedding.exe" "$TARGET_BASE/release/cowen_search_embedding.dll" 2>/dev/null || true
+    fi
     export COWEN_BIN="$(pwd)/$BINARY_PATH"
     # Force common.sh to refresh its SOURCE_BIN
     if [ -f tests/e2e/scripts/common.sh ]; then

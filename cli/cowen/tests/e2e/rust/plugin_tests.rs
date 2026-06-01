@@ -102,7 +102,7 @@ fn test_plugin_auto_discovery() {
     cmd.assert()
        .success()
        .stdout(predicate::str::contains(format!("🔌 Using search plugin: {}", expected_stem)))
-       .stdout(predicate::str::contains(target_name))
+       .stdout(predicate::str::contains("[Rust Standalone Sidecar Mode]"))
        .stdout(predicate::str::contains("🧠 Initializing AI vector index for 1 APIs..."))
        .stdout(predicate::str::contains("GET /test"))
        .stdout(predicate::str::contains("Summary: test api"));

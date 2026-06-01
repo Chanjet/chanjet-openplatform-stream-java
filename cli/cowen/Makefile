@@ -115,6 +115,14 @@ PREVIEW_APP_KEY  ?= RjP3LPoI   # 预览/集成测试环境 AppKey (Preview/INTE)
 build-plugins:
 	@echo "🛠️ Building search-embedding plugin (Release)..."
 	cargo build --release -p cowen-search-embedding
+ifeq ($(OS),Windows_NT)
+	@if exist target\release\libcowen_search_embedding.exe copy /y target\release\libcowen_search_embedding.exe target\release\cowen_search_embedding.dll
+else
+	@if [ -f "target/release/libcowen_search_embedding" ]; then \
+		cp target/release/libcowen_search_embedding target/release/libcowen_search_embedding.dylib || true; \
+		cp target/release/libcowen_search_embedding target/release/libcowen_search_embedding.so || true; \
+	fi
+endif
 	@echo "🔐 Signing plugins natively..."
 ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/release/cowen_search_embedding.dll') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen_search_embedding.bundle } }"
@@ -232,6 +240,7 @@ linux-x86_64-with-podman: prepare-podman-image
 	$(PODMAN_RUN_BASE) \
 		$(BUILDER_IMAGE) \
 		bash -c "cargo build --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so && \
 			target_podman/x86_64-unknown-linux-gnu/release/cowen-signer sign-plugin --dylib target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.so --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon && \

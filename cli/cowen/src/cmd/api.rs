@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use reqwest::Method;
 use serde_json::Value;
 use std::sync::Arc;
-use cowen_search::{SearchProvider, StringMatchProvider, loader::DynamicSearchProvider};
+use cowen_search::{SearchProvider, StringMatchProvider, SidecarSearchProvider};
 
 #[derive(serde::Serialize)]
 struct ApiOperation {
@@ -77,17 +77,8 @@ pub async fn list(
                     let mut is_search_provider = false;
                     match cowen_sys::PluginLoader::new(&path) {
                         Ok(loader) => {
-                            unsafe {
-                                if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const std::os::raw::c_char>(b"v1_trait") {
-                                    let ptr = trait_fn();
-                                    if !ptr.is_null() {
-                                        let trait_name = std::ffi::CStr::from_ptr(ptr).to_string_lossy();
-                                        let expected_trait = cowen_search::plugin_trait_search_provider!().to_str().unwrap();
-                                        if trait_name == expected_trait {
-                                            is_search_provider = true;
-                                        }
-                                    }
-                                }
+                            if loader.supports_trait("SearchProvider") {
+                                is_search_provider = true;
                             }
                         }
                         Err(e) => {
@@ -96,24 +87,26 @@ pub async fn list(
                     }
 
                     if is_search_provider {
-                        unsafe {
-                            match DynamicSearchProvider::new(plugin_name, &path) {
-                                Ok(p) => {
-                                    println!("🔌 Using search plugin: {} ({})", plugin_name, path.display());
-                                    let provider: Box<dyn SearchProvider> = Box::new(p);
-                                    
-                                    // 🚀 LIFE CYCLE: Push documents to plugin for indexing/vectorization
-                                    println!("🧠 Initializing AI vector index for {} APIs...", search_docs.len());
-                                    provider.update_index(&search_docs);
-                                    
-                                    primary = Some(provider);
-                                    break; // Found the search provider, stop looking
-                                }
-                                Err(e) => {
-                                    eprintln!("⚠️  Failed to load search plugin '{}' at {}: {}", plugin_name, path.display(), e);
-                                }
-                            }
-                        }
+                        println!("🔌 Using search plugin: {} ({}) [Rust Standalone Sidecar Mode]", plugin_name, path.display());
+                        
+                        // Dynamically generate tenant_id Namespace hash on the fly based on active profile name
+                        use sha2::{Sha256, Digest};
+                        let mut hasher = Sha256::new();
+                        hasher.update(profile.as_bytes());
+                        let tenant_id = hex::encode(hasher.finalize());
+
+                        let provider = Box::new(SidecarSearchProvider::new(
+                            plugin_name,
+                            path.to_path_buf(),
+                            tenant_id,
+                        ));
+
+                        // 🚀 LIFE CYCLE: Push documents to the Sidecar over standard Stdio
+                        println!("🧠 Initializing AI vector index for {} APIs...", search_docs.len());
+                        provider.update_index(&search_docs);
+                        
+                        primary = Some(provider);
+                        break; // Found the active search provider, stop looking
                     }
                 }
             }

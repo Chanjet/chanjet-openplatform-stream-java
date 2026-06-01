@@ -3,8 +3,6 @@ use cowen_config::ConfigManager;
 use cowen_common::config::get_app_dir;
 use std::fs;
 use cowen_sys::PluginLoader;
-use std::ffi::CStr;
-use std::os::raw::c_char;
 
 pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     let app_config = cfg_mgr.load_app_config().await?;
@@ -34,31 +32,18 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
                     continue;
                 }
 
-                let mut display_trait = "unknown".to_string();
-                let mut display_desc = String::new();
-
-                match PluginLoader::new(&path) {
+                let (display_trait, display_desc) = match PluginLoader::new(&path) {
                     Ok(loader) => {
-                        unsafe {
-                            if let Ok(trait_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_trait") {
-                                let ptr = trait_fn();
-                                if !ptr.is_null() {
-                                    display_trait = CStr::from_ptr(ptr).to_string_lossy().into_owned();
-                                }
-                            }
-                            if let Ok(desc_fn) = loader.get_symbol::<unsafe extern "C" fn() -> *const c_char>(b"v1_desc") {
-                                let ptr = desc_fn();
-                                if !ptr.is_null() {
-                                    display_desc = CStr::from_ptr(ptr).to_string_lossy().into_owned();
-                                }
-                            }
-                        }
+                        let manifest = loader.manifest();
+                        let display_trait = manifest.permissions.first().cloned().unwrap_or_else(|| "unknown".to_string());
+                        let display_desc = format!("{} (v{}) [0-FFI Base]", manifest.name, manifest.version);
+                        (display_trait, display_desc)
                     }
                     Err(e) => {
                         tracing::error!("ERROR LOADING PLUGIN {}: {:?}", file_name, e);
-                        display_trait = "\x1b[31mSignature/Load Failed\x1b[0m".to_string();
+                        ("\x1b[31mSignature/Load Failed\x1b[0m".to_string(), String::new())
                     }
-                }
+                };
 
                 let name = file_name;
                 let is_enabled = app_config.plugins.contains(&name.to_string());
