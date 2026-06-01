@@ -100,6 +100,30 @@ pub fn get_daemon_binary_name() -> &'static str {
     return "cowen-daemon";
 }
 
+pub fn create_sandboxed_command(binary_path: &std::path::Path, sandbox_path: &std::path::Path) -> std::process::Command {
+    #[cfg(target_os = "macos")]
+    {
+        let profile = format!(
+            r#"(version 1)
+(allow default)
+(deny file-write*)
+(allow file-write* (subpath "/private/var"))
+(allow file-write* (subpath "/var/folders"))
+(allow file-write* (subpath "/tmp"))
+(allow file-write* (subpath "{}"))"#,
+            sandbox_path.to_string_lossy()
+        );
+        let mut cmd = std::process::Command::new("sandbox-exec");
+        cmd.arg("-p").arg(profile).arg(binary_path);
+        cmd
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::process::Command::new(binary_path)
+    }
+}
+
 pub fn configure_socket_reuse(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
     socket.set_reuseaddr(true)?;
     #[cfg(unix)]

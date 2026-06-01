@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::fs;
-use std::process::{Command as StdCommand, Child, Stdio};
+use std::process::{Child, Stdio};
 use std::io::{BufRead, BufReader, Write};
 use std::sync::Mutex;
 
@@ -161,7 +161,7 @@ impl RpcPluginClient {
                 compute_heavy = loader.enforce_privilege("ComputeHeavy");
             }
 
-            let mut cmd = StdCommand::new(&self.binary_path);
+            let mut cmd = crate::create_sandboxed_command(&self.binary_path, &cowen_infra::path::get_app_dir());
             cmd.stdin(Stdio::piped())
                .stdout(Stdio::piped())
                // Safe credential injection in-memory (Option A requirement)
