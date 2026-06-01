@@ -3,7 +3,7 @@
 
 # Path where the binary is installed by pkgbuild (base on --install-location /)
 BINARY_PATH="/usr/local/bin/cowen"
-STAGING_FILE="/usr/local/share/cowen/staging/libcowen_search_embedding.dylib"
+STAGING_FILE="/usr/local/share/cowen/staging/libcowen_search_embedding"
 STAGING_BUNDLE="/usr/local/share/cowen/staging/libcowen_search_embedding.bundle"
 
 # 1. 准确获取当前图形界面的真实登录用户（绕过 root 环境）
