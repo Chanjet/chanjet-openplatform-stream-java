@@ -42,12 +42,10 @@ impl PluginLoader {
                     .collect::<String>();
                 let deduced_capability = format!("{}Provider", camel);
                 
-                let mut permissions = vec![deduced_capability.clone()];
                 let mut capabilities = vec![deduced_capability.clone()];
                 let mut required_privileges = vec![];
 
                 if stem.contains("search") || stem.contains("embedding") {
-                    permissions.push("SearchProvider".to_string());
                     capabilities.push("SearchProvider".to_string());
                     required_privileges.push("LocalCacheAccess".to_string());
                     required_privileges.push("ModelAssetFetch".to_string());
@@ -58,7 +56,6 @@ impl PluginLoader {
                     name: stem,
                     version: "dev".to_string(),
                     binary_hash: String::new(),
-                    permissions,
                     capabilities,
                     required_privileges,
                 }
@@ -87,8 +84,7 @@ impl PluginLoader {
     /// Declarative check for supported traits in Phase 1 (0-FFI).
     pub fn supports_trait(&self, trait_name: &str) -> bool {
         // Strict blocking of wildcard "all" permission to prevent capability abuse
-        if self.manifest.permissions.iter().any(|p| p == "all") 
-            || self.manifest.capabilities.iter().any(|p| p == "all") 
+        if self.manifest.capabilities.iter().any(|p| p == "all") 
         {
             tracing::warn!("⚠️  Blocking plugin '{}': wildcard 'all' permission is deprecated and strictly forbidden.", self.manifest.name);
             eprintln!("⚠️  Blocking plugin '{}': wildcard 'all' permission is deprecated and strictly forbidden. Please re-sign the plugin using specific capabilities.", self.manifest.name);
@@ -100,12 +96,7 @@ impl PluginLoader {
             return true;
         }
 
-        // 2. Direct match: permissions in manifest directly match the capability (fully extensible!)
-        if self.manifest.permissions.iter().any(|p| p == trait_name) {
-            return true;
-        }
-
-        // 3. Name signature fallback for search plugins (robust backward compatibility)
+        // 2. Name signature fallback for search plugins (robust backward compatibility)
         if trait_name == "SearchProvider" && (self.manifest.name.contains("search") || self.manifest.name.contains("embedding")) {
             return true;
         }
@@ -119,10 +110,6 @@ impl PluginLoader {
 
     pub fn enforce_privilege(&self, privilege: &str) -> bool {
         if self.manifest.required_privileges.iter().any(|p| p == privilege) {
-            return true;
-        }
-        // Backward compatibility mapping: check legacy permissions too
-        if self.manifest.permissions.iter().any(|p| p == privilege) {
             return true;
         }
         // Standard privilege auto-grant for SearchProvider in dev/legacy modes
@@ -342,8 +329,7 @@ mod tests {
             name: "test-plugin".to_string(),
             version: "1.0.0".to_string(),
             binary_hash: String::new(),
-            permissions: vec!["all".to_string()],
-            capabilities: vec![],
+            capabilities: vec!["all".to_string()],
             required_privileges: vec![],
         };
 
@@ -360,8 +346,7 @@ mod tests {
             name: "test-plugin".to_string(),
             version: "1.0.0".to_string(),
             binary_hash: String::new(),
-            permissions: vec!["SearchProvider".to_string()],
-            capabilities: vec![],
+            capabilities: vec!["SearchProvider".to_string()],
             required_privileges: vec![],
         };
 
@@ -379,7 +364,6 @@ mod tests {
             name: "cowen_search_embedding".to_string(),
             version: "0.4.0".to_string(),
             binary_hash: String::new(),
-            permissions: vec![],
             capabilities: vec!["SearchProvider".to_string()],
             required_privileges: vec!["LocalCacheAccess".to_string(), "ModelAssetFetch".to_string()],
         };

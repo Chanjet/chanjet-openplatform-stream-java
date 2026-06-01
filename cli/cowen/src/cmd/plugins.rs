@@ -41,7 +41,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
                 let (display_trait, display_desc) = match PluginLoader::new(&path) {
                     Ok(loader) => {
                         let manifest = loader.manifest();
-                        let display_trait = manifest.permissions.first().cloned().unwrap_or_else(|| "unknown".to_string());
+                        let display_trait = manifest.capabilities.first().cloned().unwrap_or_else(|| "unknown".to_string());
                         let display_desc = format!("{} (v{}) [0-FFI Base]", manifest.name, manifest.version);
                         (display_trait, display_desc)
                     }

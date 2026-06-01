@@ -51,8 +51,6 @@ enum Commands {
         dev_cert: PathBuf,
         #[arg(long, help = "Output path for the signature bundle JSON")]
         out_bundle: PathBuf,
-        #[arg(long, help = "Deprecated: use capabilities and required-privileges instead", value_delimiter = ',')]
-        permissions: Vec<String>,
         #[arg(long, help = "Capabilities/Interfaces provided by the plugin", value_delimiter = ',')]
         capabilities: Vec<String>,
         #[arg(long, help = "Sensitive privileges consumed by the plugin", value_delimiter = ',')]
@@ -118,7 +116,7 @@ fn main() -> Result<()> {
             println!("✅ Developer certificate issued: {:?}", out_cert);
             println!("✅ Developer private key generated: {:?}", out_dev_key);
         }
-        Commands::SignPlugin { dylib, name, version, dev_key, dev_cert, out_bundle, permissions, capabilities, required_privileges } => {
+        Commands::SignPlugin { dylib, name, version, dev_key, dev_cert, out_bundle, capabilities, required_privileges } => {
             let dev_bytes = std::fs::read(&dev_key).context("Failed to read dev key")?;
             let dev_pair = Ed25519KeyPair::from_pkcs8(&dev_bytes).map_err(|_| anyhow::anyhow!("Invalid dev pk8 key"))?;
 
@@ -140,7 +138,6 @@ fn main() -> Result<()> {
                 name,
                 version,
                 binary_hash: hash,
-                permissions,
                 capabilities,
                 required_privileges,
             };
