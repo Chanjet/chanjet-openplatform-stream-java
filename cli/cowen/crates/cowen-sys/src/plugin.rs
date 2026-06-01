@@ -32,7 +32,7 @@ impl PluginLoader {
                     name: p.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
                     version: "dev".to_string(),
                     binary_hash: String::new(),
-                    permissions: vec!["all".to_string()],
+                    permissions: vec!["SearchProvider".to_string()],
                 }
             }
         } else {

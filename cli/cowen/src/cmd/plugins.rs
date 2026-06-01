@@ -9,7 +9,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
 
     println!("🔍 Scanning plugins directory: {:?}", plugins_dir);
-    println!("{:<30} | {:<10} | {:<10} | DESCRIPTION", "NAME", "TYPE", "ENABLED");
+    println!("{:<30} | {:<10} | {:<10} | DESCRIPTION", "NAME", "CAPABILITY", "ENABLED");
     println!("{:-<30}-+-{:-<10}-+-{:-<10}-+-{:-<40}", "", "", "", "");
 
     if !plugins_dir.exists() {
@@ -63,7 +63,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     }
 
     if found_any {
-        println!("\n💡 TYPE indicates the plugin's capability (e.g., SearchProvider for semantic search).");
+        println!("\n💡 CAPABILITY indicates the plugin's capability (e.g., SearchProvider for semantic search).");
     } else {
         println!("(No dynamic library plugins found)");
     }
