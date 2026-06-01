@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 cowen-infra = { path = "../cowen-infra" }
+cowen-plugin = { path = "../cowen-plugin" }
 async-trait = "0.1"
 tokio = { version = "1.50", features = ["full"] }
 anyhow = "1.0"

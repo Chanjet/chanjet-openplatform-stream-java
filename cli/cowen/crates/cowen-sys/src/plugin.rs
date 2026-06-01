@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::process::{Child, Stdio};
 use std::io::{BufRead, BufReader, Write};
+use cowen_plugin::{JsonRpcRequest, JsonRpcResponse};
+
 use std::sync::Mutex;
 
 pub struct PluginLoader {
@@ -190,12 +192,12 @@ impl RpcPluginClient {
 
         // 1. Write request line to Stdio
         let stdin = child.stdin.as_mut().ok_or_else(|| anyhow::anyhow!("Sidecar stdin pipeline closed"))?;
-        let request = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params,
-        });
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(serde_json::json!(1)),
+            method: method.to_string(),
+            params: Some(params),
+        };
 
         let request_str = serde_json::to_string(&request)?;
         stdin.write_all(request_str.as_bytes())?;
@@ -215,12 +217,12 @@ impl RpcPluginClient {
             return Err(anyhow::anyhow!("Sidecar returned empty stdout/EOF"));
         }
 
-        let response: serde_json::Value = serde_json::from_str(&response_line)?;
-        if let Some(err) = response.get("error") {
-            return Err(anyhow::anyhow!("Sidecar JSON-RPC Error: {:?}", err));
+        let response: JsonRpcResponse = serde_json::from_str(&response_line)?;
+        if let Some(err) = response.error {
+            return Err(anyhow::anyhow!("Sidecar JSON-RPC Error: code={}, message={}", err.code, err.message));
         }
 
-        Ok(response.get("result").cloned().unwrap_or(serde_json::Value::Null))
+        Ok(response.result.unwrap_or(serde_json::Value::Null))
     }
 }
 

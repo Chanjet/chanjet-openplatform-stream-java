@@ -5,30 +5,8 @@ use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use cowen_ai::{ONNXEmbedder, SearchIndex, SearchDocument as AiDocument};
 use cowen_search::SearchDocument;
+use cowen_plugin::{JsonRpcRequest, JsonRpcResponse, JsonRpcError};
 
-#[derive(Deserialize)]
-struct JsonRpcRequest {
-    jsonrpc: String,
-    id: Option<serde_json::Value>,
-    method: String,
-    params: Option<serde_json::Value>,
-}
-
-#[derive(Serialize)]
-struct JsonRpcResponse {
-    jsonrpc: String,
-    id: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<JsonRpcError>,
-}
-
-#[derive(Serialize)]
-struct JsonRpcError {
-    code: i32,
-    message: String,
-}
 
 #[derive(Deserialize)]
 struct UpdateIndexParams {

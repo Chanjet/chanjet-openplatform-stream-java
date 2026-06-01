@@ -1030,6 +1030,10 @@ dependencies = [
 [[package]]
 name = "cowen-plugin"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "cowen-search"
@@ -1051,6 +1055,7 @@ dependencies = [
  "anyhow",
  "cowen-ai",
  "cowen-common",
+ "cowen-plugin",
  "cowen-search",
  "serde",
  "serde_json",
@@ -1146,6 +1151,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "cowen-infra",
+ "cowen-plugin",
  "directories",
  "hostname",
  "libc",
