@@ -62,7 +62,7 @@ pub fn verify_plugin_bundle_with_root(dylib_path: &Path, root_pub_key: &[u8]) ->
     }
 
     let bundle_str = std::fs::read_to_string(&bundle_path)?;
-    let mut bundle: SignatureBundle = serde_json::from_str(&bundle_str)?;
+    let bundle: SignatureBundle = serde_json::from_str(&bundle_str)?;
 
     // 1. Verify DeveloperCert using Root Key
     let cert_msg = if bundle.cert.organization.is_empty() && bundle.cert.country.is_empty() {
