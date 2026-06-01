@@ -25,12 +25,11 @@ pub fn check_port_occupancy(port: u16, bin_name: &str) -> Option<(u32, String)> 
 
     // 2. It's occupied. Try to find the process using sysinfo
     use sysinfo::{System, ProcessesToUpdate};
-    let mut s = System::new_all();
+    let mut s = System::new();
     s.refresh_processes(ProcessesToUpdate::All, true);
     
     // Scan all processes
     let bin_name_lower = bin_name.to_lowercase();
-    let port_str = port.to_string();
     
     for (pid, process) in s.processes() {
         let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>();
@@ -39,11 +38,10 @@ pub fn check_port_occupancy(port: u16, bin_name: &str) -> Option<(u32, String)> 
         let has_bin = process.name().to_string_lossy().to_lowercase().contains(&bin_name_lower) || cmd_str.to_lowercase().contains(&bin_name_lower);
         if !has_bin { continue; }
 
-        let is_daemon = cmdline.iter().any(|arg| arg == "daemon") && cmdline.iter().any(|arg| arg == "start");
-        let has_port = cmdline.iter().any(|arg| arg == "--proxy-port") &&
-                       cmdline.windows(2).any(|w| w[0] == "--proxy-port" && w[1] == port_str);
+        let is_daemon = cmdline.iter().any(|arg| arg.contains("cowen-daemon") || arg == "daemon");
+        let is_cowen_exe = process.name().to_string_lossy().to_lowercase().contains("cowen-daemon");
         
-        if is_daemon && has_port && pid.as_u32() != std::process::id() {
+        if (is_daemon || is_cowen_exe) && pid.as_u32() != std::process::id() {
             return Some((pid.as_u32(), bin_name.to_string()));
         }
     }

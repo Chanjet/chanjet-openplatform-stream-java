@@ -105,10 +105,15 @@ impl cowen_infra::sys::IpcBinder for UnixIpcBinder {
     }
     
     async fn save_ipc_token(&self, token_file: &Path, token: &str) -> anyhow::Result<()> {
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create(true).truncate(true).mode(0o600);
-        let mut f = opts.open(token_file)?;
-        f.write_all(token.as_bytes())?;
+        let temp_file = token_file.with_extension("tmp");
+        {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true).mode(0o600);
+            let mut f = opts.open(&temp_file)?;
+            f.write_all(token.as_bytes())?;
+            f.sync_all()?;
+        }
+        std::fs::rename(temp_file, token_file)?;
         Ok(())
     }
 }
@@ -186,5 +191,38 @@ pub mod fs {
             }
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cowen_infra::sys::IpcBinder;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_save_ipc_token_atomic() {
+        let dir = tempfile::tempdir().unwrap();
+        let token_file = dir.path().join("test_ipc.token");
+        let binder = Arc::new(UnixIpcBinder::new());
+        
+        let mut handles = vec![];
+        for i in 0..50 {
+            let b = binder.clone();
+            let tf = token_file.clone();
+            handles.push(tokio::spawn(async move {
+                let token = format!("token_{}", i);
+                b.save_ipc_token(&tf, &token).await.unwrap();
+                let read_back = b.load_ipc_token(&tf).await.unwrap();
+                assert!(!read_back.is_empty());
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+        
+        let tmp_file = token_file.with_extension("tmp");
+        assert!(!tmp_file.exists(), "Temporary file should be atomically renamed and not left behind");
     }
 }

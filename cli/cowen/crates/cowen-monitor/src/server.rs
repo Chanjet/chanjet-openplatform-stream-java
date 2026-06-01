@@ -25,7 +25,7 @@ impl MonitorServer {
         }
     }
 
-    pub async fn start(&self, port_tx: Option<oneshot::Sender<u16>>, allow_fallback: bool) -> anyhow::Result<()> {
+    pub async fn start(&self, port_tx: Option<oneshot::Sender<u16>>, allow_fallback: bool, shutdown_rx: oneshot::Receiver<()>) -> anyhow::Result<()> {
         // Subscribe to EventBus and record events to TelemetryDb asynchronously
         if let Some(db) = &self.telemetry_db {
             let db_clone = db.clone();
@@ -64,7 +64,22 @@ impl MonitorServer {
         let mut addr = SocketAddr::from(([127, 0, 0, 1], current_port));
         let mut retry_count = 0;
         let listener = loop {
-            match tokio::net::TcpListener::bind(addr).await {
+            let bind_result = async {
+                let socket = socket2::Socket::new(
+                    socket2::Domain::IPV4,
+                    socket2::Type::STREAM,
+                    None,
+                )?;
+                socket.set_reuse_address(true)?;
+                let sockaddr = socket2::SockAddr::from(addr);
+                socket.bind(&sockaddr)?;
+                socket.listen(1024)?;
+                let std_listener: std::net::TcpListener = socket.into();
+                std_listener.set_nonblocking(true)?;
+                tokio::net::TcpListener::from_std(std_listener)
+            }.await;
+
+            match bind_result {
                 Ok(l) => break l,
                 Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                     if current_port != 0 && retry_count < 2 {
@@ -90,7 +105,12 @@ impl MonitorServer {
             let _ = tx.send(actual_port);
         }
 
-        axum::serve(listener, app).await?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+                tracing::info!(target: "sys", "Monitor server graceful shutdown triggered");
+            })
+            .await?;
         Ok(())
     }
 }

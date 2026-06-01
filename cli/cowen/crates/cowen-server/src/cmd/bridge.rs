@@ -279,8 +279,8 @@ mod tests {
     use cowen_common::models::AuthMode;
     use tempfile::tempdir;
 
-    #[test]
-    fn test_build_client_options_uses_stream_url() {
+    #[tokio::test]
+    async fn test_build_client_options_uses_stream_url() {
         let config = Config {
             app_key: "test_key".to_string(),
             app_secret: "test_secret".to_string(),
@@ -292,13 +292,13 @@ mod tests {
             ..Default::default()
         };
         
-        let opts = build_client_options(&config, &app_cfg);
+        let opts = build_client_options("test", &config, &app_cfg).await;
         // 断言它应该取 stream_url
         assert_eq!(opts.gateway_url, "https://stream-open.chanapp.chanjet.com");
     }
 
-    #[test]
-    fn test_build_client_options_populates_encrypt_key() {
+    #[tokio::test]
+    async fn test_build_client_options_populates_encrypt_key() {
         let config = Config {
             app_key: "test_key".to_string(),
             app_secret: "test_secret".to_string(),
@@ -306,7 +306,7 @@ mod tests {
             ..Config::default_with_profile("test")
         };
         let app_cfg = cowen_common::config::AppConfig::default();
-        let opts = build_client_options(&config, &app_cfg);
+        let opts = build_client_options("test", &config, &app_cfg).await;
         assert_eq!(opts.encrypt_key, Some("1234567890123456".to_string()));
     }
 

@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use anyhow::Result;
 use clap::Parser;
 use tracing::{info, error};
@@ -23,24 +25,37 @@ struct Args {
     /// Run as Windows Service
     #[arg(long)]
     run_as_service: bool,
+
+    /// Automatically start all profiles on startup
+    #[arg(long)]
+    auto_start_all: bool,
+
+    /// Force specific app directory (useful for Windows Service running as SYSTEM)
+    #[arg(long)]
+    app_dir: Option<PathBuf>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
+    if let Some(dir) = &args.app_dir {
+        std::env::set_var("COWEN_HOME", dir);
+    }
+
     if args.run_as_service {
         let pid_file_clone = cowen_common::config::get_app_dir().join("master_daemon.pid");
+        let auto_start = args.auto_start_all;
         return cowen_sys::get_process_manager().run_as_service(Box::new(move || {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(run_main(&pid_file_clone, None))
+            rt.block_on(run_main(&pid_file_clone, None, auto_start))
         })).await;
     }
 
     let app_dir = cowen_common::config::get_app_dir();
     let pid_file = app_dir.join("master_daemon.pid");
 
-    let result = run_main(&pid_file, args.ipc_port_file.clone()).await;
+    let result = run_main(&pid_file, args.ipc_port_file.clone(), args.auto_start_all).await;
     if let Err(e) = &result {
         // FATAL CRASH: Write LAST_ERROR to PID file so CLI can report it synchronously
         let current_pid = std::process::id();
@@ -51,7 +66,7 @@ async fn main() -> Result<()> {
     result
 }
 
-async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<()> {
+async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start_all: bool) -> Result<()> {
     // Initialize Rustls Crypto Provider (Mandatory for Rustls 0.23+)
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -102,8 +117,14 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!("Failed to init Vault: {}", e))?;
 
     use tracing_subscriber::prelude::*;
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+    
+    let make_writer = std::io::stderr
+        .with_max_level(tracing::Level::WARN)
+        .or_else(std::io::stdout);
+
     let console_layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stderr)
+        .with_writer(make_writer)
         .with_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")));
     
     let (_vault_tx, vault_rx) = tokio::sync::watch::channel(Some(vault.clone()));
@@ -127,8 +148,9 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
     }
     let m_server = cowen_monitor::MonitorServer::new(m_port, daemon_svc.clone(), Some(telemetry_db.clone()));
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+    let (monitor_shutdown_tx, monitor_shutdown_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        if let Err(e) = m_server.start(Some(port_tx), allow_fallback).await {
+        if let Err(e) = m_server.start(Some(port_tx), allow_fallback, monitor_shutdown_rx).await {
             tracing::error!("Monitor server error: {}", e);
         }
     });
@@ -166,6 +188,18 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
         }
     });
 
+    if auto_start_all {
+        if let Ok(profiles) = cfg_mgr.list_profiles().await {
+            for p in profiles {
+                let p_cfg = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::config::Config::default_with_profile(&p));
+                info!("Auto-starting worker for profile: {}", p);
+                if let Err(e) = daemon_svc.start_daemon(&p, &p_cfg, vault.clone()).await {
+                    error!("Failed to auto-start worker for profile {}: {}", p, e);
+                }
+            }
+        }
+    }
+
     loop {
         tokio::select! {
             result = listener.accept() => {
@@ -187,6 +221,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>) -> Result<
             }
             _ = stop_rx.recv() => {
                 info!("Shutdown signal received, initiating graceful shutdown...");
+                let _ = monitor_shutdown_tx.send(());
                 let stopped_file = cowen_common::config::get_app_dir().join("master_daemon.stopped");
                 let _ = cowen_common::utils::secure_write(stopped_file, "1");
                 break;

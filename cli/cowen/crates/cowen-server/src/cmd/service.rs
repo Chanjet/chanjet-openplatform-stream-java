@@ -13,7 +13,11 @@ pub async fn execute(action: ServiceAction) -> Result<()> {
     
     match action {
         ServiceAction::Install => {
-            let bin_path = env::current_exe()?;
+            let exe_dir = env::current_exe()?.parent().unwrap().to_path_buf();
+            let daemon_bin_name = cowen_sys::get_daemon_binary_name();
+            let bin_path = std::env::var("COWEN_DAEMON_BIN")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| exe_dir.join(daemon_bin_name));
             let bin_path_str = bin_path.to_string_lossy();
             let app_dir = cowen_common::config::get_app_dir();
             let log_dir = app_dir.join("logs");

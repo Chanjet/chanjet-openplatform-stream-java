@@ -120,21 +120,23 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
         let exists = check_output.map(|out| out.status.success()).unwrap_or(false);
 
         if exists {
+            let app_dir = cowen_infra::path::get_app_dir();
             let _ = std::process::Command::new("sc")
                 .arg("config")
                 .arg(&service_name)
                 .arg("binPath=")
-                .arg(format!("\"{}\" daemon start --all --run-as-service", bin_path))
+                .arg(format!("\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"", bin_path, app_dir.to_string_lossy()))
                 .status();
             println!("✅ Windows Service '{}' already exists. Configuration updated.", service_name);
             return Ok(());
         }
 
+        let app_dir = cowen_infra::path::get_app_dir();
         let status = std::process::Command::new("sc")
             .arg("create")
             .arg(&service_name)
             .arg("binPath=")
-            .arg(format!("\"{}\" daemon start --all --run-as-service", bin_path))
+            .arg(format!("\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"", bin_path, app_dir.to_string_lossy()))
             .arg("start=")
             .arg("auto")
             .status()?;
@@ -321,7 +323,9 @@ impl IpcBinder for WinIpcBinder {
     }
     
     async fn save_ipc_token(&self, token_file: &Path, token: &str) -> anyhow::Result<()> {
-        std::fs::write(token_file, token)?;
+        let temp_file = token_file.with_extension("tmp");
+        std::fs::write(&temp_file, token)?;
+        std::fs::rename(temp_file, token_file)?;
         Ok(())
     }
 }
@@ -363,5 +367,38 @@ pub mod fs {
     pub fn is_file_secure<P: AsRef<Path>>(path: P) -> bool {
         let _ = path;
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cowen_infra::sys::IpcBinder;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_save_ipc_token_atomic() {
+        let dir = tempfile::tempdir().unwrap();
+        let token_file = dir.path().join("test_ipc_win.token");
+        let binder = Arc::new(WinIpcBinder::new());
+        
+        let mut handles = vec![];
+        for i in 0..50 {
+            let b = binder.clone();
+            let tf = token_file.clone();
+            handles.push(tokio::spawn(async move {
+                let token = format!("token_{}", i);
+                b.save_ipc_token(&tf, &token).await.unwrap();
+                let read_back = b.load_ipc_token(&tf).await.unwrap();
+                assert!(!read_back.is_empty());
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+        
+        let tmp_file = token_file.with_extension("tmp");
+        assert!(!tmp_file.exists(), "Temporary file should be atomically renamed and not left behind");
     }
 }

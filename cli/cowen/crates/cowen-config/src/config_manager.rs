@@ -37,6 +37,7 @@ pub struct ConfigManager {
     strategies: Arc<Vec<Box<dyn ConfigStrategy>>>,
     app_config_tx: Arc<tokio::sync::watch::Sender<AppConfig>>,
     profile_txs: Arc<tokio::sync::Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<Config>>>>,
+    manifest_cache: Arc<tokio::sync::Mutex<std::collections::HashMap<String, (Config, std::time::Instant)>>>,
 }
 
 impl ConfigManager {
@@ -67,6 +68,7 @@ impl ConfigManager {
             strategies: Arc::new(strategies),
             app_config_tx: Arc::new(app_config_tx),
             profile_txs: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            manifest_cache: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         };
 
         mgr.start_watcher();
@@ -227,6 +229,17 @@ impl ConfigManager {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
 
+        {
+            let mut cache = self.manifest_cache.lock().await;
+            if let Some((cfg, timestamp)) = cache.get(profile) {
+                if timestamp.elapsed() < std::time::Duration::from_secs(3) {
+                    return Ok(cfg.clone());
+                } else {
+                    cache.remove(profile);
+                }
+            }
+        }
+
         if let Some(vault) = self.vault.get() {
             tracing::debug!(target: "sys", profile = %profile, "Attempting to load manifest from Vault");
             match vault.get_config_full(profile, "system:manifest").await {
@@ -255,6 +268,10 @@ impl ConfigManager {
                         }
                         let mut config = config;
                         config.apply_env_overrides();
+                        {
+                            let mut cache = self.manifest_cache.lock().await;
+                            cache.insert(profile.to_string(), (config.clone(), std::time::Instant::now()));
+                        }
                         return Ok(config);
                     },
                     Err(e) => {
@@ -278,6 +295,11 @@ impl ConfigManager {
         
         if let Ok(val) = std::env::var("COWEN_EXCLUSIVE") {
             config.exclusive = Some(val == "true" || val == "1");
+        }
+
+        {
+            let mut cache = self.manifest_cache.lock().await;
+            cache.insert(profile.to_string(), (config.clone(), std::time::Instant::now()));
         }
 
         Ok(config)
@@ -355,6 +377,11 @@ impl ConfigManager {
             let path = self.app_dir.join(format!("{}.yaml", profile));
             let content = serde_yaml::to_string(config)?;
             cowen_common::utils::secure_write(path, content)?;
+        }
+
+        {
+            let mut cache = self.manifest_cache.lock().await;
+            cache.remove(profile);
         }
 
         Ok(())

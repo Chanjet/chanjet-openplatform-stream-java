@@ -56,6 +56,15 @@ assert_pass "Switched to 'prof_a'"
 CURRENT=$("$COWEN_BIN" profile current)
 assert_match "$CURRENT" "prof_a" "Current profile is now 'prof_a'"
 
+echo "4.1 Trying to switch to an invalid profile..."
+if "$COWEN_BIN" profile use nonexistent_profile 2>/dev/null; then
+    fail_suite "Should not allow switching to a non-existent profile"
+fi
+echo -e "  ${GREEN}✓${NC} Blocked switching to 'nonexistent_profile'"
+
+CURRENT=$("$COWEN_BIN" profile current)
+assert_match "$CURRENT" "prof_a" "Current profile should still be 'prof_a'"
+
 # Verify data in 'prof_a'
 echo "   Verifying data in 'prof_a'..."
 CFG=$("$COWEN_BIN" config)

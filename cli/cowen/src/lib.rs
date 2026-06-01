@@ -835,7 +835,13 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Profile { action } => match action {
-            ProfileCommands::Use { name } => { cfg_mgr.set_default_profile(name).map_err(|e| anyhow::anyhow!(e))?; println!("✅ Set default profile to '{}'", name); }
+            ProfileCommands::Use { name } => {
+                if !cfg_mgr.exists(name).await {
+                    return Err(anyhow::anyhow!("❌ Error: Profile '{}' does not exist. Please create it first using 'cowen init'.", name));
+                }
+                cfg_mgr.set_default_profile(name).map_err(|e| anyhow::anyhow!(e))?;
+                println!("✅ Set default profile to '{}'", name);
+            }
             ProfileCommands::Current => println!("{}", cfg_mgr.get_default_profile()),
             ProfileCommands::List => {
                 let profiles = cfg_mgr.list_profiles().await.map_err(|e| anyhow::anyhow!(e))?;

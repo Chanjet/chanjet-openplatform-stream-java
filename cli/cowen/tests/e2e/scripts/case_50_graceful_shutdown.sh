@@ -5,7 +5,7 @@
 # Architecture Note (v0.3.x IPC):
 #   On Unix, `daemon start` dispatches workers to the standalone cowen-daemon
 #   process via IPC. The drain/shutdown logs are emitted by bridge.rs inside
-#   cowen-daemon and written to daemon.stderr.log.
+#   cowen-daemon and written to daemon.stdout.log.
 #   To trigger a graceful shutdown, we use `daemon stop` which sends StopWorker
 #   over IPC, causing the worker cancel_token to fire and the drain sequence
 #   to execute inside cowen-daemon.
@@ -85,11 +85,11 @@ done
 sleep 1
 
 echo "--- Test 5: Verify Log Contents ---"
-DAEMON_LOG="$COWEN_HOME/logs/daemon.stderr.log"
+DAEMON_LOG="$COWEN_HOME/logs/daemon.stdout.log"
 
 if [ ! -f "$DAEMON_LOG" ]; then
     ls -la "$COWEN_HOME/logs/" 2>/dev/null
-    fail_suite "daemon.stderr.log not found"
+    fail_suite "daemon.stdout.log not found"
 fi
 
 # Check if "Shutdown signal received" or "Stopping worker (Draining)" was logged
@@ -98,7 +98,7 @@ if grep -q "Stopping worker (Draining)\|Shutdown signal received\|Waiting for ac
 else
     echo -e "${RED}FAILED: Log missing shutdown/drain indicators${NC}"
     tail -n 30 "$DAEMON_LOG"
-    fail_suite "=== daemon.stderr.log (last 30 lines) ==="
+    fail_suite "=== daemon.stdout.log (last 30 lines) ==="
 fi
 
 # Check if "All active tasks completed gracefully" was logged
@@ -112,7 +112,7 @@ else
     else
         echo -e "${RED}FAILED: Log missing drain completion indicator${NC}"
         tail -n 30 "$DAEMON_LOG"
-        fail_suite "=== daemon.stderr.log (last 30 lines) ==="
+        fail_suite "=== daemon.stdout.log (last 30 lines) ==="
     fi
 fi
 
@@ -129,6 +129,17 @@ fi
 # Mandatory Sanitization Check
 CONFIG_OUT=$("$COWEN_BIN" config --profile main 2>&1)
 assert_sanitized "$CONFIG_OUT" "CLI Profile Config output"
+
+echo "--- Test 7: Verify Log Separation ---"
+if [ -f "$COWEN_HOME/logs/daemon.stderr.log" ]; then
+    if grep -q '"msg_type":"ping"\| INFO ' "$COWEN_HOME/logs/daemon.stderr.log"; then
+        echo -e "${RED}FAILED: Found INFO logs or ping messages in daemon.stderr.log. Log separation is broken!${NC}"
+        tail -n 30 "$COWEN_HOME/logs/daemon.stderr.log"
+        fail_suite "Log separation broken"
+    else
+        echo "   ✓ daemon.stderr.log is clean of INFO/ping messages"
+    fi
+fi
 
 echo -e "\n${GREEN}🎊 Case 50 Passed!${NC}"
 cleanup_suite

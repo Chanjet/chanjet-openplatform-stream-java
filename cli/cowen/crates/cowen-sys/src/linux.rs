@@ -60,7 +60,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart={bin_path} daemon start --all --foreground
+ExecStart={bin_path} --auto-start-all
 Restart=always
 
 [Install]

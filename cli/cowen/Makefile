@@ -72,20 +72,16 @@ PROD_STREAM  = https://stream-open.chanapp.chanjet.com
 TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
-.PHONY: build macos-aarch64 macos-x86_64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 windows-x86-cross windows-x86_64-cross \
+.PHONY: build macos-aarch64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 windows-x86-cross windows-x86_64-cross \
         windows-plugin-x64 windows-plugin-x86 test-macos-aarch64 \
         test test-linux test-win test-macos check-cross \
-        package package-macos-aarch64 package-macos-x86_64 package-linux-x86_64 package-linux-x86_64-with-podman \
+        package package-macos-aarch64 package-linux-x86_64 package-linux-x86_64-with-podman \
         package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-cross package-windows-x86-cross clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
 
 # --- 默认构建目标 (Default Build Target) ---
 build:
 ifeq ($(HOST_OS),macos)
-ifeq ($(HOST_ARCH),aarch64)
 	@$(MAKE) macos-aarch64
-else
-	@$(MAKE) macos-x86_64
-endif
 else ifeq ($(HOST_OS),linux)
 ifeq ($(HOST_ARCH),x86_64)
 	@$(MAKE) linux-x86_64
@@ -99,11 +95,7 @@ endif
 # --- 默认打包目标 (Default Package Target) ---
 package:
 ifeq ($(HOST_OS),macos)
-ifeq ($(HOST_ARCH),aarch64)
 	@$(MAKE) package-macos-aarch64
-else
-	@$(MAKE) package-macos-x86_64
-endif
 else ifeq ($(HOST_OS),linux)
 ifeq ($(HOST_ARCH),x86_64)
 	@$(MAKE) package-linux-x86_64
@@ -159,19 +151,6 @@ test-macos-aarch64:
 	@$(call SHA1,$(OUTPUT_DIR)/test/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/test/$(BINARY))
 
-macos-x86_64: build-plugins
-	@echo "🍎 Building macOS Intel v$(VERSION)..."
-	mkdir -p $(OUTPUT_DIR)/macos-x86_64
-	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-apple-darwin --no-default-features -p cowen -p cowen-daemon
-	cp target/x86_64-apple-darwin/release/$(BINARY) $(OUTPUT_DIR)/macos-x86_64/$(BINARY)
-	cp target/x86_64-apple-darwin/release/cowen-daemon $(OUTPUT_DIR)/macos-x86_64/cowen-daemon
-	cp target/release/libcowen_search_embedding.dylib $(OUTPUT_DIR)/macos-x86_64/ || true
-	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/macos-x86_64/ || true
-	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/$(BINARY) 2>/dev/null || true
-	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-x86_64/cowen-daemon 2>/dev/null || true
-	@$(call MD5,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
-	@$(call SHA1,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
-	@$(call VERIFY_BIN,$(OUTPUT_DIR)/macos-x86_64/$(BINARY))
 
 linux-x86_64: build-plugins
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] natively v$(VERSION)..."
@@ -328,10 +307,6 @@ windows-plugin-x86:
 package-macos-aarch64: clean macos-aarch64
 	@echo "📦 Packaging macOS Apple Silicon (Component Based)..."
 	@$(MAKE) impl-package-macos ARCH=aarch64
-
-package-macos-x86_64: clean macos-x86_64
-	@echo "📦 Packaging macOS Intel (Component Based)..."
-	@$(MAKE) impl-package-macos ARCH=x86_64
 
 impl-package-macos:
 	@echo "📦 Building Component Packages for $(ARCH)..."
@@ -617,7 +592,7 @@ db-down:
 
 clean:
 	cargo clean
-	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/macos-x86_64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-x86_64-legacy $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/windows-x86_64-cross $(OUTPUT_DIR)/windows-x86_64-legacy $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
+	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/windows-x86_64-cross $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
 
 install:
 	@$(MAKE) macos-aarch64

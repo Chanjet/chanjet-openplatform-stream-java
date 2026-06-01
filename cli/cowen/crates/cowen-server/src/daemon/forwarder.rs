@@ -73,8 +73,12 @@ impl Forwarder {
         let headers = event.get("headers").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
         let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
 
-        tracing::info!(target: "stream", msg_id = %msg_id, msg_type = %msg_type, target = %self.target_url, "Forwarding event to webhook");
-        println!("➡️ Forwarding event [{}] to {}...", msg_type, self.target_url);
+        if msg_type == "ping" {
+            tracing::debug!(target: "stream", msg_id = %msg_id, msg_type = %msg_type, target = %self.target_url, "Forwarding event to webhook");
+        } else {
+            tracing::info!(target: "stream", msg_id = %msg_id, msg_type = %msg_type, target = %self.target_url, "Forwarding event to webhook");
+            println!("➡️ Forwarding event [{}] to {}...", msg_type, self.target_url);
+        }
 
         let resp = self.client.post(&self.target_url)
             .header("Content-Type", "application/json")
@@ -84,8 +88,12 @@ impl Forwarder {
 
         match resp {
             Ok(r) if r.status().is_success() => {
-                tracing::info!(target: "stream", msg_id = %msg_id, status = %r.status(), "Event successfully forwarded");
-                println!("✅ Successfully forwarded event [{}]", msg_id);
+                if msg_type == "ping" {
+                    tracing::debug!(target: "stream", msg_id = %msg_id, status = %r.status(), "Event successfully forwarded");
+                } else {
+                    tracing::info!(target: "stream", msg_id = %msg_id, status = %r.status(), "Event successfully forwarded");
+                    println!("✅ Successfully forwarded event [{}]", msg_id);
+                }
                 Ok(())
             }
             Ok(r) => {
