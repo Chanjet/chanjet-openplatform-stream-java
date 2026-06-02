@@ -9,11 +9,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use tokio::net::{TcpListener, TcpStream};
 
-use cowen_common::ipc::{DaemonRequest, DaemonResponse};
+use cowen_common::ipc::{DaemonRequest, DaemonResponse, ApiResponseDto};
 use cowen_common::daemon::DaemonService;
 use cowen_common::vault::Vault;
 use cowen_server::ServerDaemonService;
 use cowen_config::ConfigManager;
+use cowen_auth::client::Client;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -207,9 +208,10 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
                     Ok((stream, _)) => {
                         let svc = daemon_svc.clone();
                         let v = vault.clone();
+                        let c = cfg_mgr.clone();
                         let exp_token = ipc_token.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, svc, v, exp_token).await {
+                            if let Err(e) = handle_connection(stream, svc, v, c, exp_token).await {
                                 error!("Connection error: {}", e);
                             }
                         });
@@ -242,7 +244,13 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     Ok(())
 }
 
-async fn handle_connection(mut stream: TcpStream, svc: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, expected_token: String) -> Result<()> {
+async fn handle_connection(
+    mut stream: TcpStream,
+    svc: Arc<dyn DaemonService>,
+    vault: Arc<dyn Vault>,
+    cfg_mgr: ConfigManager,
+    expected_token: String,
+) -> Result<()> {
     let mut len_buf = [0u8; 4];
     if stream.read_exact(&mut len_buf).await.is_err() {
         return Ok(()); // Connection closed
@@ -299,13 +307,225 @@ async fn handle_connection(mut stream: TcpStream, svc: Arc<dyn DaemonService>, v
         DaemonRequest::GetStatus { .. } => {
             DaemonResponse::Status(std::collections::HashMap::new())
         }
+        DaemonRequest::InitProfile {
+            profile,
+            app_key,
+            app_secret,
+            certificate,
+            encrypt_key,
+            webhook_target,
+            openapi_url,
+            stream_url,
+            app_mode,
+            proxy_port,
+        } => {
+            info!("InitProfile requested for {}", profile);
+            let is_new = !cfg_mgr.exists(&profile).await;
+            
+            let mode_str = app_mode.unwrap_or_else(|| "self_built".to_string());
+            let mode = match mode_str.parse::<cowen_common::models::AuthMode>() {
+                Ok(m) => m,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 400, message: e }).await?;
+                    return Ok(());
+                }
+            };
+
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            let provider = auth_cli.provider(&mode);
+
+            if let Some(ak) = &app_key {
+                if let Ok(Some(existing_profile)) = provider.find_conflicting_profile(ak, &cfg_mgr).await {
+                    if existing_profile != profile {
+                        let _ = cfg_mgr.set_default_profile(&existing_profile);
+                        send_response(&mut stream, &DaemonResponse::Success { message: format!("CONFLICT_SWITCH:{}", existing_profile) }).await?;
+                        return Ok(());
+                    }
+                }
+            }
+
+            let mut config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(_) => cowen_common::Config::default_with_profile(&profile),
+            };
+            config.app_mode = mode;
+
+            let params = cowen_auth::provider::InitParams {
+                app_key: app_key.clone(),
+                app_secret: app_secret.clone(),
+                certificate: certificate.clone(),
+                encrypt_key: encrypt_key.clone(),
+                webhook_target: webhook_target.clone(),
+                openapi_url: openapi_url.clone(),
+                stream_url: stream_url.clone(),
+                proxy_port: proxy_port,
+                auto_start: true,
+                is_new,
+            };
+
+            let mut app_config = cfg_mgr.load_app_config().await.unwrap_or_default();
+            if let Some(url) = &openapi_url {
+                app_config.openapi_url = url.clone();
+            }
+            if let Some(url) = &stream_url {
+                app_config.stream_url = url.clone();
+            }
+            let _ = cfg_mgr.save_app_config(&app_config).await;
+
+            match provider.initialize(&profile, &mut config, vault.clone(), &cfg_mgr, params, Some(svc.clone())).await {
+                Ok(_) => {
+                    let _ = cfg_mgr.set_default_profile(&profile);
+                    DaemonResponse::Success { message: format!("Profile {} initialized", profile) }
+                }
+                Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
+            }
+        }
+        DaemonRequest::CallApi { profile, method, path, data, force } => {
+            info!("CallApi requested for profile={} method={} path={}", profile, method, path);
+            let config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            if !auth_cli.supports_api_call(&config) {
+                send_response(&mut stream, &DaemonResponse::Error { code: 400, message: format!("Auth mode {:?} does not support direct CLI API calls.", config.app_mode) }).await?;
+                return Ok(());
+            }
+
+            let app_cfg = match cfg_mgr.load_app_config().await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 500, message: e.to_string() }).await?;
+                    return Ok(());
+                }
+            };
+
+            let body_option = if data.is_none() || data.as_ref().unwrap().trim() == "{}" || data.as_ref().unwrap().trim().is_empty() {
+                None
+            } else {
+                data.clone()
+            };
+
+            let method_upper = method.to_uppercase();
+
+            if !force {
+                let spec = match auth_cli.get_openapi_spec(&profile, &config, false).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        send_response(&mut stream, &DaemonResponse::Error { code: 500, message: e.to_string() }).await?;
+                        return Ok(());
+                    }
+                };
+                if let Err(e) = cowen_common::openapi::validate_request(&spec, &method_upper, &path, &body_option) {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 400, message: format!("OpenAPI validation failed: {}", e) }).await?;
+                    return Ok(());
+                }
+                let path_no_query = path.split('?').next().unwrap_or(&path);
+                if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 403, message: format!("CLI Rejected: Target path {} is not in the OpenAPI whitelist.", path_no_query) }).await?;
+                    return Ok(());
+                }
+            }
+
+            if path.starts_with("http") && !path.starts_with(&app_cfg.openapi_url) {
+                send_response(&mut stream, &DaemonResponse::Error { code: 403, message: "CLI Security Block: Absolute external URLs are not allowed.".to_string() }).await?;
+                return Ok(());
+            }
+
+            let token = match auth_cli.get_token(&profile, &config, &reqwest::header::HeaderMap::new()).await {
+                Ok(t) => t,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 500, message: format!("Failed to get token: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+
+            let ua = cowen_infra::get_user_agent("0.4.0");
+            let client = match cowen_infra::create_client(&ua) {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 500, message: e.to_string() }).await?;
+                    return Ok(());
+                }
+            };
+            let url = if path.starts_with("http") {
+                path.to_string()
+            } else {
+                let base = app_cfg.openapi_url.trim_end_matches('/');
+                format!("{}{}", base, path)
+            };
+
+            let method_enum = match reqwest::Method::from_bytes(method_upper.as_bytes()) {
+                Ok(m) => m,
+                Err(_) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 400, message: format!("Invalid HTTP method: {}", method_upper) }).await?;
+                    return Ok(());
+                }
+            };
+
+            let mut req = client.request(method_enum, &url)
+                .header("openToken", token.value)
+                .header("appKey", config.app_key.trim());
+
+            if let Some(b) = body_option {
+                let json_body: serde_json::Value = match serde_json::from_str(&b) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        send_response(&mut stream, &DaemonResponse::Error { code: 400, message: format!("Invalid JSON payload: {}", e) }).await?;
+                        return Ok(());
+                    }
+                };
+                req = req.json(&json_body);
+            }
+
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let mut headers_map = std::collections::HashMap::new();
+                    for (k, v) in resp.headers().iter() {
+                        if let Ok(v_str) = v.to_str() {
+                            headers_map.insert(k.to_string(), v_str.to_string());
+                        }
+                    }
+                    let body = resp.text().await.unwrap_or_default();
+                    DaemonResponse::ApiResponse(ApiResponseDto {
+                        status,
+                        headers: headers_map,
+                        body,
+                    })
+                }
+                Err(e) => DaemonResponse::Error { code: 520, message: format!("Request failed: {}", e) }
+            }
+        }
+        DaemonRequest::AuthLogin { profile } => {
+            info!("AuthLogin requested for profile={}", profile);
+            let config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            let provider = auth_cli.provider(&config.app_mode);
+            match provider.perform_login(&profile, &config, true, None, Some(svc.clone())).await {
+                Ok(_) => DaemonResponse::Success { message: "Login successful".to_string() },
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("Login failed: {}", e) }
+            }
+        }
     };
 
-    let res_payload = serde_json::to_vec(&res)?;
+    send_response(&mut stream, &res).await
+}
+
+async fn send_response(stream: &mut TcpStream, res: &DaemonResponse) -> Result<()> {
+    let res_payload = serde_json::to_vec(res)?;
     let res_len = res_payload.len() as u32;
     stream.write_all(&res_len.to_be_bytes()).await?;
     stream.write_all(&res_payload).await?;
-
     Ok(())
 }
 

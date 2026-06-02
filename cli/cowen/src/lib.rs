@@ -662,19 +662,39 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     match &cli.command {
         Commands::Init { app_key, app_secret, certificate, encrypt_key, webhook_target, openapi_url, stream_url, app_mode, proxy_port } => {
-            let ctx = cmd::init::InitContext {
-                app_key: app_key.clone(),
-                app_secret: app_secret.clone(),
-                certificate: certificate.clone(),
-                encrypt_key: encrypt_key.clone(),
-                webhook_target: webhook_target.clone(),
-                openapi_url: openapi_url.clone(),
-                stream_url: stream_url.clone(),
-                app_mode: app_mode.clone(),
-                proxy_port: *proxy_port,
-                auto_start: cowen_common::status::get_active_daemon_info("").is_some(),
-            };
-            cmd::init::execute(&active_profile, &cfg_mgr, &mut app_config, vault.clone(), ctx, Some(daemon_svc.clone())).await?;
+            let port_path = cowen_common::ipc::get_ipc_port_path();
+            let _stream = cowen_common::ipc::client::ensure_daemon(&port_path).await?;
+            let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+
+            println!("\n🚀 Initializing profile via daemon: \x1b[1;32m{}\x1b[0m", active_profile);
+            let res = daemon_client.init_profile(
+                &active_profile,
+                app_key.clone(),
+                app_secret.clone(),
+                certificate.clone(),
+                encrypt_key.clone(),
+                webhook_target.clone(),
+                openapi_url.clone(),
+                stream_url.clone(),
+                app_mode.clone(),
+                *proxy_port,
+            ).await?;
+
+            match res {
+                cowen_common::ipc::DaemonResponse::Success { message } => {
+                    if message.starts_with("CONFLICT_SWITCH:") {
+                        let existing = message.replace("CONFLICT_SWITCH:", "");
+                        println!("💡 Profile with same parameters already exists: \x1b[1;33m{}\x1b[0m", existing);
+                        println!("   Switching to existing profile instead of creating '{}'.", active_profile);
+                    } else {
+                        println!("✅ {}", message);
+                    }
+                }
+                cowen_common::ipc::DaemonResponse::Error { message, .. } => {
+                    return Err(anyhow::anyhow!("Initialization failed: {}", message));
+                }
+                _ => return Err(anyhow::anyhow!("Unexpected IPC response")),
+            }
         }
         Commands::Api { method, path, data, data_file, force, action } => {
             if let Some(act) = action {
@@ -687,7 +707,52 @@ pub async fn run(cli: Cli) -> Result<()> {
                     }
                 }
             } else if let (Some(m), Some(p)) = (method, path) {
-                cmd::api::call(&active_profile, &config, &auth_cli, m, p, data, data_file, &cli.format, *force).await?;
+                let port_path = cowen_common::ipc::get_ipc_port_path();
+                let _stream = cowen_common::ipc::client::ensure_daemon(&port_path).await?;
+                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+
+                let body_data = if let Some(file_path) = data_file {
+                    Some(std::fs::read_to_string(file_path).map_err(|e| anyhow::anyhow!("Failed to read data file: {}", e))?)
+                } else {
+                    data.clone()
+                };
+
+                let res = daemon_client.call_api(&active_profile, m, p, body_data, *force).await?;
+                match res {
+                    cowen_common::ipc::DaemonResponse::ApiResponse(dto) => {
+                        if cli.format == "json" || cli.format == "yaml" {
+                            let mut json_val: serde_json::Value = serde_json::from_str(&dto.body).unwrap_or(serde_json::Value::String(dto.body));
+                            if let Some(trace_id) = dto.headers.get("x-b3-traceid")
+                                .or_else(|| dto.headers.get("x-msg-id"))
+                                .or_else(|| dto.headers.get("msgId"))
+                                .or_else(|| dto.headers.get("x-trace-id")) {
+                                if let serde_json::Value::Object(ref mut map) = json_val {
+                                    map.insert("_trace_id".to_string(), serde_json::Value::String(trace_id.to_string()));
+                                }
+                            }
+                            cowen_common::utils::render(&json_val, &cli.format).map_err(|e| anyhow::anyhow!(e))?;
+                        } else {
+                            println!("\n🚀 API Response (Status: {})", dto.status);
+                            if let Some(trace_id) = dto.headers.get("x-b3-traceid")
+                                .or_else(|| dto.headers.get("x-msg-id"))
+                                .or_else(|| dto.headers.get("msgId"))
+                                .or_else(|| dto.headers.get("x-trace-id")) {
+                                println!("\x1b[1;30mTrace ID: {}\x1b[0m", trace_id);
+                            }
+                            println!("--------------------------------------------------");
+                            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&dto.body) {
+                                println!("{}", serde_json::to_string_pretty(&json_val).unwrap());
+                            } else {
+                                println!("{}", dto.body);
+                            }
+                            println!();
+                        }
+                    }
+                    cowen_common::ipc::DaemonResponse::Error { message, .. } => {
+                        return Err(anyhow::anyhow!("API Call failed: {}", message));
+                    }
+                    _ => return Err(anyhow::anyhow!("Unexpected IPC response")),
+                }
             } else {
                 println!("Usage: cowen api [METHOD] [PATH] or use subcommands (list, spec)");
             }
@@ -696,10 +761,26 @@ pub async fn run(cli: Cli) -> Result<()> {
             AuthCommands::Status => cmd::system::status(&active_profile, &cfg_mgr, vault.clone(), &cli.format, false).await?,
             AuthCommands::Reset | AuthCommands::Logout => cmd::auth::logout(&active_profile, &config, &auth_cli).await?,
             AuthCommands::Login { force, manual, finalize } => {
+                let _ = force;
+                let _ = finalize;
                 if *manual {
                     std::env::set_var("COWEN_SKIP_BROWSER", "true");
                 }
-                cmd::auth::login(&active_profile, &config, &auth_cli, *force, finalize.as_deref(), Some(daemon_svc.clone())).await?
+                let port_path = cowen_common::ipc::get_ipc_port_path();
+                let _stream = cowen_common::ipc::client::ensure_daemon(&port_path).await?;
+                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+
+                println!("🔑 Triggering Login via daemon...");
+                let res = daemon_client.auth_login(&active_profile).await?;
+                match res {
+                    cowen_common::ipc::DaemonResponse::Success { message } => {
+                        println!("✅ Login successful: {}", message);
+                    }
+                    cowen_common::ipc::DaemonResponse::Error { message, .. } => {
+                        return Err(anyhow::anyhow!("Login failed: {}", message));
+                    }
+                    _ => return Err(anyhow::anyhow!("Unexpected IPC response")),
+                }
             },
             AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &config, &auth_cli, &cli.format, *refresh).await?,
             AuthCommands::Reload => {

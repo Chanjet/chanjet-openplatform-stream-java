@@ -27,6 +27,7 @@ directories = "6.0"
 rustls = { version = "0.23", features = ["ring"] }
 chrono = "0.4.44"
 uuid = { version = "1.23.1", features = ["v4"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "form", "query"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
