@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use cowen_config::ConfigManager;
 use cowen_common::vault::Vault;
 use std::sync::Arc;

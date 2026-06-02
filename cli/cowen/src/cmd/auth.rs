@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use cowen_common::Config;
 use cowen_auth::client::Client as AuthClientTrait;
 use anyhow::Result;
