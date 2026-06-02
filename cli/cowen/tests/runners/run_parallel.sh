@@ -120,7 +120,11 @@ cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"
 export COWEN_BIN="$(pwd)/$(dirname "$BINARY_PATH")/cowen-test"
 
 # Collect suites (All suites are parallelized)
-PARALLEL_SUITES=($(ls tests/e2e/scripts/case_*.sh 2>/dev/null))
+if [ $# -gt 0 ]; then
+    PARALLEL_SUITES=("$@")
+else
+    PARALLEL_SUITES=($(ls tests/e2e/scripts/case_*.sh 2>/dev/null))
+fi
 SEQUENTIAL_SUITES=()
 
 run_job() {

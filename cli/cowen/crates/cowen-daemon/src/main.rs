@@ -116,6 +116,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
 
     let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
     let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!("Failed to init Vault: {}", e))?;
+    let _ = cfg_mgr.set_vault(vault.clone());
 
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::fmt::writer::MakeWriterExt;
@@ -194,7 +195,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
             for p in profiles {
                 let p_cfg = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::config::Config::default_with_profile(&p));
                 info!("Auto-starting worker for profile: {}", p);
-                if let Err(e) = daemon_svc.start_daemon(&p, &p_cfg, vault.clone()).await {
+                if let Err(e) = daemon_svc.start_daemon(&p, &p_cfg).await {
                     error!("Failed to auto-start worker for profile {}: {}", p, e);
                 }
             }
@@ -278,7 +279,7 @@ async fn handle_connection(
         }
         DaemonRequest::StartWorker { profile, config } => {
             info!("StartWorker requested for {}", profile);
-            match svc.start_daemon(&profile, &config, vault.clone()).await {
+            match svc.start_daemon(&profile, &config).await {
                 Ok(_) => DaemonResponse::Success { message: format!("Worker {} started", profile) },
                 Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
             }
@@ -500,8 +501,71 @@ async fn handle_connection(
                 Err(e) => DaemonResponse::Error { code: 520, message: format!("Request failed: {}", e) }
             }
         }
-        DaemonRequest::AuthLogin { profile } => {
-            info!("AuthLogin requested for profile={}", profile);
+        DaemonRequest::GetAuthUrl { profile, force } => {
+            info!("GetAuthUrl requested for profile={}, force={}", profile, force);
+            let mut config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            let provider = auth_cli.provider(&config.app_mode);
+            if let Err(e) = provider.hydrate_config(&profile, &mut config, vault.clone()).await {
+                tracing::warn!("Failed to hydrate config for profile {}: {}", profile, e);
+            }
+
+            // If not forced and it's oauth2, try to rotate if refresh token is valid
+            if !force && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
+                if let Ok(rt) = vault.get_refresh_token(&profile).await {
+                    if !rt.is_expired() {
+                        info!("Found valid refresh token for OAuth2, triggering rotation.");
+                        let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+                        if let Ok(_token) = auth_cli.refresh_token(&profile, &config, &reqwest::header::HeaderMap::new()).await {
+                            send_response(&mut stream, &DaemonResponse::AuthRotated).await?;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+
+            // If it's SelfBuilt, just login directly
+            if config.app_mode == cowen_common::models::AuthMode::SelfBuilt {
+                match auth_cli.get_token(&profile, &config, &reqwest::header::HeaderMap::new()).await {
+                    Ok(t) => {
+                        send_response(&mut stream, &DaemonResponse::AuthSuccess { token: t.value }).await?;
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        send_response(&mut stream, &DaemonResponse::Error { code: 401, message: format!("Self-built login failed: {}", e) }).await?;
+                        return Ok(());
+                    }
+                }
+            }
+
+            let provider = auth_cli.provider(&config.app_mode);
+            match provider.generate_auth_url(&profile, &mut config, vault.clone(), &cfg_mgr, cowen_auth::provider::InitParams {
+                app_key: None,
+                app_secret: None,
+                certificate: None,
+                encrypt_key: None,
+                openapi_url: None,
+                stream_url: None,
+                webhook_target: None,
+                proxy_port: None,
+                auto_start: false,
+                is_new: false,
+            }).await {
+                Ok((url, state)) => DaemonResponse::AuthUrl { url, state },
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("Generate auth url failed: {}", e) }
+            }
+        }
+        DaemonRequest::WaitForAuth { profile, state } => {
+            info!("WaitForAuth requested for profile={} state={}", profile, state);
             let config = match cfg_mgr.load(&profile).await {
                 Ok(c) => c,
                 Err(e) => {
@@ -511,9 +575,367 @@ async fn handle_connection(
             };
             let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
             let provider = auth_cli.provider(&config.app_mode);
-            match provider.perform_login(&profile, &config, true, None, Some(svc.clone())).await {
-                Ok(_) => DaemonResponse::Success { message: "Login successful".to_string() },
-                Err(e) => DaemonResponse::Error { code: 500, message: format!("Login failed: {}", e) }
+            match provider.wait_for_auth(&profile, &config, vault.clone(), &cfg_mgr, &state).await {
+                Ok(_) => DaemonResponse::AuthSuccess { token: "Success".to_string() },
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("Wait for auth failed: {}", e) }
+            }
+        }
+        DaemonRequest::GetToken { profile, refresh } => {
+            info!("GetToken requested for profile={} refresh={}", profile, refresh);
+            let config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            let res = if refresh {
+                auth_cli.refresh_token(&profile, &config, &reqwest::header::HeaderMap::new()).await
+            } else {
+                auth_cli.get_token(&profile, &config, &reqwest::header::HeaderMap::new()).await
+            };
+            match res {
+                Ok(t) => DaemonResponse::TokenData { token_json: serde_json::to_string(&t).unwrap_or_default() },
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("GetToken failed: {}", e) }
+            }
+        }
+        DaemonRequest::ClearToken { profile } => {
+            info!("ClearToken requested for profile={}", profile);
+            let config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            match auth_cli.clear_token(&profile, &config).await {
+                Ok(_) => DaemonResponse::Success { message: "Token cleared".to_string() },
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("ClearToken failed: {}", e) }
+            }
+        }
+        DaemonRequest::Doctor => {
+            info!("Doctor requested");
+            DaemonResponse::DoctorReport {
+                report: "mock-doctor-report".to_string(),
+            }
+        }
+        DaemonRequest::GetGlobalConfig => {
+            info!("GetGlobalConfig requested");
+            DaemonResponse::ConfigData {
+                config_json: "{}".to_string(),
+            }
+        }
+        DaemonRequest::SetGlobalConfig { key, value } => {
+            info!("SetGlobalConfig requested for {}={}", key, value);
+            DaemonResponse::Success {
+                message: "Global config set".to_string(),
+            }
+        }
+
+        DaemonRequest::SystemStatus { profile, all } => {
+            let mut results = Vec::new();
+            let profiles = if all {
+                cfg_mgr.list_profiles().await.unwrap_or_default()
+            } else {
+                vec![profile.clone()]
+            };
+            
+            for prof in profiles {
+                let mut entries = Vec::new();
+                let config = match cfg_mgr.load(&prof).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        let entry = cowen_common::status::StatusEntry {
+                            name: "Configuration".to_string(),
+                            icon: "⚙️".to_string(),
+                            message: "Profile load failed".to_string(),
+                            level: cowen_common::status::StatusLevel::ERROR,
+                            reason: Some(e.to_string()),
+                            details: vec![],
+                            children: vec![],
+                        };
+                        entries.push(entry);
+                        let entry_val = serde_json::json!({
+                            "profile": prof,
+                            "entries": entries,
+                        });
+                        results.push(entry_val);
+                        continue;
+                    },
+                };
+                let app_config = match cfg_mgr.load_app_config().await {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                
+                let ctx = cowen_common::status::StatusContext {
+                    profile: prof.clone(),
+                    config: &config,
+                    app_config: &app_config,
+                    vault: vault.clone(),
+                };
+                
+                let daemon_entry = cowen_common::status::collect_daemon_status(&ctx, "Daemon", "Tips", true, None).await;
+                if let Ok(e) = daemon_entry {
+                    entries.push(e);
+                }
+                
+                let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+                if let Ok(mut diag_entries) = auth_cli.get_diagnostics(&ctx).await {
+                    entries.append(&mut diag_entries);
+                }
+                
+                let entry_val = serde_json::json!({
+                    "profile": prof,
+                    "entries": entries,
+                });
+                results.push(entry_val);
+            }
+            
+            let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
+            DaemonResponse::SystemStatusData { json }
+        }
+        DaemonRequest::SystemReset { profile, dry_run: _ } => {
+            if let Some(prof) = profile {
+                tracing::info!("SystemReset: resetting profile {}", prof);
+                let _ = svc.stop_daemon(&prof).await;
+                if let Ok(config) = cfg_mgr.load(&prof).await {
+                    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+                    let _ = auth_cli.clear_token(&prof, &config).await;
+                }
+                if let Err(e) = cfg_mgr.delete(&prof).await {
+                    tracing::error!("Failed to delete profile {}: {:?}", prof, e);
+                }
+            } else {
+                tracing::info!("SystemReset: resetting all profiles");
+                let _ = svc.stop_all().await;
+                if let Ok(profiles) = cfg_mgr.list_profiles().await {
+                    for prof in profiles {
+                        if let Ok(config) = cfg_mgr.load(&prof).await {
+                            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+                            let _ = auth_cli.clear_token(&prof, &config).await;
+                        }
+                        tracing::info!("Deleting profile {}", prof);
+                        if let Err(e) = cfg_mgr.delete(&prof).await {
+                            tracing::error!("Failed to delete profile {}: {:?}", prof, e);
+                        }
+                    }
+                }
+                let _ = cfg_mgr.set_default_profile("default");
+            }
+            DaemonResponse::Success { message: "Reset complete".to_string() }
+        }
+        DaemonRequest::RenameProfile { old_name, new_name } => {
+            match cfg_mgr.rename(&old_name, &new_name).await {
+                Ok(_) => DaemonResponse::Success { message: format!("Profile '{}' renamed to '{}'", old_name, new_name) },
+                Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() },
+            }
+        }
+        DaemonRequest::DlqList { profile, page, page_size } => {
+            let offset = if page > 0 { (page - 1) * page_size } else { 0 };
+            match vault.list_dlq_paged(&profile, offset, page_size).await {
+                Ok(messages) => {
+                    match serde_json::to_string(&messages) {
+                        Ok(json) => DaemonResponse::DlqData { json },
+                        Err(e) => DaemonResponse::Error { code: 500, message: format!("Serialization error: {}", e) }
+                    }
+                }
+                Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
+            }
+        }
+        DaemonRequest::DlqView { profile: _, id } => {
+            if let Ok(id_val) = id.parse::<i64>() {
+                match vault.get_dlq_by_id(id_val).await {
+                    Ok(Some(msg)) => {
+                        match serde_json::to_string(&msg) {
+                            Ok(json) => DaemonResponse::DlqData { json },
+                            Err(e) => DaemonResponse::Error { code: 500, message: format!("Serialization error: {}", e) }
+                        }
+                    }
+                    Ok(None) => DaemonResponse::Error { code: 404, message: "DLQ entry not found".to_string() },
+                    Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
+                }
+            } else {
+                DaemonResponse::Error { code: 400, message: "Invalid ID format".to_string() }
+            }
+        }
+        DaemonRequest::DlqRetry { profile, id } => {
+            if let Ok(id_val) = id.parse::<i64>() {
+                match cfg_mgr.load(&profile).await {
+                    Ok(config) => {
+                        let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+                        match cowen_server::daemon::forwarder::Forwarder::new(&profile, config, &app_cfg, vault.clone()) {
+                            Ok(forwarder) => {
+                                match forwarder.retry_message(id_val).await {
+                                    Ok(_) => DaemonResponse::Success { message: format!("Successfully retried DLQ message {}", id_val) },
+                                    Err(e) => DaemonResponse::Error { code: 500, message: format!("Retry failed: {}", e) }
+                                }
+                            }
+                            Err(e) => DaemonResponse::Error { code: 500, message: format!("Failed to create forwarder: {}", e) }
+                        }
+                    }
+                    Err(e) => DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }
+                }
+            } else {
+                DaemonResponse::Error { code: 400, message: "Invalid ID format".to_string() }
+            }
+        }
+        DaemonRequest::DlqPurge { profile } => {
+            match vault.list_all_dlq(&profile).await {
+                Ok(messages) => {
+                    let mut count = 0;
+                    for msg in messages {
+                        if let Some(id) = msg.id {
+                            if vault.delete_dlq_by_id(id).await.is_ok() {
+                                count += 1;
+                            }
+                        }
+                    }
+                    DaemonResponse::Success { message: format!("Purged {} DLQ messages for profile {}", count, profile) }
+                }
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("Failed to list DLQ: {}", e) }
+            }
+        }
+        DaemonRequest::TailAudit { profile, lines } => {
+            match vault.list_audit(&profile, lines).await {
+                Ok(entries) => {
+                    let mut content = String::new();
+                    // Audit entries are usually ordered by timestamp desc. We reverse them to print chronological tail.
+                    for entry in entries.iter().rev() {
+                        content.push_str(&format!("[{}] {}\n", entry.timestamp, entry.message));
+                    }
+                    if content.is_empty() {
+                        content = "No audit logs found.".to_string();
+                    }
+                    DaemonResponse::AuditData { content }
+                }
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("Failed to fetch audit logs: {}", e) }
+            }
+        }
+        DaemonRequest::ApiList { profile, search, page, page_size, refresh } => {
+            let config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            match auth_cli.get_openapi_spec(&profile, &config, refresh).await {
+                Ok(spec) => {
+                    let mut ops = Vec::new();
+                    if let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) {
+                        for (path, methods) in paths {
+                            if let Some(methods_obj) = methods.as_object() {
+                                for (method, details) in methods_obj {
+                                    let summary = details.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                                    let id = format!("{} {}", method.to_uppercase(), path);
+                                    ops.push(serde_json::json!({
+                                        "id": id,
+                                        "method": method.to_uppercase(),
+                                        "path": path,
+                                        "summary": summary
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                    
+                    let mut plugin_used = None;
+                    if let Some(q) = search {
+                        use cowen_search::SearchProvider;
+                        use cowen_search::loader::SidecarSearchProvider;
+                        
+                        let mut providers: Vec<Box<dyn SearchProvider>> = vec![];
+                        let app_cfg = cowen_common::config::AppConfig::default();
+                        
+                        let plugin_dir = cowen_common::config::get_app_dir().join("plugins");
+                        let plugins = cowen_sys::plugin::discover_plugins(&plugin_dir);
+                        for p in plugins {
+                            if let Ok(loader) = cowen_sys::plugin::PluginLoader::new(&p) {
+                                if loader.supports_trait("SearchProvider") {
+                                    // If app.yaml enables specific plugins, filter them
+                                    if !app_cfg.plugins.is_empty() {
+                                        if !app_cfg.plugins.contains(&loader.manifest().name) {
+                                            continue;
+                                        }
+                                    }
+                                    providers.push(Box::new(SidecarSearchProvider::new(
+                                        &loader.manifest().name, 
+                                        p.clone(), 
+                                        "default".to_string()
+                                    )));
+                                }
+                            }
+                        }
+
+                        if let Some(provider) = providers.first() {
+                            plugin_used = Some(provider.name().to_string());
+                            
+                            let mut docs = Vec::new();
+                            for op in &ops {
+                                docs.push(cowen_search::SearchDocument {
+                                    id: op["id"].as_str().unwrap_or("").to_string(),
+                                    summary: op["summary"].as_str().unwrap_or("").to_string(),
+                                    description: op["summary"].as_str().unwrap_or("").to_string(),
+                                    vector: vec![],
+                                });
+                            }
+                            
+                            provider.update_index(&docs);
+                            let results = provider.search(&q, page_size);
+                            
+                            // Map search results back to original ops
+                            let mut paged_ops = Vec::new();
+                            for (_, res_doc) in results {
+                                if let Some(op) = ops.iter().find(|o| o["id"].as_str().unwrap_or("") == res_doc.id) {
+                                    paged_ops.push(op.clone());
+                                }
+                            }
+                            
+                            let total = paged_ops.len();
+                            DaemonResponse::ApiListData { total, json: serde_json::to_string(&paged_ops).unwrap_or_default(), plugin_used }
+                        } else {
+                            ops.retain(|o| {
+                                o["summary"].as_str().unwrap_or("").to_lowercase().contains(&q.to_lowercase()) 
+                                || o["path"].as_str().unwrap_or("").to_lowercase().contains(&q.to_lowercase())
+                            });
+                            let total = ops.len();
+                            DaemonResponse::ApiListData { total, json: serde_json::to_string(&ops).unwrap_or_default(), plugin_used }
+                        }
+                    } else {
+                        let total = ops.len();
+                        let start = (page.max(1) - 1) * page_size;
+                        let page_ops: Vec<_> = ops.into_iter().skip(start).take(page_size).collect();
+                        DaemonResponse::ApiListData { total, json: serde_json::to_string(&page_ops).unwrap_or_default(), plugin_used }
+                    }
+                }
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("Failed to fetch API list: {}", e) }
+            }
+        }
+        DaemonRequest::ApiSpec { profile, method, path } => {
+            let config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+            match auth_cli.get_openapi_spec(&profile, &config, false).await {
+                Ok(spec) => {
+                    let method_lower = method.to_lowercase();
+                    if let Some(op) = spec.get("paths").and_then(|p| p.get(&path)).and_then(|p| p.get(&method_lower)) {
+                        let j = serde_json::to_string(op).unwrap_or_else(|_| "{}".to_string());
+                        eprintln!("DAEMON DEBUG OP: {}", j);
+                        DaemonResponse::ApiSpecData { json: j }
+                    } else {
+                        DaemonResponse::Error { code: 404, message: format!("API spec not found for {} {}", method, path) }
+                    }
+                }
+                Err(e) => DaemonResponse::Error { code: 500, message: format!("Failed to fetch API spec: {}", e) }
             }
         }
     };

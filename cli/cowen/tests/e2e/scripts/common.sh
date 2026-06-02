@@ -736,7 +736,8 @@ wait_for_connections() {
         fi
         sleep 1
     done
-    echo "$conn"
+    echo "❌ wait_for_connections failed! Expected >= $expected, last count: $conn" >&2
+    echo "   Mock connection state dump: $(curl -s "$mock_url/control/connection_count" || echo "failed to query mock")" >&2
     return 1
 }
 
