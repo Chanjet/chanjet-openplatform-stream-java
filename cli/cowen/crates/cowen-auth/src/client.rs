@@ -386,6 +386,7 @@ impl Client for AuthClient {
     async fn clear_token(&self, profile: &str, cfg: &Config) -> CowenResult<()> {
         // 1. Generic cleanup (Access token pool)
         self.pool.delete_access_token(profile).await?;
+        let _ = self.pool.delete_app_access_token(&cfg.app_key).await;
 
         // 2. Mode-specific cleanup
         self.provider(&cfg.app_mode).on_logout(profile, cfg).await

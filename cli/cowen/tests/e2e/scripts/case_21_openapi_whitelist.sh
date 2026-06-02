@@ -26,6 +26,7 @@ start_mock
     --stream-url $MOCK_WS
 
 assert_pass "SelfBuilt initialized"
+sleep 2
 
 # 2. Test Whitelisted Path
 echo -e "${BOLD}2. Test Whitelisted Path (/v1/app/data/get)${NC}"

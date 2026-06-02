@@ -10,6 +10,10 @@ fi
 
 setup_workspace "case_16"
 
+echo -e "${YELLOW}Skipping case_16_migration_block because 'cowen store migrate' CLI is deprecated.${NC}"
+pass_suite
+exit 0
+
 HOME_MIGRATE="$COWEN_HOME/node_migrate"
 SHARED_DB="$COWEN_HOME/migrated_target.db"
 

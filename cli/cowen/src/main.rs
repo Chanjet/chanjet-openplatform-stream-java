@@ -1,4 +1,4 @@
-use cowen::{Cli, run};
+use cowen_cli::{Cli, run};
 use clap::Parser;
 
 #[tokio::main]

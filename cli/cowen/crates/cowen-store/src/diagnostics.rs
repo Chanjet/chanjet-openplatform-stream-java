@@ -62,7 +62,7 @@ mod tests {
     use super::*;
     use cowen_common::config::Config;
     use cowen_config::ConfigManager;
-    use std::sync::Arc;
+
 
     #[tokio::test]
     async fn test_storage_check_green() {

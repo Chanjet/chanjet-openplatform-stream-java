@@ -143,7 +143,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     let daemon_svc: Arc<dyn DaemonService> = Arc::new(ServerDaemonService::new(cfg_mgr.clone()));
 
     let mut m_port = app_cfg.monitor_port;
-    let mut allow_fallback = std::env::var("COWEN_SKIP_BROWSER").is_ok() || std::env::var("CI").is_ok();
+    let mut allow_fallback = false;
     if m_port == 0 {
         m_port = 1588;
         allow_fallback = true;
@@ -189,6 +189,19 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
             let _ = stop_tx_ctrl_c.send(()).await;
         }
     });
+
+    #[cfg(unix)]
+    {
+        let stop_tx_sigterm = stop_tx.clone();
+        tokio::spawn(async move {
+            use tokio::signal::unix::{signal, SignalKind};
+            if let Ok(mut stream) = signal(SignalKind::terminate()) {
+                stream.recv().await;
+                tracing::info!("SIGTERM received, sending shutdown signal...");
+                let _ = stop_tx_sigterm.send(()).await;
+            }
+        });
+    }
 
     if auto_start_all {
         if let Ok(profiles) = cfg_mgr.list_profiles().await {
@@ -615,11 +628,69 @@ async fn handle_connection(
                 Err(e) => DaemonResponse::Error { code: 500, message: format!("ClearToken failed: {}", e) }
             }
         }
-        DaemonRequest::Doctor => {
-            info!("Doctor requested");
-            DaemonResponse::DoctorReport {
-                report: "mock-doctor-report".to_string(),
+        DaemonRequest::Doctor { profile } => {
+            info!("Doctor requested for profile {}", profile);
+            
+            let config = match cfg_mgr.load(&profile).await {
+                Ok(c) => c,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 404, message: format!("Profile not found: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+            
+            let ctx = cowen_doctor::DoctorContext {
+                profile: profile.clone(),
+                config,
+                verbose: false,
+                fix: false,
+                vault: vault.clone(),
+                cfg_mgr: cfg_mgr.clone(),
+            };
+
+            let start_time = std::time::Instant::now();
+            let results = match cowen_doctor::run_all_diagnostics(&ctx).await {
+                Ok(res) => res,
+                Err(e) => {
+                    send_response(&mut stream, &DaemonResponse::Error { code: 500, message: format!("Diagnostics failed: {}", e) }).await?;
+                    return Ok(());
+                }
+            };
+            let duration = start_time.elapsed().as_millis();
+
+            let mut report = String::new();
+            let mut all_ok = true;
+            for (i, res) in results.iter().enumerate() {
+                let status_str = match &res.status {
+                    cowen_doctor::DiagnosticStatus::Ok => "\x1b[32mOK\x1b[0m".to_string(),
+                    cowen_doctor::DiagnosticStatus::Warning(w) => {
+                        all_ok = false;
+                        format!("\x1b[33mWARNING\x1b[0m ({})", w)
+                    }
+                    cowen_doctor::DiagnosticStatus::Error(e) => {
+                        all_ok = false;
+                        format!("\x1b[31mERROR\x1b[0m ({})", e)
+                    }
+                    cowen_doctor::DiagnosticStatus::Fixed(f) => format!("\x1b[32mFIXED\x1b[0m ({})", f),
+                };
+                report.push_str(&format!(
+                    "\x1b[2m•\x1b[0m [{}] \x1b[1m{:<20}\x1b[0m {} ({}ms)\n",
+                    i + 1,
+                    res.name,
+                    status_str,
+                    res.duration_ms
+                ));
             }
+
+            report.push_str(&format!("\n\x1b[2m{}\x1b[0m\n", "=".repeat(60)));
+            report.push_str(&format!("诊断总耗时: {}ms\n", duration));
+            if all_ok {
+                report.push_str(&format!("\x1b[1m✅\x1b[0m \x1b[1;32m诊断完成，环境运行状况良好。\x1b[0m\n"));
+            } else {
+                report.push_str(&format!("\x1b[1m⚠️\x1b[0m \x1b[1;33m诊断发现部分问题，建议运行 'cowen events' 查询详情。\x1b[0m\n"));
+            }
+
+            DaemonResponse::DoctorReport { report }
         }
         DaemonRequest::GetGlobalConfig => {
             info!("GetGlobalConfig requested");
@@ -636,13 +707,20 @@ async fn handle_connection(
 
         DaemonRequest::SystemStatus { profile, all } => {
             let mut results = Vec::new();
-            let profiles = if all {
-                cfg_mgr.list_profiles().await.unwrap_or_default()
-            } else {
-                vec![profile.clone()]
-            };
+            let list = cfg_mgr.list_profiles().await.unwrap_or_default();
             
-            for prof in profiles {
+            if !list.is_empty() {
+                let profiles = if all {
+                    list
+                } else {
+                    if list.contains(&profile) {
+                        vec![profile.clone()]
+                    } else {
+                        vec![]
+                    }
+                };
+                
+                for prof in profiles {
                 let mut entries = Vec::new();
                 let config = match cfg_mgr.load(&prof).await {
                     Ok(c) => c,
@@ -677,6 +755,40 @@ async fn handle_connection(
                     vault: vault.clone(),
                 };
                 
+                // Add Configuration Status Entry
+                let mode_str = format!("{:?}", config.app_mode).to_lowercase();
+                let mut details = vec![];
+                details.push(format!("Build ID:   {}", cowen_common::BUILD_ID));
+                details.push(format!("Build Time: {}", cowen_common::BUILD_TIME));
+                details.push(format!("OpenAPI:    {}", app_config.openapi_url));
+                details.push(format!("Stream:     {}", app_config.stream_url));
+
+                let ak_level = if config.app_key.trim().is_empty() {
+                    cowen_common::status::StatusLevel::ERROR
+                } else {
+                    cowen_common::status::StatusLevel::OK
+                };
+                let ak_msg = if ak_level == cowen_common::status::StatusLevel::OK {
+                    format!("AppKey: {} (Mode: {})", config.app_key, mode_str)
+                } else {
+                    "AppKey is missing".to_string()
+                };
+
+                let config_entry = cowen_common::status::StatusEntry {
+                    name: "Configuration".to_string(),
+                    icon: "⚙️".to_string(),
+                    level: ak_level,
+                    message: ak_msg,
+                    reason: if ak_level == cowen_common::status::StatusLevel::ERROR {
+                        Some("AppKey is missing".to_string())
+                    } else {
+                        None
+                    },
+                    details,
+                    children: vec![],
+                };
+                entries.push(config_entry);
+
                 let daemon_entry = cowen_common::status::collect_daemon_status(&ctx, "Daemon", "Tips", true, None).await;
                 if let Ok(e) = daemon_entry {
                     entries.push(e);
@@ -693,39 +805,89 @@ async fn handle_connection(
                 });
                 results.push(entry_val);
             }
+            }
             
             let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
             DaemonResponse::SystemStatusData { json }
         }
-        DaemonRequest::SystemReset { profile, dry_run: _ } => {
-            if let Some(prof) = profile {
-                tracing::info!("SystemReset: resetting profile {}", prof);
-                let _ = svc.stop_daemon(&prof).await;
-                if let Ok(config) = cfg_mgr.load(&prof).await {
-                    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
-                    let _ = auth_cli.clear_token(&prof, &config).await;
-                }
-                if let Err(e) = cfg_mgr.delete(&prof).await {
-                    tracing::error!("Failed to delete profile {}: {:?}", prof, e);
-                }
-            } else {
-                tracing::info!("SystemReset: resetting all profiles");
-                let _ = svc.stop_all().await;
-                if let Ok(profiles) = cfg_mgr.list_profiles().await {
-                    for prof in profiles {
-                        if let Ok(config) = cfg_mgr.load(&prof).await {
-                            let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
-                            let _ = auth_cli.clear_token(&prof, &config).await;
-                        }
-                        tracing::info!("Deleting profile {}", prof);
-                        if let Err(e) = cfg_mgr.delete(&prof).await {
-                            tracing::error!("Failed to delete profile {}: {:?}", prof, e);
+        DaemonRequest::SystemReset { profile, dry_run } => {
+            if dry_run {
+                use cowen_common::reset::ResetTask;
+                let app_dir = cowen_common::config::get_app_dir();
+                let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), profile.clone());
+                let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), profile.clone());
+                
+                let mut out = String::new();
+                out.push_str("🔍 [DRY RUN] Reset Execution Plan:\n");
+                
+                out.push_str(&format!("\n  📦 Module: {}\n", config_task.name()));
+                out.push_str(&format!("  ℹ️  {}\n", config_task.description()));
+                if let Ok(actions) = config_task.dry_run().await {
+                    if actions.is_empty() {
+                        out.push_str("      - No actions to perform.\n");
+                    } else {
+                        for a in actions {
+                            out.push_str(&format!("      - {}\n", a));
                         }
                     }
                 }
-                let _ = cfg_mgr.set_default_profile("default");
+                
+                out.push_str(&format!("\n  📦 Module: {}\n", telemetry_task.name()));
+                out.push_str(&format!("  ℹ️  {}\n", telemetry_task.description()));
+                if let Ok(actions) = telemetry_task.dry_run().await {
+                    if actions.is_empty() {
+                        out.push_str("      - No actions to perform.\n");
+                    } else {
+                        for a in actions {
+                            out.push_str(&format!("      - {}\n", a));
+                        }
+                    }
+                }
+                
+                out.push_str("\n💡 This is a dry run. No actual changes were made.");
+                DaemonResponse::Success { message: out }
+            } else {
+                if let Some(prof) = profile {
+                    tracing::info!("SystemReset: resetting profile {}", prof);
+                    let _ = svc.stop_daemon(&prof).await;
+                    if let Ok(config) = cfg_mgr.load(&prof).await {
+                        let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+                        let _ = auth_cli.clear_token(&prof, &config).await;
+                    }
+                    if let Err(e) = cfg_mgr.delete(&prof).await {
+                        tracing::error!("Failed to delete profile {}: {:?}", prof, e);
+                    }
+                    
+                    // Actually execute telemetry reset
+                    use cowen_common::reset::ResetTask;
+                    let app_dir = cowen_common::config::get_app_dir();
+                    let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), Some(prof.clone()));
+                    let _ = telemetry_task.execute().await;
+                } else {
+                    tracing::info!("SystemReset: resetting all profiles");
+                    let _ = svc.stop_all().await;
+                    if let Ok(profiles) = cfg_mgr.list_profiles().await {
+                        for prof in profiles {
+                            if let Ok(config) = cfg_mgr.load(&prof).await {
+                                let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+                                let _ = auth_cli.clear_token(&prof, &config).await;
+                            }
+                            tracing::info!("Deleting profile {}", prof);
+                            if let Err(e) = cfg_mgr.delete(&prof).await {
+                                tracing::error!("Failed to delete profile {}: {:?}", prof, e);
+                            }
+                        }
+                    }
+                    let _ = cfg_mgr.set_default_profile("default");
+                    
+                    // Actually execute global telemetry reset
+                    use cowen_common::reset::ResetTask;
+                    let app_dir = cowen_common::config::get_app_dir();
+                    let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), None);
+                    let _ = telemetry_task.execute().await;
+                }
+                DaemonResponse::Success { message: "Reset complete".to_string() }
             }
-            DaemonResponse::Success { message: "Reset complete".to_string() }
         }
         DaemonRequest::RenameProfile { old_name, new_name } => {
             match cfg_mgr.rename(&old_name, &new_name).await {

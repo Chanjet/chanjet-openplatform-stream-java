@@ -5,6 +5,7 @@ use std::fs;
 use serde_json::json;
 
 fn setup_test_env(ai_enabled: bool) -> (tempfile::TempDir, String) {
+    std::env::set_var("COWEN_HTTP_TIMEOUT", "2");
     let dir = tempdir().unwrap();
     let profile = "test_api";
     let cowen_home = dir.path().to_str().unwrap().to_string();

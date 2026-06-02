@@ -90,8 +90,9 @@ pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile
     let cowen_home = dir.path().join(".cowen");
     fs::create_dir_all(&cowen_home).unwrap();
 
-    // Create profile config
-    let config_path = cowen_home.join(format!("{}.yaml", profile));
+    let profiles_dir = cowen_home.join("profiles");
+    fs::create_dir_all(&profiles_dir).unwrap();
+    let config_path = profiles_dir.join(format!("{}.yaml", profile));
     let config = json!({
         "app_key": "test_key",
         "app_mode": mode,

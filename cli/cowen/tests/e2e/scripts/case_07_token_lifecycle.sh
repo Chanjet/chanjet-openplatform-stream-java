@@ -17,6 +17,7 @@ echo -e "${BOLD}1. Initialization${NC}"
     --app-key AK_LIFE --app-secret AS_LIFE --encrypt-key 1234567890123456 --certificate CERT_LIFE \
     --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port $PROXY_PORT >/dev/null
 assert_pass "Profile initialized"
+sleep 2
 
 echo -e "${BOLD}2. Start Daemon${NC}"
 "$COWEN_BIN" daemon start --profile life >/dev/null

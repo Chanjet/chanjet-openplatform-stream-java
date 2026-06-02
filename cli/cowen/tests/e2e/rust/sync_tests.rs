@@ -76,12 +76,14 @@ async fn test_daemon_version_sync_restart() {
         }
     }
     let _ = fs::remove_file(&pid_file);
+    let port_file = std::path::Path::new(&home).join("ipc.port");
+    let _ = fs::remove_file(&port_file);
 
     let mut cmd_recover = Command::new(&cowen_bin);
     cmd_recover.env("COWEN_HOME", &home);
     cmd_recover.env("HOME", &home);
     cmd_recover.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
-    cmd_recover.arg("--profile").arg(profile).arg("status");
+    cmd_recover.arg("--profile").arg(profile).arg("api").arg("list");
     
     let output_recover = cmd_recover.output().unwrap();
     let stdout_recover = String::from_utf8_lossy(&output_recover.stdout);

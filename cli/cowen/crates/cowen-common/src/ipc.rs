@@ -1,11 +1,9 @@
 use crate::config::Config;
 use crate::daemon::DaemonService;
-use crate::vault::Vault;
 use crate::{CowenError, CowenResult};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum WorkerStateDto {
@@ -64,8 +62,73 @@ pub enum DaemonRequest {
         data: Option<String>,
         force: bool,
     },
-    AuthLogin {
+    GetAuthUrl {
         profile: String,
+        #[serde(default)]
+        force: bool,
+    },
+    WaitForAuth {
+        profile: String,
+        state: String,
+    },
+    GetToken {
+        profile: String,
+        refresh: bool,
+    },
+    ClearToken {
+        profile: String,
+    },
+    Doctor {
+        profile: String,
+    },
+    GetGlobalConfig,
+    SetGlobalConfig {
+        key: String,
+        value: String,
+    },
+    SystemStatus {
+        profile: String,
+        all: bool,
+    },
+    SystemReset {
+        profile: Option<String>,
+        dry_run: bool,
+    },
+    RenameProfile {
+        old_name: String,
+        new_name: String,
+    },
+    DlqList {
+        profile: String,
+        page: usize,
+        page_size: usize,
+    },
+    DlqView {
+        profile: String,
+        id: String,
+    },
+    DlqRetry {
+        profile: String,
+        id: String,
+    },
+    DlqPurge {
+        profile: String,
+    },
+    TailAudit {
+        profile: String,
+        lines: usize,
+    },
+    ApiList {
+        profile: String,
+        search: Option<String>,
+        page: usize,
+        page_size: usize,
+        refresh: bool,
+    },
+    ApiSpec {
+        profile: String,
+        method: String,
+        path: String,
     },
 }
 
@@ -76,6 +139,17 @@ pub enum DaemonResponse {
     Pong,
     Error { code: i32, message: String },
     ApiResponse(ApiResponseDto),
+    AuthUrl { url: String, state: String },
+    AuthSuccess { token: String },
+    AuthRotated,
+    DoctorReport { report: String },
+    ConfigData { config_json: String },
+    TokenData { token_json: String },
+    DlqData { json: String },
+    SystemStatusData { json: String },
+    AuditData { content: String },
+    ApiListData { total: usize, json: String, plugin_used: Option<String> },
+    ApiSpecData { json: String },
 }
 
 pub fn get_ipc_port_path() -> std::path::PathBuf {
@@ -246,9 +320,121 @@ pub mod client {
             }).await
         }
 
-        pub async fn auth_login(&self, profile: &str) -> CowenResult<DaemonResponse> {
-            self.request(DaemonRequest::AuthLogin {
+        pub async fn get_auth_url(&self, profile: &str, force: bool) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::GetAuthUrl {
                 profile: profile.to_string(),
+                force,
+            }).await
+        }
+
+        pub async fn wait_for_auth(&self, profile: &str, state: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::WaitForAuth {
+                profile: profile.to_string(),
+                state: state.to_string(),
+            }).await
+        }
+
+        pub async fn get_token(&self, profile: &str, refresh: bool) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::GetToken {
+                profile: profile.to_string(),
+                refresh,
+            }).await
+        }
+
+        pub async fn clear_token(&self, profile: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::ClearToken {
+                profile: profile.to_string(),
+            }).await
+        }
+
+        pub async fn doctor(&self, profile: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::Doctor {
+                profile: profile.to_string(),
+            }).await
+        }
+
+        pub async fn dlq_list(&self, profile: &str, page: usize, page_size: usize) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::DlqList {
+                profile: profile.to_string(),
+                page,
+                page_size,
+            }).await
+        }
+
+        pub async fn dlq_view(&self, profile: &str, id: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::DlqView {
+                profile: profile.to_string(),
+                id: id.to_string(),
+            }).await
+        }
+
+        pub async fn dlq_retry(&self, profile: &str, id: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::DlqRetry {
+                profile: profile.to_string(),
+                id: id.to_string(),
+            }).await
+        }
+
+        pub async fn dlq_purge(&self, profile: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::DlqPurge {
+                profile: profile.to_string(),
+            }).await
+        }
+
+        pub async fn system_status(&self, profile: &str, all: bool) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::SystemStatus {
+                profile: profile.to_string(),
+                all,
+            }).await
+        }
+
+        pub async fn system_reset(&self, profile: Option<&str>, dry_run: bool) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::SystemReset {
+                profile: profile.map(|s| s.to_string()),
+                dry_run,
+            }).await
+        }
+
+        pub async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::RenameProfile {
+                old_name: old_name.to_string(),
+                new_name: new_name.to_string(),
+            }).await
+        }
+
+        pub async fn tail_audit(&self, profile: &str, lines: usize) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::TailAudit {
+                profile: profile.to_string(),
+                lines,
+            }).await
+        }
+
+        pub async fn get_global_config(&self) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::GetGlobalConfig).await
+        }
+        
+        pub async fn api_list(&self, profile: &str, search: Option<&str>, page: usize, page_size: usize, refresh: bool) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::ApiList {
+                profile: profile.to_string(),
+                search: search.map(|s| s.to_string()),
+                page,
+                page_size,
+                refresh,
+            }).await
+        }
+
+        pub async fn api_spec(&self, profile: &str, method: &str, path: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::ApiSpec {
+                profile: profile.to_string(),
+                method: method.to_string(),
+                path: path.to_string(),
+            }).await
+        }
+
+        pub async fn set_global_config(&self, key: &str, value: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::SetGlobalConfig {
+                key: key.to_string(),
+                value: value.to_string(),
             }).await
         }
 
@@ -286,8 +472,9 @@ pub mod client {
             &self,
             profile: &str,
             config: &Config,
-            _vault: Arc<dyn Vault>,
         ) -> CowenResult<()> {
+            let _ = ensure_daemon(&self.port_path).await.map_err(|e| CowenError::api(e.to_string()))?;
+
             let res = self
                 .request(DaemonRequest::StartWorker {
                     profile: profile.to_string(),

@@ -1,11 +1,10 @@
-
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::time::Duration;
 use std::fs::File;
-use std::sync::Arc;
-use cowen_common::vault::Vault;
+use cowen_common::ipc::client::IpcDaemonService;
+use cowen_common::ipc::DaemonResponse;
 
-pub async fn list(profile: &str, vault: Arc<dyn Vault>) -> anyhow::Result<()> {
+pub async fn list(profile: &str) -> anyhow::Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let log_dir = app_dir.join("logs");
 
@@ -32,13 +31,10 @@ pub async fn list(profile: &str, vault: Arc<dyn Vault>) -> anyhow::Result<()> {
     }
     println!();
     
-    // Check Store for audit logs
-    let audit_entries = vault.list_audit(profile, 1).await.map_err(|e| anyhow::anyhow!(e))?;
-    if !audit_entries.is_empty() {
-        println!("🗄️ Store-based Audit Logs:");
-        println!("- {:<20} (Entries found in vault)", "audit (store)");
-        println!();
-    }
+    // Since we don't have Vault here, we just remind the user they can tail audit logs via daemon
+    println!("🗄️ Store-based Audit Logs:");
+    println!("- {:<20} (Managed by Daemon)", "audit (store)");
+    println!();
     
     Ok(())
 }
@@ -48,30 +44,32 @@ pub async fn view(
     domain: &str, 
     follow: bool, 
     lines: usize,
-    vault: Arc<dyn Vault>,
 ) -> anyhow::Result<()> {
     if domain == "audit" {
-        // Try reading from Store first
-        let entries = vault.list_audit(profile, lines).await.map_err(|e| anyhow::anyhow!(e))?;
-        if !entries.is_empty() {
-            println!("🔍 Reading audit logs from Store (Vault)...");
-            for entry in entries.into_iter().rev() {
-                println!("[{}] {} {:<5} {}: {}", 
-                    entry.timestamp.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M:%S"),
-                    entry.profile,
-                    entry.level,
-                    entry.target,
-                    entry.message
-                );
-                if !entry.fields.as_object().map(|o| o.is_empty()).unwrap_or(true) {
-                    println!("  fields: {}", entry.fields);
+        let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+        match ipc.tail_audit(profile, lines).await {
+            Ok(DaemonResponse::AuditData { content }) => {
+                if !content.is_empty() {
+                    println!("🔍 Reading audit logs from Daemon (Store)...");
+                    println!("{}", content);
+                    if follow {
+                        println!("\n⚠️ 'follow' mode is not yet supported for Store-based logs.");
+                    }
+                    return Ok(());
                 }
             }
-            
-            if follow {
-                println!("\n⚠️ 'follow' mode is not yet supported for Store-based logs.");
+            Ok(DaemonResponse::Error { message, .. }) => {
+                eprintln!("❌ Failed to retrieve audit logs: {}", message);
+                return Ok(());
             }
-            return Ok(());
+            Err(e) => {
+                eprintln!("❌ IPC Error retrieving audit logs: {}", e);
+                return Ok(());
+            }
+            _ => {
+                eprintln!("❌ Unexpected response when retrieving audit logs");
+                return Ok(());
+            }
         }
     }
     let app_dir = cowen_common::config::get_app_dir();

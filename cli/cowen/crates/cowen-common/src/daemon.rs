@@ -1,8 +1,6 @@
 use crate::CowenResult;
 use async_trait::async_trait;
-use std::sync::Arc;
 use crate::config::Config;
-use crate::vault::Vault;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DaemonStatus {
@@ -13,7 +11,7 @@ pub struct DaemonStatus {
 
 #[async_trait]
 pub trait DaemonService: Send + Sync {
-    async fn start_daemon(&self, profile: &str, config: &Config, vault: Arc<dyn Vault>) -> CowenResult<()>;
+    async fn start_daemon(&self, profile: &str, config: &Config) -> CowenResult<()>;
     async fn reload_daemon(&self, profile: &str) -> CowenResult<()>;
     async fn stop_daemon(&self, _profile: &str) -> CowenResult<()> { Ok(()) }
     async fn stop_all(&self) -> CowenResult<()> { Ok(()) }

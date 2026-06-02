@@ -60,6 +60,30 @@ pub trait AuthProvider: Send + Sync {
         self.get_token(profile, config, &Default::default()).await
     }
 
+    /// 🚀 分步授权：生成授权链接 (Route A 改造)
+    async fn generate_auth_url(
+        &self,
+        _profile: &str,
+        _config: &mut Config,
+        _vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+        _cfg_mgr: &cowen_config::ConfigManager,
+        _params: crate::provider::InitParams,
+    ) -> CowenResult<(String, String)> {
+        Err(CowenError::Auth("generate_auth_url is not supported in this auth mode".to_string()))
+    }
+
+    /// 🚀 分步授权：等待回调并完成授权 (Route A 改造)
+    async fn wait_for_auth(
+        &self,
+        _profile: &str,
+        _config: &Config,
+        _vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+        _cfg_mgr: &cowen_config::ConfigManager,
+        _state: &str,
+    ) -> CowenResult<()> {
+        Err(CowenError::Auth("wait_for_auth is not supported in this auth mode".to_string()))
+    }
+
     /// 🚀 临时授权码兑换永久授权码 (StoreApp 专有，其他模式默认不支持)
     async fn exchange_temp_code(
         &self,

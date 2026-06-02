@@ -533,7 +533,7 @@ impl AuthProvider for SelfBuiltProvider {
         if params.auto_start {
             if let Some(svc) = daemon_service {
                 println!("📡 Starting background daemon to maintain AppTicket...");
-                let _ = svc.start_daemon(profile, config, vault).await;
+                let _ = svc.start_daemon(profile, config).await;
 
                 if config.proxy_enabled && config.proxy_port != 0 {
                     let mut retries = 20;

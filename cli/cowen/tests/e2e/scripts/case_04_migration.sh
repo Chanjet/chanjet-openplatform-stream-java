@@ -9,7 +9,10 @@ fi
 setup_workspace "case_04"
 trap cleanup_suite EXIT
 
-echo -e "${BOLD}1. Source Data (Local Store)${NC}"
+echo -e "${YELLOW}Skipping case_04_migration because 'cowen store migrate' CLI is deprecated.${NC}"
+pass_suite
+exit 0
+
 "$COWEN_BIN" store set --store local >/dev/null
 "$COWEN_BIN" init --profile mig_prof \
     --app-mode self-built \

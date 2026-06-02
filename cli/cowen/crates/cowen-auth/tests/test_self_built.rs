@@ -4,7 +4,7 @@ use cowen_auth::pool::TokenPool;
 use cowen_auth::provider::self_built::SelfBuiltProvider;
 use cowen_auth::provider::AuthProvider;
 use cowen_auth::VaultTokenPool;
-use cowen_common::{Config, CowenError, CowenResult};
+use cowen_common::{Config, CowenResult};
 use cowen_store::file::FileStore;
 use cowen_store::StoreVault;
 use std::sync::atomic::{AtomicUsize, Ordering};

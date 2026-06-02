@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use cowen_common::daemon::DaemonService;
 use cowen_common::config::Config;
-use cowen_common::vault::Vault;
+
 use cowen_config::ConfigManager;
 use cowen_auth::client::Client;
 
@@ -22,7 +22,7 @@ impl ServerDaemonService {
 
 #[async_trait]
 impl DaemonService for ServerDaemonService {
-    async fn start_daemon(&self, profile: &str, config: &Config, _vault: Arc<dyn Vault>) -> CowenResult<()> {
+    async fn start_daemon(&self, profile: &str, config: &Config) -> CowenResult<()> {
         self.worker_mgr.start_worker(profile, config.clone()).await
     }
 

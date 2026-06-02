@@ -78,7 +78,7 @@ sleep 2
 
 # Assert that the browser mock was called correctly
 echo -n "   Verifying browser trigger..."
-if grep -q "Browser mock triggered for URL" "$COWEN_HOME/init.log" 2>/dev/null; then
+if grep -q "Browser mock triggered for URL" "$COWEN_HOME/init.log" 2>/dev/null || grep -q "Browser mock triggered for URL" "$COWEN_HOME/logs/daemon.stdout.log" 2>/dev/null; then
     echo -e " ${GREEN}[OK]${NC}"
 else
     kill "$INIT_PID" 2>/dev/null

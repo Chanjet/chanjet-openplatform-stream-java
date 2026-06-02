@@ -1,0 +1,155 @@
+syntax = "proto3";
+package cowen.daemon.v1;
+
+// The principal daemon orchestration service (The Controller Interface)
+service CowenDaemonService {
+    rpc Ping (PingRequest) returns (PingResponse);
+    rpc StartWorker (StartWorkerRequest) returns (StartWorkerResponse);
+    rpc StopWorker (StopWorkerRequest) returns (StopWorkerResponse);
+    rpc StopAllWorkers (StopAllWorkersRequest) returns (StopAllWorkersResponse);
+    rpc ReloadWorker (ReloadWorkerRequest) returns (ReloadWorkerResponse);
+    rpc GetStatus (GetStatusRequest) returns (GetStatusResponse);
+    rpc InitProfile (InitProfileRequest) returns (InitProfileResponse);
+    rpc CallApi (CallApiRequest) returns (CallApiResponse);
+    rpc GetAuthUrl (GetAuthUrlRequest) returns (GetAuthUrlResponse);
+    rpc WaitForAuth (WaitForAuthRequest) returns (WaitForAuthResponse);
+    rpc Doctor (DoctorRequest) returns (DoctorResponse);
+    rpc GetGlobalConfig (GetGlobalConfigRequest) returns (GetGlobalConfigResponse);
+    rpc SetGlobalConfig (SetGlobalConfigRequest) returns (SetGlobalConfigResponse);
+}
+
+enum WorkerState {
+    WORKER_STATE_UNSPECIFIED = 0;
+    WORKER_STATE_CREATED = 1;
+    WORKER_STATE_STARTING = 2;
+    WORKER_STATE_RUNNING = 3;
+    WORKER_STATE_BACKOFF = 4;
+    WORKER_STATE_FAILED = 5;
+    WORKER_STATE_DRAINING = 6;
+    WORKER_STATE_STOPPED = 7;
+}
+
+message WorkerBackoffDetails {
+    uint32 retry_count = 1;
+    string last_error = 2;
+    uint64 next_retry_in_secs = 3;
+}
+
+message WorkerStateInfo {
+    WorkerState state = 1;
+    WorkerBackoffDetails backoff = 2;
+    string failure_reason = 3;
+}
+
+message PingRequest {}
+message PingResponse {
+    string message = 1; // "pong"
+}
+
+message StartWorkerRequest {
+    string profile = 1;
+    string config_json = 2; 
+}
+message StartWorkerResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message StopWorkerRequest {
+    string profile = 1;
+}
+message StopWorkerResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message StopAllWorkersRequest {}
+message StopAllWorkersResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message ReloadWorkerRequest {
+    string profile = 1;
+}
+message ReloadWorkerResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetStatusRequest {
+    optional string profile = 1;
+}
+message GetStatusResponse {
+    map<string, WorkerStateInfo> statuses = 1;
+}
+
+message InitProfileRequest {
+    string profile = 1;
+    optional string app_key = 2;
+    optional string app_secret = 3;
+    optional string certificate = 4;
+    optional string encrypt_key = 5;
+    optional string webhook_target = 6;
+    optional string openapi_url = 7;
+    optional string stream_url = 8;
+    optional string app_mode = 9;
+    optional uint32 proxy_port = 10;
+}
+message InitProfileResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message CallApiRequest {
+    string profile = 1;
+    string method = 2;
+    string path = 3;
+    optional string data = 4;
+    bool force = 5;
+}
+message CallApiResponse {
+    uint32 status = 1;
+    map<string, string> headers = 2;
+    string body = 3;
+    optional string error_message = 4;
+}
+
+message GetAuthUrlRequest {
+    string profile = 1;
+    bool force = 2;
+}
+message GetAuthUrlResponse {
+    bool success = 1;
+    string url = 2;
+    string state = 3;
+    optional string error_message = 4;
+}
+
+message WaitForAuthRequest {
+    string state = 1;
+}
+message WaitForAuthResponse {
+    bool success = 1;
+    string token = 2;
+    optional string error_message = 3;
+}
+
+message DoctorRequest {}
+message DoctorResponse {
+    string report = 1;
+}
+
+message GetGlobalConfigRequest {}
+message GetGlobalConfigResponse {
+    string config_json = 1;
+}
+
+message SetGlobalConfigRequest {
+    string key = 1;
+    string value = 2;
+}
+message SetGlobalConfigResponse {
+    bool success = 1;
+    optional string error_message = 2;
+}

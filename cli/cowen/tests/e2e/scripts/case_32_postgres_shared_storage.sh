@@ -70,8 +70,13 @@ telemetry_enabled: false
 ai_enabled: false
 EOF
 
+# Start daemon on Node 2 so it can query the shared DB
+"$COWEN_BIN" daemon start --profile default --foreground > "$HOME_2/daemon.log" 2>&1 &
+PID_2=$!
+sleep 1
+
 # Node 2 should see 'main' profile immediately
-PROFILES=$("$COWEN_BIN" profile list)
+PROFILES=$("$COWEN_BIN" status --all)
 if [[ "$PROFILES" == *"main"* ]]; then
     echo -e "   ✓ Node 2 successfully discovered 'main' profile from PostgreSQL"
 else

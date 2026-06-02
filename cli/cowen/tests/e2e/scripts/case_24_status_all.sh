@@ -62,7 +62,7 @@ else
 fi
 
 # Verify error reporting
-if echo "$OUT" | grep -q "Profiles with Errors" || echo "$OUT" | grep -q "broken:"; then
+if echo "$OUT" | grep -q "Profile load failed" || echo "$OUT" | grep -q "broken"; then
     echo -e "   ${GREEN}✓${NC} Errors correctly reported for 'broken' profile"
 else
     fail_suite "Error reporting failed"

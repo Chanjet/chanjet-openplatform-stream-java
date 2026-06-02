@@ -4,7 +4,7 @@ version = "0.4.0"
 edition = "2021"
 
 [dependencies]
-cowen-common = { path = "../cowen-common" }
+cowen-common = { path = "../cowen-common", features = ["reqwest"] }
 cowen-infra = { path = "../cowen-infra" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

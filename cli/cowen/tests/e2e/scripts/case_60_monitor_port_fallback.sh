@@ -42,6 +42,15 @@ assert_pass "Profile initialized"
 
 # Reset monitor_port to 0 to test fallback logic
 "$COWEN_BIN" config set monitor_port 0 --global >/dev/null
+"$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
+if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
+    PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid")
+    kill -9 "$PID" 2>/dev/null || true
+    rm -f "$COWEN_HOME/master_daemon.pid" || true
+fi
+rm -f "$COWEN_HOME/ipc.port" || true
+rm -f "$COWEN_HOME/ipc.token" || true
+sleep 1
 
 # Verify initial config is 0
 INIT_PORT=$("$COWEN_BIN" config -o json | grep '"monitor_port"' | awk -F': ' '{print $2}' | tr -d ',')

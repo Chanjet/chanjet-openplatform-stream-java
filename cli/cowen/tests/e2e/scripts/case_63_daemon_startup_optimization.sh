@@ -15,6 +15,15 @@ start_mock
     --stream-url $MOCK_WS >/dev/null
 
 "$COWEN_BIN" config set monitor_port $DUMMY_PORT --global >/dev/null
+"$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
+if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
+    PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid")
+    kill -9 "$PID" 2>/dev/null || true
+    rm -f "$COWEN_HOME/master_daemon.pid" || true
+fi
+rm -f "$COWEN_HOME/ipc.port" || true
+rm -f "$COWEN_HOME/ipc.token" || true
+sleep 1
 
 echo "  [Test A] Pre-flight Check & Dynamic Port Recovery"
 echo "  Occupying monitor_port $DUMMY_PORT with a dummy process..."
@@ -46,6 +55,7 @@ echo "  [Test B] Synchronous Crash Feedback"
 echo "  Corrupting DB URL to force a daemon crash on startup..."
 # Since app.yaml is corrupt, we expect the daemon process to crash shortly after start.
 # Wait, if app.yaml is corrupt, CLI will also fail to read it.
+rm -f "$COWEN_HOME/telemetry.db"
 mkdir -p "$COWEN_HOME/telemetry.db"
 
 OUT=$("$COWEN_BIN" daemon start --profile main 2>&1 || true)

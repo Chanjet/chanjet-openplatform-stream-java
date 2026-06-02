@@ -22,6 +22,17 @@ pub struct Pkce {
     pub verifier: String,
 }
 
+use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::Mutex as StdMutex;
+
+type ListenerMap = StdMutex<HashMap<String, tokio::sync::oneshot::Receiver<Result<crate::lifecycle::listener::CallbackResult, String>>>>;
+
+fn get_oauth_listeners() -> &'static ListenerMap {
+    static LISTENERS: OnceLock<ListenerMap> = OnceLock::new();
+    LISTENERS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
 pub struct OAuth2Provider {
     pool: Arc<dyn TokenPool>,
     http_sender: Arc<dyn HttpSender>,
@@ -334,7 +345,7 @@ impl OAuth2Provider {
                 // 🚀 OCP: Auto-start daemon after successful authorization
                 if let Some(ds) = daemon_service {
                     tracing::info!(target: "sys", "Triggering background daemon startup after successful OAuth2 exchange");
-                    let _ = ds.start_daemon(profile, cfg, self.pool.as_vault()).await;
+                    let _ = ds.start_daemon(profile, cfg).await;
                 }
 
                 Ok(())
@@ -642,9 +653,115 @@ impl AuthProvider for OAuth2Provider {
         // 8. Automatically start the daemon (OCP: Consistent experience across all modes)
         if params.auto_start {
             if let Some(ds) = &daemon_service {
-                let _ = ds.start_daemon(profile, config, vault.clone()).await;
+                let _ = ds.start_daemon(profile, config).await;
             }
         }
+
+        Ok(())
+    }
+
+    async fn generate_auth_url(
+        &self,
+        profile: &str,
+        config: &mut Config,
+        vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+        cfg_mgr: &cowen_config::ConfigManager,
+        params: crate::provider::InitParams,
+    ) -> CowenResult<(String, String)> {
+        // 1. Setup credentials (OCP: forced built-in for OAuth2)
+        config.app_key = crate::models::BUILTIN_CLIENT_ID.to_string();
+        config.app_secret = "".to_string();
+
+        if let Some(target) = params.webhook_target {
+            config.webhook_target = target;
+        }
+        if let Some(port) = params.proxy_port {
+            config.proxy_port = port;
+        }
+
+        // 2. Persist config early so callback listeners can see it
+        cfg_mgr.save(profile, config).await?;
+
+        // 3. Start Flow
+        let token_pool = crate::VaultTokenPool::new(vault.clone());
+        let session_manager = crate::lifecycle::AuthSessionManager::new(&token_pool);
+
+        let port = cfg_mgr.find_free_port().await;
+        let _ = session_manager.clear(profile).await;
+        let session = session_manager.create_session(profile, port).await?;
+
+        let market_url = obfs!(cowen_common::config::DEF_MARKET_URL);
+        let auth_url = format!(
+            "{}/user/v2/authorize?client_id={}&response_type=code&scope=all&redirect_uri={}&state={}&code_challenge={}&code_challenge_method=S256",
+            market_url.trim_end_matches('/'),
+            crate::models::BUILTIN_CLIENT_ID,
+            urlencoding::encode(&session.redirect_uri),
+            session.state,
+            Pkce::generate_challenge(&session.code_verifier),
+        );
+
+        // 4. Start local callback listener on Daemon side!
+        let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
+            session.redirect_port,
+            profile.to_string(),
+        )
+        .await?;
+        
+        tracing::info!(target: "sys", port = %actual_port, "Daemon listening for auth callback");
+
+        // Save the receiver mapped to the session state
+        let listeners = get_oauth_listeners();
+        listeners.lock().unwrap().insert(session.state.clone(), rx);
+
+        Ok((auth_url, session.state.clone()))
+    }
+
+    async fn wait_for_auth(
+        &self,
+        profile: &str,
+        config: &Config,
+        vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+        _cfg_mgr: &cowen_config::ConfigManager,
+        state: &str,
+    ) -> CowenResult<()> {
+
+        let rx = {
+            let mut map = get_oauth_listeners().lock().unwrap();
+            map.remove(state).ok_or_else(|| CowenError::Auth("No active authorization session found for this state.".into()))?
+        };
+
+        // Wait for result
+        let result = tokio::select! {
+            res = rx => res,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
+                return Err(CowenError::Auth("Timeout waiting for browser callback (5 mins)".to_string()));
+            }
+        };
+
+        let callback_res = match result {
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => return Err(CowenError::Auth(format!("Authorization failed: {}", e))),
+            Err(e) => return Err(CowenError::Auth(format!("Listener closed: {}", e))),
+        };
+
+        tracing::info!("✅ Callback received. Exchanging code for token...");
+        
+        let token_pool = crate::VaultTokenPool::new(vault.clone());
+        let session_manager = crate::lifecycle::AuthSessionManager::new(&token_pool);
+        
+        let session = session_manager.get_session(state).await?;
+        
+        // Exchange code!
+        let _token = self.exchange_code(
+            profile,
+            config,
+            &callback_res.code,
+            &session.code_verifier,
+            &session.redirect_uri,
+        ).await?;
+
+        // Clear session after success
+        let _ = session_manager.clear(profile).await;
 
         Ok(())
     }
@@ -968,10 +1085,16 @@ impl AuthProvider for OAuth2Provider {
         );
     }
 
-    async fn on_logout(&self, profile: &str, _config: &Config) -> CowenResult<()> {
+    async fn on_logout(&self, profile: &str, config: &Config) -> CowenResult<()> {
         let vault = self.pool.as_vault();
         let _ = vault.delete_access_token(profile).await;
         let _ = vault.delete_refresh_token(profile).await;
+
+        let app_key = config.app_key.trim();
+        if !app_key.is_empty() {
+            let _ = vault.delete_app_access_token(app_key).await;
+            let _ = vault.delete_app_ticket(app_key).await;
+        }
 
         // Cleanup legacy keys if any
         let _ = vault.delete_config(profile, "oauth2_token_pair").await;

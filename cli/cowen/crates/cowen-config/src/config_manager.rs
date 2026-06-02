@@ -283,7 +283,7 @@ impl ConfigManager {
                 }
                 },
                 Err(e) => {
-                    tracing::debug!(target: "sys", profile = %profile, error = %e, "Manifest not found in Vault or Vault error");
+                    tracing::error!(target: "sys", profile = %profile, error = %e, "Manifest not found in Vault or Vault error");
                 }
             }
         }
@@ -859,6 +859,11 @@ impl ConfigManager {
             vault.rename_profile(old_name, new_name).await?;
         }
 
+        {
+            let mut cache = self.manifest_cache.lock().await;
+            cache.remove(old_name);
+        }
+
         event_bus().publish(cowen_common::events::GlobalEvent::ProfileRenamed { 
             old: old_name.to_string(), 
             new: new_name.to_string() 
@@ -875,6 +880,11 @@ impl ConfigManager {
 
         if let Some(vault) = self.vault.get() {
             vault.clear_profile(profile).await?;
+        }
+
+        {
+            let mut cache = self.manifest_cache.lock().await;
+            cache.remove(profile);
         }
 
         event_bus().publish(cowen_common::events::GlobalEvent::ConfigChanged { 

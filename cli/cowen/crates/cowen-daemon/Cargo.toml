@@ -12,6 +12,8 @@ cowen-auth = { path = "../cowen-auth" }
 cowen-store = { path = "../cowen-store", features = ["all-stores"] }
 cowen-infra = { path = "../cowen-infra" }
 cowen-sys = { path = "../cowen-sys" }
+cowen-search = { path = "../cowen-search" }
+cowen-doctor = { path = "../cowen-doctor" }
 
 tokio = { version = "1.50", features = ["full"] }
 tokio-stream = "0.1"
@@ -28,6 +30,13 @@ rustls = { version = "0.23", features = ["ring"] }
 chrono = "0.4.44"
 uuid = { version = "1.23.1", features = ["v4"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "form", "query"] }
+
+# gRPC access layer dependencies
+tonic = "0.12"
+prost = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"

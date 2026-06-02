@@ -47,7 +47,7 @@ assert_pass "Daemon is running from auto-init"
 assert_pass "Credentials verified in status"
 
 # 4. Cleanup background process
-kill $DAEMON_PID 2>/dev/null
+kill $DAEMON_PID 2>/dev/null || true
 sleep 1
 
 echo -e "\n${BOLD}2. Global Store Override via Env Var${NC}"

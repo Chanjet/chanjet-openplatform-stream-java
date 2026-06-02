@@ -52,10 +52,11 @@ fn test_plugin_auto_discovery() {
     // strip extension from target_name
     let expected_stem = std::path::Path::new(target_name).file_stem().unwrap().to_str().unwrap();
 
+    let free_port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
     let app_config = json!({
         "storage": { "store": "innerdb" },
         "log": { "level": "info" },
-        "monitor_port": 17002,
+        "monitor_port": free_port,
         "plugins": [expected_stem]
     });
     fs::write(app_yaml_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
@@ -94,7 +95,17 @@ fn test_plugin_auto_discovery() {
        .arg(profile);
 
     // 6. Assertions
-    cmd.assert()
+    let assert = cmd.assert();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    
+    if !stdout.contains(&format!("🔌 Using search plugin: {}", expected_stem)) || !stdout.contains("[Rust Standalone Sidecar Mode]") {
+        let log_content = std::fs::read_to_string(dir.path().join("logs").join("daemon.stdout.log")).unwrap_or_default();
+        panic!("Test failed. stdout: {}\nstderr: {}\ndaemon log: {}", stdout, stderr, log_content);
+    }
+    
+    assert
        .success()
        .stdout(predicate::str::contains(format!("🔌 Using search plugin: {}", expected_stem)))
        .stdout(predicate::str::contains("[Rust Standalone Sidecar Mode]"))

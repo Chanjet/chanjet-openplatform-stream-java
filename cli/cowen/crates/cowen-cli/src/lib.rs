@@ -499,6 +499,13 @@ pub async fn run(cli: Cli) -> Result<()> {
     let _ = cfg_mgr.auto_migrate().await;
     let mut app_config = cfg_mgr.load_app_config().await.map_err(|e| anyhow::anyhow!(e))?;
 
+    // 🚀 SYNC: Initialize Vault in CLI client and register it with ConfigManager
+    // This allows the CLI to load profile manifests from distributed storage (e.g. SQLite/Postgres)
+    let app_dir = cowen_common::config::get_app_dir();
+    let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
+    let vault = cowen_store::create_vault(&app_config, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!("Failed to init Vault: {}", e))?;
+    let _ = cfg_mgr.set_vault(vault.clone());
+
     let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
     let port_path = cowen_common::ipc::get_ipc_port_path();
     let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_common::ipc::client::IpcDaemonService::new(port_path));
@@ -686,11 +693,18 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Auth { action } => match action {
             AuthCommands::Status => cmd::system::status(&active_profile, &cfg_mgr, &cli.format, false).await?,
             AuthCommands::Reset | AuthCommands::Logout => cmd::auth::logout(&active_profile).await?,
-            AuthCommands::Login { force, manual, finalize: _ } => {
+            AuthCommands::Login { force, manual, finalize } => {
                 if *manual {
                     std::env::set_var("COWEN_SKIP_BROWSER", "true");
                 }
-                cmd::auth::login(&active_profile, *force).await?;
+                if let Some(ref session_id) = finalize {
+                    use cowen_auth::client::Client;
+                    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
+                    auth_cli.perform_login(&active_profile, &config, *force, Some(session_id), Some(daemon_svc.clone())).await
+                        .map_err(|e| anyhow::anyhow!("Finalize failed: {}", e))?;
+                } else {
+                    cmd::auth::login(&active_profile, *force).await?;
+                }
             },
             AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &cli.format, *refresh).await?,
             AuthCommands::Reload => {
@@ -752,8 +766,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                 println!("✅ Daemon workers reloaded successfully.");
             }
         }
-        Commands::Doctor { profile: _, verbose, fix } => {
-            cmd::doctor::execute(&active_profile, *verbose, *fix).await?;
+        Commands::Doctor { profile, verbose, fix } => {
+            let target_prof = profile.as_deref().unwrap_or(&active_profile);
+            cmd::doctor::execute(target_prof, *verbose, *fix).await?;
         }
         Commands::Events(args) => cmd::events::execute(args).await?,
         Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, &cli.format, *all).await?,

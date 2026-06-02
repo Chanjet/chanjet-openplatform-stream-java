@@ -100,10 +100,14 @@ pub fn get_daemon_binary_name() -> &'static str {
     return "cowen-daemon";
 }
 
-pub fn create_sandboxed_command(binary_path: &std::path::Path, sandbox_path: &std::path::Path) -> std::process::Command {
+pub fn create_sandboxed_command(
+    binary_path: &std::path::Path,
+    sandbox_path: &std::path::Path,
+    allowed_roots: &[std::path::PathBuf],
+) -> std::process::Command {
     #[cfg(target_os = "macos")]
     {
-        let profile = format!(
+        let mut profile = format!(
             r#"(version 1)
 (allow default)
 (deny file-write*)
@@ -113,6 +117,15 @@ pub fn create_sandboxed_command(binary_path: &std::path::Path, sandbox_path: &st
 (allow file-write* (subpath "{}"))"#,
             sandbox_path.to_string_lossy()
         );
+
+        // Dynamically append allowed roots as permitted file-write subpaths
+        for path in allowed_roots {
+            profile.push_str(&format!(
+                "\n(allow file-write* (subpath \"{}\"))",
+                path.to_string_lossy()
+            ));
+        }
+
         let mut cmd = std::process::Command::new("sandbox-exec");
         cmd.arg("-p").arg(profile).arg(binary_path);
         cmd
@@ -120,6 +133,7 @@ pub fn create_sandboxed_command(binary_path: &std::path::Path, sandbox_path: &st
 
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = allowed_roots;
         std::process::Command::new(binary_path)
     }
 }
@@ -159,6 +173,28 @@ mod tests {
 
         // Test is_file_secure
         assert!(fs::is_file_secure(&path));
+    }
+
+    #[test]
+    fn test_create_sandboxed_command_roots() {
+        use std::path::PathBuf;
+        let binary = PathBuf::from("ls");
+        let sandbox = PathBuf::from("/tmp");
+        let allowed = vec![PathBuf::from("/Users/zhangliang/workspace")];
+        let cmd = create_sandboxed_command(&binary, &sandbox, &allowed);
+
+        #[cfg(target_os = "macos")]
+        {
+            let args: Vec<_> = cmd.get_args().collect();
+            assert_eq!(args[0], "-p");
+            let profile = args[1].to_str().unwrap();
+            assert!(profile.contains("(allow file-write* (subpath \"/Users/zhangliang/workspace\"))"), "macOS Seatbelt profile must dynamically append allowed workspace subpaths");
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = cmd;
+        }
     }
 }
 

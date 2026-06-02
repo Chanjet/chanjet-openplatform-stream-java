@@ -147,7 +147,6 @@ async fn test_auth_login_self_built() {
     cmd.env("HOME", &home); 
     cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
     cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
-    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
     cmd.env("COWEN_SKIP_BROWSER", "true");
     cmd.arg("--profile").arg("sb_profile");
     cmd.arg("auth").arg("login").arg("--force");
@@ -217,7 +216,6 @@ async fn test_auth_login_complex_error_serialization() {
     cmd.env("HOME", &home);
     cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
     cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
-    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
     cmd.env("COWEN_SKIP_BROWSER", "true");
     cmd.arg("--profile").arg("error_profile");
     cmd.arg("auth").arg("login");
@@ -259,7 +257,6 @@ async fn test_auth_logout_login_sequence() {
     cmd.env("HOME", &home);
     cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
     cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
-    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
     cmd.env("COWEN_SKIP_BROWSER", "true");
     cmd.arg("--profile").arg("seq_profile");
     cmd.arg("auth").arg("logout");
@@ -277,7 +274,6 @@ async fn test_auth_logout_login_sequence() {
     cmd.env("HOME", &home);
     cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
     cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
-    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
     cmd.env("COWEN_SKIP_BROWSER", "true");
     cmd.arg("--profile").arg("seq_profile");
     cmd.arg("auth").arg("login");
@@ -316,7 +312,6 @@ async fn test_auth_login_oauth2() {
     cmd.env("HOME", &home);
     cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
     cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
-    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
     cmd.env("COWEN_SKIP_BROWSER", "true");
     cmd.arg("--profile").arg("oa2_profile");
     cmd.arg("auth").arg("login");
@@ -368,7 +363,6 @@ async fn test_auth_logout() {
     cmd.env("HOME", &home);
     cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
     cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
-    cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
     cmd.env("COWEN_SKIP_BROWSER", "true");
     cmd.arg("--profile").arg("logout_profile");
     cmd.arg("auth").arg("logout");

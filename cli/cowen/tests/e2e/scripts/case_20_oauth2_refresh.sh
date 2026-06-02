@@ -29,33 +29,26 @@ INIT_PID=$!
 
 echo "   Init PID: $INIT_PID (waiting for browser link in log)"
 
-# 2. Extract State and Port from Log
-STATE=""
-PORT=""
-for i in {1..30}; do
-    if [ -f "$COWEN_HOME/init.log" ]; then
-        # Try to find the URL and extract parameters
-        LINK=$(grep -o "https://market.chanjet.com/user/v2/authorize?.*" "$COWEN_HOME/init.log" | head -n 1)
-        if [[ -n "$LINK" ]]; then
-            # Extract state and port using Python for URL-safe regex
-            STATE=$(echo "$LINK" | python3 -c "import sys,re; m=re.search(r'state=([^&]+)', sys.stdin.read()); print(m.group(1) if m else '')")
-            PORT=$(echo "$LINK" | python3 -c "import sys,re; m=re.search(r'127\.0\.0\.1%3A(\d+)', sys.stdin.read()); print(m.group(1) if m else '')")
-            
-            if [[ -n "$STATE" ]] && [[ -n "$PORT" ]]; then
-                echo -e "   ${GREEN}[EXTRACTED]${NC} Port: $PORT, State: ${STATE:0:8}..."
-                break
-            fi
-        fi
+# 2. Extract State and Port from SQLite DB
+SESSION_JSON=""
+for i in {1..40}; do
+    if [ -f "$COWEN_HOME/cowen.db" ]; then
+        SESSION_JSON=$( (sqlite3 "$COWEN_HOME/cowen.db" "SELECT item_value FROM cowen_token WHERE profile='global' AND item_key LIKE 'session:%' LIMIT 1;") 2>/dev/null || echo "")
+        [ -n "$SESSION_JSON" ] && break
     fi
     echo -n "."
-    sleep 1
+    sleep 0.5
 done
 
-if [[ -z "$STATE" ]]; then
+if [[ -z "$SESSION_JSON" ]]; then
     cat "$COWEN_HOME/init.log"
     kill -9 "$INIT_PID" 2>/dev/null || true
-    fail_suite "Failed to extract OAuth2 context from logs"
+    fail_suite "Failed to extract OAuth2 context from database"
 fi
+
+PORT=$(get_json_field "$SESSION_JSON" "redirect_port")
+STATE=$(get_json_field "$SESSION_JSON" "state")
+echo -e "   ${GREEN}[EXTRACTED]${NC} Port: $PORT, State: ${STATE:0:8}..."
 
 # Assert that the browser mock was called correctly
 echo -n "   Verifying browser trigger..."

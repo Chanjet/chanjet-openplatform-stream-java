@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn test_profile_specific_log_creation() {
         let temp_dir = std::env::temp_dir().join(format!("telemetry_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros()));
-        let config = cowen_common::Config::default_with_profile("testprof");
+        let _config = cowen_common::Config::default_with_profile("testprof");
         let app_cfg = cowen_common::config::AppConfig::default();
         
         let (_, rx) = tokio::sync::watch::channel(None);

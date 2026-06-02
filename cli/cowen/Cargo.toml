@@ -2,7 +2,7 @@
 members = [
     ".",
     "crates/*"
-]
+, "target/test_mode_workspace/test_oncecell", "target/test_sqlx", "target/test_sqlx_3"]
 
 [package]
 name = "cowen"
@@ -10,81 +10,24 @@ version = "0.4.0"
 edition = "2021"
 
 [dependencies]
-# CLI & Config
+cowen-cli = { path = "crates/cowen-cli" }
 clap = { version = "4.6", features = ["derive", "env"] }
-clap_complete = "4.6"
-sysinfo = "0.38"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-prettytable-rs = "^0.10"
-serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
-directories = "6.0"
-config = "0.15"
-connector-sdk = { path = "../../sdk/rust" }
-
-# Async & Networking
 tokio = { version = "1.50", features = ["full"] }
-futures-util = "0.3"
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "form", "query"] }
-async-trait = "0.1"
-anyhow = "1.0"
-
-# Auth & Crypto
-aes-gcm = "0.10"
-sha2 = "0.11"
-base64 = "0.22"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.12", features = ["v4"] }
-hostname = "0.4"
-rand = "0.10"
-regex = "1.11"
-fs2 = "0.4"
-hex = "0.4"
-rustls = { version = "0.23", features = ["ring"] }
-rustls-pki-types = "1.0"
-
-# Database & Cache
-cowen-store = { path = "crates/cowen-store", features = ["all-stores"] }
-cowen-auth = { path = "crates/cowen-auth" }
-cowen-server = { path = "crates/cowen-server" }
-cowen-infra = { path = "crates/cowen-infra" }
-cowen-sys = { path = "crates/cowen-sys" }
-cowen-config = { path = "crates/cowen-config" }
-cowen-monitor = { path = "crates/cowen-monitor" }
-cowen-search = { path = "crates/cowen-search" }
-cowen-doctor = { path = "crates/cowen-doctor" }
-
-inventory = "0.3"
-
-
-deadpool-tiberius = "0.1.9"
-tokio-util = { version = "0.7", features = ["compat"] }
-
-# AI & Search
-cowen-common = { path = "crates/cowen-common" }
-
-
-
-# Observability
 tracing = "0.1"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json", "time", "registry", "fmt"] }
-logroller = "0.1"
-tracing-appender = "0.2"
-axum = { version = "0.8.8", default-features = false, features = ["json", "tokio", "http1", "http2", "query", "form"] }
-urlencoding = "2.1.3"
-open = "5.3"
-thiserror = "2.0.11"
-serde_urlencoded = "0.7.1"
-tower-http = { version = "0.6.10", features = ["cors"] }
-
-[features]
-default = []
-inte = []
+rustls = { version = "0.23", features = ["ring"] }
+cowen-common = { path = "crates/cowen-common" }
 
 [dev-dependencies]
 tempfile = "3.8"
 assert_cmd = "2.0"
 predicates = "3.1"
+cowen-store = { path = "crates/cowen-store" }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+axum = { version = "0.8", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
+serde_yaml = "0.9"
+chrono = "0.4"
 
 [build-dependencies]
 chrono = "0.4"

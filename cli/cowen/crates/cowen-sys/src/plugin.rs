@@ -163,7 +163,18 @@ impl RpcPluginClient {
                 compute_heavy = loader.enforce_privilege("ComputeHeavy");
             }
 
-            let mut cmd = crate::create_sandboxed_command(&self.binary_path, &cowen_infra::path::get_app_dir());
+            let mut allowed_roots = vec![];
+            if let Ok(workspace) = std::env::var("COWEN_WORKSPACE") {
+                allowed_roots.push(PathBuf::from(workspace));
+            } else if let Ok(cwd) = std::env::current_dir() {
+                allowed_roots.push(cwd);
+            }
+
+            let mut cmd = crate::create_sandboxed_command(
+                &self.binary_path,
+                &cowen_infra::path::get_app_dir(),
+                &allowed_roots,
+            );
             cmd.stdin(Stdio::piped())
                .stdout(Stdio::piped())
                // Safe credential injection in-memory (Option A requirement)
