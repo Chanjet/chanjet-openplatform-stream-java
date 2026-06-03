@@ -130,10 +130,11 @@ pub struct RpcPluginClient {
     binary_path: PathBuf,
     tenant_id: String,
     bridge_token: String,
+    ipc_token: Option<String>,
 }
 
 impl RpcPluginClient {
-    pub fn new(binary_path: PathBuf, tenant_id: String) -> Self {
+    pub fn new(binary_path: PathBuf, tenant_id: String, ipc_token: Option<String>) -> Self {
         // Generate a cryptographically secure-ish random协商 Token
         let bridge_token = format!("{:x}", uuid::Uuid::new_v4().simple());
         
@@ -142,6 +143,7 @@ impl RpcPluginClient {
             binary_path,
             tenant_id,
             bridge_token,
+            ipc_token,
         }
     }
 
@@ -179,6 +181,11 @@ impl RpcPluginClient {
                .stdout(Stdio::piped())
                // Safe credential injection in-memory (Option A requirement)
                .env("COWEN_BRIDGE_TOKEN", &self.bridge_token);
+               
+            // Inject JWT for TCP IPC (Phase 1 iteration)
+            if let Some(token) = &self.ipc_token {
+                cmd.env("COWEN_PLUGIN_IPC_TOKEN", token);
+            }
 
             if compute_heavy {
                 #[cfg(unix)]

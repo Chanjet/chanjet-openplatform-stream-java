@@ -83,7 +83,7 @@ impl ConfigManager {
         self.interceptors.lock().await.push(interceptor);
     }
 
-    fn load_app_config_sync(app_dir: &std::path::Path) -> CowenResult<AppConfig> {
+    pub fn load_app_config_sync(app_dir: &std::path::Path) -> CowenResult<AppConfig> {
         let path = app_dir.join("app.yaml");
         let mut config = if !path.exists() {
             AppConfig::default()
@@ -783,7 +783,7 @@ impl ConfigManager {
             if let Ok(remote_profiles) = vault.list_all_profiles().await {
                 let remote_profiles: Vec<String> = remote_profiles;
                 for p in remote_profiles {
-                    if !p.starts_with("app:") && p != "global" && p != "system" {
+                    if !p.starts_with("app:") && !p.starts_with("plugin_") && p != "global" && p != "system" {
                         profiles.insert(p);
                     }
                 }
@@ -794,7 +794,7 @@ impl ConfigManager {
                 let path = entry.path();
                 if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
                     if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        if !name.contains("_openapi") && name != "app" {
+                        if !name.contains("_openapi") && name != "app" && !name.starts_with("plugin_") {
                             profiles.insert(name.to_string());
                         }
                     }
@@ -813,7 +813,7 @@ impl ConfigManager {
                 let path = entry.path();
                 if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
                     if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        if !name.contains("_openapi") && name != "app" && name != "global" && name != "system" {
+                        if !name.contains("_openapi") && name != "app" && name != "global" && name != "system" && !name.starts_with("plugin_") {
                             profiles.push(name.to_string());
                         }
                     }

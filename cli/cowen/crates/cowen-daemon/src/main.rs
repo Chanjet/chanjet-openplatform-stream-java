@@ -71,11 +71,11 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     // Initialize Rustls Crypto Provider (Mandatory for Rustls 0.23+)
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // CAPTURE PANICS: Ensure background crashes are recorded
     std::panic::set_hook(Box::new(|info| {
         let payload = info.payload().downcast_ref::<&str>().cloned()
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("no message");
+        eprintln!("FATAL DAEMON PANIC: {}", payload);
         tracing::error!("FATAL DAEMON PANIC: {}", payload);
     }));
 
@@ -84,7 +84,20 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     
     let target_ipc_port_file = ipc_port_file.unwrap_or_else(|| cowen_common::config::get_app_dir().join("ipc.port"));
     let target_ipc_token_file = target_ipc_port_file.with_file_name("ipc.token");
-    let ipc_token = uuid::Uuid::new_v4().to_string();
+    
+    // Generate ephemeral JWT secret
+    let jwt_secret = cowen_common::jwt::generate_ephemeral_secret();
+    cowen_common::jwt::set_global_daemon_secret(jwt_secret.clone());
+    
+    // Generate Admin JWT for CLI to use
+    let admin_claims = cowen_common::jwt::IpcClaims::new(
+        "cli".to_string(), 
+        cowen_common::jwt::IpcRole::Admin, 
+        vec!["*".to_string()], 
+        86400 * 365 * 10 // 10 years validity since it's just for this daemon lifetime
+    );
+    let ipc_token = cowen_common::jwt::sign_jwt(&admin_claims, &jwt_secret).unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+    
     let current_pid = std::process::id();
     let start_time = chrono::Utc::now().to_rfc3339();
 
@@ -219,9 +232,9 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
                         let svc = daemon_svc.clone();
                         let v = vault.clone();
                         let c = cfg_mgr.clone();
-                        let exp_token = ipc_token.clone();
+                        let secret_clone = jwt_secret.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_connection(stream, svc, v, c, exp_token).await {
+                            if let Err(e) = handle_connection(stream, svc, v, c, secret_clone).await {
                                 error!("Connection error: {}", e);
                             }
                         });
@@ -259,7 +272,7 @@ async fn handle_connection(
     svc: Arc<dyn DaemonService>,
     vault: Arc<dyn Vault>,
     cfg_mgr: ConfigManager,
-    expected_token: String,
+    jwt_secret: Vec<u8>,
 ) -> Result<()> {
     let mut len_buf = [0u8; 4];
     if stream.read_exact(&mut len_buf).await.is_err() {
@@ -271,16 +284,57 @@ async fn handle_connection(
     stream.read_exact(&mut payload).await?;
 
     let envelope: cowen_common::ipc::IpcEnvelope = serde_json::from_slice(&payload)?;
-    if envelope.token != expected_token {
-        let res = DaemonResponse::Error { code: 401, message: "Unauthorized IPC".to_string() };
-        let res_payload = serde_json::to_vec(&res)?;
-        let res_len = res_payload.len() as u32;
-        stream.write_all(&res_len.to_be_bytes()).await?;
-        stream.write_all(&res_payload).await?;
-        return Ok(());
-    }
+    
+    // Verify JWT
+    let claims = match cowen_common::jwt::verify_jwt(&envelope.token, &jwt_secret) {
+        Ok(c) => c,
+        Err(e) => {
+            let res = DaemonResponse::Error { code: 401, message: format!("Unauthorized IPC: Invalid JWT token - {}", e) };
+            let res_payload = serde_json::to_vec(&res)?;
+            let res_len = res_payload.len() as u32;
+            stream.write_all(&res_len.to_be_bytes()).await?;
+            stream.write_all(&res_payload).await?;
+            return Ok(());
+        }
+    };
     
     let req = envelope.request;
+    
+    // Check RBAC bounds for Plugin Role
+    if claims.role == cowen_common::jwt::IpcRole::Plugin {
+        let is_forbidden = match &req {
+            DaemonRequest::InitProfile { .. } |
+            DaemonRequest::SetGlobalConfig { .. } |
+            DaemonRequest::ClearToken { .. } |
+            DaemonRequest::SystemReset { .. } |
+            DaemonRequest::StartWorker { .. } |
+            DaemonRequest::StopWorker { .. } |
+            DaemonRequest::StartAllWorkers |
+            DaemonRequest::StopAllWorkers |
+            DaemonRequest::ReloadWorker { .. } |
+            DaemonRequest::RenameProfile { .. } |
+            DaemonRequest::DlqPurge { .. } |
+            DaemonRequest::DlqRetry { .. } => true,
+            DaemonRequest::SetConfig { profile, .. } |
+            DaemonRequest::GetConfig { profile, .. } |
+            DaemonRequest::ListConfig { profile, .. } => {
+                profile != &claims.sub
+            }
+            _ => false,
+        };
+        
+        if is_forbidden {
+            let res = DaemonResponse::Error { 
+                code: 403, 
+                message: format!("Forbidden: Plugin '{}' is not authorized to execute this RPC or access this namespace.", claims.sub) 
+            };
+            let res_payload = serde_json::to_vec(&res)?;
+            let res_len = res_payload.len() as u32;
+            stream.write_all(&res_len.to_be_bytes()).await?;
+            stream.write_all(&res_payload).await?;
+            return Ok(());
+        }
+    }
     
     let res = match req {
         DaemonRequest::Ping => {
@@ -1139,10 +1193,22 @@ async fn handle_connection(
                                             continue;
                                         }
                                     }
+                                    
+                                    let plugin_jwt = cowen_common::jwt::sign_jwt(
+                                        &cowen_common::jwt::IpcClaims::new(
+                                            format!("plugin_{}", loader.manifest().name), // tenant_id for data tenancy
+                                            cowen_common::jwt::IpcRole::Plugin,
+                                            vec!["api:execute".to_string(), "config:read".to_string(), "dlq:read".to_string()],
+                                            86400 * 365
+                                        ),
+                                        &jwt_secret
+                                    ).ok();
+                                    
                                     providers.push(Box::new(SidecarSearchProvider::new(
                                         &loader.manifest().name, 
                                         p.clone(), 
-                                        "default".to_string()
+                                        format!("plugin_{}", loader.manifest().name),
+                                        plugin_jwt
                                     )));
                                 }
                             }

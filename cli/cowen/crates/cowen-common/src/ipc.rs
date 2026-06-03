@@ -500,8 +500,12 @@ pub mod client {
                 let _ = ensure_daemon(&self.port_path).await;
             }
 
-            let token_path = self.port_path.with_file_name("ipc.token");
-            let token = std::fs::read_to_string(&token_path).unwrap_or_default();
+            let token = if let Ok(t) = std::env::var("COWEN_PLUGIN_IPC_TOKEN") {
+                t
+            } else {
+                let token_path = self.port_path.with_file_name("ipc.token");
+                std::fs::read_to_string(&token_path).unwrap_or_default()
+            };
             
             let mut last_err = None;
             for _ in 0..15 {

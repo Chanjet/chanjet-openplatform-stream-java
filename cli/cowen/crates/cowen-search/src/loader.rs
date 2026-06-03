@@ -37,10 +37,10 @@ pub struct SidecarSearchProvider {
 }
 
 impl SidecarSearchProvider {
-    pub fn new(name: &str, binary_path: std::path::PathBuf, tenant_id: String) -> Self {
+    pub fn new(name: &str, binary_path: std::path::PathBuf, tenant_id: String, ipc_token: Option<String>) -> Self {
         Self {
             name: name.to_string(),
-            client: cowen_sys::plugin::RpcPluginClient::new(binary_path, tenant_id),
+            client: cowen_sys::plugin::RpcPluginClient::new(binary_path, tenant_id, ipc_token),
         }
     }
 }

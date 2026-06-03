@@ -76,7 +76,7 @@ impl SelfBuiltProvider {
             }
 
             // 1. Build Request
-            let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+            let app_cfg = cowen_config::ConfigManager::load_app_config_sync(&cowen_common::config::get_app_dir())?;
             let url = format!(
                 "{}{}",
                 app_cfg.openapi_url.trim_end_matches('/'),
@@ -243,7 +243,7 @@ impl SelfBuiltProvider {
             .set_token(profile, &lock_key, &new_expire_ts.to_string(), 15)
             .await;
 
-        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        let app_cfg = cowen_config::ConfigManager::load_app_config_sync(&cowen_common::config::get_app_dir())?;
         let url = format!(
             "{}{}",
             app_cfg.openapi_url.trim_end_matches('/'),
@@ -375,7 +375,7 @@ impl AuthProvider for SelfBuiltProvider {
         config: &Config,
         _headers: &HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
-        let _app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        
         tracing::debug!(target: "sys", profile = %profile, app_key = %config.app_key, "Attempting to retrieve token");
         // 1. Try Cache
         match self.pool.get_app_access_token(&config.app_key).await {

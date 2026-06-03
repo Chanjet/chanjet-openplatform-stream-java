@@ -14,6 +14,7 @@ pub mod error;
 pub mod daemon;
 pub mod ipc;
 pub mod reset;
+pub mod jwt;
 
 
 pub use error::{CowenError, CowenResult};
