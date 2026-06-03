@@ -18,6 +18,7 @@ PLUGIN_NAME="libcowen_search_embedding"
 PLUGIN_PATH="$PLUGIN_DIR/$PLUGIN_NAME"
 mkdir -p "$PLUGIN_DIR"
 cp "$COWEN_BUILD_DIR/$PLUGIN_NAME" "$PLUGIN_PATH"
+cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
 
 echo "🧪 Starting case_51_search_plugin_switch..."
 
@@ -32,7 +33,7 @@ log:
 telemetry_enabled: false
 ai_enabled: true
 plugins:
-  - "libcowen_search_embedding"
+  - "cowen-search-embedding"
 EOF
 
 # Use env vars for secrets to bypass Vault for this specific test
@@ -49,7 +50,7 @@ export COWEN_ENCRYPT_KEY="1234567890123456"
 
 echo "Test 1: Search using plugin_v1"
 "$COWEN_BIN" api list --profile main --search "test" 2>&1 | tee "$COWEN_HOME/search_v1.log"
-grep -q "Using search plugin: libcowen_search_embedding" "$COWEN_HOME/search_v1.log"
+grep -q "Using search plugin: cowen-search-embedding" "$COWEN_HOME/search_v1.log"
 echo "  ✓ Switched to plugin_v1"
 
 # 3. Change configuration to use a non-existent plugin_v2
@@ -57,13 +58,17 @@ echo "  ✓ Switched to plugin_v1"
 # rm -f "$COWEN_HOME/cowen.db"*
 # Change name to plugin_v2
 if [ "$IS_WINDOWS" = "true" ]; then
-    sed -i 's/libcowen_search_embedding/libcowen_search_embedding_v2/g' "$COWEN_HOME/app.yaml"
+    sed -i 's/cowen-search-embedding/cowen-search-embedding-v2/g' "$COWEN_HOME/app.yaml"
 else
-    sed -i '' 's/libcowen_search_embedding/libcowen_search_embedding_v2/g' "$COWEN_HOME/app.yaml"
+    sed -i '' 's/cowen-search-embedding/cowen-search-embedding-v2/g' "$COWEN_HOME/app.yaml"
 fi
 
+"$COWEN_BIN" daemon stop --profile main
+"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/daemon_v2.log" 2>&1 &
+sleep 2
+
 echo "Test 2: Search using plugin_v2 (should fail and fallback)"
-"$COWEN_BIN" api list --profile main --search "test" 2>&1 | tee "$COWEN_HOME/search_v2.log"
+"$COWEN_BIN" api list --profile main --search "test" 2>&1 | tee "$COWEN_HOME/search_v2.log" || true
 grep -q "No active plugin with" "$COWEN_HOME/search_v2.log"
 echo "  ✓ Fallback correctly triggered after config change"
 

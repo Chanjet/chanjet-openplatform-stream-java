@@ -580,6 +580,7 @@ impl AuthProvider for OAuth2Provider {
 
         // 4. Automatically open browser
         if std::env::var("COWEN_SKIP_BROWSER").unwrap_or_default() == "true" {
+            println!("Browser mock triggered for URL: {}", auth_url);
             tracing::info!(target: "sys", url = %auth_url, "Browser mock triggered for URL");
         } else if let Err(e) = open::that(&auth_url) {
             tracing::warn!(target: "sys", error = %e, "Failed to open browser automatically");

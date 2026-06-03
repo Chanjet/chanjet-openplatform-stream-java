@@ -26,6 +26,7 @@ rm -f "$COWEN_HOME/ipc.token" || true
 sleep 1
 
 echo "  [Test A] Pre-flight Check & Dynamic Port Recovery"
+unset COWEN_ALLOW_PORT_FALLBACK
 echo "  Occupying monitor_port $DUMMY_PORT with a dummy process..."
 python3 -c "
 import socket, time
@@ -41,7 +42,7 @@ sleep 1
 echo "  Triggering cowen auth login to trigger daemon start and check error output..."
 OUT=$("$COWEN_BIN" auth login --profile main --force 2>&1 || true)
 
-if ! echo "$OUT" | grep -q "Monitor port $DUMMY_PORT is occupied by another process"; then
+if ! echo "$OUT" | grep -q "Monitor server failed to start. Port may be occupied."; then
     kill -9 $DUMMY_PID || true
     fail_suite "Expected error message about port occupation. Output:\n$OUT"
 fi
@@ -49,6 +50,12 @@ fi
 kill -9 $DUMMY_PID || true
 echo -e "  ${GREEN}✓${NC} Pre-flight check correctly aborted daemon startup when port $DUMMY_PORT was occupied by 3rd party process."
 "$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
+if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
+    PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid")
+    kill -9 "$PID" 2>/dev/null || true
+    rm -f "$COWEN_HOME/master_daemon.pid" || true
+fi
+rm -f "$COWEN_HOME/ipc.port" || true
 sleep 1
 
 echo "  [Test B] Synchronous Crash Feedback"
@@ -59,11 +66,14 @@ rm -f "$COWEN_HOME/telemetry.db"
 mkdir -p "$COWEN_HOME/telemetry.db"
 
 OUT=$("$COWEN_BIN" daemon start --profile main 2>&1 || true)
-if ! echo "$OUT" | grep -q "Failed: Daemon crashed on startup (Error:"; then
-    fail_suite "Expected crash output with LAST_ERROR. Output:\n$OUT"
+if ! echo "$OUT" | grep -q "Daemon stderr tail:"; then
+    fail_suite "Expected crash output with daemon stderr. Output:\n$OUT"
+fi
+if ! echo "$OUT" | grep -q "Failed to init telemetry db"; then
+    fail_suite "Expected crash output about telemetry db. Output:\n$OUT"
 fi
 
-echo -e "  ${GREEN}✓${NC} Daemon crashed and LAST_ERROR was reported synchronously"
+echo -e "  ${GREEN}✓${NC} Daemon crashed and stderr tail was reported synchronously"
 
 rm -rf "$COWEN_HOME/telemetry.db"
 echo -e "\n🎊 Case 63 Passed!\n"

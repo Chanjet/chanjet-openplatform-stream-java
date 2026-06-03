@@ -37,7 +37,7 @@ pub struct ApiResponseDto {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DaemonRequest {
-    StartWorker { profile: String, config: Config },
+    StartWorker { profile: String, config: Config, app_secret: String, certificate: String, encrypt_key: String },
     StopWorker { profile: String },
     StopAllWorkers,
     ReloadWorker { profile: String },
@@ -230,8 +230,19 @@ pub mod client {
                 return Ok(stream);
             }
         }
-
-        bail!("FATAL: Failed to connect to cowen-daemon after spawning")
+        
+        let mut err_msg = "FATAL: Failed to connect to cowen-daemon after spawning.".to_string();
+        if let Ok(stderr) = std::fs::read_to_string(log_dir.join("daemon.stderr.log")) {
+            let tail: Vec<&str> = stderr.lines().rev().take(10).collect();
+            if !tail.is_empty() {
+                err_msg.push_str("\nDaemon stderr tail:\n");
+                for line in tail.into_iter().rev() {
+                    err_msg.push_str(line);
+                    err_msg.push('\n');
+                }
+            }
+        }
+        bail!("{}", err_msg)
     }
 
     pub async fn send_request(
@@ -462,7 +473,31 @@ pub mod client {
                     }
                 }
             }
-            Err(last_err.unwrap_or_else(|| CowenError::api("IPC request failed after retries")))
+            
+            let mut final_err_msg = last_err.map(|e| e.to_string()).unwrap_or_else(|| "IPC request failed after retries".to_string());
+            let app_dir = crate::config::get_app_dir();
+            let pid_file = app_dir.join("master_daemon.pid");
+            if let Ok(content) = std::fs::read_to_string(&pid_file) {
+                for line in content.lines() {
+                    if let Some(le) = line.strip_prefix("LAST_ERROR=") {
+                        let err_msg = le.trim();
+                        if !err_msg.is_empty() {
+                            final_err_msg = format!("{}\nDaemon crashed on startup (Error: {})", final_err_msg, err_msg);
+                        }
+                    }
+                }
+            } else if let Ok(stderr) = std::fs::read_to_string(app_dir.join("logs").join("daemon.stderr.log")) {
+                let tail: Vec<&str> = stderr.lines().rev().take(10).collect();
+                if !tail.is_empty() {
+                    final_err_msg.push_str("\nDaemon stderr tail:\n");
+                    for line in tail.into_iter().rev() {
+                        final_err_msg.push_str(line);
+                        final_err_msg.push('\n');
+                    }
+                }
+            }
+            
+            Err(CowenError::api(final_err_msg))
         }
     }
 
@@ -479,6 +514,9 @@ pub mod client {
                 .request(DaemonRequest::StartWorker {
                     profile: profile.to_string(),
                     config: config.clone(),
+                    app_secret: config.app_secret.clone(),
+                    certificate: config.certificate.clone(),
+                    encrypt_key: config.encrypt_key.clone(),
                 })
                 .await?;
 

@@ -11,7 +11,7 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     let openapi_url = format!("http://{}", addr);
 
     let profile = "oa2_lifecycle";
-    let (dir, home) = setup_test_env(profile, "oauth2", &openapi_url);
+    let (dir, home, _killer) = setup_test_env(profile, "oauth2", &openapi_url);
     let bin_dir = dir.path().join("bin");
     let exe_suffix = std::env::consts::EXE_SUFFIX;
     let cowen_bin = bin_dir.join(format!("cowen{}", exe_suffix));

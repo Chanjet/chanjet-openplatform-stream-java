@@ -43,3 +43,8 @@ chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3.16"
+
+[[bin]]
+name = "test_cfg"
+path = "src/bin/test_cfg.rs"
+

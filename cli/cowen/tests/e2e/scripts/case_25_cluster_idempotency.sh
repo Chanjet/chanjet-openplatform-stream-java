@@ -24,7 +24,9 @@ DB_FILE="$COWEN_HOME/shared_cluster.db"
 PROF="cluster_node"
 
 # Setup shared configuration
+MONITOR_PORT_A=$(get_unused_port)
 cat > "$COWEN_HOME/app.yaml" <<EOF
+monitor_port: $MONITOR_PORT_A
 storage:
   store: sqlite
   db_url: "sqlite://$DB_FILE"
@@ -36,6 +38,9 @@ EOF
     --webhook-target "$MOCK_URL/webhook_sink" \
     --openapi-url $MOCK_URL --stream-url $MOCK_WS \
     --proxy-port $PROXY_PORT >/dev/null
+
+# Stop the background daemon spawned by init
+"$COWEN_BIN" daemon stop >/dev/null 2>&1
 
 # Start Node A (Foreground in background task)
 "$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/node_a.log" 2>&1 &

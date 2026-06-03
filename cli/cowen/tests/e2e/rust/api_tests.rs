@@ -4,7 +4,7 @@ use tempfile::tempdir;
 use std::fs;
 use serde_json::json;
 
-fn setup_test_env(ai_enabled: bool) -> (tempfile::TempDir, String) {
+fn setup_test_env(ai_enabled: bool) -> (tempfile::TempDir, String, crate::e2e::rust::common::DaemonKiller) {
     std::env::set_var("COWEN_HTTP_TIMEOUT", "2");
     let dir = tempdir().unwrap();
     let profile = "test_api";
@@ -101,12 +101,12 @@ fn setup_test_env(ai_enabled: bool) -> (tempfile::TempDir, String) {
     });
     fs::write(spec_path, serde_yaml::to_string(&spec).unwrap()).unwrap();
     
-    (dir, cowen_home)
+    (dir, cowen_home.clone(), crate::e2e::rust::common::DaemonKiller { home: cowen_home })
 }
 
 #[test]
 fn test_api_list() {
-    let (dir, home) = setup_test_env(false);
+    let (dir, home, _killer) = setup_test_env(false);
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.arg("--profile").arg("test_api");
@@ -125,7 +125,7 @@ fn test_api_list() {
 
 #[test]
 fn test_api_list_pagination() {
-    let (dir, home) = setup_test_env(false);
+    let (dir, home, _killer) = setup_test_env(false);
     
     // Page 1: GET /v1/users, POST /v1/users
     let mut cmd = Command::cargo_bin("cowen").unwrap();
@@ -158,7 +158,7 @@ fn test_api_list_pagination() {
 
 #[test]
 fn test_api_list_search() {
-    let (dir, home) = setup_test_env(false); // Normal search
+    let (dir, home, _killer) = setup_test_env(false); // Normal search
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.arg("--profile").arg("test_api");
@@ -180,7 +180,7 @@ fn test_api_list_search() {
 
 #[test]
 fn test_api_spec_details() {
-    let (dir, home) = setup_test_env(false);
+    let (dir, home, _killer) = setup_test_env(false);
     
     // Test GET with path params
     let mut cmd = Command::cargo_bin("cowen").unwrap();
@@ -214,7 +214,7 @@ fn test_api_spec_details() {
 
 #[test]
 fn test_api_call_force_bypass() {
-    let (dir, home) = setup_test_env(false);
+    let (dir, home, _killer) = setup_test_env(false);
     
     // Without --force, calling a path not in spec should be rejected
     let mut cmd = Command::cargo_bin("cowen").unwrap();
@@ -241,7 +241,7 @@ fn test_api_call_force_bypass() {
 
 #[test]
 fn test_api_error_json_format() {
-    let (dir, home) = setup_test_env(false);
+    let (dir, home, _killer) = setup_test_env(false);
     
     // Global format JSON should wrap the error
     let mut cmd = Command::cargo_bin("cowen").unwrap();
@@ -263,7 +263,7 @@ fn test_api_error_json_format() {
 
 #[test]
 fn test_api_call_ssrf_block() {
-    let (dir, home) = setup_test_env(false);
+    let (dir, home, _killer) = setup_test_env(false);
     
     // Attempting to call an absolute external URL should be blocked even with --force
     let mut cmd = Command::cargo_bin("cowen").unwrap();

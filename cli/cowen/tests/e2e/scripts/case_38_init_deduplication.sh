@@ -54,7 +54,7 @@ CURRENT=$("$COWEN_BIN" profile current)
 assert_match "$CURRENT" "prof_a" "Current profile should be 'prof_a'"
 
 # 5. Verify the output mentions duplication
-assert_match "$OUTPUT" "already exists" "Output should mention existing profile"
+assert_match "$OUTPUT" "CONFLICT_SWITCH" "Output should mention existing profile"
 
 
 # Mandatory Sanitization Check

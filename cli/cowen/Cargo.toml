@@ -2,7 +2,7 @@
 members = [
     ".",
     "crates/*"
-, "target/test_mode_workspace/test_oncecell", "target/test_sqlx", "target/test_sqlx_3"]
+]
 
 [package]
 name = "cowen"
@@ -38,3 +38,4 @@ lto = true
 codegen-units = 1
 opt-level = "s"     # Optimize for size
 panic = "abort"     # Remove unwinding tables (eliminates source path leaks in panics)
+

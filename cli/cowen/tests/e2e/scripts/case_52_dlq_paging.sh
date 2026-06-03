@@ -43,7 +43,7 @@ done
 
 echo "   Wait for messages to hit DLQ..."
 sleep 5
-kill $DAEMON_PID
+    # The daemon remains running so IPC commands (dlq list, dlq retry) can connect.
 
 echo "--- Test 3: Verify DLQ Paging (Default 20 items) ---"
 LIST_OUTPUT=$("$COWEN_BIN" dlq list)

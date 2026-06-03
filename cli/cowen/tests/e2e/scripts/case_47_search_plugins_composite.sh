@@ -18,8 +18,8 @@ start_mock
 
 # 1. Setup paths
 PLUGIN_DIR="$COWEN_HOME/dist_assets"
-LIB_NAME="libcowen_search_embedding"
-[ "$IS_WINDOWS" = "true" ] && LIB_NAME="libcowen_search_embedding.exe"
+LIB_NAME="libcowen_search_embedding.bundle"
+[ "$IS_WINDOWS" = "true" ] && LIB_NAME="libcowen_search_embedding.bundle"
 
 echo "🧪 Starting case_50_search_plugins_composite..."
 

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU16, Ordering};
 
 static NEXT_PORT: AtomicU16 = AtomicU16::new(17000);
 
-fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String) {
+fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String, crate::e2e::rust::common::DaemonKiller) {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().join(".cowen");
     fs::create_dir_all(&cowen_home).unwrap();
@@ -38,13 +38,13 @@ fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String) {
     });
     fs::write(app_config_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
 
-    (dir, cowen_home.to_str().unwrap().to_string())
+    (dir, cowen_home.to_str().unwrap().to_string(), crate::e2e::rust::common::DaemonKiller { home: cowen_home.to_str().unwrap().to_string() })
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_daemon_oauth2_webhook_no_stream_crash() {
     let profile = "test_oauth2_daemon";
-    let (dir, home) = setup_daemon_env(profile, "oauth2");
+    let (dir, home, _killer) = setup_daemon_env(profile, "oauth2");
     
     // Seed dummy token in vault to pass auth checks on startup
     let app_cfg = cowen_common::config::AppConfig { openapi_url: "http://localhost:12345".to_string(), stream_url: "http://localhost:12345".to_string(), ..Default::default() };
@@ -125,7 +125,7 @@ async fn test_daemon_oauth2_webhook_no_stream_crash() {
     let _ = dir;
 }
 
-fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, String) {
+fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, String, crate::e2e::rust::common::DaemonKiller) {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().join(".cowen");
     fs::create_dir_all(&cowen_home).unwrap();
@@ -157,13 +157,13 @@ fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, Stri
     });
     fs::write(app_config_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
 
-    (dir, cowen_home.to_str().unwrap().to_string())
+    (dir, cowen_home.to_str().unwrap().to_string(), crate::e2e::rust::common::DaemonKiller { home: cowen_home.to_str().unwrap().to_string() })
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_daemon_https_crash_prevention() {
     let profile = "test_selfbuilt_daemon_https";
-    let (dir, home) = setup_daemon_env_https(profile, "self-built");
+    let (dir, home, _killer) = setup_daemon_env_https(profile, "self-built");
     
     // Seed dummy token in vault to pass auth checks on startup
     let app_cfg = cowen_common::config::AppConfig { 

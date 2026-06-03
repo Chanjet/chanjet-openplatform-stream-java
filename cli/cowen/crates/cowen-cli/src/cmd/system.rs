@@ -159,6 +159,23 @@ pub async fn reset(
     let port_path = cowen_common::ipc::get_ipc_port_path();
     let ipc = IpcDaemonService::new(port_path);
 
+    if !dry_run && target_profile.is_none() {
+        let app_dir = cowen_common::config::get_app_dir();
+        let daemon_pid_file = app_dir.join("master_daemon.pid");
+        if daemon_pid_file.exists() {
+            if let Ok(pid_str) = std::fs::read_to_string(&daemon_pid_file) {
+                if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                    let sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing()));
+                    if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
+                        process.kill();
+                    }
+                }
+            }
+        }
+        // Small delay to allow daemon to exit
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+
     let is_ipc_error = match ipc.system_reset(target_profile, dry_run).await {
         Ok(DaemonResponse::Success { message }) => {
             if dry_run {
@@ -189,22 +206,18 @@ pub async fn reset(
         
         let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), target_profile.map(|s| s.to_string()));
         let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), target_profile.map(|s| s.to_string()));
+        let storage_task = cowen_store::reset::StorageResetTask::new(app_dir.clone(), target_profile.map(|s| s.to_string()));
         
         use cowen_common::reset::ResetEngine;
         let engine = ResetEngine::new()
             .with(Box::new(config_task))
-            .with(Box::new(telemetry_task));
+            .with(Box::new(telemetry_task))
+            .with(Box::new(storage_task));
         
         engine.run(dry_run).await?;
         
         if !dry_run {
-            if target_profile.is_none() {
-                // If reset all, remove the cowen.db file as well
-                let db_file = app_dir.join("cowen.db");
-                let _ = std::fs::remove_file(&db_file);
-                let _ = std::fs::remove_file(app_dir.join("cowen.db-wal"));
-                let _ = std::fs::remove_file(app_dir.join("cowen.db-shm"));
-            } else if let Some(p) = target_profile {
+            if let Some(p) = target_profile {
                 // Also manually remove the profile config in case ConfigResetTask missed it
                 let config_file = app_dir.join("profiles").join(format!("{}.yaml", p));
                 if config_file.exists() {

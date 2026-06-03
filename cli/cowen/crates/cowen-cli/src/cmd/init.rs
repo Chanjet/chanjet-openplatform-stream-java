@@ -33,13 +33,43 @@ pub async fn execute(
         };
         config.app_mode = AuthMode::Oauth2;
         
-        let app_cfg = cfg_mgr.load_app_config().await?;
+        let mut app_cfg = cfg_mgr.load_app_config().await?;
+        let mut app_changed = false;
+        if let Some(url) = &ctx.openapi_url {
+            app_cfg.openapi_url = url.clone();
+            app_changed = true;
+        }
+        if let Some(url) = &ctx.stream_url {
+            app_cfg.stream_url = url.clone();
+            app_changed = true;
+        }
+        if app_changed {
+            let _ = cfg_mgr.save_app_config(&app_cfg).await;
+        }
         let fingerprint = cowen_common::security::get_machine_fingerprint()?;
         let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await?;
         
         let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
         let provider = auth_cli.provider(&AuthMode::Oauth2);
         
+        let is_new = !cfg_mgr.exists(profile).await;
+        struct CleanupGuard {
+            path: std::path::PathBuf,
+            should_cleanup: bool,
+        }
+        impl Drop for CleanupGuard {
+            fn drop(&mut self) {
+                if self.should_cleanup {
+                    let _ = std::fs::remove_file(&self.path);
+                }
+            }
+        }
+        let profile_path = app_dir.join(format!("{}.yaml", profile));
+        let mut cleanup_guard = CleanupGuard {
+            path: profile_path,
+            should_cleanup: is_new,
+        };
+
         let params = cowen_auth::provider::InitParams {
             app_key: ctx.app_key,
             app_secret: ctx.app_secret,
@@ -50,10 +80,11 @@ pub async fn execute(
             stream_url: ctx.stream_url,
             proxy_port: ctx.proxy_port,
             auto_start: true,
-            is_new: !cfg_mgr.exists(profile).await,
+            is_new,
         };
         
         provider.initialize(profile, &mut config, vault.clone(), &cfg_mgr, params, None).await?;
+        cleanup_guard.should_cleanup = false;
         
         let _ = cfg_mgr.set_default_profile(profile);
         println!("✅ Profile {} initialized", profile);

@@ -220,9 +220,11 @@ setup_workspace() {
     # Also copy search embedding plugin if exists
     if [ -f "$build_dir/libcowen_search_embedding" ]; then
         cp "$build_dir/libcowen_search_embedding" "$COWEN_HOME/"
+        cp "$build_dir/libcowen_search_embedding.bundle" "$COWEN_HOME/" 2>/dev/null || true
     fi
     if [ -f "$build_dir/libcowen_search_embedding.exe" ]; then
         cp "$build_dir/libcowen_search_embedding.exe" "$COWEN_HOME/"
+        cp "$build_dir/libcowen_search_embedding.bundle" "$COWEN_HOME/" 2>/dev/null || true
     fi
 
     # Ensure it is executable
@@ -232,6 +234,8 @@ setup_workspace() {
     export COWEN_SKIP_BROWSER=true
 
     local monitor_port=$(get_unused_port)
+    export COWEN_ALLOW_PORT_FALLBACK=1
+
     # Create isolated app.yaml with absolute DB path
     cat > "$COWEN_HOME/app.yaml" <<EOF
 monitor_port: $monitor_port
@@ -573,7 +577,18 @@ wait_for_mysql() {
 
 # Helper to get an unused TCP port from the OS
 get_unused_port() {
-    python3 -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()'
+    if [ -n "$COWEN_PORT_RANGE_START" ]; then
+        local offset_file="${TEST_BASE:-/tmp}/.port_offset"
+        local offset=0
+        if [ -f "$offset_file" ]; then
+            offset=$(cat "$offset_file")
+        fi
+        offset=$((offset + 1))
+        echo "$offset" > "$offset_file"
+        echo $((COWEN_PORT_RANGE_START + offset))
+    else
+        python3 -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()'
+    fi
 }
 
 # Helper to get daemon PID from lock file
@@ -637,7 +652,7 @@ wait_for_daemon() {
     local max_retries="${2:-10}"
     
     for i in $(seq 1 "$max_retries"); do
-        if "$COWEN_BIN" status --profile "$profile" 2>&1 | grep -q "ACTIVE\|RUNNING"; then
+        if COWEN_SKIP_DAEMON_RECOVERY=true "$COWEN_BIN" status --profile "$profile" 2>&1 | grep -q "ACTIVE\|RUNNING"; then
             return 0
         fi
         sleep 1

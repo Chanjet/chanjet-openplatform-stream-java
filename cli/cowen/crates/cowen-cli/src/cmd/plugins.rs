@@ -20,12 +20,10 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     }
 
     let mut found_any = false;
-    let supported_exts = if cfg!(target_os = "macos") {
-        vec!["dylib", "so"]
-    } else if cfg!(target_os = "windows") {
-        vec!["dll"]
+    let supported_exts = if cfg!(target_os = "windows") {
+        vec!["exe"]
     } else {
-        vec!["so"]
+        vec![""]
     };
 
     for entry in fs::read_dir(plugins_dir)? {
@@ -51,7 +49,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     if found_any {
         println!("\n💡 CAPABILITY indicates the plugin's capability (e.g., SearchProvider for semantic search).");
     } else {
-        println!("(No dynamic library plugins found)");
+        println!("(No executable plugins found)");
     }
 
     Ok(())
@@ -62,11 +60,9 @@ pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
 
     let expected_path = if cfg!(target_os = "windows") {
-        plugins_dir.join(format!("{}.dll", name))
-    } else if cfg!(target_os = "macos") {
-        plugins_dir.join(format!("{}.dylib", name))
+        plugins_dir.join(format!("{}.exe", name))
     } else {
-        plugins_dir.join(format!("{}.so", name))
+        plugins_dir.join(name)
     };
 
     if expected_path.exists() {

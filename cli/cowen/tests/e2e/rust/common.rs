@@ -2,6 +2,29 @@ use std::fs;
 use serde_json::json;
 use tempfile::tempdir;
 
+pub struct DaemonKiller {
+    pub home: String,
+}
+
+impl Drop for DaemonKiller {
+    fn drop(&mut self) {
+        let pid_file = std::path::PathBuf::from(&self.home).join("master_daemon.pid");
+        if let Ok(content) = std::fs::read_to_string(&pid_file) {
+            if let Some(pid_str) = content.lines().next() {
+                if let Ok(pid) = pid_str.parse::<i32>() {
+                    let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).output();
+                }
+            }
+        }
+        // Also stop workers gracefully if possible
+        let bin_path = assert_cmd::cargo::cargo_bin("cowen");
+        let _ = std::process::Command::new(bin_path)
+            .env("COWEN_HOME", &self.home)
+            .arg("daemon").arg("stop")
+            .output();
+    }
+}
+
 use axum::{
     routing::post,
     extract::State,
@@ -85,7 +108,7 @@ pub async fn start_mock_platform() -> (SocketAddr, tokio::task::JoinHandle<()>) 
     (addr, handle)
 }
 
-pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile::TempDir, String) {
+pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile::TempDir, String, crate::e2e::rust::common::DaemonKiller) {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().join(".cowen");
     fs::create_dir_all(&cowen_home).unwrap();
@@ -164,6 +187,6 @@ pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile
             current_dir); // Simplification for error reporting
     }
 
-    (dir, cowen_home.to_str().unwrap().to_string())
+    (dir, cowen_home.to_str().unwrap().to_string().clone(), crate::e2e::rust::common::DaemonKiller { home: cowen_home.to_str().unwrap().to_string() })
 }
 

@@ -85,14 +85,8 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     let target_ipc_port_file = ipc_port_file.unwrap_or_else(|| cowen_common::config::get_app_dir().join("ipc.port"));
     let target_ipc_token_file = target_ipc_port_file.with_file_name("ipc.token");
     let ipc_token = uuid::Uuid::new_v4().to_string();
-    
-    let _ = cowen_sys::get_ipc_binder().save_ipc_token(&target_ipc_token_file, &ipc_token).await;
-    
-    cowen_common::utils::secure_write(&target_ipc_port_file, ipc_port.to_string())?;
-
     let current_pid = std::process::id();
     let start_time = chrono::Utc::now().to_rfc3339();
-    let _ = cowen_common::utils::secure_write(pid_file, format!("{}\nSTART_TIME={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
 
     let cfg_mgr = ConfigManager::new().map_err(|e| anyhow::anyhow!("Failed to init ConfigManager: {}", e))?;
     let app_dir = cowen_common::config::get_app_dir();
@@ -108,6 +102,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     } else {
         cowen_common::config::AppConfig::default()
     };
+    app_cfg.apply_env_overrides();
 
     if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
         app_cfg.storage.store = st;
@@ -140,10 +135,14 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     info!("Starting cowen-daemon...");
     info!("Listening on TCP IPC port: {}", ipc_port);
     
+    // Write IPC port early so CLI clients can connect (they will block until the accept loop starts)
+    let _ = cowen_sys::get_ipc_binder().save_ipc_token(&target_ipc_token_file, &ipc_token).await;
+    cowen_common::utils::secure_write(&target_ipc_port_file, ipc_port.to_string())?;
+    
     let daemon_svc: Arc<dyn DaemonService> = Arc::new(ServerDaemonService::new(cfg_mgr.clone()));
 
     let mut m_port = app_cfg.monitor_port;
-    let mut allow_fallback = false;
+    let mut allow_fallback = std::env::var("COWEN_ALLOW_PORT_FALLBACK").is_ok();
     if m_port == 0 {
         m_port = 1588;
         allow_fallback = true;
@@ -169,10 +168,8 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
         }
     };
 
-    if actual_m_port > 0 && actual_m_port != app_cfg.monitor_port {
-        app_cfg.monitor_port = actual_m_port;
-        let _ = cfg_mgr.save_app_config(&app_cfg).await;
-    }
+    // We do not save actual_m_port back to app_cfg to avoid overwriting user configuration.
+    // The CLI can discover the fallback port via the pid file's MONITOR_PORT field.
 
     let _ = cowen_common::utils::secure_write(pid_file, format!("{}\nMONITOR_PORT={}\nSTART_TIME={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, actual_m_port, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
 
@@ -290,7 +287,10 @@ async fn handle_connection(
         DaemonRequest::Ping => {
             DaemonResponse::Pong
         }
-        DaemonRequest::StartWorker { profile, config } => {
+        DaemonRequest::StartWorker { profile, mut config, app_secret, certificate, encrypt_key } => {
+            config.app_secret = app_secret;
+            config.certificate = certificate;
+            config.encrypt_key = encrypt_key;
             info!("StartWorker requested for {}", profile);
             match svc.start_daemon(&profile, &config).await {
                 Ok(_) => DaemonResponse::Success { message: format!("Worker {} started", profile) },
@@ -709,40 +709,27 @@ async fn handle_connection(
             let mut results = Vec::new();
             let list = cfg_mgr.list_profiles().await.unwrap_or_default();
             
-            if !list.is_empty() {
-                let profiles = if all {
-                    list
-                } else {
-                    if list.contains(&profile) {
-                        vec![profile.clone()]
-                    } else {
-                        vec![]
-                    }
-                };
-                
+            let profiles = if all {
+                list
+            } else {
+                vec![profile.clone()]
+            };
+            
+            if !profiles.is_empty() {
                 for prof in profiles {
                 let mut entries = Vec::new();
                 let config = match cfg_mgr.load(&prof).await {
                     Ok(c) => c,
-                    Err(e) => {
-                        let entry = cowen_common::status::StatusEntry {
-                            name: "Configuration".to_string(),
-                            icon: "⚙️".to_string(),
-                            message: "Profile load failed".to_string(),
-                            level: cowen_common::status::StatusLevel::ERROR,
-                            reason: Some(e.to_string()),
-                            details: vec![],
-                            children: vec![],
-                        };
-                        entries.push(entry);
-                        let entry_val = serde_json::json!({
-                            "profile": prof,
-                            "entries": entries,
-                        });
-                        results.push(entry_val);
-                        continue;
+                    Err(_) => {
+                        let mut c = cowen_common::config::Config::default_with_profile(&prof);
+                        c.apply_env_overrides();
+                        c
                     },
                 };
+                
+                if !cfg_mgr.exists(&prof).await && config.app_key.is_empty() && config.app_secret.is_empty() {
+                    continue;
+                }
                 let app_config = match cfg_mgr.load_app_config().await {
                     Ok(c) => c,
                     Err(_) => continue,
@@ -816,6 +803,7 @@ async fn handle_connection(
                 let app_dir = cowen_common::config::get_app_dir();
                 let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), profile.clone());
                 let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), profile.clone());
+                let storage_task = cowen_store::reset::StorageResetTask::new(app_dir.clone(), profile.clone());
                 
                 let mut out = String::new();
                 out.push_str("🔍 [DRY RUN] Reset Execution Plan:\n");
@@ -844,6 +832,18 @@ async fn handle_connection(
                     }
                 }
                 
+                out.push_str(&format!("\n  📦 Module: {}\n", storage_task.name()));
+                out.push_str(&format!("  ℹ️  {}\n", storage_task.description()));
+                if let Ok(actions) = storage_task.dry_run().await {
+                    if actions.is_empty() {
+                        out.push_str("      - No actions to perform.\n");
+                    } else {
+                        for a in actions {
+                            out.push_str(&format!("      - {}\n", a));
+                        }
+                    }
+                }
+                
                 out.push_str("\n💡 This is a dry run. No actual changes were made.");
                 DaemonResponse::Success { message: out }
             } else {
@@ -858,9 +858,11 @@ async fn handle_connection(
                         tracing::error!("Failed to delete profile {}: {:?}", prof, e);
                     }
                     
-                    // Actually execute telemetry reset
+                    // Actually execute telemetry and config reset
                     use cowen_common::reset::ResetTask;
                     let app_dir = cowen_common::config::get_app_dir();
+                    let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), Some(prof.clone()));
+                    let _ = config_task.execute().await;
                     let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), Some(prof.clone()));
                     let _ = telemetry_task.execute().await;
                 } else {
@@ -880,11 +882,15 @@ async fn handle_connection(
                     }
                     let _ = cfg_mgr.set_default_profile("default");
                     
-                    // Actually execute global telemetry reset
+                    // Actually execute global telemetry, config, and storage reset
                     use cowen_common::reset::ResetTask;
                     let app_dir = cowen_common::config::get_app_dir();
+                    let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), None);
+                    let _ = config_task.execute().await;
                     let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), None);
                     let _ = telemetry_task.execute().await;
+                    let storage_task = cowen_store::reset::StorageResetTask::new(app_dir.clone(), None);
+                    let _ = storage_task.execute().await;
                 }
                 DaemonResponse::Success { message: "Reset complete".to_string() }
             }
@@ -1011,7 +1017,7 @@ async fn handle_connection(
                         use cowen_search::loader::SidecarSearchProvider;
                         
                         let mut providers: Vec<Box<dyn SearchProvider>> = vec![];
-                        let app_cfg = cowen_common::config::AppConfig::default();
+                        let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
                         
                         let plugin_dir = cowen_common::config::get_app_dir().join("plugins");
                         let plugins = cowen_sys::plugin::discover_plugins(&plugin_dir);
@@ -1033,7 +1039,9 @@ async fn handle_connection(
                             }
                         }
 
-                        if let Some(provider) = providers.first() {
+                        if providers.is_empty() && !app_cfg.plugins.is_empty() {
+                            cowen_common::ipc::DaemonResponse::Error { message: format!("No active plugin with name {} found", app_cfg.plugins[0]), code: 404 }
+                        } else if let Some(provider) = providers.first() {
                             plugin_used = Some(provider.name().to_string());
                             
                             let mut docs = Vec::new();

@@ -22,6 +22,7 @@ elif [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.exe" ]; then
     cp "$COWEN_BUILD_DIR/libcowen_search_embedding.exe" "$PLUGIN_DIR/"
     cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
 fi
+cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
 
 # Unset COWEN_DEV_MODE to force PKI signature verification
 unset COWEN_DEV_MODE

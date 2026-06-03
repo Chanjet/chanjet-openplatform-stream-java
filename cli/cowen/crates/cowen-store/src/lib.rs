@@ -118,6 +118,7 @@ pub async fn create_store_from_url(url: &str, app_dir: &std::path::Path, fingerp
         }
         // Ensure format is always sqlite:<path> for SQLx
         actual_url = format!("sqlite:{}", db_path.to_string_lossy());
+        eprintln!("🔍 SQLITE URL RESOLVED TO: {}", actual_url);
     } else if (actual_url.starts_with("mysql:") || actual_url.starts_with("postgres:")) && !actual_url.contains("://") {
         actual_url = actual_url.replace("mysql:", "mysql://").replace("postgres:", "postgres://");
     }
@@ -200,7 +201,9 @@ pub async fn create_vault(app_cfg: &cowen_common::config::AppConfig, app_dir: &s
     };
     let vault = Arc::new(StoreVault::new(primary, sensitive));
     if let Err(e) = cowen_common::vault::Vault::migrate(vault.as_ref()).await {
+        eprintln!("⚠️ Failed to run store migrations: {}", e);
         tracing::error!(target: "sys", "Failed to run store migrations: {}", e);
     }
     Ok(vault)
 }
+pub mod reset;

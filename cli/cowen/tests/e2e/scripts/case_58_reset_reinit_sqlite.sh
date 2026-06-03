@@ -35,7 +35,7 @@ touch "$COWEN_HOME/cowen.db-shm"
 touch "$COWEN_HOME/cowen.ddl.lock"
 
 echo "Running system reset..."
-"$COWEN_BIN" reset
+"$COWEN_BIN" reset --all
 
 echo "Verifying all SQLite files, lock files, and configurations are completely gone..."
 REMAINING=""

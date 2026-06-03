@@ -31,7 +31,7 @@ PLUGIN_ID="libcowen_search_embedding"
 echo "Test 1: Empty plugins list"
 mkdir -p "$PLUGIN_DIR"
 OUTPUT=$("$COWEN_BIN" plugins list --profile main)
-if ! echo "$OUTPUT" | grep -q "(No dynamic library plugins found)"; then
+if ! echo "$OUTPUT" | grep -q "(No executable plugins found)"; then
     echo "❌ Failed to report empty plugins list. Output:"
     echo "$OUTPUT"
     exit 1
@@ -42,8 +42,10 @@ echo "✅ Empty list verified."
 echo "Test 2: List plugins"
 if [ -f "$COWEN_BUILD_DIR/$PLUGIN_NAME" ]; then
     cp "$COWEN_BUILD_DIR/$PLUGIN_NAME" "$PLUGIN_PATH"
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
 else
     cp "$COWEN_BUILD_DIR/deps/$PLUGIN_NAME" "$PLUGIN_PATH"
+    cp "$COWEN_BUILD_DIR/deps/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
 fi
 
 OUTPUT=$("$COWEN_BIN" plugins list --profile main)

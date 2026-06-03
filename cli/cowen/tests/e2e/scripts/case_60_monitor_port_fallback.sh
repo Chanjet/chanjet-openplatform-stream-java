@@ -22,7 +22,7 @@ try:
     s.bind(('127.0.0.1', $TEST_PORT))
     s.listen(1)
     print("Dummy process bound to $TEST_PORT")
-    time.sleep(30)
+    time.sleep(300)
 except Exception as e:
     print(f"Dummy process failed: {e}")
 EOF
@@ -66,7 +66,7 @@ wait_for_daemon main 10
 assert_pass "Daemon is running and healthy"
 
 echo -e "${BOLD}4. Verify Monitor Port in Config${NC}"
-ACTUAL_PORT=$("$COWEN_BIN" config -o json | grep '"monitor_port"' | awk -F': ' '{print $2}' | tr -d ',')
+ACTUAL_PORT=$(grep "MONITOR_PORT=" "$COWEN_HOME/master_daemon.pid" | cut -d= -f2)
 
 if [ "$ACTUAL_PORT" == "$TEST_PORT" ]; then
     kill $PY_PID || true
@@ -92,6 +92,7 @@ sleep 1
 "$COWEN_BIN" config set monitor_port $TEST_PORT --global >/dev/null
 
 echo -e "${BOLD}6. Daemon Startup without Fallback (Non-first time)${NC}"
+unset COWEN_ALLOW_PORT_FALLBACK
 # The daemon should fail because $TEST_PORT is occupied and fallback is not allowed
 "$COWEN_BIN" daemon start --profile main >/dev/null 2>&1 || true
 sleep 2

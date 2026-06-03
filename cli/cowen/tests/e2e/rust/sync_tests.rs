@@ -7,7 +7,7 @@ use predicates::prelude::*;
 #[tokio::test(flavor = "multi_thread")]
 async fn test_daemon_version_sync_restart() {
     let profile = "sync_test_profile";
-    let (dir, home) = setup_test_env(profile, "self-built", "http://localhost:12345");
+    let (dir, home, _killer) = setup_test_env(profile, "self-built", "http://localhost:12345");
     let bin_dir = dir.path().join("bin");
     let exe_suffix = std::env::consts::EXE_SUFFIX;
     let cowen_bin = bin_dir.join(format!("cowen{}", exe_suffix));
