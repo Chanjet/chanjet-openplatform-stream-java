@@ -27,7 +27,7 @@ cleanup() {
     pkill -f "$TEST_PROFILE" || true
     cleanup_suite
 }
-trap cleanup EXIT
+# trap cleanup EXIT
 
 check_profile_absent() {
     local prof=$1
@@ -63,7 +63,8 @@ INIT_PID=$!
 # Wait for it to create the profile and start listening
 sleep 3
 echo "   Simulating Ctrl+C on PID $INIT_PID..."
-kill -INT $INIT_PID || true
+kill -TERM $INIT_PID || true
+wait $INIT_PID || true
 sleep 1
 
 check_profile_absent "${TEST_PROFILE}_oauth"

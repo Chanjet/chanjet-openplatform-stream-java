@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::daemon::DaemonService;
 use crate::{CowenError, CowenResult};
 use async_trait::async_trait;
@@ -37,7 +36,8 @@ pub struct ApiResponseDto {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DaemonRequest {
-    StartWorker { profile: String, config: Config, app_secret: String, certificate: String, encrypt_key: String },
+    StartWorker { profile: String },
+    StartAllWorkers,
     StopWorker { profile: String },
     StopAllWorkers,
     ReloadWorker { profile: String },
@@ -86,6 +86,23 @@ pub enum DaemonRequest {
         key: String,
         value: String,
     },
+    GetConfig {
+        profile: String,
+        key: String,
+    },
+    ListConfig {
+        profile: String,
+        format: String,
+        all: bool,
+    },
+    SetConfig {
+        profile: String,
+        key: String,
+        value: String,
+    },
+    #[serde(rename = "store_status")]
+    StoreStatus,
+    #[serde(rename = "system_status")]
     SystemStatus {
         profile: String,
         all: bool,
@@ -147,6 +164,8 @@ pub enum DaemonResponse {
     TokenData { token_json: String },
     DlqData { json: String },
     SystemStatusData { json: String },
+    #[serde(rename = "store_status_data")]
+    StoreStatusData { json: String },
     AuditData { content: String },
     ApiListData { total: usize, json: String, plugin_used: Option<String> },
     ApiSpecData { json: String },
@@ -166,7 +185,7 @@ pub mod client {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
 
-    async fn connect_to_daemon(port_path: &Path) -> Result<TcpStream> {
+    pub async fn connect_to_daemon(port_path: &Path) -> Result<TcpStream> {
         if !port_path.exists() {
             bail!("Port file missing");
         }
@@ -223,8 +242,8 @@ pub mod client {
                 daemon_path.display()
             ))?;
 
-        // Retry logic: MAX 25 times, 200ms delay, total 5s
-        for _ in 0..25 {
+        // Retry logic: MAX 75 times, 200ms delay, total 15s for heavy CI
+        for _ in 0..75 {
             tokio::time::sleep(Duration::from_millis(200)).await;
             if let Ok(stream) = connect_to_daemon(port_path).await {
                 return Ok(stream);
@@ -399,6 +418,10 @@ pub mod client {
             }).await
         }
 
+        pub async fn store_status(&self) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::StoreStatus).await
+        }
+
         pub async fn system_reset(&self, profile: Option<&str>, dry_run: bool) -> CowenResult<DaemonResponse> {
             self.request(DaemonRequest::SystemReset {
                 profile: profile.map(|s| s.to_string()),
@@ -442,6 +465,29 @@ pub mod client {
             }).await
         }
 
+        pub async fn get_config(&self, profile: &str, key: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::GetConfig {
+                profile: profile.to_string(),
+                key: key.to_string(),
+            }).await
+        }
+
+        pub async fn list_config(&self, profile: &str, format: &str, all: bool) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::ListConfig {
+                profile: profile.to_string(),
+                format: format.to_string(),
+                all,
+            }).await
+        }
+
+        pub async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<DaemonResponse> {
+            self.request(DaemonRequest::SetConfig {
+                profile: profile.to_string(),
+                key: key.to_string(),
+                value: value.to_string(),
+            }).await
+        }
+
         pub async fn set_global_config(&self, key: &str, value: &str) -> CowenResult<DaemonResponse> {
             self.request(DaemonRequest::SetGlobalConfig {
                 key: key.to_string(),
@@ -450,6 +496,10 @@ pub mod client {
         }
 
         async fn request(&self, req: DaemonRequest) -> CowenResult<DaemonResponse> {
+            if std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_err() {
+                let _ = ensure_daemon(&self.port_path).await;
+            }
+
             let token_path = self.port_path.with_file_name("ipc.token");
             let token = std::fs::read_to_string(&token_path).unwrap_or_default();
             
@@ -506,20 +556,24 @@ pub mod client {
         async fn start_daemon(
             &self,
             profile: &str,
-            config: &Config,
         ) -> CowenResult<()> {
             let _ = ensure_daemon(&self.port_path).await.map_err(|e| CowenError::api(e.to_string()))?;
 
             let res = self
                 .request(DaemonRequest::StartWorker {
                     profile: profile.to_string(),
-                    config: config.clone(),
-                    app_secret: config.app_secret.clone(),
-                    certificate: config.certificate.clone(),
-                    encrypt_key: config.encrypt_key.clone(),
                 })
                 .await?;
 
+            if let DaemonResponse::Error { message, .. } = res {
+                return Err(CowenError::api(message));
+            }
+            Ok(())
+        }
+
+        async fn start_all(&self) -> CowenResult<()> {
+            let _ = ensure_daemon(&self.port_path).await.map_err(|e| CowenError::api(e.to_string()))?;
+            let res = self.request(DaemonRequest::StartAllWorkers).await?;
             if let DaemonResponse::Error { message, .. } = res {
                 return Err(CowenError::api(message));
             }

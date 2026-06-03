@@ -704,7 +704,7 @@ impl ConfigManager {
         let app_cfg = self.load_app_config().await?;
         let mut global_json = serde_json::to_value(&app_cfg)?;
 
-        let sensitive_fields = ["app_secret", "certificate", "encrypt_key"];
+        let sensitive_fields = ["app_secret", "certificate", "encrypt_key", "db_url"];
         self.mask_value(&mut global_json, &sensitive_fields);
 
         let mut global_map = std::collections::BTreeMap::new();
@@ -734,7 +734,7 @@ impl ConfigManager {
         let config = self.load(profile).await?;
         let mut profile_json = serde_json::to_value(&config)?;
 
-        let sensitive_fields = ["app_secret", "certificate", "encrypt_key"];
+        let sensitive_fields = ["app_secret", "certificate", "encrypt_key", "db_url"];
         self.mask_value(&mut profile_json, &sensitive_fields);
 
         let mut profile_map = std::collections::BTreeMap::new();

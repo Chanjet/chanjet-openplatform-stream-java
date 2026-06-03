@@ -345,7 +345,7 @@ impl OAuth2Provider {
                 // 🚀 OCP: Auto-start daemon after successful authorization
                 if let Some(ds) = daemon_service {
                     tracing::info!(target: "sys", "Triggering background daemon startup after successful OAuth2 exchange");
-                    let _ = ds.start_daemon(profile, cfg).await;
+                    let _ = ds.start_daemon(profile).await;
                 }
 
                 Ok(())
@@ -654,7 +654,7 @@ impl AuthProvider for OAuth2Provider {
         // 8. Automatically start the daemon (OCP: Consistent experience across all modes)
         if params.auto_start {
             if let Some(ds) = &daemon_service {
-                let _ = ds.start_daemon(profile, config).await;
+                let _ = ds.start_daemon(profile).await;
             }
         }
 

@@ -1,4 +1,3 @@
-use cowen_common::ipc::client::IpcDaemonService;
 use cowen_common::ipc::DaemonResponse;
 
 pub struct InitContext {
@@ -19,87 +18,13 @@ pub async fn execute(
 ) -> anyhow::Result<()> {
     println!("\n🚀 Initializing profile: \x1b[1;32m{}\x1b[0m", profile);
     
-    let mode_str = ctx.app_mode.clone().unwrap_or_else(|| "oauth2".to_string());
-    if mode_str == "oauth2" {
-        // Run oauth2 flow locally on the CLI side
-        use cowen_common::models::AuthMode;
-        
-        let app_dir = cowen_common::config::get_app_dir();
-        let cfg_mgr = cowen_config::ConfigManager::new().map_err(|e| anyhow::anyhow!(e))?;
-        
-        let mut config = match cfg_mgr.load(profile).await {
-            Ok(c) => c,
-            Err(_) => cowen_common::Config::default_with_profile(profile),
-        };
-        config.app_mode = AuthMode::Oauth2;
-        
-        let mut app_cfg = cfg_mgr.load_app_config().await?;
-        let mut app_changed = false;
-        if let Some(url) = &ctx.openapi_url {
-            app_cfg.openapi_url = url.clone();
-            app_changed = true;
-        }
-        if let Some(url) = &ctx.stream_url {
-            app_cfg.stream_url = url.clone();
-            app_changed = true;
-        }
-        if app_changed {
-            let _ = cfg_mgr.save_app_config(&app_cfg).await;
-        }
-        let fingerprint = cowen_common::security::get_machine_fingerprint()?;
-        let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await?;
-        
-        let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
-        let provider = auth_cli.provider(&AuthMode::Oauth2);
-        
-        let is_new = !cfg_mgr.exists(profile).await;
-        struct CleanupGuard {
-            path: std::path::PathBuf,
-            should_cleanup: bool,
-        }
-        impl Drop for CleanupGuard {
-            fn drop(&mut self) {
-                if self.should_cleanup {
-                    let _ = std::fs::remove_file(&self.path);
-                }
-            }
-        }
-        let profile_path = app_dir.join(format!("{}.yaml", profile));
-        let mut cleanup_guard = CleanupGuard {
-            path: profile_path,
-            should_cleanup: is_new,
-        };
-
-        let params = cowen_auth::provider::InitParams {
-            app_key: ctx.app_key,
-            app_secret: ctx.app_secret,
-            certificate: ctx.certificate,
-            encrypt_key: ctx.encrypt_key,
-            webhook_target: ctx.webhook_target,
-            openapi_url: ctx.openapi_url,
-            stream_url: ctx.stream_url,
-            proxy_port: ctx.proxy_port,
-            auto_start: true,
-            is_new,
-        };
-        
-        provider.initialize(profile, &mut config, vault.clone(), &cfg_mgr, params, None).await?;
-        cleanup_guard.should_cleanup = false;
-        
-        let _ = cfg_mgr.set_default_profile(profile);
-        println!("✅ Profile {} initialized", profile);
-        println!("✅ Active profile switched to '{}'", profile);
-        
-        let _ = crate::cmd::completion::install_completion(None);
-        return Ok(());
-    }
-
-    // Fallback for self_built / sidecar modes using IPC
+    // Ensure the daemon is running before initialization so we can start the worker after via IPC
     let port_path = cowen_common::ipc::get_ipc_port_path();
     let _ = cowen_common::ipc::client::ensure_daemon(&port_path).await
         .map_err(|e| anyhow::anyhow!("Failed to ensure daemon is running for init: {}", e))?;
-
-    let ipc = IpcDaemonService::new(port_path);
+        
+    let ipc = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+    
     match ipc.init_profile(
         profile,
         ctx.app_key,
@@ -109,11 +34,40 @@ pub async fn execute(
         ctx.webhook_target,
         ctx.openapi_url,
         ctx.stream_url,
-        ctx.app_mode,
+        ctx.app_mode.clone(),
         ctx.proxy_port,
     ).await {
         Ok(DaemonResponse::Success { message }) => {
             println!("✅ {}", message);
+            
+            // Run login flow interactively for supported modes
+            let mode_str = ctx.app_mode.clone().unwrap_or_else(|| "self_built".to_string()).to_lowercase().replace("-", "_");
+            if mode_str == "oauth2" {
+                let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+                let login_result = tokio::select! {
+                    res = crate::cmd::auth::login(profile, false) => res,
+                    _ = tokio::signal::ctrl_c() => {
+                        eprintln!("\n❌ Initialization cancelled (SIGINT). Cleaning up...");
+                        Err(anyhow::anyhow!("Initialization cancelled"))
+                    }
+                    _ = sigterm.recv() => {
+                        eprintln!("\n❌ Initialization cancelled (SIGTERM). Cleaning up...");
+                        Err(anyhow::anyhow!("Initialization cancelled"))
+                    }
+                };
+
+                if login_result.is_err() {
+                    // Clean up the profile if initialization failed or was cancelled
+                    let _ = ipc.stop_daemon(profile).await;
+                    let _ = ipc.system_reset(Some(profile), false).await;
+                    std::process::exit(130);
+                }
+            }
+            
+            // Start the worker since it's a new profile
+            use cowen_common::daemon::DaemonService;
+            let _ = ipc.start_daemon(profile).await;
+            
             let _ = crate::cmd::completion::install_completion(None);
             println!("✅ Active profile switched to '{}'", profile);
             Ok(())

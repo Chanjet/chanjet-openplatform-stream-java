@@ -81,16 +81,13 @@ if [ "$EXIT_CODE" != "0" ]; then
     fail_suite "Init did not exit with code 0"
 fi
 
-# Verify init output contains IPC detection message
-if ! grep -q "Detected running Master Daemon. Using IPC-based authorization" "$TEST_BASE/init_output.log"; then
-    cat "$TEST_BASE/init_output.log"
-    fail_suite "Init did not detect running daemon or use IPC path"
-fi
+# Verify IPC Forwarding and Progress
+# (The CLI is now a pure dumb client, so it ALWAYS uses IPC and does not print the detection message anymore)
 
-# Confirm callback was received locally
-if ! grep -q "Callback received" "$TEST_BASE/init_output.log"; then
+# Confirm login was successful
+if ! grep -q "Login successful" "$TEST_BASE/init_output.log"; then
     cat "$TEST_BASE/init_output.log"
-    fail_suite "Init did not receive callback locally"
+    fail_suite "Init did not complete login successfully"
 fi
 
 echo "--- Test 5: Verify Token in Vault ---"

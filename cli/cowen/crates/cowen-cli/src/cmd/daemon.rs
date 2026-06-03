@@ -1,17 +1,14 @@
-use cowen_common::config::Config;
-use cowen_config::ConfigManager;
+
 use anyhow::Result;
 use std::process::Command;
 use cowen_common::daemon::DaemonService;
 
 pub async fn start(
     profile: &str,
-    config: &Config,
-    _proxy_port: u16,
-    _enable_proxy: bool,
+    proxy_port: Option<u16>,
+    enable_proxy: Option<bool>,
     foreground: bool,
     all: bool,
-    cfg_mgr: &ConfigManager,
 ) -> Result<()> {
     let port_path = cowen_common::ipc::get_ipc_port_path();
 
@@ -20,10 +17,19 @@ pub async fn start(
         let _ = cowen_common::ipc::client::ensure_daemon(&port_path).await?;
         let ipc_client = cowen_common::ipc::client::IpcDaemonService::new(port_path);
         
-        let target_profiles = if all { cfg_mgr.list_profiles().await? } else { vec![profile.to_string()] };
-        for p in target_profiles {
-            let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| Config::default_with_profile(&p)) };
-            if let Err(e) = ipc_client.start_daemon(&p, &p_cfg).await {
+        if let Some(p) = proxy_port {
+            let _ = ipc_client.set_config(profile, "proxy_port", &p.to_string()).await;
+        }
+        if let Some(e) = enable_proxy {
+            let _ = ipc_client.set_config(profile, "proxy_enabled", if e { "true" } else { "false" }).await;
+        }
+
+        if all {
+            if let Err(e) = ipc_client.start_all().await {
+                eprintln!("⚠️ Failed to send start_all command to daemon: {}", e);
+            }
+        } else {
+            if let Err(e) = ipc_client.start_daemon(profile).await {
                 eprintln!("⚠️ Failed to send start command to daemon: {}", e);
             }
         }
@@ -48,10 +54,24 @@ pub async fn start(
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         
         let ipc_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
-        let target_profiles = if all { cfg_mgr.list_profiles().await? } else { vec![profile.to_string()] };
+        
+        // Wait for daemon to become available (up to 15s for heavily loaded CI)
+        let mut retries = 30;
+        while retries > 0 && ipc_client.ping().await.is_err() {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            retries -= 1;
+        }
+
+        if let Some(p) = proxy_port {
+            let _ = ipc_client.set_config(profile, "proxy_port", &p.to_string()).await;
+        }
+        if let Some(e) = enable_proxy {
+            let _ = ipc_client.set_config(profile, "proxy_enabled", if e { "true" } else { "false" }).await;
+        }
+
+        let target_profiles = if all { vec![] } else { vec![profile.to_string()] }; // if all, daemon already auto started
         for p in target_profiles {
-            let p_cfg = if p == profile { config.clone() } else { cfg_mgr.load(&p).await.unwrap_or_else(|_| Config::default_with_profile(&p)) };
-            if let Err(e) = ipc_client.start_daemon(&p, &p_cfg).await {
+            if let Err(e) = ipc_client.start_daemon(&p).await {
                 eprintln!("⚠️ Failed to send start command to daemon: {}", e);
             }
         }
@@ -82,14 +102,14 @@ pub async fn start(
     Ok(())
 }
 
-pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<()> {
+pub async fn stop(profile: &str, all: bool) -> Result<()> {
     let port_path = cowen_common::ipc::get_ipc_port_path();
     if !port_path.exists() {
         eprintln!("✅ No running daemon found.");
         return Ok(());
     }
 
-    let mut client = match cowen_common::ipc::client::ensure_daemon(&port_path).await {
+    let mut client = match cowen_common::ipc::client::connect_to_daemon(&port_path).await {
         Ok(c) => c,
         Err(_) => {
             eprintln!("✅ Daemon is not running (or socket is stale).");
@@ -123,13 +143,11 @@ pub async fn stop(profile: &str, all: bool, _cfg_mgr: &ConfigManager) -> Result<
 
 pub async fn restart(
     profile: &str,
-    config: &Config,
-    proxy_port: u16,
-    enable_proxy: bool,
+    proxy_port: Option<u16>,
+    enable_proxy: Option<bool>,
     all: bool,
-    cfg_mgr: &ConfigManager,
 ) -> Result<()> {
-    stop(profile, all, cfg_mgr).await?;
+    stop(profile, all).await?;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    start(profile, config, proxy_port, enable_proxy, false, all, cfg_mgr).await
+    start(profile, proxy_port, enable_proxy, false, all).await
 }

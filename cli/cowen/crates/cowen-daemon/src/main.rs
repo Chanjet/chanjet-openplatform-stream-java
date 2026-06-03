@@ -203,9 +203,8 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     if auto_start_all {
         if let Ok(profiles) = cfg_mgr.list_profiles().await {
             for p in profiles {
-                let p_cfg = cfg_mgr.load(&p).await.unwrap_or_else(|_| cowen_common::config::Config::default_with_profile(&p));
                 info!("Auto-starting worker for profile: {}", p);
-                if let Err(e) = daemon_svc.start_daemon(&p, &p_cfg).await {
+                if let Err(e) = daemon_svc.start_daemon(&p).await {
                     error!("Failed to auto-start worker for profile {}: {}", p, e);
                 }
             }
@@ -287,13 +286,17 @@ async fn handle_connection(
         DaemonRequest::Ping => {
             DaemonResponse::Pong
         }
-        DaemonRequest::StartWorker { profile, mut config, app_secret, certificate, encrypt_key } => {
-            config.app_secret = app_secret;
-            config.certificate = certificate;
-            config.encrypt_key = encrypt_key;
+        DaemonRequest::StartWorker { profile } => {
             info!("StartWorker requested for {}", profile);
-            match svc.start_daemon(&profile, &config).await {
+            match svc.start_daemon(&profile).await {
                 Ok(_) => DaemonResponse::Success { message: format!("Worker {} started", profile) },
+                Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
+            }
+        }
+        DaemonRequest::StartAllWorkers => {
+            info!("StartAllWorkers requested");
+            match svc.start_all().await {
+                Ok(_) => DaemonResponse::Success { message: "All workers started".to_string() },
                 Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
             }
         }
@@ -334,7 +337,7 @@ async fn handle_connection(
             proxy_port,
         } => {
             info!("InitProfile requested for {}", profile);
-            let is_new = !cfg_mgr.exists(&profile).await;
+            let _is_new = !cfg_mgr.exists(&profile).await;
             
             let mode_str = app_mode.unwrap_or_else(|| "self_built".to_string());
             let mode = match mode_str.parse::<cowen_common::models::AuthMode>() {
@@ -362,8 +365,26 @@ async fn handle_connection(
                 Ok(c) => c,
                 Err(_) => cowen_common::Config::default_with_profile(&profile),
             };
-            config.app_mode = mode;
+            config.app_mode = mode.clone();
 
+            if mode == cowen_common::models::AuthMode::Oauth2 {
+                config.app_key = cowen_auth::models::BUILTIN_CLIENT_ID.to_string();
+                config.app_secret = "".to_string();
+            } else {
+                if let Some(ak) = &app_key { config.app_key = ak.clone(); }
+                if let Some(as_) = &app_secret { config.app_secret = as_.clone(); }
+            }
+            if let Some(ref wt) = webhook_target { config.webhook_target = wt.clone(); }
+            if let Some(pp) = proxy_port { config.proxy_port = pp; }
+
+            let mut app_config = cfg_mgr.load_app_config().await.unwrap_or_default();
+            if let Some(url) = &openapi_url {
+                app_config.openapi_url = url.clone();
+            }
+            if let Some(url) = &stream_url {
+                app_config.stream_url = url.clone();
+            }
+            let _ = cfg_mgr.save_app_config(&app_config).await;
             let params = cowen_auth::provider::InitParams {
                 app_key: app_key.clone(),
                 app_secret: app_secret.clone(),
@@ -374,24 +395,25 @@ async fn handle_connection(
                 stream_url: stream_url.clone(),
                 proxy_port: proxy_port,
                 auto_start: true,
-                is_new,
+                is_new: _is_new,
             };
 
-            let mut app_config = cfg_mgr.load_app_config().await.unwrap_or_default();
-            if let Some(url) = &openapi_url {
-                app_config.openapi_url = url.clone();
-            }
-            if let Some(url) = &stream_url {
-                app_config.stream_url = url.clone();
-            }
-            let _ = cfg_mgr.save_app_config(&app_config).await;
-
-            match provider.initialize(&profile, &mut config, vault.clone(), &cfg_mgr, params, Some(svc.clone())).await {
-                Ok(_) => {
-                    let _ = cfg_mgr.set_default_profile(&profile);
-                    DaemonResponse::Success { message: format!("Profile {} initialized", profile) }
+            if mode == cowen_common::models::AuthMode::Oauth2 {
+                match cfg_mgr.save(&profile, &mut config).await {
+                    Ok(_) => {
+                        let _ = cfg_mgr.set_default_profile(&profile);
+                        DaemonResponse::Success { message: format!("Profile {} initialized", profile) }
+                    }
+                    Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
                 }
-                Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
+            } else {
+                match provider.initialize(&profile, &mut config, vault.clone(), &cfg_mgr, params, Some(svc.clone())).await {
+                    Ok(_) => {
+                        let _ = cfg_mgr.set_default_profile(&profile);
+                        DaemonResponse::Success { message: format!("Profile {} initialized", profile) }
+                    }
+                    Err(e) => DaemonResponse::Error { code: 500, message: e.to_string() }
+                }
             }
         }
         DaemonRequest::CallApi { profile, method, path, data, force } => {
@@ -694,14 +716,96 @@ async fn handle_connection(
         }
         DaemonRequest::GetGlobalConfig => {
             info!("GetGlobalConfig requested");
+            let app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
+            let json = serde_json::to_string(&app_cfg).unwrap_or_else(|_| "{}".to_string());
             DaemonResponse::ConfigData {
-                config_json: "{}".to_string(),
+                config_json: json,
             }
         }
         DaemonRequest::SetGlobalConfig { key, value } => {
             info!("SetGlobalConfig requested for {}={}", key, value);
             DaemonResponse::Success {
                 message: "Global config set".to_string(),
+            }
+        }
+        DaemonRequest::GetConfig { profile, key } => {
+            info!("GetConfig requested for profile: {} key: {}", profile, key);
+            match cfg_mgr.get_value(&profile, &key).await {
+                Ok(val) => {
+                    let json = serde_json::to_string(&val).unwrap_or_else(|_| "{}".to_string());
+                    DaemonResponse::ConfigData {
+                        config_json: json,
+                    }
+                }
+                Err(e) => DaemonResponse::Error {
+                    message: format!("Failed to load config: {}", e),
+                    code: 500,
+                },
+            }
+        }
+        DaemonRequest::ListConfig { profile, format, all } => {
+            info!("ListConfig requested for profile: {}, format: {}, all: {}", profile, format, all);
+            if format == "json" || format == "yaml" {
+                match if all {
+                    cfg_mgr.list_all_values().await
+                } else {
+                    cfg_mgr.list_values(&profile).await
+                } {
+                    Ok(val) => {
+                        let out = if format == "json" {
+                            serde_json::to_string_pretty(&val).unwrap_or_else(|_| "{}".to_string())
+                        } else {
+                            serde_yaml::to_string(&val).unwrap_or_else(|_| "{}".to_string())
+                        };
+                        DaemonResponse::Success { message: out }
+                    }
+                    Err(e) => DaemonResponse::Error {
+                        message: format!("Failed to list config: {}", e),
+                        code: 500,
+                    },
+                }
+            } else {
+                let mut out = String::new();
+                let profiles_to_show = if all {
+                    let mut list = cfg_mgr.list_local_profiles().unwrap_or_default();
+                    list.sort();
+                    list
+                } else {
+                    vec![profile.to_string()]
+                };
+
+                let mut print_block = |title: &str, fields: Vec<cowen_config::config_manager::ConfigFieldDisplay>| {
+                    out.push_str(&format!("\n{}\n", title));
+                    out.push_str("-------------------------------------------------------------------------\n");
+                    for field in fields {
+                        let key = if field.readonly { format!("{} 🔒", field.key) } else { field.key };
+                        out.push_str(&format!("{:<20} : {}\n", key, field.value));
+                    }
+                };
+
+                if let Ok(global_fields) = cfg_mgr.get_global_display().await {
+                    print_block("🌐 Global Configuration (app.yaml) - `cowen config set <key> <value> --global`", global_fields);
+                }
+
+                for p in profiles_to_show {
+                    if let Ok(profile_fields) = cfg_mgr.get_profile_display(&p).await {
+                        print_block(&format!("👤 Profile Configuration ({}.yaml) - `cowen config set <key> <value>`", p), profile_fields);
+                    }
+                }
+                
+                DaemonResponse::Success { message: out }
+            }
+        }
+        DaemonRequest::SetConfig { profile, key, value } => {
+            info!("SetConfig requested for profile: {} key={} value={}", profile, key, value);
+            match cfg_mgr.set_value(&profile, &key, &value).await {
+                Ok(_) => DaemonResponse::Success {
+                    message: format!("Successfully set {} in {}", key, profile),
+                },
+                Err(e) => DaemonResponse::Error {
+                    message: format!("Failed to set config: {}", e),
+                    code: 500,
+                },
             }
         }
 
@@ -796,6 +900,11 @@ async fn handle_connection(
             
             let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
             DaemonResponse::SystemStatusData { json }
+        }
+        DaemonRequest::StoreStatus => {
+            let app_config = cfg_mgr.load_app_config().await.unwrap_or_default();
+            let json = serde_json::to_string(&app_config.storage).unwrap_or_else(|_| "{}".to_string());
+            DaemonResponse::StoreStatusData { json }
         }
         DaemonRequest::SystemReset { profile, dry_run } => {
             if dry_run {

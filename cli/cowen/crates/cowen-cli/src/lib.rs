@@ -1,7 +1,7 @@
 pub(crate) mod cmd;
 
 use clap::Parser;
-use cowen_config::ConfigManager;
+
 use cowen_common::utils::get_bin_name;
 use anyhow::Result;
 use std::io::Write;
@@ -490,49 +490,60 @@ pub enum AuditCommands {
     },
 }
 
+async fn get_all_profiles(active_profile: &str) -> Vec<String> {
+    let app_dir = cowen_common::config::get_app_dir();
+    let mut profiles = std::collections::HashSet::new();
+    profiles.insert("default".to_string());
+    if let Ok(entries) = std::fs::read_dir(&app_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
+                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    if !name.contains("_openapi") && name != "app" {
+                        profiles.insert(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let port_path = cowen_common::ipc::get_ipc_port_path();
+    let ipc = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+    if let Ok(cowen_common::ipc::DaemonResponse::SystemStatusData { json }) = ipc.system_status(active_profile, true).await {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json) {
+            if let Some(arr) = val.as_array() {
+                for item in arr {
+                    if let Some(p) = item.get("profile").and_then(|v| v.as_str()) {
+                        profiles.insert(p.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    let mut profiles: Vec<String> = profiles.into_iter().collect();
+    profiles.sort();
+    profiles
+}
+
 pub async fn run(cli: Cli) -> Result<()> {
     let _bin_name = get_bin_name();
 
 
-    // 2. Load Config to get Log Settings
-    let cfg_mgr = ConfigManager::new().map_err(|e| anyhow::anyhow!(e))?;
-    let _ = cfg_mgr.auto_migrate().await;
-    let mut app_config = cfg_mgr.load_app_config().await.map_err(|e| anyhow::anyhow!(e))?;
-
-    // 🚀 SYNC: Initialize Vault in CLI client and register it with ConfigManager
-    // This allows the CLI to load profile manifests from distributed storage (e.g. SQLite/Postgres)
-    let app_dir = cowen_common::config::get_app_dir();
-    let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
-    let vault = cowen_store::create_vault(&app_config, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!("Failed to init Vault: {}", e))?;
-    let _ = cfg_mgr.set_vault(vault.clone());
-
-    let mut active_profile = cli.profile.clone().unwrap_or_else(|| cfg_mgr.get_default_profile());
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_common::ipc::client::IpcDaemonService::new(port_path));
-
-    if matches!(&cli.command, Commands::Init { .. })
-        && cli.profile.is_none() {
-            active_profile = cfg_mgr.get_next_profile_name().await.map_err(|e| anyhow::anyhow!(e))?;
-            println!("🪄 No profile name provided. Automatically generating new profile: \x1b[1;32m{}\x1b[0m", active_profile);
-        }
-    
-    let mut config = match cfg_mgr.load(&active_profile).await {
-        Ok(cfg) => cfg,
-        Err(e) if e.to_string().contains("SKIPPED:") => return Err(anyhow::anyhow!(e)),
-        Err(e) => {
-            let is_lifecycle_cmd = matches!(&cli.command, Commands::Reset { .. } | Commands::Init { .. } | Commands::Profile { .. });
-            if cfg_mgr.exists(&active_profile).await && !is_lifecycle_cmd {
-                return Err(anyhow::anyhow!("Failed to load existing profile '{}': {}. Try 'cowen reset -p {}' if the config is corrupted.", active_profile, e, active_profile));
+        let active_profile = cli.profile.clone().unwrap_or_else(|| {
+        let home = std::env::var("COWEN_HOME").unwrap_or_else(|_| {
+            if let Some(user_dirs) = directories::UserDirs::new() {
+                user_dirs.home_dir().join(".cowen").to_string_lossy().to_string()
+            } else {
+                ".cowen".to_string()
             }
-            cowen_common::Config::default_with_profile(&active_profile)
-        }
-    };
-
-    config.apply_env_overrides();
-
-    let mut app_cfg = cfg_mgr.load_app_config().await.unwrap_or_default();
-    
-    if cli.no_telemetry { app_cfg.telemetry_enabled = false; }
+        });
+        std::fs::read_to_string(std::path::Path::new(&home).join("current_profile"))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|_| "default".to_string())
+    });
+    let port_path = cowen_common::ipc::get_ipc_port_path();
+    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_common::ipc::client::IpcDaemonService::new(port_path.clone()));
 
     tracing::info!(target: "sys", "cowen starting (version {})", env!("CARGO_PKG_VERSION"));
 
@@ -565,11 +576,11 @@ pub async fn run(cli: Cli) -> Result<()> {
     if let Commands::Store { action } = &cli.command {
         match action {
             StoreCommands::Set { store, db_url, cache, cache_url } => {
-                cmd::store::set(&mut app_config, &cfg_mgr, store, db_url, cache, cache_url).await?;
+                cmd::store::set(store, db_url, cache, cache_url).await?;
                 return Ok(());
             }
             StoreCommands::Status => {
-                cmd::store::status(&app_config).await?;
+                cmd::store::status().await?;
                 return Ok(());
             }
             _ => {} 
@@ -577,7 +588,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     }
 
     if let Commands::Store { action: StoreCommands::Migrate { to, mode } } = &cli.command {
-        cmd::store::migrate(&cfg_mgr, to, mode.clone(), daemon_svc.clone()).await?;
+        cmd::store::migrate(to, mode.clone()).await?;
         return Ok(());
     }
 
@@ -595,7 +606,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     
     if !skip_version_sync {
-        cmd::system::enforce_daemon_version_sync(&active_profile, &cfg_mgr).await?;
+        cmd::system::enforce_daemon_version_sync(&active_profile).await?;
     }
 
     // 2. Auto-recovery: "确保必要的后台进程正在运行"
@@ -610,7 +621,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
     
     if !skip_recovery {
-        cmd::system::ensure_daemon_running(&active_profile, &config, &cfg_mgr).await?;
+        cmd::system::ensure_daemon_running(&active_profile).await?;
     }
 
     match &cli.command {
@@ -691,20 +702,14 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Auth { action } => match action {
-            AuthCommands::Status => cmd::system::status(&active_profile, &cfg_mgr, &cli.format, false).await?,
+            AuthCommands::Status => cmd::system::status(&active_profile, &cli.format, false).await?,
             AuthCommands::Reset | AuthCommands::Logout => cmd::auth::logout(&active_profile).await?,
-            AuthCommands::Login { force, manual, finalize } => {
+            AuthCommands::Login { force, manual, finalize: _ } => {
                 if *manual {
                     std::env::set_var("COWEN_SKIP_BROWSER", "true");
                 }
-                if let Some(ref session_id) = finalize {
-                    use cowen_auth::client::Client;
-                    let auth_cli = cowen_auth::create_auth_client_with_vault(vault.clone());
-                    auth_cli.perform_login(&active_profile, &config, *force, Some(session_id), Some(daemon_svc.clone())).await
-                        .map_err(|e| anyhow::anyhow!("Finalize failed: {}", e))?;
-                } else {
-                    cmd::auth::login(&active_profile, *force).await?;
-                }
+                
+                cmd::auth::login(&active_profile, *force).await?;
             },
             AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &cli.format, *refresh).await?,
             AuthCommands::Reload => {
@@ -722,47 +727,31 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Commands::Daemon { action } => match action {
             DaemonCommands::Start { proxy_port, monitor_port, enable_proxy, no_proxy, foreground, all } => {
-                let mut updated_config = config.clone();
-                let mut changed = false;
-                if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
-                if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
-                else if *no_proxy && updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; }
+                let mut e_opt = None;
+                if *enable_proxy { e_opt = Some(true); }
+                else if *no_proxy { e_opt = Some(false); }
                 
                 if let Some(m) = monitor_port {
-                    let mut app_cfg = cfg_mgr.load_app_config().await?;
-                    if app_cfg.monitor_port != *m {
-                        app_cfg.monitor_port = *m;
-                        cfg_mgr.save_app_config(&app_cfg).await?;
-                    }
+                    let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+                    let _ = daemon_client.set_global_config("monitor_port", &m.to_string()).await;
                 }
 
-                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
-                
-                cmd::daemon::start(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *foreground, *all, &cfg_mgr).await?;
+                cmd::daemon::start(&active_profile, *proxy_port, e_opt, *foreground, *all).await?;
             }
-            DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all, &cfg_mgr).await?,
+            DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all).await?,
             DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {
-                let mut updated_config = config.clone();
-                let mut changed = false;
-                if let Some(p) = proxy_port { if updated_config.proxy_port != *p { updated_config.proxy_port = *p; changed = true; } }
-                if *enable_proxy { if !updated_config.proxy_enabled { updated_config.proxy_enabled = true; changed = true; } }
-                else if *no_proxy && updated_config.proxy_enabled { updated_config.proxy_enabled = false; changed = true; }
-                if changed && !*all { cfg_mgr.save(&active_profile, &mut updated_config).await.map_err(|e| anyhow::anyhow!(e))?; }
-                cmd::daemon::restart(&active_profile, &updated_config, updated_config.proxy_port, updated_config.proxy_enabled, *all, &cfg_mgr).await?;
+                let mut e_opt = None;
+                if *enable_proxy { e_opt = Some(true); }
+                else if *no_proxy { e_opt = Some(false); }
+                
+                cmd::daemon::restart(&active_profile, *proxy_port, e_opt, *all).await?;
             }
             DaemonCommands::Reload { all } => {
-                let profiles = if *all { cfg_mgr.list_profiles().await? } else { vec![active_profile.clone()] };
-                
-                if let Some(_info) = cowen_common::status::get_active_daemon_info(&active_profile) {
-
-                    for p in profiles {
-                        let _ = daemon_svc.reload_daemon(&p).await;
-                    }
-                } else {
-                    for p in profiles {
-                        let _ = daemon_svc.reload_daemon(&p).await;
-                    }
+                if *all {
+                    eprintln!("⚠️ Reload all is not supported in Dumb Client mode. Reloading current profile only.");
                 }
+                
+                let _ = daemon_svc.reload_daemon(&active_profile).await;
                 println!("✅ Daemon workers reloaded successfully.");
             }
         }
@@ -771,44 +760,66 @@ pub async fn run(cli: Cli) -> Result<()> {
             cmd::doctor::execute(target_prof, *verbose, *fix).await?;
         }
         Commands::Events(args) => cmd::events::execute(args).await?,
-        Commands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, &cli.format, *all).await?,
-        Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cfg_mgr, &cli.format, *all).await? },
+        Commands::Status { all } => cmd::system::status(&active_profile, &cli.format, *all).await?,
+        Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cli.format, *all).await? },
         Commands::Plugins { action } => match action {
-            PluginsCommands::List => cmd::plugins::list(&cfg_mgr).await?,
-            PluginsCommands::Enable { name } => cmd::plugins::enable(&cfg_mgr, name).await?,
-            PluginsCommands::Disable { name } => cmd::plugins::disable(&cfg_mgr, name).await?,
-            PluginsCommands::Install { path } => cmd::plugins::install(&cfg_mgr, path).await?,
-            PluginsCommands::RefreshSignature { name } => cmd::plugins::refresh_signature(&cfg_mgr, name).await?,
+            PluginsCommands::List => cmd::plugins::list().await?,
+            PluginsCommands::Enable { name } => cmd::plugins::enable(name).await?,
+            PluginsCommands::Disable { name } => cmd::plugins::disable(name).await?,
+            PluginsCommands::Install { path } => cmd::plugins::install(path).await?,
+            PluginsCommands::RefreshSignature { name } => cmd::plugins::refresh_signature(name).await?,
         },
         Commands::Config { action, all } => match action {
-            Some(ConfigCommands::Set { key, value, global }) => {
-                if *global {
-                    let global_strategy = cowen_config::strategy::GlobalAppConfigStrategy;
-                    use cowen_config::strategy::ConfigStrategy;
-                    if !global_strategy.matches(key) {
-                        return Err(anyhow::anyhow!("❌ Error: Key '{}' is not a global infrastructure config. Only global configs (e.g. log.level, storage.*, security.*, search.*, monitor_port, openapi_url, stream_url, telemetry_enabled) can be modified globally.", key));
+            Some(ConfigCommands::Set { key, value, global: _ }) => {
+                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+                match daemon_client.set_config(&active_profile, &key, &value).await? {
+                    cowen_common::ipc::DaemonResponse::Success { .. } => {
+                        println!("✅ Successfully sent config update to Daemon: '{}' -> '{}'", key, value);
+                    }
+                    cowen_common::ipc::DaemonResponse::Error { message, .. } => {
+                        eprintln!("⚠️ Failed to set config: {}", message);
+                        std::process::exit(1);
+                    }
+                    _ => {
+                        eprintln!("⚠️ Unexpected response from daemon");
+                        std::process::exit(1);
                     }
                 }
-                cfg_mgr.set_value(&active_profile, key, value).await.map_err(|e| anyhow::anyhow!(e))?;
-                println!("✅ Successfully updated '{}' to '{}'", key, value);
             }
             Some(ConfigCommands::Get { key }) => {
-                let val = cfg_mgr.get_value(&active_profile, key).await.map_err(|e| anyhow::anyhow!(e))?;
-                println!("{}", val);
+                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+                match daemon_client.get_config(&active_profile, &key).await? {
+                    cowen_common::ipc::DaemonResponse::ConfigData { config_json } => {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&config_json) {
+                            match val {
+                                serde_json::Value::Null => {}
+                                serde_json::Value::String(s) => {
+                                    println!("{}", s);
+                                }
+                                _ => {
+                                    println!("{}", val);
+                                }
+                            }
+                        } else {
+                            println!("{}", config_json);
+                        }
+                    }
+                    cowen_common::ipc::DaemonResponse::Error { message, .. } => {
+                        eprintln!("⚠️ Failed to get config: {}", message);
+                    }
+                    _ => eprintln!("⚠️ Unexpected response from daemon"),
+                }
             }
             Some(ConfigCommands::Unset { key }) => {
-                cfg_mgr.unset_value(&active_profile, key).await.map_err(|e| anyhow::anyhow!(e))?;
+                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+                daemon_client.set_config(&active_profile, key, "").await?;
                 println!("✅ Successfully unset '{}'", key);
             }
             Some(ConfigCommands::List) => {
-                let val = cfg_mgr.list_values(&active_profile).await.map_err(|e| anyhow::anyhow!(e))?;
-                if cli.format == "json" {
-                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                } else {
-                    println!("{}", serde_yaml::to_string(&val).unwrap());
-                }
+                let list_format = if cli.format == "text" { "yaml" } else { &cli.format };
+                cmd::system::config(&active_profile, list_format, *all).await?;
             }
-            None => cmd::system::config(&active_profile, &cfg_mgr, &cli.format, *all).await?,
+            None => cmd::system::config(&active_profile, &cli.format, *all).await?,
         },
         Commands::Reset { dry_run, all } => {
             let target_profile = if !*all {
@@ -816,7 +827,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             } else {
                 None
             };
-            cmd::system::reset(target_profile.as_deref(), &cfg_mgr, *dry_run).await?
+            cmd::system::reset(target_profile.as_deref(), *dry_run).await?
         }
         Commands::Completion { shell, install, uninstall } => {
             if *uninstall { cmd::completion::uninstall_completion()?; }
@@ -829,23 +840,30 @@ pub async fn run(cli: Cli) -> Result<()> {
         }
         Commands::Profile { action } => match action {
             ProfileCommands::Use { name } => {
-                if !cfg_mgr.exists(name).await {
-                    return Err(anyhow::anyhow!("❌ Error: Profile '{}' does not exist. Please create it first using 'cowen init'.", name));
+                let profiles = get_all_profiles(&active_profile).await;
+                if !profiles.contains(name) {
+                    return Err(anyhow::anyhow!("Profile '{}' does not exist", name));
                 }
-                cfg_mgr.set_default_profile(name).map_err(|e| anyhow::anyhow!(e))?;
+                let default_path = cowen_common::config::get_app_dir().join("current_profile");
+                std::fs::write(&default_path, name)?;
                 println!("✅ Set default profile to '{}'", name);
             }
-            ProfileCommands::Current => println!("{}", cfg_mgr.get_default_profile()),
+            ProfileCommands::Current => {
+                let default_path = cowen_common::config::get_app_dir().join("current_profile");
+                let p = std::fs::read_to_string(&default_path).unwrap_or_else(|_| "default".to_string());
+                println!("{}", p);
+            }
             ProfileCommands::List => {
-                let profiles = cfg_mgr.list_profiles().await.map_err(|e| anyhow::anyhow!(e))?;
-                let current = cfg_mgr.get_default_profile();
+                let profiles = get_all_profiles(&active_profile).await;
+                let default_path = cowen_common::config::get_app_dir().join("current_profile");
+                let current = std::fs::read_to_string(&default_path).unwrap_or_else(|_| "default".to_string());
                 if cli.format == "json" || cli.format == "yaml" { cowen_common::utils::render(&profiles, &cli.format).map_err(|e| anyhow::anyhow!(e))?; }
                 else {
                     println!("\n📂 Available Profiles:");
                     for p in profiles { if p == current { println!("  * \x1b[32m{:<20}\x1b[0m (current)", p); } else { println!("    {:<20}", p); } }
                 }
             }
-            ProfileCommands::Rename { old_name, new_name } => cmd::system::rename_profile(old_name, new_name, &cfg_mgr).await?,
+            ProfileCommands::Rename { old_name, new_name } => cmd::system::rename_profile(old_name, new_name).await?,
         }
         Commands::Dlq { action } => match action {
             DlqCommands::View { id } => cmd::dlq::view(&active_profile, id.clone()).await?,

@@ -2,7 +2,7 @@ use cowen_common::CowenResult;
 use async_trait::async_trait;
 use std::sync::Arc;
 use cowen_common::daemon::DaemonService;
-use cowen_common::config::Config;
+
 
 use cowen_config::ConfigManager;
 use cowen_auth::client::Client;
@@ -22,8 +22,20 @@ impl ServerDaemonService {
 
 #[async_trait]
 impl DaemonService for ServerDaemonService {
-    async fn start_daemon(&self, profile: &str, config: &Config) -> CowenResult<()> {
-        self.worker_mgr.start_worker(profile, config.clone()).await
+    async fn start_daemon(&self, profile: &str) -> CowenResult<()> {
+        let config = self.worker_mgr.config_manager().load(profile).await?;
+        self.worker_mgr.start_worker(profile, config).await
+    }
+    
+    async fn start_all(&self) -> CowenResult<()> {
+        let cfg_mgr = self.worker_mgr.config_manager();
+        let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
+        for p in profiles {
+            if let Ok(config) = cfg_mgr.load(&p).await {
+                let _ = self.worker_mgr.start_worker(&p, config).await;
+            }
+        }
+        Ok(())
     }
 
     async fn reload_daemon(&self, profile: &str) -> CowenResult<()> {

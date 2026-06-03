@@ -1,14 +1,23 @@
 use anyhow::Result;
-use cowen_config::ConfigManager;
+
 use cowen_common::config::get_app_dir;
 use std::fs;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
-    let app_config = cfg_mgr.load_app_config().await?;
+pub async fn list() -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
+    
+    // Read app.yaml to see which are enabled
+    let app_yaml_path = get_app_dir().join("app.yaml");
+    let content = std::fs::read_to_string(&app_yaml_path).unwrap_or_else(|_| "{}".to_string());
+    let mut enabled_plugins: Vec<String> = vec![];
+    if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+        if let Some(plugins) = val.get("plugins").and_then(|v| v.as_sequence()) {
+            enabled_plugins = plugins.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+        }
+    }
 
     println!("🔍 Scanning plugins directory: {:?}", plugins_dir);
     println!("{:<30} | {:<10} | {:<10} | DESCRIPTION", "NAME", "CAPABILITY", "ENABLED");
@@ -38,7 +47,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
                 let display_trait = "unknown (Thin CLI)";
                 let display_desc = "Inspected by daemon";
                 let name = file_name;
-                let is_enabled = app_config.plugins.contains(&name.to_string());
+                let is_enabled = enabled_plugins.contains(&name.to_string());
                 let enabled_str = if is_enabled { "\x1b[32mYes\x1b[0m" } else { "\x1b[31mNo\x1b[0m" };
 
                 println!("{:<30} | {:<10} | {:<23} | {}", name, display_trait, enabled_str, display_desc);
@@ -55,8 +64,7 @@ pub async fn list(cfg_mgr: &ConfigManager) -> Result<()> {
     Ok(())
 }
 
-pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
-    let mut app_config = cfg_mgr.load_app_config().await?;
+pub async fn enable(name: &String) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
 
     let expected_path = if cfg!(target_os = "windows") {
@@ -66,10 +74,24 @@ pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     };
 
     if expected_path.exists() {
-        if !app_config.plugins.contains(name) {
-            app_config.plugins.push(name.to_string());
+        let port_path = cowen_common::ipc::get_ipc_port_path();
+        let _ipc = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+        // Instead of writing app.yaml, tell daemon to set it? 
+        // Wait, Daemon has SetGlobalConfig but plugins is a list.
+        // We will just read/write locally using serde_yaml.
+        let app_yaml_path = get_app_dir().join("app.yaml");
+        let content = std::fs::read_to_string(&app_yaml_path).unwrap_or_else(|_| "{}".to_string());
+        let mut val = serde_yaml::from_str::<serde_yaml::Value>(&content).unwrap_or_else(|_| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+        
+        let mut enabled_plugins: Vec<String> = val.get("plugins").and_then(|v| v.as_sequence()).map(|seq| seq.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+        if !enabled_plugins.contains(name) {
+            enabled_plugins.push(name.to_string());
+            if let serde_yaml::Value::Mapping(ref mut map) = val {
+                let seq = enabled_plugins.into_iter().map(serde_yaml::Value::String).collect();
+                map.insert(serde_yaml::Value::String("plugins".to_string()), serde_yaml::Value::Sequence(seq));
+            }
+            std::fs::write(&app_yaml_path, serde_yaml::to_string(&val)?)?;
             println!("✅ Enabled plugin '{}'.", name);
-            cfg_mgr.save_app_config(&app_config).await?;
             println!("🚀 Plugin configuration updated. Restart daemon to take effect if necessary.");
         } else {
             println!("ℹ️ Plugin '{}' is already enabled.", name);
@@ -81,12 +103,19 @@ pub async fn enable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     Ok(())
 }
 
-pub async fn disable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
-    let mut app_config = cfg_mgr.load_app_config().await?;
+pub async fn disable(name: &String) -> Result<()> {
+    let app_yaml_path = get_app_dir().join("app.yaml");
+    let content = std::fs::read_to_string(&app_yaml_path).unwrap_or_else(|_| "{}".to_string());
+    let mut val = serde_yaml::from_str::<serde_yaml::Value>(&content).unwrap_or_else(|_| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
     
-    if app_config.plugins.contains(name) {
-        app_config.plugins.retain(|n| n != name);
-        cfg_mgr.save_app_config(&app_config).await?;
+    let mut enabled_plugins: Vec<String> = val.get("plugins").and_then(|v| v.as_sequence()).map(|seq| seq.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+    if enabled_plugins.contains(name) {
+        enabled_plugins.retain(|n| n != name);
+        if let serde_yaml::Value::Mapping(ref mut map) = val {
+            let seq = enabled_plugins.into_iter().map(serde_yaml::Value::String).collect();
+            map.insert(serde_yaml::Value::String("plugins".to_string()), serde_yaml::Value::Sequence(seq));
+        }
+        std::fs::write(&app_yaml_path, serde_yaml::to_string(&val)?)?;
         println!("✅ Disabled plugin '{}'.", name);
         println!("🚀 Plugin configuration updated. Restart daemon to take effect if necessary.");
     } else {
@@ -96,7 +125,7 @@ pub async fn disable(cfg_mgr: &ConfigManager, name: &String) -> Result<()> {
     Ok(())
 }
 
-pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
+pub async fn install(path: &String) -> Result<()> {
     let source_path = std::path::Path::new(path);
     if !source_path.exists() || !source_path.is_file() {
         return Err(anyhow::anyhow!("❌ Source plugin file not found or is not a file: {}", path));
@@ -135,7 +164,7 @@ pub async fn install(_cfg_mgr: &ConfigManager, path: &String) -> Result<()> {
     Ok(())
 }
 
-pub async fn refresh_signature(_cfg_mgr: &ConfigManager, _name: &String) -> Result<()> {
+pub async fn refresh_signature(_name: &String) -> Result<()> {
     println!("⚠️ Signature verification and refresh is delegated to cowen-daemon in the thin CLI architecture.");
     println!("Please refer to daemon logs for validation status during startup.");
     Ok(())

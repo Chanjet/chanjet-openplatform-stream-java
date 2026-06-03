@@ -1,28 +1,27 @@
 use anyhow::Result;
-use cowen_common::AppConfig;
-use cowen_config::ConfigManager;
+use cowen_common::ipc::client::IpcDaemonService;
 use crate::Colorize;
 
 pub async fn set(
-    app_config: &mut AppConfig,
-    cfg_mgr: &ConfigManager,
     store: &Option<String>,
     db_url: &Option<String>,
     cache: &Option<String>,
     cache_url: &Option<String>,
 ) -> Result<()> {
+    let port_path = cowen_common::ipc::get_ipc_port_path();
+    let ipc = IpcDaemonService::new(port_path);
     let mut changed = false;
 
     if let Some(s) = store {
         if s != "local" && s != "innerdb" && s != "sqlite" && s != "mysql" && s != "postgres" && s != "mssql" && s != "redis" {
             return Err(anyhow::anyhow!("Unsupported store type: {}. Supported: local, innerdb, sqlite, mysql, postgres, mssql, redis", s));
         }
-        app_config.storage.store = s.clone();
+        let _ = ipc.set_global_config("storage.store", s).await;
         changed = true;
     }
 
     if let Some(url) = db_url {
-        app_config.storage.db_url = Some(url.clone());
+        let _ = ipc.set_global_config("storage.db_url", url).await;
         changed = true;
     }
 
@@ -30,17 +29,16 @@ pub async fn set(
         if c != "none" && c != "redis" && c != "memory" {
             return Err(anyhow::anyhow!("Unsupported cache type: {}. Supported: none, redis, memory", c));
         }
-        app_config.storage.cache = c.clone();
+        let _ = ipc.set_global_config("storage.cache", c).await;
         changed = true;
     }
 
     if let Some(url) = cache_url {
-        app_config.storage.cache_url = Some(url.clone());
+        let _ = ipc.set_global_config("storage.cache_url", url).await;
         changed = true;
     }
 
     if changed {
-        cfg_mgr.save_app_config(app_config).await.map_err(|e| anyhow::anyhow!(e))?;
         println!("✨ Storage configuration updated successfully. Please restart daemon to apply.");
     } else {
         println!("ℹ️ No changes provided. Run with --help to see available options.");
@@ -49,8 +47,14 @@ pub async fn set(
     Ok(())
 }
 
-pub async fn status(app_config: &AppConfig) -> Result<()> {
-    let storage = &app_config.storage;
+pub async fn status() -> Result<()> {
+    let port_path = cowen_common::ipc::get_ipc_port_path();
+    let ipc = IpcDaemonService::new(port_path);
+
+    let storage: cowen_common::config::StorageConfig = match ipc.store_status().await {
+        Ok(cowen_common::ipc::DaemonResponse::StoreStatusData { json }) => serde_json::from_str(&json).unwrap_or_default(),
+        _ => return Err(anyhow::anyhow!("Failed to retrieve storage status from daemon")),
+    };
 
     println!("\n{}", "Storage Configuration Status".bold().underline());
     println!("  Type:  {}", storage.store.cyan());
@@ -69,10 +73,8 @@ pub async fn status(app_config: &AppConfig) -> Result<()> {
 }
 
 pub async fn migrate(
-    _cfg_mgr: &ConfigManager,
     _to: &str,
     _mode: String,
-    _daemon_svc: std::sync::Arc<dyn cowen_common::daemon::DaemonService>,
 ) -> Result<()> {
     Err(anyhow::anyhow!("Migration via CLI is deprecated. Please use daemon IPC or offline tools."))
 }

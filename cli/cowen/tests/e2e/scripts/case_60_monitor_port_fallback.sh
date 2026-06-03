@@ -91,6 +91,15 @@ sleep 1
 # Manually set monitor_port to $TEST_PORT to simulate non-first time
 "$COWEN_BIN" config set monitor_port $TEST_PORT --global >/dev/null
 
+# The config set command auto-starts the daemon if it's not running.
+# Kill it so we can test the boot failure scenario.
+if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
+    PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid")
+    kill -9 "$PID" 2>/dev/null || true
+    rm -f "$COWEN_HOME/master_daemon.pid" || true
+fi
+sleep 1
+
 echo -e "${BOLD}6. Daemon Startup without Fallback (Non-first time)${NC}"
 unset COWEN_ALLOW_PORT_FALLBACK
 # The daemon should fail because $TEST_PORT is occupied and fallback is not allowed

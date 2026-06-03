@@ -15,7 +15,9 @@ pub async fn login(profile: &str, force: bool) -> Result<()> {
             println!("\x1b[1mPlease authorize in the LOCAL browser of this machine. Opening URL...\x1b[0m");
             println!("\x1b[34m{}\x1b[0m", url);
             
-            if std::env::var("COWEN_SKIP_BROWSER").unwrap_or_default() != "true" {
+            if std::env::var("COWEN_SKIP_BROWSER").unwrap_or_default() == "true" {
+                println!("Browser mock triggered for URL: {}", url);
+            } else {
                 if let Err(_) = open::that(&url) {
                     println!("\x1b[33m(Failed to open browser automatically.)\x1b[0m");
                 }

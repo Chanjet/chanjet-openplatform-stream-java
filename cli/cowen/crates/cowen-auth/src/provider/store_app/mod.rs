@@ -477,7 +477,7 @@ impl AuthProvider for StoreAppProvider {
         if params.auto_start {
             println!("🚀 Sidecar is ready. Starting background daemon...");
             if let Some(ds) = &daemon_service {
-                let _ = ds.start_daemon(profile, config).await;
+                let _ = ds.start_daemon(profile).await;
             }
         }
         Ok(())

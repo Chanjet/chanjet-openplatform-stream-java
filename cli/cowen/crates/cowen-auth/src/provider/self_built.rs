@@ -64,30 +64,6 @@ impl SelfBuiltProvider {
 
         let mut retry_count = 0;
         loop {
-            // 0. AppTicket validation
-            let mut waited_initial = 0;
-            while self
-                .pool
-                .as_vault()
-                .get_app_ticket(&cfg.app_key)
-                .await
-                .is_err()
-                && waited_initial < 15
-            {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                waited_initial += 1;
-            }
-            if self
-                .pool
-                .as_vault()
-                .get_app_ticket(&cfg.app_key)
-                .await
-                .is_err()
-            {
-                return Err(CowenError::Auth("AppTicket missing in Vault. Please ensure 'cowen daemon' is running and connected to the platform.".to_string()));
-            }
-
-            // 🚀 Jitter & Re-check: Prevent race condition between Daemon and CLI both trying to refresh at the same time.
             use rand::Rng;
             let jitter_ms = rand::thread_rng().gen_range(50..500);
             tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
@@ -132,22 +108,7 @@ impl SelfBuiltProvider {
                 );
             }
 
-            // AppTicket is MANDATORY for this environment
-            let ticket = self
-                .pool
-                .as_vault()
-                .get_app_ticket(&cfg.app_key)
-                .await
-                .map_err(|_| {
-                    CowenError::Auth(
-                        "AppTicket missing. This is required for self-built app authentication."
-                            .to_string(),
-                    )
-                })?;
-            body_map.insert(
-                "appTicket".to_string(),
-                serde_json::Value::String(ticket.value),
-            );
+
 
             // 2. Execute
             let resp = self
@@ -533,7 +494,7 @@ impl AuthProvider for SelfBuiltProvider {
         if params.auto_start {
             if let Some(svc) = daemon_service {
                 println!("📡 Starting background daemon to maintain AppTicket...");
-                let _ = svc.start_daemon(profile, config).await;
+                let _ = svc.start_daemon(profile).await;
 
                 if config.proxy_enabled && config.proxy_port != 0 {
                     let mut retries = 20;

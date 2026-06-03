@@ -1,12 +1,11 @@
 use anyhow::Result;
 use cowen_common::ipc::client::IpcDaemonService;
 use cowen_common::ipc::DaemonResponse;
-use cowen_config::ConfigManager;
+
 use serde_json::Value;
 
 pub async fn status(
     profile: &str,
-    cfg_mgr: &ConfigManager,
     format: &str,
     all: bool,
 ) -> Result<()> {
@@ -37,13 +36,7 @@ pub async fn status(
             println!("Build Time:    {}", cowen_common::BUILD_TIME);
             println!();
 
-            // Print global storage configuration status
-            if let Ok(app_cfg) = cfg_mgr.load_app_config().await {
-                let mode = &app_cfg.storage.store;
-                println!("📦 Storage: Mode: {} \x1b[32m(OK)\x1b[0m", mode);
-            } else {
-                println!("📦 Storage: Mode: local \x1b[32m(OK)\x1b[0m");
-            }
+            println!("📦 Storage: Mode: daemon-managed \x1b[32m(OK)\x1b[0m");
             println!();
 
             if results.is_empty() {
@@ -105,55 +98,23 @@ fn render_json_entry(entry: &Value, indent: usize) {
     }
 }
 
-pub async fn config(profile: &str, cfg_mgr: &ConfigManager, format: &str, all: bool) -> Result<()> {
-    if format == "json" || format == "yaml" {
-        let val = if all {
-            cfg_mgr.list_all_values().await.map_err(|e| anyhow::anyhow!(e))?
-        } else {
-            cfg_mgr.list_values(profile).await.map_err(|e| anyhow::anyhow!(e))?
-        };
-
-        if format == "json" {
-            println!("{}", serde_json::to_string_pretty(&val).unwrap());
-        } else {
-            println!("{}", serde_yaml::to_string(&val).unwrap());
+pub async fn config(profile: &str, format: &str, all: bool) -> Result<()> {
+    let port_path = cowen_common::ipc::get_ipc_port_path();
+    let ipc = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+    match ipc.list_config(profile, format, all).await {
+        Ok(cowen_common::ipc::DaemonResponse::Success { message }) => {
+            println!("{}", message);
         }
-        return Ok(());
-    }
-
-    let profiles_to_show = if all {
-        let mut list = cfg_mgr.list_local_profiles().map_err(|e| anyhow::anyhow!(e))?;
-        list.sort();
-        list
-    } else {
-        vec![profile.to_string()]
-    };
-
-    let print_block = |title: &str, fields: Vec<cowen_config::config_manager::ConfigFieldDisplay>| {
-        println!("\n{}", title);
-        println!("-------------------------------------------------------------------------");
-        for field in fields {
-            let key = if field.readonly { format!("{} 🔒", field.key) } else { field.key };
-            println!("{:<20} : {}", key, field.value);
+        Ok(cowen_common::ipc::DaemonResponse::Error { message, .. }) => {
+            eprintln!("❌ Fetch config failed: {}", message);
         }
-    };
-
-    let global_fields = cfg_mgr.get_global_display().await.map_err(|e| anyhow::anyhow!(e))?;
-    print_block("🌐 Global Configuration (app.yaml) - `cowen config set <key> <value> --global`", global_fields);
-
-    for p in profiles_to_show {
-        let profile_fields = cfg_mgr.get_profile_display(&p).await.map_err(|e| anyhow::anyhow!(e))?;
-        print_block(&format!("👤 Profile Configuration ({}.yaml) - `cowen config set <key> <value>`", p), profile_fields);
+        _ => eprintln!("❌ Unexpected response"),
     }
-    
-    println!("\n  (🔒 Indicates fields that are read-only or managed via other commands)\n");
-
     Ok(())
 }
 
 pub async fn reset(
     target_profile: Option<&str>,
-    _cfg_mgr: &ConfigManager,
     dry_run: bool,
 ) -> Result<()> {
     let port_path = cowen_common::ipc::get_ipc_port_path();
@@ -199,33 +160,8 @@ pub async fn reset(
     };
 
     if is_ipc_error {
-        if !dry_run {
-            println!("⚠️  Daemon not reachable. Performing local reset...");
-        }
-        let app_dir = cowen_common::config::get_app_dir();
-        
-        let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), target_profile.map(|s| s.to_string()));
-        let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), target_profile.map(|s| s.to_string()));
-        let storage_task = cowen_store::reset::StorageResetTask::new(app_dir.clone(), target_profile.map(|s| s.to_string()));
-        
-        use cowen_common::reset::ResetEngine;
-        let engine = ResetEngine::new()
-            .with(Box::new(config_task))
-            .with(Box::new(telemetry_task))
-            .with(Box::new(storage_task));
-        
-        engine.run(dry_run).await?;
-        
-        if !dry_run {
-            if let Some(p) = target_profile {
-                // Also manually remove the profile config in case ConfigResetTask missed it
-                let config_file = app_dir.join("profiles").join(format!("{}.yaml", p));
-                if config_file.exists() {
-                    let _ = std::fs::remove_file(config_file);
-                }
-            }
-            println!("✅ Local reset complete.");
-        }
+        eprintln!("❌ Daemon not reachable. Reset cannot be performed locally in this CLI mode. Please start the daemon first.");
+        return Err(anyhow::anyhow!("Reset failed: daemon unreachable"));
     }
     
     Ok(())
@@ -234,7 +170,6 @@ pub async fn reset(
 pub async fn rename_profile(
     old: &str,
     new: &str,
-    _cfg_mgr: &ConfigManager,
 ) -> Result<()> {
     let port_path = cowen_common::ipc::get_ipc_port_path();
     let ipc = IpcDaemonService::new(port_path);
@@ -250,8 +185,6 @@ pub async fn rename_profile(
 
 pub async fn ensure_daemon_running(
     _profile: &str,
-    _config: &cowen_common::Config,
-    _cfg_mgr: &ConfigManager,
 ) -> Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let stopped_file = app_dir.join("master_daemon.stopped");
@@ -272,7 +205,6 @@ pub async fn ensure_daemon_running(
 
 pub async fn enforce_daemon_version_sync(
     _profile: &str,
-    _cfg_mgr: &ConfigManager,
 ) -> Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
     let version_file = app_dir.join("master_daemon.version");
