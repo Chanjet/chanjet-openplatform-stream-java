@@ -79,8 +79,11 @@ impl DaemonClient {
     }
 
     pub async fn ensure_daemon(&self) -> Result<InterceptedClient> {
-        if let Ok(client) = self.connect_to_daemon().await {
-            return Ok(client);
+        if let Ok(mut client) = self.connect_to_daemon().await {
+            let ping_fut = client.ping(tonic::Request::new(grpc_proto::PingRequest {}));
+            if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(500), ping_fut).await {
+                return Ok(client);
+            }
         }
         let daemon_path = if let Ok(env_path) = std::env::var("COWEN_DAEMON_BIN") {
             PathBuf::from(env_path)
@@ -104,8 +107,11 @@ impl DaemonClient {
         eprintln!("🚀 Starting daemon...");
         for _ in 0..30 {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            if let Ok(client) = self.connect_to_daemon().await {
-                return Ok(client);
+            if let Ok(mut client) = self.connect_to_daemon().await {
+                let ping_fut = client.ping(tonic::Request::new(grpc_proto::PingRequest {}));
+                if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(300), ping_fut).await {
+                    return Ok(client);
+                }
             }
         }
         let mut err_msg = "Daemon process was spawned but failed to bind to port within timeout".to_string();

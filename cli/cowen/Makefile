@@ -64,7 +64,7 @@ else
     SHA1 = (shasum -a 1 $(1) 2>/dev/null || sha1sum $(1)) | cut -d ' ' -f 1 > $(1).sha1
 endif
 
-VERIFY_BIN = ./tests/e2e/scripts/verify-binary.sh $(1)
+VERIFY_BIN = ./crates/cowen-cli/tests/e2e/scripts/verify-binary.sh $(1)
 
 # 生产/测试环境配置
 PROD_OPENAPI = https://openapi.chanjet.com
@@ -568,8 +568,8 @@ db-up: prepare-podman-machine
 		podman run -d --name cowen-redis -p 6379:6379 --health-cmd="redis-cli ping" --health-interval=5s redis:7.0-alpine; \
 	else \
 		echo "🚀 Using $(COMPOSE_BIN)..."; \
-		cd tests/infra && $(COMPOSE_BIN) down -v 2>/dev/null || true; \
-		cd tests/infra && $(COMPOSE_BIN) up -d || (echo "❌ Failed to start containers." && exit 1); \
+		cd crates/cowen-cli/tests/infra && $(COMPOSE_BIN) down -v 2>/dev/null || true; \
+		cd crates/cowen-cli/tests/infra && $(COMPOSE_BIN) up -d || (echo "❌ Failed to start containers." && exit 1); \
 	fi; \
 	echo "⌛ Waiting for databases to be ready..."; \
 	MAX_WAIT=30; count=0; \
@@ -585,7 +585,7 @@ db-down:
 		podman stop cowen-mysql cowen-postgres cowen-redis 2>/dev/null || true; \
 		podman rm cowen-mysql cowen-postgres cowen-redis 2>/dev/null || true; \
 	else \
-		cd tests/infra && $(COMPOSE_BIN) down -v; \
+		cd crates/cowen-cli/tests/infra && $(COMPOSE_BIN) down -v; \
 	fi; \
 	$(MAKE) stop-podman-machine
 
