@@ -10,7 +10,7 @@ pub async fn start(
     foreground: bool,
     all: bool,
 ) -> Result<()> {
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
 
     if !foreground {
         // Just ensure it's started and send start request
@@ -120,7 +120,7 @@ pub async fn start(
 }
 
 pub async fn stop(profile: &str, all: bool) -> Result<()> {
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     if !port_path.exists() {
         eprintln!("✅ No running daemon found.");
         return Ok(());

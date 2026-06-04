@@ -35,7 +35,7 @@
                              │ 冷启动执行 cowen plugin mcp
                              ▼
   ┌────────────────────────────────────────────────────────┐
-  │               cowen 统一代理进程 (Host Wrapper)          │
+  │               cowen 调度器 (System Orchestrator)          │
   │  - 🟢 动态生成 COWEN_BRIDGE_TOKEN 并在内存中透传          │
   │  - 🚀 Spawn 拉起三方插件实际进程，映射 Stdio 管道         │
   └──────────────────────────┬─────────────────────────────┘
@@ -54,9 +54,9 @@
   ┌────────────────────────────────────────────────────────┐
   │               cowen 本地常驻核心服务 (Native APIs)       │
   │                                                        │
-  │  - /v1/search (向量检索)                              │
-  │  - /v1/api/registry (动态工具表)                       │
-  │  - /v1/api/call (通用代理执行器)                       │
+  │  - Search Orchestrator (/v1/search 向量检索)           │
+  │  - System Orchestrator (/v1/api/registry 动态工具表)   │
+  │  - API Orchestrator (/v1/api/call 通用代理执行器)      │
   └──────────────────────────┬─────────────────────────────┘
                              │
                              │ 包含完整 RSA 签名和 app_key 的加密 HTTP 请求
@@ -71,3 +71,20 @@
 1. **极致的开闭原则 (OCP)**：当需要为 `cowen` 增加新连接器工具时，**完全无需修改或发布任何三方插件代码**。宿主的动态注册表会在运行时渐进式地将新工具推送给 Agent。
 2. **轻量生态与开发零摩擦**：插件开发者无需引入厚重的凭证管理、外网 API 依赖库或重型缓存逻辑，100-200 行代码即可完成无脑路由的桥接。
 3. **物理级安全防串流**：底座常量（Endpoint，Token）彻底拒绝落盘，配合 `exclusive` 多 Profile 租户生命周期模型，从根源上杜绝了密钥泄露与租户间上下文串户。
+
+---
+
+## 迁移指南：从单体 controller.rs 到多 Orchestrator 架构
+
+在 v0.4 架构演进中，我们废弃了早期的单体 `controller.rs` 设计，全面迁移至了职责更加单一、符合 OCP 原则的多调度器 (Multi-Orchestrator) 架构。
+
+### 1. 生命周期与职责拆分
+过去由 `controller.rs` 一把抓的业务，现已被下放到四个独立的调度器中：
+- **System Orchestrator**: 负责插件的生命周期管控（Load/Unload）、`plugin.json` 能力漏斗校验、Stdio 管道映射，以及 `/v1/api/registry` 的动态工具下发。
+- **Search Orchestrator**: 接管所有的 RAG、本地知识库与向量检索能力的底层调用。
+- **API Orchestrator**: 专职处理网关流转发（Proxy）、鉴权中间件以及 `/v1/api/call` 的外部 HTTP 代发。
+- **DLQ Orchestrator**: 专门处理由于网络或状态机异常产生的死信队列与回放逻辑。
+
+### 2. 插件注册方式依然平滑 (Backward Compatibility)
+尽管底层架构发生剧变，但对三方插件开发者而言，注册方式**完全没有变化**。
+插件仍然只需在 `plugin.json` 中声明自身能力（如 `native.api.proxy`、`native.api.search`）。当 Agent 发起调用时，`System Orchestrator` 会作为“大管家”，自动通过 RPC 协议将具体的请求路由至后端的 `API Orchestrator` 或 `Search Orchestrator` 履约，插件代码本身无需做任何修改。

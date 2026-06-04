@@ -6,7 +6,7 @@ pub async fn execute(profile: &str, _verbose: bool, _fix: bool) -> Result<()> {
     println!("\n{} {} (Profile: {})", "🩺".bold(), "Cowen Doctor - 环境诊断工具 (IPC Client)".bold(), profile.cyan());
     println!("{}\n", "=".repeat(60).dimmed());
 
-    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     match ipc.doctor(profile).await {
         Ok(DaemonResponse::DoctorReport { report }) => {
             println!("{}", report);

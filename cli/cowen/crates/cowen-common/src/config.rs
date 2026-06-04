@@ -231,11 +231,3 @@ impl std::fmt::Debug for Config {
             .finish()
     }
 }
-
-pub fn get_ipc_port_path() -> std::path::PathBuf {
-    get_app_dir().join("ipc.port")
-}
-
-pub fn get_ipc_token_path() -> std::path::PathBuf {
-    get_app_dir().join("ipc.token")
-}

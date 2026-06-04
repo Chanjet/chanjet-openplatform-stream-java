@@ -19,7 +19,7 @@ pub async fn execute(
     println!("\n🚀 Initializing profile: \x1b[1;32m{}\x1b[0m", profile);
     
     // Ensure the daemon is running before initialization so we can start the worker after via IPC
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let _ = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await
         .map_err(|e| anyhow::anyhow!("Failed to ensure daemon is running for init: {}", e))?;
         

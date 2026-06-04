@@ -7,7 +7,7 @@ pub async fn set(
     cache: &Option<String>,
     cache_url: &Option<String>,
 ) -> Result<()> {
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
     let mut changed = false;
 
@@ -47,7 +47,7 @@ pub async fn set(
 }
 
 pub async fn status() -> Result<()> {
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     let storage: cowen_common::config::StorageConfig = match ipc.store_status().await {

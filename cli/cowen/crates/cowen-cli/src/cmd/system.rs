@@ -8,7 +8,7 @@ pub async fn status(
     format: &str,
     all: bool,
 ) -> Result<()> {
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     match ipc.system_status(profile, all).await {
@@ -98,7 +98,7 @@ fn render_json_entry(entry: &Value, indent: usize) {
 }
 
 pub async fn config(profile: &str, format: &str, all: bool) -> Result<()> {
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
     match ipc.list_config(profile, format, all).await {
         Ok(cowen_common::grpc::client::DaemonResponse::ConfigData { config_json: message }) => {
@@ -120,7 +120,7 @@ pub async fn reset(
     target_profile: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     if !dry_run && target_profile.is_none() {
@@ -175,7 +175,7 @@ pub async fn rename_profile(
     old: &str,
     new: &str,
 ) -> Result<()> {
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     match ipc.rename_profile(old, new).await {
@@ -196,7 +196,7 @@ pub async fn ensure_daemon_running(
         return Ok(());
     }
 
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     if !port_path.exists() {
         eprintln!("⚠️  Daemon not running, triggering auto-recovery...");
     }
@@ -236,7 +236,7 @@ pub async fn enforce_daemon_version_sync(
 
         let _ = std::fs::remove_file(&pid_file);
         let _ = std::fs::remove_file(&version_file);
-        let port_file = cowen_common::config::get_ipc_port_path();
+        let port_file = crate::get_ipc_port_path();
         let _ = std::fs::remove_file(&port_file);
 
         // It will be auto-started by ensure_daemon_running later

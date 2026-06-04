@@ -1,0 +1,23 @@
+{
+  "id": "cowen-mcp-plugin",
+  "name": "Cowen MCP Server Plugin",
+  "version": "1.0.0",
+  "command": "./cowen-mcp-plugin",
+  "default_config": {
+    "log_level": "INFO"
+  },
+  "requested_permissions": {
+    "allow_search_index": true
+  },
+  "required_capabilities": {
+    "core.rpc.stdio": "v1"
+  },
+  "contributes": {
+    "cli_commands": [
+      {
+        "name": "config",
+        "description": "获取连接此 MCP 插件的 stdio 配置 JSON，用于配置 Cursor 等 IDE"
+      }
+    ]
+  }
+}

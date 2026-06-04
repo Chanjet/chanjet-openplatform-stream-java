@@ -2,7 +2,7 @@ use anyhow::Result;
 use cowen_common::grpc::client::DaemonResponse;
 
 pub async fn login(profile: &str, force: bool) -> Result<()> {
-    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     
     // 1. Get Auth URL
     println!("🔄 Requesting authorization session from Daemon...");
@@ -65,7 +65,7 @@ pub async fn token(
     format: &str,
     refresh: bool,
 ) -> Result<()> {
-    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     match ipc.get_token(profile, refresh).await {
         Ok(DaemonResponse::TokenData { token_json }) => {
             if format != "text" {
@@ -101,7 +101,7 @@ pub async fn token(
 }
 
 pub async fn logout(profile: &str) -> Result<()> {
-    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     match ipc.clear_token(profile).await {
         Ok(DaemonResponse::Success { .. }) => {
             println!("✅ Successfully logged out from profile '{}'.", profile);

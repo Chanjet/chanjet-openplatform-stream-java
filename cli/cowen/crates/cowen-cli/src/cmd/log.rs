@@ -45,7 +45,7 @@ pub async fn view(
     lines: usize,
 ) -> anyhow::Result<()> {
     if domain == "audit" {
-        let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
+        let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
         match ipc.tail_audit(profile, lines).await {
             Ok(DaemonResponse::AuditData { content }) => {
                 if !content.is_empty() {

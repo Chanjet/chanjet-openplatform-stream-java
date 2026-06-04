@@ -137,9 +137,52 @@ graph TD
 
 ---
 
-## 6. 全局生命周期与隧道透传执行时序图 (Execution Sequence)
+## 6. 插件生命周期流转 (Plugin Lifecycle State Machine)
 
-以下时序图完整展示了：宿主如何通过能力漏斗安全挂载插件，并在接收到外部 HTTP 请求时，通过隧道将请求降维传递给零端口沙箱，最后沙箱持 Token 回调宿主网关的闭环全过程。
+在四层调度器架构下，插件的整个生命周期由不同的 Orchestrator 分阶段严格接管与驱动。
+
+```mermaid
+stateDiagram-v2
+    [*] --> Init: 进程启动
+    
+    Init --> Load: `system_orchestrator`
+    note right of Load
+      扫描 ~/.cowen/plugins
+      解析 plugin.json
+      进行能力矩阵(Capabilities)漏斗校验
+    end note
+    
+    Load --> Ready: 校验通过
+    note right of Ready
+      拉起独立子进程
+      生成专属 RBAC 白名单
+      注入动态 Token 与 Endpoint
+    end note
+    
+    Ready --> Invoke: 外部流量触发
+    note right of Invoke
+      `system_orchestrator` (Stdio直通)
+      `api_orchestrator` (HTTP代理)
+      `search_orchestrator` (向量检索)
+    end note
+    
+    Invoke --> Ready: 挂起/空闲
+    
+    Ready --> Unload: 进程退出/系统重启
+    note right of Unload
+      销毁对应子进程
+      注销本地 Endpoint 端口
+      吊销内存 Token
+    end note
+    
+    Unload --> [*]
+```
+
+---
+
+## 7. 全局生命周期与隧道透传执行时序图 (Execution Sequence)
+
+以下时序图完整展示了：宿主的 `system_orchestrator` 如何通过能力漏斗安全挂载插件，并在接收到外部 HTTP 请求时，通过隧道将请求降维传递给零端口沙箱，最后沙箱持 Token 回调宿主网关的闭环全过程。
 
 ```mermaid
 sequenceDiagram

@@ -47,30 +47,37 @@
 
 ---
 
-## 三、 渐进式 MCP 与指令集插件落地设计方案
+## 三、 渐进式 MCP 与四层 Orchestrator 落地设计方案
 
-为了快速扩展 `cowen` 的指令集，并把现有的流链接、向量检索能力渐进式地暴露给 Agent 的 MCP Client，推荐采用 **“声明式配置 + Stdio JSON-RPC 双向管道”** 的子进程插件架构。
+为了快速扩展 `cowen` 的指令集，并把现有的流链接、向量检索能力渐进式地暴露给 Agent 的 MCP Client，我们在 v0.4 架构中引入了 **“四层 Orchestrator 调度体系 + Stdio JSON-RPC 双向管道”** 的子进程插件架构。
 
+```mermaid
+graph TD
+    subgraph "Client / Agent"
+        Claude[Claude / Cursor (MCP Client)]
+    end
+
+    subgraph "Cowen Daemon (Host)"
+        System[System Orchestrator<br>核心生命周期与路由代理]
+        Search[Search Orchestrator<br>向量检索与知识库]
+        API[API Orchestrator<br>HTTP代理与网关流转发]
+        DLQ[DLQ Orchestrator<br>死信队列与异常回放]
+
+        System --> Search
+        System --> API
+        System --> DLQ
+    end
+
+    subgraph "Plugin Sandbox (Out-of-Process)"
+        Plugin[MCP Plugin Server<br>Python/Go/Rust]
+    end
+
+    Claude -- "MCP Protocol (stdio/SSE)" --> System
+    System -- "JSON-RPC (stdio IPC)" --> Plugin
+    Plugin -. "tools/call (API/Search)" .-> System
 ```
-  ┌────────────────────────────────────────────────────────┐
-  │                 Agent (例如 Claude)                    │
-  └──────────────────────────┬─────────────────────────────┘
-                             │ (stdio / SSE / MCP Protocol)
-  ┌──────────────────────────▼─────────────────────────────┐
-  │                  cowen CLI (MCP Host)                  │
-  │  ┌───────────────────────┬──────────────────────────┐  │
-  │  │  Core CLI Commands    │  Plugin Manager          │  │
-  │  │  (daemon, search...)  │  (Dynamic Subprocesses)  │  │
-  │  └───────────────────────┴────────────┬─────────────┘  │
-  └───────────────────────────────────────┼────────────────┘
-                                          │ (Internal IPC)
-                          ┌───────────────┴───────────────┐
-                          │     MCP Plugin Server         │
-                          │   (Python/Go/Rust/JS...)      │
-                          └───────────────────────────────┘
-```
 
-### 1. 插件结构契约规范
+通过 **System Orchestrator** 统一接管底层的进程拉起与协议坍缩，插件开发者无需关心复杂的网络鉴权，直接扮演一个标准的 MCP Server。
 
 每个三方插件以目录形式存放在 `~/.cowen/plugins/`，必须包含一个声明式契约文件 `plugin.json`：
 

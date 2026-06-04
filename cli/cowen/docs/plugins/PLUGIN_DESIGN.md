@@ -77,9 +77,18 @@ func handleToolCall(toolName string, args map[string]interface{}) (interface{}, 
 
 ## 3. 声明式自治理契约 (`plugin.json`)
 
-虽然 Go 插件代码被简化为“空壳”，但它需要在其同级目录的 `plugin.json` 中向宿主**“声明”**它的属性。
+虽然 Go 插件代码被简化为“空壳”，但它需要在其同级目录的 `plugin.json` 中向宿主**“声明”**它的属性。由宿主的 `system_orchestrator.rs` 在启动时扫描 `$COWEN_HOME/plugins/` (默认 `~/.cowen/plugins/`) 目录并装载。
 
-### 3.1 基础与运行声明
+### 3.1 插件目录结构示例
+
+```bash
+$COWEN_HOME/plugins/
+  ├─ cowen-go-relay/
+  │   ├─ plugin.json
+  │   └─ cowen-go-relay (编译好的二进制可执行文件)
+```
+
+### 3.2 基础与运行声明
 ```json
 {
   "id": "cowen-go-relay",
@@ -121,12 +130,12 @@ func handleToolCall(toolName string, args map[string]interface{}) (interface{}, 
 为了避免宿主非兼容性升级导致历史插件无辜失效，彻底废弃了单体版本号（Monolithic Versioning）。插件必须在 `plugin.json` 中显式声明自身需要的底层网关能力矩阵：
 ```json
   "required_capabilities": {
-    "core.rpc.stdio": "v1",
-    "native.api.proxy": "^1.0.0",
-    "native.api.search": "v2" 
+    "core.rpc.stdio": "v1",          // 必须：所有插件的基础通信通道
+    "native.api.proxy": "^1.0.0",    // 可选：依赖本地 HTTP 代理时声明 (若宿主开启了 --no-proxy，此能力将不可用)
+    "native.api.search": "v2"        // 可选：依赖内置搜索服务时声明
   }
 ```
-宿主的 `PluginManager` 将在扫描阶段作为“能力适配漏斗”，如果宿主无法提供相应的能力和版本，将在加载前直接拒绝拉起该插件，从而 100% 防止运行时兼容性崩溃。
+宿主的 `PluginManager` 将在扫描阶段作为“能力适配漏斗”，如果宿主无法提供相应的能力和版本，将在加载前直接拒绝拉起该插件，从而 100% 防止运行时兼容性崩溃。特别地，当宿主关闭了本地代理（`proxy_enabled = false`）时，声明 `native.api.proxy` 的插件将被拒绝加载；插件若只声明 `core.rpc.stdio` 则可正常通过 RPC 通道调用宿主内部能力。
 
 ---
 

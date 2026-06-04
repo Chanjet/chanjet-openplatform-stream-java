@@ -113,3 +113,240 @@ fn test_plugin_auto_discovery() {
        .stdout(predicate::str::contains("GET /test"))
        .stdout(predicate::str::contains("Summary: test api"));
 }
+
+#[test]
+fn test_mcp_plugin_run_no_args() {
+    let dir = tempdir().unwrap();
+    let cowen_home = dir.path().to_str().unwrap().to_string();
+    let plugins_dir = dir.path().join("plugins");
+    fs::create_dir_all(&plugins_dir).unwrap();
+
+    let search_pattern = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
+    let target_dir = std::env::current_dir().unwrap().join("target").join("debug").join("deps");
+    let mut plugin_src = target_dir.join(search_pattern);
+    if !plugin_src.exists() {
+        plugin_src = std::env::current_dir().unwrap().join("target").join("debug").join(search_pattern);
+    }
+    if !plugin_src.exists() { return; }
+
+    let target_name = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
+    fs::copy(&plugin_src, plugins_dir.join(target_name)).unwrap();
+    
+    // Create plugin.json with core.rpc.stdio capability
+    fs::write(plugins_dir.join("cowen-mcp-plugin.json"), json!({
+        "required_capabilities": { "core.rpc.stdio": "v1" }
+    }).to_string()).unwrap();
+
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &cowen_home)
+       .arg("plugins")
+       .arg("run");
+
+    cmd.assert()
+       .success()
+       .stdout(predicate::str::contains("The following installed plugins implement 'core.rpc.stdio' (MCP servers):"))
+       .stdout(predicate::str::contains("cowen-mcp-plugin"));
+}
+
+#[test]
+fn test_mcp_plugin_run_config() {
+    let dir = tempdir().unwrap();
+    let cowen_home = dir.path().to_str().unwrap().to_string();
+    let plugins_dir = dir.path().join("plugins");
+    fs::create_dir_all(&plugins_dir).unwrap();
+
+    let search_pattern = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
+    let target_dir = std::env::current_dir().unwrap().join("target").join("debug").join("deps");
+    let mut plugin_src = target_dir.join(search_pattern);
+    if !plugin_src.exists() {
+        plugin_src = std::env::current_dir().unwrap().join("target").join("debug").join(search_pattern);
+    }
+    if !plugin_src.exists() { return; }
+
+    let target_name = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
+    fs::copy(&plugin_src, plugins_dir.join(target_name)).unwrap();
+    
+    fs::write(plugins_dir.join("cowen-mcp-plugin.json"), json!({
+        "required_capabilities": { "core.rpc.stdio": "v1" }
+    }).to_string()).unwrap();
+
+    // Mock an active profile so the run command doesn't fail trying to load one
+    let profile_path = dir.path().join("default.yaml");
+    fs::write(profile_path, "app_key: test\napp_mode: self-built").unwrap();
+
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &cowen_home)
+       .arg("plugins")
+       .arg("run")
+       .arg("cowen-mcp-plugin")
+       .arg("config")
+       .arg("--profile")
+       .arg("default");
+
+    cmd.assert()
+       .success()
+       .stdout(predicate::str::contains("\"mcpServers\": {"));
+}
+
+#[test]
+fn test_mcp_plugin_run_non_mcp_error() {
+    let dir = tempdir().unwrap();
+    let cowen_home = dir.path().to_str().unwrap().to_string();
+    let plugins_dir = dir.path().join("plugins");
+    fs::create_dir_all(&plugins_dir).unwrap();
+
+    let search_pattern = if cfg!(target_os = "windows") { "libcowen_search_embedding.exe" } else { "libcowen_search_embedding" };
+    let target_dir = std::env::current_dir().unwrap().join("target").join("debug").join("deps");
+    let mut plugin_src = target_dir.join(search_pattern);
+    if !plugin_src.exists() {
+        plugin_src = std::env::current_dir().unwrap().join("target").join("debug").join(search_pattern);
+    }
+    if !plugin_src.exists() { return; }
+
+    let target_name = if cfg!(target_os = "windows") { "libcowen_search_embedding.exe" } else { "libcowen_search_embedding" };
+    fs::copy(&plugin_src, plugins_dir.join(target_name)).unwrap();
+    
+    // Missing capability
+    fs::write(plugins_dir.join("libcowen_search_embedding.json"), json!({
+        "required_capabilities": { "some.other.capability": "v1" }
+    }).to_string()).unwrap();
+
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &cowen_home)
+       .arg("plugins")
+       .arg("run")
+       .arg("libcowen_search_embedding");
+
+    cmd.assert()
+       .failure()
+       .stderr(predicate::str::contains("does not declare 'core.rpc.stdio' capability"));
+}
+
+#[test]
+fn test_mcp_client_simulation() {
+    use std::io::{Write, BufRead, BufReader};
+    use std::process::Stdio;
+
+    let search_pattern = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
+    let target_dir = std::env::current_dir().unwrap().join("target").join("debug").join("deps");
+    let mut plugin_src = target_dir.join(search_pattern);
+    if !plugin_src.exists() {
+        plugin_src = std::env::current_dir().unwrap().join("target").join("debug").join(search_pattern);
+    }
+    if !plugin_src.exists() { return; }
+
+    let mut child = std::process::Command::new(&plugin_src)
+        .env("COWEN_PROFILE", "default")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn mcp plugin");
+
+    let mut stdin = child.stdin.take().expect("Failed to open stdin");
+    let stdout = child.stdout.take().expect("Failed to open stdout");
+    
+    let init_req = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "e2e-test-client",
+                "version": "1.0.0"
+            }
+        }
+    });
+
+    let req_str = serde_json::to_string(&init_req).unwrap() + "\n";
+    stdin.write_all(req_str.as_bytes()).expect("Failed to write to stdin");
+    stdin.flush().unwrap();
+
+    let mut reader = BufReader::new(stdout);
+    let mut line = String::new();
+    reader.read_line(&mut line).expect("Failed to read from stdout");
+    
+    let resp: serde_json::Value = serde_json::from_str(&line).expect("Failed to parse JSON response");
+    
+    assert_eq!(resp.get("jsonrpc").unwrap().as_str().unwrap(), "2.0");
+    assert_eq!(resp.get("id").unwrap().as_u64().unwrap(), 1);
+    
+    let result = resp.get("result").expect("Missing result object");
+    assert_eq!(result.get("protocolVersion").unwrap().as_str().unwrap(), "2025-11-25");
+    assert!(result.get("serverInfo").is_some());
+    
+    // Send initialized notification (optional, but good practice)
+    let init_notif = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+    });
+    let notif_str = serde_json::to_string(&init_notif).unwrap() + "\n";
+    stdin.write_all(notif_str.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    
+    // 2. Test tools/list
+    let list_req = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": {}
+    });
+    let req_str = serde_json::to_string(&list_req).unwrap() + "\n";
+    stdin.write_all(req_str.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+
+    let mut line = String::new();
+    reader.read_line(&mut line).expect("Failed to read from stdout");
+    let resp: serde_json::Value = serde_json::from_str(&line).expect("Failed to parse tools/list response");
+    
+    assert_eq!(resp.get("id").unwrap().as_u64().unwrap(), 2);
+    let tools = resp.get("result").unwrap().get("tools").unwrap().as_array().unwrap();
+    assert!(tools.len() >= 3, "Should have at least 3 built-in tools");
+    
+    let has_api_list = tools.iter().any(|t| t.get("name").unwrap().as_str().unwrap() == "cowen_api_list");
+    assert!(has_api_list, "Missing cowen_api_list tool");
+
+    // 3. Test tools/call (cowen_enable_api)
+    let call_req = json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "cowen_enable_api",
+            "arguments": {
+                "method": "GET",
+                "path": "/v1/test"
+            }
+        }
+    });
+    let req_str = serde_json::to_string(&call_req).unwrap() + "\n";
+    stdin.write_all(req_str.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+
+    let mut line = String::new();
+    reader.read_line(&mut line).expect("Failed to read from stdout");
+    
+    // Check if we received a list_changed notification before the actual result
+    let mut resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+    
+    // If daemon is not running, we expect a gRPC Error in the tools/call result
+    if resp.get("method").and_then(|m| m.as_str()) == Some("notifications/tools/list_changed") {
+        // Read the next line which should be the response to id 3
+        line.clear();
+        reader.read_line(&mut line).expect("Failed to read from stdout");
+        resp = serde_json::from_str(&line).unwrap();
+    }
+    
+    assert_eq!(resp.get("id").unwrap().as_u64().unwrap(), 3);
+    let result = resp.get("result").unwrap();
+    let content = result.get("content").unwrap().as_array().unwrap();
+    let text = content[0].get("text").unwrap().as_str().unwrap();
+    
+    // Since there's no daemon running in this test, it should return a gRPC error string gracefully
+    assert!(text.contains("gRPC Error") || text.contains("transport error") || text.contains("Connection refused"), "Expected gRPC connection failure: {}", text);
+    
+    // Kill the process
+    child.kill().unwrap();
+    child.wait().unwrap();
+}

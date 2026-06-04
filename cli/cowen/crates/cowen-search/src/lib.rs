@@ -21,7 +21,3 @@ pub trait SearchProvider: Send + Sync {
     fn name(&self) -> &str;
 }
 
-#[macro_export]
-macro_rules! plugin_trait_search_provider {
-    () => { c"SearchProvider" }
-}

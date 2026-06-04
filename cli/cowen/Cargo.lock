@@ -889,6 +889,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
+ "tonic",
  "tracing",
  "urlencoding",
  "uuid",
@@ -1017,6 +1019,24 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "cowen-mcp-plugin"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "prost",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tracing",
+ "urlencoding",
 ]
 
 [[package]]
@@ -5710,6 +5730,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

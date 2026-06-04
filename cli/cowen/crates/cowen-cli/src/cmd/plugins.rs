@@ -2,7 +2,10 @@ use anyhow::Result;
 
 use cowen_common::config::get_app_dir;
 use std::fs;
-
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_stream::wrappers::ReceiverStream;
+use cowen_common::grpc::client::DaemonClient;
+use cowen_common::grpc::proto::TunnelPluginRequest;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
@@ -94,7 +97,7 @@ pub async fn enable(name: &String) -> Result<()> {
     };
 
     if expected_path.exists() {
-        let port_path = cowen_common::config::get_ipc_port_path();
+        let port_path = crate::get_ipc_port_path();
         let _ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
         // Instead of writing app.yaml, tell daemon to set it? 
         // Wait, Daemon has SetGlobalConfig but plugins is a list.
@@ -187,5 +190,122 @@ pub async fn install(path: &String) -> Result<()> {
 pub async fn refresh_signature(_name: &String) -> Result<()> {
     println!("⚠️ Signature verification and refresh is delegated to cowen-daemon in the thin CLI architecture.");
     println!("Please refer to daemon logs for validation status during startup.");
+    Ok(())
+}
+
+pub async fn run(profile: &str, name_opt: &Option<String>, args: &[String]) -> Result<()> {
+    let plugins_dir = get_app_dir().join("plugins");
+    
+    if !plugins_dir.exists() {
+        return Err(anyhow::anyhow!("❌ Plugins directory not found at {:?}", plugins_dir));
+    }
+    
+    // Helper closure to read plugin capabilities from .bundle
+    let get_plugin_capabilities = |path: &std::path::Path| -> Vec<String> {
+        let mut caps = Vec::new();
+        if let Ok(content) = std::fs::read_to_string(path.with_extension("bundle")) {
+            if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(bundle_caps) = bundle.get("manifest").and_then(|m| m.get("capabilities")).and_then(|c| c.as_array()) {
+                    caps.extend(bundle_caps.iter().filter_map(|v| v.as_str().map(|s| s.to_string())));
+                }
+            }
+        }
+        caps
+    };
+
+    if let Some(name) = name_opt {
+        let expected_path = if cfg!(target_os = "windows") {
+            plugins_dir.join(format!("{}.exe", name))
+        } else {
+            plugins_dir.join(name)
+        };
+
+        if !expected_path.exists() {
+            return Err(anyhow::anyhow!("❌ Plugin executable '{}' not found at {:?}", name, expected_path));
+        }
+
+        let capabilities = get_plugin_capabilities(&expected_path);
+        if !capabilities.contains(&"core.rpc.stdio".to_string()) {
+            return Err(anyhow::anyhow!("❌ Permission Denied: Plugin '{}' does not declare 'core.rpc.stdio' capability in its metadata. Only MCP plugins can be directly run.", name));
+        }
+
+        let port_path = crate::get_ipc_port_path();
+        let daemon_client = DaemonClient::new(&port_path);
+        let mut client = daemon_client.ensure_daemon().await?;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        
+        let mut envs = std::collections::HashMap::new();
+        envs.insert("COWEN_PROFILE".to_string(), profile.to_string());
+        
+        // Send initial setup message
+        tx.send(TunnelPluginRequest {
+            plugin_name: Some(name.clone()),
+            stdin_payload: None,
+            args: args.to_vec(),
+            envs,
+        }).await.unwrap();
+
+        // Spawn stdin reader
+        let tx_in = tx.clone();
+        drop(tx);
+        tokio::spawn(async move {
+            let mut stdin = tokio::io::stdin();
+            let mut buf = vec![0u8; 8192];
+            loop {
+                match stdin.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx_in.send(TunnelPluginRequest {
+                            plugin_name: None,
+                            stdin_payload: Some(buf[..n].to_vec()),
+                            args: vec![],
+                            envs: std::collections::HashMap::new(),
+                        }).await.is_err() { break; }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        let mut stream = client.tunnel_plugin(tonic::Request::new(ReceiverStream::new(rx))).await?.into_inner();
+        
+        let mut stdout = tokio::io::stdout();
+        let mut stderr = tokio::io::stderr();
+        
+        while let Ok(Some(resp)) = stream.message().await {
+            if let Some(err) = resp.error_message {
+                eprintln!("Daemon Error: {}", err);
+                break;
+            }
+            if let Some(out) = resp.stdout_payload {
+                let _ = stdout.write_all(&out).await;
+                let _ = stdout.flush().await;
+            }
+            if let Some(err) = resp.stderr_payload {
+                let _ = stderr.write_all(&err).await;
+                let _ = stderr.flush().await;
+            }
+        }
+        
+    } else {
+        println!("The following installed plugins implement 'core.rpc.stdio' (MCP servers):\n");
+        println!("{:<30} | {}", "NAME", "CAPABILITIES");
+        println!("{:-<30}-+-{:-<30}", "", "");
+        
+        for entry in std::fs::read_dir(&plugins_dir)? {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_file() && path.extension().is_none() {
+                    let capabilities = get_plugin_capabilities(&path);
+                    if capabilities.contains(&"core.rpc.stdio".to_string()) {
+                        let name = path.file_name().unwrap_or_default().to_string_lossy();
+                        println!("{:<30} | {}", name, capabilities.join(", "));
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }

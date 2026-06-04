@@ -115,12 +115,16 @@ PREVIEW_APP_KEY  ?= RjP3LPoI   # 预览/集成测试环境 AppKey (Preview/INTE)
 build-plugins:
 	@echo "🛠️ Building search-embedding plugin (Release)..."
 	cargo build --release -p cowen-search-embedding
+	@echo "🛠️ Building mcp-plugin (Release)..."
+	cargo build --release -p cowen-mcp-plugin
 	@echo "🔐 Signing plugins natively..."
 ifeq ($(OS),Windows_NT)
 	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/release/libcowen_search_embedding.exe') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding.exe --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle --capabilities SearchProvider --required-privileges LocalCacheAccess,ModelAssetFetch,ComputeHeavy } }"
+	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/release/cowen-mcp-plugin.exe') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen-mcp-plugin.exe --name cowen-mcp-plugin --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen-mcp-plugin.bundle --capabilities core.rpc.stdio --required-privileges LocalCacheAccess } }"
 else
 	@if [ -f "dist_assets/keys/official_dev.pk8" ]; then \
 		if [ -f "target/release/libcowen_search_embedding" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/libcowen_search_embedding.bundle --capabilities SearchProvider --required-privileges LocalCacheAccess,ModelAssetFetch,ComputeHeavy; fi; \
+		if [ -f "target/release/cowen-mcp-plugin" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen-mcp-plugin --name cowen-mcp-plugin --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen-mcp-plugin.bundle --capabilities core.rpc.stdio --required-privileges LocalCacheAccess; fi; \
 	fi
 endif
 
@@ -132,6 +136,8 @@ macos-aarch64: build-plugins
 	cp target/release/cowen-daemon $(OUTPUT_DIR)/macos-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/macos-aarch64/ || true
 	if [ -f "$(OUTPUT_DIR)/macos-aarch64/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/macos-aarch64/ || exit 1; fi
+	cp target/release/cowen-mcp-plugin $(OUTPUT_DIR)/macos-aarch64/ || true
+	if [ -f "$(OUTPUT_DIR)/macos-aarch64/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/macos-aarch64/ || exit 1; fi
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
@@ -593,11 +599,24 @@ clean:
 	cargo clean
 	$(call RM,$(OUTPUT_DIR)/macos-aarch64 $(OUTPUT_DIR)/linux-x86_64 $(OUTPUT_DIR)/linux-aarch64 $(OUTPUT_DIR)/windows-x86 $(OUTPUT_DIR)/windows-x86_64 $(OUTPUT_DIR)/windows-x86_64-cross $(OUTPUT_DIR)/test .builder_image_built target/cowen_tests_linux target/cowen_tests_macos target/cowen_tests)
 
-install:
-	@$(MAKE) macos-aarch64
-	cp $(OUTPUT_DIR)/macos-aarch64/$(BINARY) /usr/local/bin/$(BINARY)
-	cp $(OUTPUT_DIR)/macos-aarch64/cowen-daemon /usr/local/bin/cowen-daemon
-	@echo "🚀 Installed to /usr/local/bin/$(BINARY) and /usr/local/bin/cowen-daemon"
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+
+install: build
+	@echo "🚀 Installing core binaries to $(BINDIR)/..."
+	mkdir -p $(BINDIR)
+	rm -f $(BINDIR)/$(BINARY) $(BINDIR)/cowen-daemon
+	cp target/release/$(BINARY) $(BINDIR)/$(BINARY)
+	cp target/release/cowen-daemon $(BINDIR)/cowen-daemon
+	@echo "🚀 Installing plugins to $(HOME)/.cowen/plugins/..."
+	@mkdir -p $(HOME)/.cowen/plugins
+	@rm -f $(HOME)/.cowen/plugins/cowen-mcp-plugin $(HOME)/.cowen/plugins/cowen-mcp-plugin.bundle
+	@rm -f $(HOME)/.cowen/plugins/libcowen_search_embedding $(HOME)/.cowen/plugins/libcowen_search_embedding.bundle
+	cp target/release/cowen-mcp-plugin $(HOME)/.cowen/plugins/ || true
+	cp target/release/cowen-mcp-plugin.bundle $(HOME)/.cowen/plugins/ || true
+	cp target/release/libcowen_search_embedding $(HOME)/.cowen/plugins/ || true
+	cp target/release/libcowen_search_embedding.bundle $(HOME)/.cowen/plugins/ || true
+	@echo "🚀 Installed to $(BINDIR)/$(BINARY), $(BINDIR)/cowen-daemon and $(HOME)/.cowen/plugins/"
 
 run:
 	cargo run -- --help

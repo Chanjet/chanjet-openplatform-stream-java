@@ -2,7 +2,7 @@ use cowen_common::grpc::client::DaemonResponse;
 use anyhow::Result;
 
 pub async fn list(profile: &str, search: &Option<String>, page: usize, page_size: usize, format: &str, refresh: bool) -> Result<()> {
-    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     match ipc.api_list(profile, search.as_deref(), page as u32, page_size as u32, refresh).await {
         Ok(DaemonResponse::ApiListData { total, json, plugin_used }) => {
             if let Some(p) = plugin_used {
@@ -64,7 +64,7 @@ pub async fn list(profile: &str, search: &Option<String>, page: usize, page_size
 }
 
 pub async fn spec(profile: &str, method: &String, path: &String, raw: bool) -> Result<()> {
-    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     match ipc.api_spec(profile, method, path).await {
         Ok(DaemonResponse::ApiSpecData { json }) => {
             eprintln!("DEBUG JSON: {}", json);

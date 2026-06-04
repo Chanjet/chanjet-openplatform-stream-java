@@ -2,6 +2,14 @@ use std::sync::Arc;
 use cowen_config::ConfigManager;
 use cowen_common::vault::Vault;
 use tonic::{Response, Status};
+
+use tokio::process::Command;
+use std::process::Stdio;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_stream::StreamExt;
+use cowen_common::grpc::proto::{TunnelPluginRequest, TunnelPluginResponse};
+
 use cowen_common::grpc::proto::{
     DoctorRequest, DoctorResponse,
     StoreStatusRequest, StoreStatusResponse,
@@ -236,4 +244,142 @@ impl SystemOrchestrator {
             }
         }
     }
+
+    pub async fn tunnel_plugin(
+        &self,
+        request: tonic::Streaming<TunnelPluginRequest>,
+    ) -> Result<Response<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<TunnelPluginResponse, Status>> + Send + 'static>>>, Status> {
+        let mut stream = request;
+        
+        let first_msg = match stream.message().await {
+            Ok(Some(msg)) => msg,
+            Ok(None) => return Err(Status::invalid_argument("Empty stream")),
+            Err(e) => return Err(Status::internal(format!("Stream error: {}", e))),
+        };
+
+        let plugin_name = first_msg.plugin_name.ok_or_else(|| Status::invalid_argument("First message must contain plugin_name"))?;
+        
+        let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
+        let expected_path = if cfg!(target_os = "windows") {
+            plugins_dir.join(format!("{}.exe", plugin_name))
+        } else {
+            plugins_dir.join(&plugin_name)
+        };
+
+        if !expected_path.exists() {
+            return Err(Status::not_found(format!("Plugin {} not found at {:?}", plugin_name, expected_path)));
+        }
+
+        let jwt_secret_vec = cowen_common::jwt::get_global_daemon_secret().cloned().unwrap_or_default();
+        let plugin_claims = cowen_common::jwt::IpcClaims::new(
+            plugin_name.clone(), 
+            cowen_common::jwt::IpcRole::Plugin, 
+            vec!["*".to_string()], 
+            86400
+        );
+        let bridge_token = cowen_common::jwt::sign_jwt(&plugin_claims, &jwt_secret_vec)
+            .map_err(|e| Status::internal(format!("Failed to sign token: {}", e)))?;
+
+        let port_path = cowen_common::config::get_app_dir().join("ipc.port");
+        let port_str = std::fs::read_to_string(&port_path)
+            .unwrap_or_else(|_| "0".to_string());
+            
+        let profile = first_msg.envs.get("COWEN_PROFILE").cloned().unwrap_or_else(|| "default".to_string());
+
+        let mut cmd = Command::new(&expected_path);
+        cmd.args(first_msg.args);
+        
+        for (k, v) in first_msg.envs {
+            cmd.env(k, v);
+        }
+        
+        // Force the bridge token and ipc port from Daemon
+        cmd.env("COWEN_PROFILE", profile);
+        cmd.env("COWEN_IPC_PORT", port_str);
+        cmd.env("COWEN_BRIDGE_TOKEN", bridge_token);
+        
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => return Err(Status::internal(format!("Failed to spawn plugin: {}", e))),
+        };
+
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = child.stdout.take().unwrap();
+        let mut stderr = child.stderr.take().unwrap();
+
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+
+        // STDIN task
+        tokio::spawn(async move {
+            if let Some(payload) = first_msg.stdin_payload {
+                if !payload.is_empty() {
+                    let _ = stdin.write_all(&payload).await;
+                    let _ = stdin.flush().await;
+                }
+            }
+            while let Ok(Some(msg)) = stream.message().await {
+                if let Some(payload) = msg.stdin_payload {
+                    if payload.is_empty() { break; }
+                    if stdin.write_all(&payload).await.is_err() { break; }
+                    if stdin.flush().await.is_err() { break; }
+                }
+            }
+        });
+
+        // STDOUT task
+        let tx_out = tx.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 8192];
+            loop {
+                match stdout.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx_out.send(Ok(TunnelPluginResponse {
+                            stdout_payload: Some(buf[..n].to_vec()),
+                            stderr_payload: None,
+                            error_message: None,
+                        })).await.is_err() { break; }
+                    }
+                    Err(e) => {
+                        let _ = tx_out.send(Err(Status::internal(e.to_string()))).await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        // STDERR task
+        let tx_err = tx.clone();
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 8192];
+            loop {
+                match stderr.read(&mut buf).await {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx_err.send(Ok(TunnelPluginResponse {
+                            stdout_payload: None,
+                            stderr_payload: Some(buf[..n].to_vec()),
+                            error_message: None,
+                        })).await.is_err() { break; }
+                    }
+                    Err(e) => {
+                        let _ = tx_err.send(Err(Status::internal(e.to_string()))).await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Wait task
+        tokio::spawn(async move {
+            let _ = child.wait().await;
+        });
+
+        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
+    }
 }
+

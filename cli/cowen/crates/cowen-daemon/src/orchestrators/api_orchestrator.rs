@@ -26,7 +26,12 @@ impl ApiOrchestrator {
             Ok(spec) => {
                 let method_lower = req.method.to_lowercase();
                 if let Some(op) = spec.get("paths").and_then(|p| p.as_object()).and_then(|p| p.get(&req.path)).and_then(|p| p.get(&method_lower)) {
-                    let json = serde_json::to_string(&op).unwrap_or_default();
+                    let mut result = serde_json::Map::new();
+                    result.insert("operation".to_string(), op.clone());
+                    if let Some(components) = spec.get("components") {
+                        result.insert("components".to_string(), components.clone());
+                    }
+                    let json = serde_json::to_string(&result).unwrap_or_default();
                     Ok(Response::new(ApiSpecResponse { json, error_message: None }))
                 } else {
                     Ok(Response::new(ApiSpecResponse { json: "".to_string(), error_message: Some("Operation not found".to_string()) }))

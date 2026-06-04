@@ -1,6 +1,10 @@
 pub(crate) mod cmd;
 
-use clap::Parser;
+pub(crate) fn get_ipc_port_path() -> std::path::PathBuf {
+    cowen_common::config::get_app_dir().join("ipc.port")
+}
+
+use clap::{Parser, Subcommand};
 
 use cowen_common::utils::get_bin_name;
 use anyhow::Result;
@@ -271,6 +275,14 @@ pub enum PluginsCommands {
         /// 要校准签名的插件名称
         name: String,
     },
+    /// 运行插件并将指定参数透传给插件进程 (核心插件可以通过 run 命令进行调度)
+    Run {
+        /// 插件名称，若不提供则列出所有支持 core.rpc.stdio 的插件
+        name: Option<String>,
+        /// 透传给插件的参数列表
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -507,7 +519,7 @@ async fn get_all_profiles(active_profile: &str) -> Vec<String> {
         }
     }
 
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
     if let Ok(cowen_common::grpc::client::DaemonResponse::SystemStatusData { json }) = ipc.system_status(active_profile, true).await {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json) {
@@ -542,7 +554,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|_| "default".to_string())
     });
-    let port_path = cowen_common::config::get_ipc_port_path();
+    let port_path = crate::get_ipc_port_path();
     let daemon_svc = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
 
     tracing::info!(target: "sys", "cowen starting (version {})", env!("CARGO_PKG_VERSION"));
@@ -651,7 +663,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                     }
                 }
             } else if let (Some(m), Some(p)) = (method, path) {
-                let port_path = cowen_common::config::get_ipc_port_path();
+                let port_path = crate::get_ipc_port_path();
                 let _stream = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await?;
                 let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path);
 
@@ -768,6 +780,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             PluginsCommands::Disable { name } => cmd::plugins::disable(name).await?,
             PluginsCommands::Install { path } => cmd::plugins::install(path).await?,
             PluginsCommands::RefreshSignature { name } => cmd::plugins::refresh_signature(name).await?,
+            PluginsCommands::Run { name, args } => cmd::plugins::run(&active_profile, name, args).await?,
         },
         Commands::Config { action, all } => match action {
             Some(ConfigCommands::Set { key, value, global }) => {

@@ -52,6 +52,8 @@ fn check_rbac<T>(req: &Request<T>, target_profile: Option<&str>) -> Result<(), S
 
 #[tonic::async_trait]
 impl CowenDaemonService for CowenDaemonController {
+    type TunnelPluginStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<TunnelPluginResponse, Status>> + Send + 'static>>;
+
     async fn ping(&self, _request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
         Ok(Response::new(PingResponse { message: "pong".to_string() }))
     }
@@ -449,5 +451,13 @@ impl CowenDaemonService for CowenDaemonController {
     async fn api_spec(&self, request: Request<ApiSpecRequest>) -> Result<Response<ApiSpecResponse>, Status> {
         check_rbac(&request, None)?;
         self.api_orchestrator.api_spec(request.into_inner()).await
+    }
+
+    async fn tunnel_plugin(
+        &self,
+        request: Request<tonic::Streaming<TunnelPluginRequest>>,
+    ) -> Result<Response<Self::TunnelPluginStream>, Status> {
+        check_rbac(&request, None)?;
+        self.system_orchestrator.tunnel_plugin(request.into_inner()).await
     }
 }

@@ -173,7 +173,7 @@ graph TD
 ### Phase 2: 铺开 Sidecar 引擎与 Agent 生态爆发
 **目标**：确立 MCP 与 Sidecar 双向通信规范，建立“冷路径”的长尾能力外延池。
 **关键任务 (Key Tasks)**：
-1. **制定契约**：发布 `plugin.json` 声明规范与 `cowen` JSON-RPC (STDIO) 通信交互协议草案。
+1. **制定契约**：发布 `plugin.json` 声明规范与 `cowen` JSON-RPC (STDIO) 通信交互协议草案。全面引入 **基于能力组的按需声明 (Capability-Based Matrix)**，要求插件在契约中显式声明所需能力（例如 `"required_capabilities": { "native.api.proxy": "^1.0.0" }`），以便 `System Orchestrator` 在加载阶段执行严格的能力漏斗过滤。
 2. **SDK 基建**：提供官方认证的 Go 与 Python 版 Plugin Wrapper Boilerplate (开发脚手架)，极大降低第三方生态的接入门槛。
 3. **内部重构打样**：将现有的重量级存储组件 (`store`) 和 向量检索计算 (`search`) 重构为完全脱离主仓库的标准化 Sidecar 插件。
 4. **Agent 网关打通**：无缝对接 MCP 协议，支持以标准的 MCP Server 模式向外部大模型应用提供工具调用池。

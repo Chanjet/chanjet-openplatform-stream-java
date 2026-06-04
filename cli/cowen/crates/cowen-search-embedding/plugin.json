@@ -1,0 +1,15 @@
+{
+  "id": "cowen-search-embedding",
+  "name": "Cowen Search Embedding Plugin",
+  "version": "0.4.0",
+  "description": "Official semantic search embedding plugin via ONNX and Sidecar RPC",
+  "command": "./cowen-search-embedding",
+  "required_capabilities": {
+    "SearchProvider": "v1"
+  },
+  "requested_permissions": {
+    "LocalCacheAccess": true,
+    "ModelAssetFetch": true,
+    "ComputeHeavy": true
+  }
+}

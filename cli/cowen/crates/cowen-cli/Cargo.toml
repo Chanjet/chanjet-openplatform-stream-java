@@ -20,6 +20,8 @@ tokio = { version = "1.50", features = ["full"] }
 futures-util = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "form", "query"] }
 async-trait = "0.1"
+tonic = "0.12"
+tokio-stream = { version = "0.1", features = ["sync"] }
 anyhow = "1.0"
 tracing = "0.1"
 chrono = { version = "0.4", features = ["serde"] }

@@ -33,7 +33,6 @@ service CowenDaemonService {
     rpc TailAudit (TailAuditRequest) returns (TailAuditResponse);
     rpc ApiList (ApiListRequest) returns (ApiListResponse);
     rpc ApiSpec (ApiSpecRequest) returns (ApiSpecResponse);
-    rpc TunnelPlugin (stream TunnelPluginRequest) returns (stream TunnelPluginResponse);
 }
 
 enum WorkerState {
@@ -331,18 +330,4 @@ message ApiSpecRequest {
 message ApiSpecResponse {
     string json = 1;
     optional string error_message = 2;
-}
-
-message TunnelPluginRequest {
-    // The first message MUST contain the plugin_name. Subsequent messages contain stdio_payload.
-    optional string plugin_name = 1;
-    optional bytes stdin_payload = 2;
-    repeated string args = 3;
-    map<string, string> envs = 4;
-}
-
-message TunnelPluginResponse {
-    optional bytes stdout_payload = 1;
-    optional bytes stderr_payload = 2;
-    optional string error_message = 3;
 }
