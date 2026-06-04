@@ -281,6 +281,12 @@ async fn run_profile_worker(
     let shutdown_gate = crate::utils::shutdown::ShutdownGate::new();
 
     // Signal readiness
+    if let Ok(sleep_secs) = std::env::var("COWEN_MOCK_SLOW_START_DAEMON") {
+        if let Ok(secs) = sleep_secs.parse::<u64>() {
+            tracing::info!(target: "sys", "MOCK: Sleeping for {} seconds before signaling readiness", secs);
+            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+        }
+    }
     let _ = ready_tx.send(());
 
     // Proactive Sync

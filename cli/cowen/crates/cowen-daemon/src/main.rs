@@ -217,14 +217,18 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     }
 
     if auto_start_all {
-        if let Ok(profiles) = cfg_mgr.list_profiles().await {
-            for p in profiles {
-                info!("Auto-starting worker for profile: {}", p);
-                if let Err(e) = daemon_svc.start_daemon(&p).await {
-                    error!("Failed to auto-start worker for profile {}: {}", p, e);
+        let cfg_mgr_clone = cfg_mgr.clone();
+        let daemon_svc_clone = daemon_svc.clone();
+        tokio::spawn(async move {
+            if let Ok(profiles) = cfg_mgr_clone.list_profiles().await {
+                for p in profiles {
+                    info!("Auto-starting worker for profile: {}", p);
+                    if let Err(e) = daemon_svc_clone.start_daemon(&p).await {
+                        error!("Failed to auto-start worker for profile {}: {}", p, e);
+                    }
                 }
             }
-        }
+        });
     }
 
 
