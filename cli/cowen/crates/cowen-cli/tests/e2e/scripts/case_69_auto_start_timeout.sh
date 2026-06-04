@@ -31,5 +31,5 @@ echo "cowen status returned immediately. Worker is starting in background."
 echo "Stopping daemon..."
 "$COWEN_BIN" daemon stop
 
-echo "Test case 69 passed."
+echo "Test case 69 Passed!"
 exit 0
