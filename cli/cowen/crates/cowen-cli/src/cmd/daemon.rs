@@ -1,7 +1,7 @@
 
 use anyhow::Result;
 use std::process::Command;
-use cowen_common::daemon::DaemonService;
+
 
 pub async fn start(
     profile: &str,
@@ -10,12 +10,12 @@ pub async fn start(
     foreground: bool,
     all: bool,
 ) -> Result<()> {
-    let port_path = cowen_common::ipc::get_ipc_port_path();
+    let port_path = cowen_common::config::get_ipc_port_path();
 
     if !foreground {
         // Just ensure it's started and send start request
-        let _ = cowen_common::ipc::client::ensure_daemon(&port_path).await?;
-        let ipc_client = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+        let _ = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await?;
+        let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path);
         
         if let Some(p) = proxy_port {
             let _ = ipc_client.set_config(profile, "proxy_port", &p.to_string()).await;
@@ -38,14 +38,31 @@ pub async fn start(
         // Run in foreground
         let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
         let bin_name = if cfg!(windows) { "cowen-daemon.exe" } else { "cowen-daemon" };
-        let daemon_path = std::env::var("COWEN_DAEMON_BIN")
+        let mut daemon_path = std::env::var("COWEN_DAEMON_BIN")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| exe_dir.join(bin_name));
+            
+        // If not found in the immediate parent directory (e.g., target/debug/deps during tests),
+        // try the parent of the parent (e.g., target/debug).
+        if !daemon_path.exists() && daemon_path.parent().map(|p| p.ends_with("deps")).unwrap_or(false) {
+            if let Some(target_dir) = daemon_path.parent().and_then(|p| p.parent()) {
+                daemon_path = target_dir.join(bin_name);
+            }
+        }
         
-        let mut child = Command::new(&daemon_path)
+        eprintln!("🔥 Trying to spawn daemon at: {:?}", daemon_path);
+        eprintln!("🔥 Daemon exists? {}", daemon_path.exists());
+        
+        let mut child = match Command::new(&daemon_path)
             .arg("--ipc-port-file")
             .arg(&port_path)
-            .spawn()?;
+            .spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("🔥 Error spawning daemon: {:?}", e);
+                return Err(e.into());
+            }
+        };
         
         let child_id = child.id();
         eprintln!("🚀 Starting cowen-daemon in foreground (PID: {})...", child_id);
@@ -53,7 +70,7 @@ pub async fn start(
         // Wait for it to bind port
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         
-        let ipc_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+        let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
         
         // Wait for daemon to become available (up to 15s for heavily loaded CI)
         let mut retries = 30;
@@ -103,37 +120,24 @@ pub async fn start(
 }
 
 pub async fn stop(profile: &str, all: bool) -> Result<()> {
-    let port_path = cowen_common::ipc::get_ipc_port_path();
+    let port_path = cowen_common::config::get_ipc_port_path();
     if !port_path.exists() {
         eprintln!("✅ No running daemon found.");
         return Ok(());
     }
 
-    let mut client = match cowen_common::ipc::client::connect_to_daemon(&port_path).await {
-        Ok(c) => c,
-        Err(_) => {
-            eprintln!("✅ Daemon is not running (or socket is stale).");
-            let _ = std::fs::remove_file(&port_path);
-            return Ok(());
-        }
-    };
-    
-    let token_path = port_path.with_file_name("ipc.token");
-    let token = std::fs::read_to_string(&token_path).unwrap_or_default();
-
+    let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path);
     if all {
-        let req = cowen_common::ipc::DaemonRequest::StopAllWorkers;
-        match cowen_common::ipc::client::send_request(&mut client, &req, &token).await {
-            Ok(cowen_common::ipc::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),
-            Ok(cowen_common::ipc::DaemonResponse::Error { message, .. }) => eprintln!("⚠️ Failed to stop all workers: {}", message),
+        match ipc_client.stop_all().await {
+            Ok(cowen_common::grpc::client::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),
+            Ok(cowen_common::grpc::client::DaemonResponse::Error { message, .. }) => eprintln!("⚠️ Failed to stop all workers: {}", message),
             Ok(_) => eprintln!("⚠️ Unexpected response type"),
             Err(e) => eprintln!("⚠️ IPC request failed: {}", e),
         }
     } else {
-        let req = cowen_common::ipc::DaemonRequest::StopWorker { profile: profile.to_string() };
-        match cowen_common::ipc::client::send_request(&mut client, &req, &token).await {
-            Ok(cowen_common::ipc::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),
-            Ok(cowen_common::ipc::DaemonResponse::Error { message, .. }) => eprintln!("⚠️ Failed to stop profile {}: {}", profile, message),
+        match ipc_client.stop_daemon(profile).await {
+            Ok(cowen_common::grpc::client::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),
+            Ok(cowen_common::grpc::client::DaemonResponse::Error { message, .. }) => eprintln!("⚠️ Failed to stop profile {}: {}", profile, message),
             Ok(_) => eprintln!("⚠️ Unexpected response type"),
             Err(e) => eprintln!("⚠️ IPC request failed: {}", e),
         }

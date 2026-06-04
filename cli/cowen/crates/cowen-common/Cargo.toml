@@ -31,6 +31,8 @@ sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "tls-rus
 redis = { version = "0.27", optional = true }
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
 ring = "0.17.14"
+tonic = "0.12"
+prost = "0.13"
 
 [features]
 reqwest = ["dep:reqwest"]
@@ -43,3 +45,4 @@ mssql = []
 
 [build-dependencies]
 chrono = "0.4"
+tonic-build = "0.12"

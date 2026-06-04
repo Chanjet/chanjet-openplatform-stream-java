@@ -1,15 +1,17 @@
 use anyhow::Result;
-use cowen_common::ipc::client::IpcDaemonService;
-use cowen_common::ipc::DaemonResponse;
+use cowen_common::grpc::client::DaemonResponse;
 
 pub async fn login(profile: &str, force: bool) -> Result<()> {
-    let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
     
     // 1. Get Auth URL
     println!("🔄 Requesting authorization session from Daemon...");
     match ipc.get_auth_url(profile, force).await {
         Ok(DaemonResponse::AuthRotated) => {
             println!("🔄 OAuth2 Token Pair has been rotated.");
+        }
+        Ok(DaemonResponse::AuthSuccess { .. }) => {
+            println!("✅ Login successful! Token is active and ready.");
         }
         Ok(DaemonResponse::AuthUrl { url, state }) => {
             println!("\x1b[1mPlease authorize in the LOCAL browser of this machine. Opening URL...\x1b[0m");
@@ -49,23 +51,12 @@ pub async fn login(profile: &str, force: bool) -> Result<()> {
             eprintln!("💡 Ensure the cowen daemon is running (`cowen daemon start`).");
             return Err(anyhow::anyhow!("Failed to get auth URL: {}", message));
         }
-        Err(e) => {
-            eprintln!("❌ Failed to communicate with Daemon: {}", e);
-            eprintln!("💡 Ensure the cowen daemon is running (`cowen daemon start`).");
-            return Err(anyhow::anyhow!("IPC Error: {}", e));
-        }
-        Ok(DaemonResponse::AuthSuccess { .. }) => {
-            if force {
-                println!("✅ Token forcefully refreshed from network.");
-            } else {
-                println!("✅ Token is active and ready.");
-            }
-        }
         _ => {
             eprintln!("❌ Unexpected response from daemon");
             return Err(anyhow::anyhow!("Unexpected response"));
         }
     }
+    
     Ok(())
 }
 
@@ -74,7 +65,7 @@ pub async fn token(
     format: &str,
     refresh: bool,
 ) -> Result<()> {
-    let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
     match ipc.get_token(profile, refresh).await {
         Ok(DaemonResponse::TokenData { token_json }) => {
             if format != "text" {
@@ -110,7 +101,7 @@ pub async fn token(
 }
 
 pub async fn logout(profile: &str) -> Result<()> {
-    let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
     match ipc.clear_token(profile).await {
         Ok(DaemonResponse::Success { .. }) => {
             println!("✅ Successfully logged out from profile '{}'.", profile);

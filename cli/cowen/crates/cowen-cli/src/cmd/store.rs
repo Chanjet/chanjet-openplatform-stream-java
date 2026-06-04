@@ -1,5 +1,4 @@
 use anyhow::Result;
-use cowen_common::ipc::client::IpcDaemonService;
 use crate::Colorize;
 
 pub async fn set(
@@ -8,8 +7,8 @@ pub async fn set(
     cache: &Option<String>,
     cache_url: &Option<String>,
 ) -> Result<()> {
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let ipc = IpcDaemonService::new(port_path);
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
     let mut changed = false;
 
     if let Some(s) = store {
@@ -48,11 +47,11 @@ pub async fn set(
 }
 
 pub async fn status() -> Result<()> {
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let ipc = IpcDaemonService::new(port_path);
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     let storage: cowen_common::config::StorageConfig = match ipc.store_status().await {
-        Ok(cowen_common::ipc::DaemonResponse::StoreStatusData { json }) => serde_json::from_str(&json).unwrap_or_default(),
+        Ok(cowen_common::grpc::client::DaemonResponse::StoreStatusData { json }) => serde_json::from_str(&json).unwrap_or_default(),
         _ => return Err(anyhow::anyhow!("Failed to retrieve storage status from daemon")),
     };
 

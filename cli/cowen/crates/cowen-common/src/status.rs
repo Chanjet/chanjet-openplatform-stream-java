@@ -121,7 +121,7 @@ pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
     
     // Check for unified master daemon first
     let master_pid_file = app_dir.join("master_daemon.pid");
-    if master_pid_file.exists() {
+    println!("Checking pid file: {:?}", master_pid_file); if master_pid_file.exists() {
         if let Some(info) = read_daemon_info(&master_pid_file) {
             return Some(info);
         }
@@ -140,13 +140,13 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
     if let Ok(pid_content) = std::fs::read_to_string(pid_file) {
         let mut lines = pid_content.lines();
         if let Some(pid_str) = lines.next() {
-            if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+            if let Ok(pid_val) = pid_str.trim().parse::<u32>() { println!("Parsed PID: {}", pid_val);
                 // Secondary check: verify the process actually exists and looks like us.
                 let mut s = System::new();
                 let sys_pid = sysinfo::Pid::from_u32(pid_val);
                 s.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
 
-                if let Some(process) = s.process(sys_pid) {
+                if let Some(process) = s.process(sys_pid) { println!("Process: {}", process.name().to_string_lossy());
                     let name = process.name().to_string_lossy();
                     let is_target = crate::utils::is_cowen_process_name(&name, None);
                     if is_target {

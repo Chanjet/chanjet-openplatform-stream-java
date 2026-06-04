@@ -12,7 +12,7 @@ pub mod domain;
 pub mod openapi;
 pub mod error;
 pub mod daemon;
-pub mod ipc;
+pub mod grpc;
 pub mod reset;
 pub mod jwt;
 

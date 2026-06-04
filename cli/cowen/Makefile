@@ -4,9 +4,9 @@ OUTPUT_DIR=../../bin
 
 # 从 Cargo.toml 自动提取版本号
 ifeq ($(OS),Windows_NT)
-    VERSION := $(shell powershell -NoProfile -Command "(Get-Content Cargo.toml | Select-String '^version =').ToString().Split('\"')[1].Trim()")
+    VERSION := $(shell powershell -NoProfile -Command "(Get-Content crates/cowen-cli/Cargo.toml | Select-String '^version =').ToString().Split('\"')[1].Trim()")
 else
-    VERSION := $(shell grep '^version =' Cargo.toml | cut -d '"' -f 2)
+    VERSION := $(shell grep '^version =' crates/cowen-cli/Cargo.toml | cut -d '"' -f 2)
 endif
 
 # 缓存目录与镜像定义
@@ -127,7 +127,7 @@ endif
 macos-aarch64: build-plugins
 	@echo "🍎 Building macOS Apple Silicon v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/macos-aarch64
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release -p cowen -p cowen-daemon
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release -p cowen-cli -p cowen-daemon
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/macos-aarch64/$(BINARY)
 	cp target/release/cowen-daemon $(OUTPUT_DIR)/macos-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/macos-aarch64/ || true
@@ -141,7 +141,7 @@ macos-aarch64: build-plugins
 test-macos-aarch64:
 	@echo "🧪 Building macOS Apple Silicon (TEST ENV) v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/test
-	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) BUILTIN_CLIENT_ID=$(PREVIEW_APP_KEY) cargo build --release --features inte -p cowen -p cowen-daemon
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY)-test APP_DIR_NAME=.$(BINARY)-test DEF_OPENAPI_URL=$(TEST_OPENAPI) DEF_STREAM_URL=$(TEST_STREAM) BUILTIN_CLIENT_ID=$(PREVIEW_APP_KEY) cargo build --release --features inte -p cowen-cli -p cowen-daemon
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/test/$(BINARY)
 	cp target/release/cowen-daemon $(OUTPUT_DIR)/test/cowen-daemon
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/$(BINARY) 2>/dev/null || true
@@ -155,7 +155,7 @@ linux-x86_64: build-plugins
 	@echo "🐧 Building Linux x86_64 [FULL VERSION] natively v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
-	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon
+	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo build --release --target x86_64-unknown-linux-gnu -p cowen-cli -p cowen-daemon
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
 	cp target/x86_64-unknown-linux-gnu/release/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-x86_64/ || true
@@ -230,7 +230,7 @@ linux-x86_64-with-podman: prepare-podman-image
 	@trap '$(MAKE) stop-podman-machine' EXIT; \
 	$(PODMAN_RUN_BASE) \
 		$(BUILDER_IMAGE) \
-		bash -c "cargo build --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu -p cowen -p cowen-daemon -p cowen-search-embedding -p cowen-signer && \
+		bash -c "cargo build --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer && \
 			target_podman/x86_64-unknown-linux-gnu/release/cowen-signer sign-plugin --dylib target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle --capabilities SearchProvider --required-privileges LocalCacheAccess,ModelAssetFetch,ComputeHeavy && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon && \
@@ -243,7 +243,7 @@ linux-x86_64-with-podman: prepare-podman-image
 linux-aarch64: build-plugins
 	@echo "🐧 Building Linux aarch64 v$(VERSION)..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64
-	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features -p cowen -p cowen-daemon
+	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) cargo zigbuild --release --target aarch64-unknown-linux-musl --no-default-features -p cowen-cli -p cowen-daemon
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)
 	cp target/aarch64-unknown-linux-musl/release/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-aarch64/ || true
@@ -255,7 +255,7 @@ linux-aarch64: build-plugins
 windows-x86_64: build-plugins
 	@echo "🪟 Building Windows x86_64 v$(VERSION)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
-	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc -p cowen -p cowen-daemon"
+	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc -p cowen-cli -p cowen-daemon"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen-daemon.exe -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-daemon.exe -Force"
 	powershell -NoProfile -Command "if (Test-Path target/release/cowen_search_embedding.dll) { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen_search_embedding.bundle --capabilities SearchProvider --required-privileges LocalCacheAccess,ModelAssetFetch,ComputeHeavy; Copy-Item -Path target/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force; Copy-Item -Path target/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.bundle -Force }"
@@ -268,7 +268,7 @@ windows-x86-cross:
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 	DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
-	cargo zigbuild --release --target i686-pc-windows-gnu --no-default-features -p cowen -p cowen-daemon
+	cargo zigbuild --release --target i686-pc-windows-gnu --no-default-features -p cowen-cli -p cowen-daemon
 	cp target/i686-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x86/$(BINARY).exe
 	cp target/i686-pc-windows-gnu/release/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86/cowen-daemon.exe
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86/$(BINARY).exe)
@@ -280,7 +280,7 @@ windows-x86_64-cross:
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
 	DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
 	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
-	cargo zigbuild --release --target x86_64-pc-windows-gnu --no-default-features -p cowen -p cowen-daemon
+	cargo zigbuild --release --target x86_64-pc-windows-gnu --no-default-features -p cowen-cli -p cowen-daemon
 	cp target/x86_64-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe
 	cp target/x86_64-pc-windows-gnu/release/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86_64-cross/cowen-daemon.exe
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe)
@@ -370,7 +370,7 @@ package-windows-x86_64: clean windows-x86_64
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@echo "🔍 Automating Windows package verification..."
-	powershell -NoProfile -ExecutionPolicy Bypass -File "./tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "crates/cowen-cli/tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
 
 package-windows-x86_64-cross: windows-x86_64-cross
 	@echo "📦 Cross-packaging Windows x86_64 on macOS/Linux..."
@@ -455,7 +455,7 @@ impl-package-linux-x86_64:
 
 test-rust:
 	@echo "🧪 Running Rust internal and integration tests..."
-	RUSTFLAGS="-D warnings" cargo build -p cowen -p cowen-daemon
+	RUSTFLAGS="-D warnings" cargo build -p cowen-cli -p cowen-daemon
 	COWEN_SKIP_BROWSER=true RUSTFLAGS="-D warnings" cargo test
 
 # 自动根据环境运行测试
@@ -481,19 +481,19 @@ test-linux: prepare-podman-machine prepare-podman-image
 		-e MAX_PARALLEL=$(MAX_PARALLEL) \
 		-e QEMU_LD_PREFIX=/usr/x86_64-linux-gnu/ \
 		$(BUILDER_IMAGE) \
-		bash -c "COWEN_SKIP_BROWSER=true RUSTFLAGS=\"-D warnings\" cargo test --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true ./tests/runners/run_parallel.sh"
+		bash -c "COWEN_SKIP_BROWSER=true RUSTFLAGS=\"-D warnings\" cargo test --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true crates/cowen-cli/tests/runners/run_parallel.sh"
 
 # 在 Windows PowerShell 环境下执行测试
 
 # 在 Windows PowerShell 环境下执行测试
 test-win: test-rust
 	@echo "🧪 Running Full E2E Suite in Windows PowerShell..."
-	powershell -NoProfile -ExecutionPolicy Bypass -Command "$$env:COWEN_SKIP_BROWSER='true'; ./tests/runners/run_suites.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -Command "$$env:COWEN_SKIP_BROWSER='true'; crates/cowen-cli/tests/runners/run_suites.ps1"
 
 # 在 macOS 原生环境执行并行测试
 test-macos: test-rust local-db-up
 	@echo "🧪 Running Parallel E2E Suite natively on macOS (Isolated)..."
-	COWEN_SKIP_BROWSER=true TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 ./tests/runners/run_parallel.sh
+	COWEN_SKIP_BROWSER=true TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 crates/cowen-cli/tests/runners/run_parallel.sh
 
 # --- 数据库管理 (Database Management) ---
 

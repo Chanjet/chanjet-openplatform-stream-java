@@ -1,4 +1,4 @@
-use cowen_common::ipc::DaemonResponse;
+use cowen_common::grpc::client::DaemonResponse;
 
 pub struct InitContext {
     pub app_key: Option<String>,
@@ -19,23 +19,23 @@ pub async fn execute(
     println!("\n🚀 Initializing profile: \x1b[1;32m{}\x1b[0m", profile);
     
     // Ensure the daemon is running before initialization so we can start the worker after via IPC
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let _ = cowen_common::ipc::client::ensure_daemon(&port_path).await
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let _ = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await
         .map_err(|e| anyhow::anyhow!("Failed to ensure daemon is running for init: {}", e))?;
         
-    let ipc = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
     
     match ipc.init_profile(
         profile,
-        ctx.app_key,
-        ctx.app_secret,
-        ctx.certificate,
-        ctx.encrypt_key,
-        ctx.webhook_target,
-        ctx.openapi_url,
-        ctx.stream_url,
-        ctx.app_mode.clone(),
-        ctx.proxy_port,
+        ctx.app_key.as_deref(),
+        ctx.app_secret.as_deref(),
+        ctx.certificate.as_deref(),
+        ctx.encrypt_key.as_deref(),
+        ctx.webhook_target.as_deref(),
+        ctx.openapi_url.as_deref(),
+        ctx.stream_url.as_deref(),
+        ctx.app_mode.as_deref(),
+        ctx.proxy_port.map(|p| p as u32),
     ).await {
         Ok(DaemonResponse::Success { message }) => {
             println!("✅ {}", message);
@@ -65,7 +65,7 @@ pub async fn execute(
             }
             
             // Start the worker since it's a new profile
-            use cowen_common::daemon::DaemonService;
+
             let _ = ipc.start_daemon(profile).await;
             
             let _ = crate::cmd::completion::install_completion(None);

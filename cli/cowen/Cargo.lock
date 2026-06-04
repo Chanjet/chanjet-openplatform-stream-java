@@ -805,28 +805,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
-name = "cowen"
-version = "0.4.0"
-dependencies = [
- "assert_cmd",
- "axum 0.8.9",
- "chrono",
- "clap",
- "cowen-cli",
- "cowen-common",
- "cowen-store",
- "predicates",
- "reqwest 0.13.3",
- "rustls",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "cowen-ai"
 version = "0.4.0"
 dependencies = [
@@ -881,17 +859,23 @@ name = "cowen-cli"
 version = "0.4.0"
 dependencies = [
  "anyhow",
+ "assert_cmd",
  "async-trait",
+ "axum 0.8.9",
  "chrono",
  "clap",
  "clap_complete",
  "config",
  "cowen-common",
+ "cowen-config",
+ "cowen-daemon",
+ "cowen-store",
  "directories",
  "futures-util",
  "hex",
  "inventory",
  "open",
+ "predicates",
  "prettytable-rs",
  "rand 0.10.1",
  "regex",
@@ -925,6 +909,7 @@ dependencies = [
  "inventory",
  "ipnet",
  "jsonwebtoken",
+ "prost",
  "rand 0.8.6",
  "redis",
  "reqwest 0.12.28",
@@ -937,6 +922,8 @@ dependencies = [
  "sysinfo",
  "thiserror 2.0.18",
  "tokio",
+ "tonic",
+ "tonic-build",
  "tracing",
  "url",
  "uuid",
@@ -4529,9 +4516,7 @@ checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "encoding_rs",
  "futures-core",
- "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -4540,7 +4525,6 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
- "mime",
  "percent-encoding",
  "pin-project-lite",
  "quinn",

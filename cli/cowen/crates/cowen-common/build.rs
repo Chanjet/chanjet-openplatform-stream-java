@@ -51,4 +51,6 @@ fn main() {
     println!("cargo:rustc-env=DEF_STREAM_URL={}", stream_url);
     println!("cargo:rustc-env=DEF_MARKET_URL={}", market_url);
     println!("cargo:rustc-env=BUILTIN_CLIENT_ID={}", builtin_client_id);
+    
+    tonic_build::compile_protos("../../proto/daemon.proto").expect("Failed to compile daemon.proto");
 }

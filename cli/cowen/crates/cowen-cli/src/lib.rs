@@ -5,8 +5,7 @@ use clap::Parser;
 use cowen_common::utils::get_bin_name;
 use anyhow::Result;
 use std::io::Write;
-use std::sync::Arc;
-use cowen_common::daemon::DaemonService;
+
 
 pub trait Colorize {
     fn red(&self) -> String;
@@ -507,9 +506,9 @@ async fn get_all_profiles(active_profile: &str) -> Vec<String> {
         }
     }
 
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let ipc = cowen_common::ipc::client::IpcDaemonService::new(port_path);
-    if let Ok(cowen_common::ipc::DaemonResponse::SystemStatusData { json }) = ipc.system_status(active_profile, true).await {
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
+    if let Ok(cowen_common::grpc::client::DaemonResponse::SystemStatusData { json }) = ipc.system_status(active_profile, true).await {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json) {
             if let Some(arr) = val.as_array() {
                 for item in arr {
@@ -542,8 +541,8 @@ pub async fn run(cli: Cli) -> Result<()> {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|_| "default".to_string())
     });
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let daemon_svc: Arc<dyn DaemonService> = Arc::new(cowen_common::ipc::client::IpcDaemonService::new(port_path.clone()));
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let daemon_svc = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
 
     tracing::info!(target: "sys", "cowen starting (version {})", env!("CARGO_PKG_VERSION"));
 
@@ -651,9 +650,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                     }
                 }
             } else if let (Some(m), Some(p)) = (method, path) {
-                let port_path = cowen_common::ipc::get_ipc_port_path();
-                let _stream = cowen_common::ipc::client::ensure_daemon(&port_path).await?;
-                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+                let port_path = cowen_common::config::get_ipc_port_path();
+                let _stream = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await?;
+                let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path);
 
                 let body_data = if let Some(file_path) = data_file {
                     Some(std::fs::read_to_string(file_path).map_err(|e| anyhow::anyhow!("Failed to read data file: {}", e))?)
@@ -661,9 +660,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                     data.clone()
                 };
 
-                let res = daemon_client.call_api(&active_profile, m, p, body_data, *force).await?;
+                let res = daemon_client.call_api(&active_profile, m, p, body_data.as_deref(), *force).await?;
                 match res {
-                    cowen_common::ipc::DaemonResponse::ApiResponse(dto) => {
+                    cowen_common::grpc::client::DaemonResponse::ApiResponse(dto) => {
                         if cli.format == "json" || cli.format == "yaml" {
                             let mut json_val: serde_json::Value = serde_json::from_str(&dto.body).unwrap_or(serde_json::Value::String(dto.body));
                             if let Some(trace_id) = dto.headers.get("x-b3-traceid")
@@ -692,7 +691,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                             println!();
                         }
                     }
-                    cowen_common::ipc::DaemonResponse::Error { message, .. } => {
+                    cowen_common::grpc::client::DaemonResponse::Error { message, .. } => {
                         return Err(anyhow::anyhow!("API Call failed: {}", message));
                     }
                     _ => return Err(anyhow::anyhow!("Unexpected IPC response")),
@@ -732,7 +731,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 else if *no_proxy { e_opt = Some(false); }
                 
                 if let Some(m) = monitor_port {
-                    let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+                    let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
                     let _ = daemon_client.set_global_config("monitor_port", &m.to_string()).await;
                 }
 
@@ -770,13 +769,19 @@ pub async fn run(cli: Cli) -> Result<()> {
             PluginsCommands::RefreshSignature { name } => cmd::plugins::refresh_signature(name).await?,
         },
         Commands::Config { action, all } => match action {
-            Some(ConfigCommands::Set { key, value, global: _ }) => {
-                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
-                match daemon_client.set_config(&active_profile, &key, &value).await? {
-                    cowen_common::ipc::DaemonResponse::Success { .. } => {
+            Some(ConfigCommands::Set { key, value, global }) => {
+                let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
+                let is_global = *global || matches!(key.as_str(), "monitor_port" | "telemetry_enabled" | "log.level" | "log.rotation" | "log.max_size_mb" | "log.max_files" | "storage.store" | "storage.db_url" | "storage.cache" | "storage.cache_url" | "security.level" | "stream_url" | "openapi_url");
+                let resp = if is_global {
+                    daemon_client.set_global_config(&key, &value).await?
+                } else {
+                    daemon_client.set_config(&active_profile, &key, &value).await?
+                };
+                match resp {
+                    cowen_common::grpc::client::DaemonResponse::Success { .. } => {
                         println!("✅ Successfully sent config update to Daemon: '{}' -> '{}'", key, value);
                     }
-                    cowen_common::ipc::DaemonResponse::Error { message, .. } => {
+                    cowen_common::grpc::client::DaemonResponse::Error { message, .. } => {
                         eprintln!("⚠️ Failed to set config: {}", message);
                         std::process::exit(1);
                     }
@@ -787,9 +792,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                 }
             }
             Some(ConfigCommands::Get { key }) => {
-                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+                let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
                 match daemon_client.get_config(&active_profile, &key).await? {
-                    cowen_common::ipc::DaemonResponse::ConfigData { config_json } => {
+                    cowen_common::grpc::client::DaemonResponse::ConfigData { config_json } => {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&config_json) {
                             match val {
                                 serde_json::Value::Null => {}
@@ -804,14 +809,14 @@ pub async fn run(cli: Cli) -> Result<()> {
                             println!("{}", config_json);
                         }
                     }
-                    cowen_common::ipc::DaemonResponse::Error { message, .. } => {
+                    cowen_common::grpc::client::DaemonResponse::Error { message, .. } => {
                         eprintln!("⚠️ Failed to get config: {}", message);
                     }
                     _ => eprintln!("⚠️ Unexpected response from daemon"),
                 }
             }
             Some(ConfigCommands::Unset { key }) => {
-                let daemon_client = cowen_common::ipc::client::IpcDaemonService::new(port_path.clone());
+                let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
                 daemon_client.set_config(&active_profile, key, "").await?;
                 println!("✅ Successfully unset '{}'", key);
             }
@@ -819,7 +824,10 @@ pub async fn run(cli: Cli) -> Result<()> {
                 let list_format = if cli.format == "text" { "yaml" } else { &cli.format };
                 cmd::system::config(&active_profile, list_format, *all).await?;
             }
-            None => cmd::system::config(&active_profile, &cli.format, *all).await?,
+            None => {
+                let list_format = if cli.format == "text" { "yaml" } else { &cli.format };
+                cmd::system::config(&active_profile, list_format, *all).await?
+            }
         },
         Commands::Reset { dry_run, all } => {
             let target_profile = if !*all {

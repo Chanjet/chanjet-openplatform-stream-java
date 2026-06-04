@@ -1,36 +1,8 @@
 [workspace]
+resolver = "2"
 members = [
-    ".",
     "crates/*"
 ]
-
-[package]
-name = "cowen"
-version = "0.4.0"
-edition = "2021"
-
-[dependencies]
-cowen-cli = { path = "crates/cowen-cli" }
-clap = { version = "4.6", features = ["derive", "env"] }
-tokio = { version = "1.50", features = ["full"] }
-tracing = "0.1"
-rustls = { version = "0.23", features = ["ring"] }
-cowen-common = { path = "crates/cowen-common" }
-
-[dev-dependencies]
-tempfile = "3.8"
-assert_cmd = "2.0"
-predicates = "3.1"
-cowen-store = { path = "crates/cowen-store" }
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-axum = { version = "0.8", features = ["json"] }
-reqwest = { version = "0.13", features = ["json"] }
-serde_yaml = "0.9"
-chrono = "0.4"
-
-[build-dependencies]
-chrono = "0.4"
 
 [profile.release]
 strip = true
@@ -38,4 +10,3 @@ lto = true
 codegen-units = 1
 opt-level = "s"     # Optimize for size
 panic = "abort"     # Remove unwinding tables (eliminates source path leaks in panics)
-

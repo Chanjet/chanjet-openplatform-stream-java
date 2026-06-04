@@ -86,7 +86,7 @@ pub fn install_completion(requested_shell: Option<clap_complete::Shell>) -> anyh
             fs::create_dir_all(&fish_comp_dir).unwrap_or_default();
             let dest = fish_comp_dir.join(format!("{}.fish", bin_name));
             let _ = fs::copy(&script_path, &dest);
-            println!("✅ Auto-completion installed to {:?}", dest);
+            eprintln!("✅ Auto-completion installed to {:?}", dest);
         },
         clap_complete::Shell::PowerShell => {
             install_powershell_completion(&script_path)?;
@@ -144,20 +144,20 @@ fn install_powershell_completion(script_path: &Path) -> anyhow::Result<()> {
 
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&profile_path) {
             if file.write_all(source_cmd.as_bytes()).is_ok() {
-                println!("✅ Auto-completion configuration injected into {:?}", profile_path);
+                eprintln!("✅ Auto-completion configuration injected into {:?}", profile_path);
                 success = true;
             }
         }
     }
 
     if success {
-        println!("\n\x1b[1;33m⚠️  ACTION REQUIRED: Activate completion for your current session\x1b[0m");
-        println!("Please restart your PowerShell or run:");
-        println!("   \x1b[32m. \"{}\"\x1b[0m", script_path_str);
+        eprintln!("\n\x1b[1;33m⚠️  ACTION REQUIRED: Activate completion for your current session\x1b[0m");
+        eprintln!("Please restart your PowerShell or run:");
+        eprintln!("   \x1b[32m. \"{}\"\x1b[0m", script_path_str);
     } else {
-        println!("⚠️ Could not automatically find or write to PowerShell profile.");
-        println!("💡 Please manually add the following line to your $PROFILE:");
-        println!("   \x1b[32m. \"{}\"\x1b[0m", script_path_str);
+        eprintln!("⚠️ Could not automatically find or write to PowerShell profile.");
+        eprintln!("💡 Please manually add the following line to your $PROFILE:");
+        eprintln!("   \x1b[32m. \"{}\"\x1b[0m", script_path_str);
     }
 
     Ok(())
@@ -221,7 +221,7 @@ pub fn uninstall_completion() -> anyhow::Result<()> {
                 }
                 
                 fs::write(&rc_path, new_lines.join("\n"))?;
-                println!("✅ Auto-completion removed from {:?}", rc_path);
+                eprintln!("✅ Auto-completion removed from {:?}", rc_path);
             }
         }
     }
@@ -230,10 +230,10 @@ pub fn uninstall_completion() -> anyhow::Result<()> {
     let fish_comp = home.join(".config").join("fish").join("completions").join(format!("{}.fish", bin_name));
     if fish_comp.exists() {
         let _ = fs::remove_file(&fish_comp);
-        println!("✅ Auto-completion removed from {:?}", fish_comp);
+        eprintln!("✅ Auto-completion removed from {:?}", fish_comp);
     }
 
-    println!("✅ Uninstallation complete.");
+    eprintln!("✅ Uninstallation complete.");
     Ok(())
 }
 
@@ -263,8 +263,8 @@ fn append_to_rc(rc_path: PathBuf, script_path: &Path, shell: clap_complete::Shel
     if rc_path.exists() {
         if let Ok(content) = fs::read_to_string(&rc_path) {
             if content.contains(&script_path_str) {
-                println!("✅ Auto-completion already configured in {:?}", rc_path);
-                println!("💡 Run \x1b[32msource {:?}\x1b[0m to refresh your current session.", rc_path);
+                eprintln!("✅ Auto-completion already configured in {:?}", rc_path);
+                eprintln!("💡 Run \x1b[32msource {:?}\x1b[0m to refresh your current session.", rc_path);
                 return;
             }
         }
@@ -272,12 +272,12 @@ fn append_to_rc(rc_path: PathBuf, script_path: &Path, shell: clap_complete::Shel
 
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&rc_path) {
         if file.write_all(source_cmd.as_bytes()).is_ok() {
-            println!("✅ Auto-completion configuration injected into {:?}", rc_path);
+            eprintln!("✅ Auto-completion configuration injected into {:?}", rc_path);
             
-            println!("\n\x1b[1;33m⚠️  ACTION REQUIRED: Activate completion for your current session\x1b[0m");
-            println!("Due to shell security restrictions, a child process cannot source files for its parent.");
-            println!("To enable completion \x1b[1mNOW\x1b[0m, please run:");
-            println!("   \x1b[32msource {:?}\x1b[0m", rc_path);
+            eprintln!("\n\x1b[1;33m⚠️  ACTION REQUIRED: Activate completion for your current session\x1b[0m");
+            eprintln!("Due to shell security restrictions, a child process cannot source files for its parent.");
+            eprintln!("To enable completion \x1b[1mNOW\x1b[0m, please run:");
+            eprintln!("   \x1b[32msource {:?}\x1b[0m", rc_path);
             
             let shell_name = match shell {
                 clap_complete::Shell::Zsh => "zsh",
@@ -285,10 +285,10 @@ fn append_to_rc(rc_path: PathBuf, script_path: &Path, shell: clap_complete::Shel
                 clap_complete::Shell::Fish => "fish",
                 _ => "zsh",
             };
-            println!("\nAlternatively, for instant activation without restarting, run:");
-            println!("   \x1b[32meval \"$({} completion {})\"\x1b[0m", bin_name, shell_name);
+            eprintln!("\nAlternatively, for instant activation without restarting, run:");
+            eprintln!("   \x1b[32meval \"$({} completion {})\"\x1b[0m", bin_name, shell_name);
         }
     } else {
-        println!("⚠️ Could not write to {:?}. Please manually add: {}", rc_path, source_cmd.trim());
+        eprintln!("⚠️ Could not write to {:?}. Please manually add: {}", rc_path, source_cmd.trim());
     }
 }

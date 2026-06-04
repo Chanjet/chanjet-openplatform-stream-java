@@ -757,7 +757,7 @@ impl ConfigManager {
         Ok(profile_fields)
     }
 
-    fn mask_value(&self, val: &mut serde_json::Value, sensitive_fields: &[&str]) {
+    pub fn mask_value(&self, val: &mut serde_json::Value, sensitive_fields: &[&str]) {
         match val {
             serde_json::Value::Object(map) => {
                 for (k, v) in map.iter_mut() {

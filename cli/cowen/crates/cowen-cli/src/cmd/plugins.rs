@@ -74,8 +74,8 @@ pub async fn enable(name: &String) -> Result<()> {
     };
 
     if expected_path.exists() {
-        let port_path = cowen_common::ipc::get_ipc_port_path();
-        let _ipc = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+        let port_path = cowen_common::config::get_ipc_port_path();
+        let _ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
         // Instead of writing app.yaml, tell daemon to set it? 
         // Wait, Daemon has SetGlobalConfig but plugins is a list.
         // We will just read/write locally using serde_yaml.

@@ -1,8 +1,7 @@
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::time::Duration;
 use std::fs::File;
-use cowen_common::ipc::client::IpcDaemonService;
-use cowen_common::ipc::DaemonResponse;
+use cowen_common::grpc::client::DaemonResponse;
 
 pub async fn list(profile: &str) -> anyhow::Result<()> {
     let app_dir = cowen_common::config::get_app_dir();
@@ -46,7 +45,7 @@ pub async fn view(
     lines: usize,
 ) -> anyhow::Result<()> {
     if domain == "audit" {
-        let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+        let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
         match ipc.tail_audit(profile, lines).await {
             Ok(DaemonResponse::AuditData { content }) => {
                 if !content.is_empty() {

@@ -1,9 +1,8 @@
 use anyhow::Result;
-use cowen_common::ipc::client::IpcDaemonService;
-use cowen_common::ipc::DaemonResponse;
+use cowen_common::grpc::client::DaemonResponse;
 
 pub async fn list(profile: &str, format: &str, page: usize, page_size: usize) -> Result<()> {
-    let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
     match ipc.dlq_list(profile, page, page_size).await {
         Ok(DaemonResponse::DlqData { json }) => {
             if format == "json" || format == "yaml" {
@@ -42,7 +41,7 @@ pub async fn list(profile: &str, format: &str, page: usize, page_size: usize) ->
 }
 
 pub async fn view(profile: &str, id: String) -> Result<()> {
-    let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
     match ipc.dlq_view(profile, &id).await {
         Ok(DaemonResponse::DlqData { json }) => {
             let entry: serde_json::Value = serde_json::from_str(&json)?;
@@ -78,7 +77,7 @@ pub async fn view(profile: &str, id: String) -> Result<()> {
 
 pub async fn retry(profile: &str, id: String) -> Result<()> {
     println!("🔄 Retrying DLQ message {}...", id);
-    let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
     match ipc.dlq_retry(profile, &id).await {
         Ok(DaemonResponse::Success { message }) => println!("✅ {}", message),
         Ok(DaemonResponse::Error { message, .. }) => eprintln!("❌ DLQ Retry failed: {}", message),
@@ -90,7 +89,7 @@ pub async fn retry(profile: &str, id: String) -> Result<()> {
 
 pub async fn purge(profile: &str) -> Result<()> {
     println!("⚠️ Purging DLQ...");
-    let ipc = IpcDaemonService::new(cowen_common::ipc::get_ipc_port_path());
+    let ipc = cowen_common::grpc::client::DaemonClient::new(cowen_common::config::get_ipc_port_path());
     match ipc.dlq_purge(profile).await {
         Ok(DaemonResponse::Success { message }) => println!("✅ {}", message),
         Ok(DaemonResponse::Error { message, .. }) => eprintln!("❌ DLQ Purge failed: {}", message),

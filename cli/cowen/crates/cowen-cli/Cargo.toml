@@ -38,5 +38,16 @@ chrono = "0.4"
 
 [dev-dependencies]
 tempfile = "3.16"
+assert_cmd = "2.0"
+predicates = "3.1"
+cowen-store = { path = "../cowen-store" }
+axum = { version = "0.8", features = ["json"] }
+cowen-daemon = { path = "../cowen-daemon" }
+cowen-config = { path = "../cowen-config" }
+sysinfo = "0.38"
+
+[[bin]]
+name = "cowen"
+path = "src/main.rs"
 
 

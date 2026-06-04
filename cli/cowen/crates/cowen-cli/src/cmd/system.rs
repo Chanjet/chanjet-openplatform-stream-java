@@ -1,6 +1,5 @@
 use anyhow::Result;
-use cowen_common::ipc::client::IpcDaemonService;
-use cowen_common::ipc::DaemonResponse;
+use cowen_common::grpc::client::DaemonResponse;
 
 use serde_json::Value;
 
@@ -9,8 +8,8 @@ pub async fn status(
     format: &str,
     all: bool,
 ) -> Result<()> {
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let ipc = IpcDaemonService::new(port_path);
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     match ipc.system_status(profile, all).await {
         Ok(DaemonResponse::SystemStatusData { json }) => {
@@ -99,14 +98,18 @@ fn render_json_entry(entry: &Value, indent: usize) {
 }
 
 pub async fn config(profile: &str, format: &str, all: bool) -> Result<()> {
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let ipc = cowen_common::ipc::client::IpcDaemonService::new(port_path);
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
     match ipc.list_config(profile, format, all).await {
-        Ok(cowen_common::ipc::DaemonResponse::Success { message }) => {
-            println!("{}", message);
+        Ok(cowen_common::grpc::client::DaemonResponse::ConfigData { config_json: message }) => {
+            let message = cowen_common::utils::mask_sensitive_json(&message);
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&message) { let _ = cowen_common::utils::render(&val, format); } else { println!("{}", message); }
         }
-        Ok(cowen_common::ipc::DaemonResponse::Error { message, .. }) => {
+        Ok(cowen_common::grpc::client::DaemonResponse::Error { message, .. }) => {
             eprintln!("❌ Fetch config failed: {}", message);
+        }
+        Err(e) => {
+            eprintln!("❌ Fetch config failed: {}", e);
         }
         _ => eprintln!("❌ Unexpected response"),
     }
@@ -117,8 +120,8 @@ pub async fn reset(
     target_profile: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let ipc = IpcDaemonService::new(port_path);
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     if !dry_run && target_profile.is_none() {
         let app_dir = cowen_common::config::get_app_dir();
@@ -150,7 +153,8 @@ pub async fn reset(
             eprintln!("❌ Reset failed: {}", message);
             return Err(anyhow::anyhow!("Reset failed"));
         }
-        Err(_) => {
+        Err(e) => {
+            eprintln!("🔥 IPC system_reset error: {:?}", e);
             true
         }
         _ => {
@@ -171,8 +175,8 @@ pub async fn rename_profile(
     old: &str,
     new: &str,
 ) -> Result<()> {
-    let port_path = cowen_common::ipc::get_ipc_port_path();
-    let ipc = IpcDaemonService::new(port_path);
+    let port_path = cowen_common::config::get_ipc_port_path();
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     match ipc.rename_profile(old, new).await {
         Ok(DaemonResponse::Success { message }) => println!("✅ {}", message),
@@ -192,11 +196,11 @@ pub async fn ensure_daemon_running(
         return Ok(());
     }
 
-    let port_path = cowen_common::ipc::get_ipc_port_path();
+    let port_path = cowen_common::config::get_ipc_port_path();
     if !port_path.exists() {
-        println!("⚠️  Daemon not running, triggering auto-recovery...");
+        eprintln!("⚠️  Daemon not running, triggering auto-recovery...");
     }
-    if let Err(e) = cowen_common::ipc::client::ensure_daemon(&port_path).await {
+    if let Err(e) = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await {
         eprintln!("❌ ensure_daemon failed: {}", e);
     }
     
@@ -232,7 +236,7 @@ pub async fn enforce_daemon_version_sync(
 
         let _ = std::fs::remove_file(&pid_file);
         let _ = std::fs::remove_file(&version_file);
-        let port_file = cowen_common::ipc::get_ipc_port_path();
+        let port_file = cowen_common::config::get_ipc_port_path();
         let _ = std::fs::remove_file(&port_file);
 
         // It will be auto-started by ensure_daemon_running later
