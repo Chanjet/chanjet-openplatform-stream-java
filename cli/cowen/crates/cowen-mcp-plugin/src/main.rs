@@ -69,6 +69,7 @@ struct EnabledTool {
     path: String,
     description: String,
     input_schema: serde_json::Value,
+    output_schema: Option<serde_json::Value>,
     body_params: Vec<String>,
 }
 
@@ -139,7 +140,7 @@ fn resolve_refs(schema: &mut serde_json::Value, components: &serde_json::Value, 
     }
 }
 
-fn build_schema_from_openapi(path: &str, spec: &serde_json::Value) -> (serde_json::Value, Vec<String>) {
+fn build_schema_from_openapi(path: &str, spec: &serde_json::Value) -> (serde_json::Value, Option<serde_json::Value>, Vec<String>) {
     let operation = spec.get("operation").unwrap_or(spec);
     let empty_components = json!({});
     let components = spec.get("components").unwrap_or(&empty_components);
@@ -258,7 +259,24 @@ fn build_schema_from_openapi(path: &str, spec: &serde_json::Value) -> (serde_jso
         schema.as_object_mut().unwrap().insert("required".to_string(), json!(required));
     }
 
-    (schema, body_params)
+    let mut output_schema = None;
+    if let Some(responses) = operation.get("responses").and_then(|r| r.as_object()) {
+        if let Some(ok_resp) = responses.get("200") {
+            let mut resp_obj = ok_resp.clone();
+            resolve_refs(&mut resp_obj, components, 0);
+            if let Some(schema) = resp_obj
+                .get("content")
+                .and_then(|c| c.get("application/json"))
+                .and_then(|j| j.get("schema"))
+            {
+                let mut out_schema = schema.clone();
+                resolve_refs(&mut out_schema, components, 0);
+                output_schema = Some(out_schema);
+            }
+        }
+    }
+
+    (schema, output_schema, body_params)
 }
 
 async fn get_grpc_client() -> Result<CowenDaemonServiceClient<tonic::transport::Channel>, String> {
@@ -398,12 +416,17 @@ async fn handle_request(req: JsonRpcRequest, app_state: &AppState) -> (Option<Js
 
             let state = app_state.mcp_state.lock().await;
             for (tool_name, tool_def) in state.tools.iter() {
-                tools.push(json!({
+                let mut tool_json = json!({
                     "name": tool_name,
                     "description": format!("Dynamic API: {} {}\n{}", tool_def.method, tool_def.path, tool_def.description),
                     "inputSchema": tool_def.input_schema
-                }));
+                });
+                if let Some(out_schema) = &tool_def.output_schema {
+                    tool_json.as_object_mut().unwrap().insert("outputSchema".to_string(), out_schema.clone());
+                }
+                tools.push(tool_json);
             }
+            drop(state);
 
             Some(JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
@@ -471,7 +494,7 @@ async fn handle_request(req: JsonRpcRequest, app_state: &AppState) -> (Option<Js
                         let spec: serde_json::Value = serde_json::from_str(&spec_json_str).unwrap_or(json!({}));
                         
                         let tool_name = generate_tool_name(method, path);
-                        let (input_schema, body_params) = build_schema_from_openapi(path, &spec);
+                        let (input_schema, output_schema, body_params) = build_schema_from_openapi(path, &spec);
 
                         let mut state = app_state.mcp_state.lock().await;
                         state.tools.insert(tool_name.clone(), EnabledTool {
@@ -479,6 +502,7 @@ async fn handle_request(req: JsonRpcRequest, app_state: &AppState) -> (Option<Js
                             path: path.to_string(),
                             description: description.to_string(),
                             input_schema,
+                            output_schema,
                             body_params,
                         });
                         drop(state);
