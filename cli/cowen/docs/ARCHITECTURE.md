@@ -107,6 +107,9 @@ graph TD
 ### 2. 守护进程自愈与死锁防护
 - **并发优化**: SQLite 连接池通过 WAL 模式与 `max_connections(5)` 实现读写分离。
 - **异步锁**: 跨进程 Token 刷新使用 `try_lock` + 异步等待，彻底避免了 Tokio 线程池被物理文件锁阻塞导致的死锁。
+- **端口预检与动态回退 (Pre-flight Check & Port Fallback)**: 启动 Daemon 前会严格预检端口占用（如 `monitor_port`）。在配置为 `0` 的默认情况下，若遇端口冲突会自动降级并重新绑定随机可用端口，确保进程无干扰拉起；若显式指定端口被其他进程物理抢占，则触发前置熔断 (Fail-fast)。
+- **启动期同步崩溃反馈 (Synchronous Crash Feedback)**: `cowen-cli` 在拉起孤儿进程（Daemon）时，会进行短时异步阻塞等待，一旦 Daemon 在启动初期的生命周期内（如初始化存储引擎失败）闪退，CLI 能够同步捕获退出状态并直接向用户终端打印其 `stderr` 尾部错误日志，大幅提升排错 DX。
+- **慢响应 Ping 恢复与防重复拉起 (Slow Ping Recovery)**: CLI 核心的 `ensure_daemon` 机制具备抗压弹性。如果在高负载或系统慢初始化的极端场景下，Daemon 无法立刻在首帧响应 Ping 探针，CLI 采用容忍度内的耐心指数重试替代直接报错，从而彻底避免了旧版机制中容易造成的“超时误判导致交叉重复 Spawn Daemon”灾难。
 
 ---
 

@@ -40,6 +40,7 @@ echo "⚙️ Setting up shell completion..."
 
 # 5. Setup Autostart Service
 echo "📟 Setting up autostart service..."
+killall cowen-daemon > /dev/null 2>&1 || true
 "$INSTALL_DIR/$BINARY" daemon service install > /dev/null 2>&1 || true
 
 # 6. Install and enable AI search plugin

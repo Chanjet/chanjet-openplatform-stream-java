@@ -41,7 +41,7 @@ pub async fn execute(
             println!("✅ {}", message);
             
             // Run login flow interactively for supported modes
-            let mode_str = ctx.app_mode.clone().unwrap_or_else(|| "self_built".to_string()).to_lowercase().replace("-", "_");
+            let mode_str = ctx.app_mode.clone().unwrap_or_else(|| "oauth2".to_string()).to_lowercase().replace("-", "_");
             if mode_str == "oauth2" {
                 let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
                 let login_result = tokio::select! {

@@ -19,11 +19,11 @@ mkdir -p "$TMP_PLUGIN_SRC"
 # Copy the built plugin and bundle to the temporary source directory
 if [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding" ]; then
     cp "$COWEN_BUILD_DIR/libcowen_search_embedding" "$TMP_PLUGIN_SRC/"
-    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$TMP_PLUGIN_SRC/" 2>/dev/null || true
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$TMP_PLUGIN_SRC/" || { echo "❌ Missing .bundle file in $COWEN_BUILD_DIR"; exit 1; }
     PLUGIN_EXT=""
 elif [ -f "$COWEN_BUILD_DIR/libcowen_search_embedding.exe" ]; then
     cp "$COWEN_BUILD_DIR/libcowen_search_embedding.exe" "$TMP_PLUGIN_SRC/"
-    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$TMP_PLUGIN_SRC/" 2>/dev/null || true
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$TMP_PLUGIN_SRC/" || { echo "❌ Missing .bundle file in $COWEN_BUILD_DIR"; exit 1; }
     PLUGIN_EXT="exe"
 fi
 

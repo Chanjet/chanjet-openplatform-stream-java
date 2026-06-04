@@ -79,10 +79,19 @@ impl DaemonClient {
     }
 
     pub async fn ensure_daemon(&self) -> Result<InterceptedClient> {
-        if let Ok(mut client) = self.connect_to_daemon().await {
-            let ping_fut = client.ping(tonic::Request::new(grpc_proto::PingRequest {}));
-            if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(500), ping_fut).await {
-                return Ok(client);
+        if let Ok(client) = self.connect_to_daemon().await {
+            let mut retry_count = 0;
+            loop {
+                let mut test_client = client.clone();
+                let ping_fut = test_client.ping(tonic::Request::new(grpc_proto::PingRequest {}));
+                if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(1000), ping_fut).await {
+                    return Ok(client);
+                }
+                retry_count += 1;
+                if retry_count >= 3 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         let daemon_path = if let Ok(env_path) = std::env::var("COWEN_DAEMON_BIN") {
@@ -100,6 +109,7 @@ impl DaemonClient {
         let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))?;
         let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
         let _child = std::process::Command::new(&daemon_path)
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::from(stdout_file))
             .stderr(std::process::Stdio::from(stderr_file))
             .spawn()
@@ -173,13 +183,19 @@ impl DaemonClient {
     }
 
     pub async fn stop_daemon(&self, profile: &str) -> Result<DaemonResponse> {
-        let mut client = self.build_client().await?;
+        let mut client = match self.connect_to_daemon().await {
+            Ok(c) => c,
+            Err(_) => return Ok(DaemonResponse::Success { message: "Daemon is not running.".to_string() })
+        };
         let res = client.stop_worker(tonic::Request::new(grpc_proto::StopWorkerRequest { profile: profile.to_string() })).await?.into_inner();
         if res.success { Ok(DaemonResponse::Success { message: res.message }) } else { Ok(DaemonResponse::Error { code: 500, message: res.message }) }
     }
 
     pub async fn stop_all(&self) -> Result<DaemonResponse> {
-        let mut client = self.build_client().await?;
+        let mut client = match self.connect_to_daemon().await {
+            Ok(c) => c,
+            Err(_) => return Ok(DaemonResponse::Success { message: "Daemon is not running.".to_string() })
+        };
         let res = client.stop_all_workers(tonic::Request::new(grpc_proto::StopAllWorkersRequest {})).await?.into_inner();
         if res.success { Ok(DaemonResponse::Success { message: res.message }) } else { Ok(DaemonResponse::Error { code: 500, message: res.message }) }
     }

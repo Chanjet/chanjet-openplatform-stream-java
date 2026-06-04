@@ -3,6 +3,8 @@
 #![allow(unused_imports)]
 
 mod controller;
+mod openapi_parser;
+pub mod orchestrators;
 
 use anyhow::Result;
 use clap::Parser;

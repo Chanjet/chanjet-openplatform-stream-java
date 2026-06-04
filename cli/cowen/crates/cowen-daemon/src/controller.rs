@@ -15,11 +15,23 @@ pub struct CowenDaemonController {
     service: Arc<dyn DaemonService>,
     vault: Arc<dyn Vault>,
     cfg_mgr: ConfigManager,
+    search_orchestrator: crate::orchestrators::SearchOrchestrator,
+    api_orchestrator: crate::orchestrators::ApiOrchestrator,
+    system_orchestrator: crate::orchestrators::SystemOrchestrator,
+    dlq_orchestrator: crate::orchestrators::DlqOrchestrator,
 }
 
 impl CowenDaemonController {
     pub fn new(service: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, cfg_mgr: ConfigManager) -> Self {
-        Self { service, vault, cfg_mgr }
+        Self { 
+            service, 
+            vault: vault.clone(), 
+            cfg_mgr: cfg_mgr.clone(),
+            search_orchestrator: crate::orchestrators::SearchOrchestrator::new(),
+            api_orchestrator: crate::orchestrators::ApiOrchestrator::new(vault.clone(), cfg_mgr.clone()),
+            system_orchestrator: crate::orchestrators::SystemOrchestrator::new(vault.clone(), cfg_mgr.clone()),
+            dlq_orchestrator: crate::orchestrators::DlqOrchestrator::new(vault, cfg_mgr),
+        }
     }
 }
 
@@ -115,7 +127,7 @@ impl CowenDaemonService for CowenDaemonController {
         info!("InitProfile requested for {}", req.profile);
         let _is_new = !self.cfg_mgr.exists(&req.profile).await;
         
-        let mode_str = req.app_mode.unwrap_or_else(|| "self_built".to_string());
+        let mode_str = req.app_mode.unwrap_or_else(|| "oauth2".to_string());
         let mode = match mode_str.parse::<cowen_common::models::AuthMode>() {
             Ok(m) => m,
             Err(e) => return Err(Status::invalid_argument(e.to_string()))
@@ -184,96 +196,8 @@ impl CowenDaemonService for CowenDaemonController {
     }
 
     async fn call_api(&self, request: Request<CallApiRequest>) -> Result<Response<CallApiResponse>, Status> {
-        let req = request.into_inner();
-        info!("CallApi requested for profile={} method={} path={}", req.profile, req.method, req.path);
-        let config = match self.cfg_mgr.load(&req.profile).await {
-            Ok(c) => c,
-            Err(e) => return Err(Status::not_found(format!("Profile not found: {}", e)))
-        };
-        let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
-        if !auth_cli.supports_api_call(&config) {
-            return Err(Status::invalid_argument(format!("Auth mode {:?} does not support direct CLI API calls.", config.app_mode)));
-        }
-
-        let app_cfg = match self.cfg_mgr.load_app_config().await {
-            Ok(c) => c,
-            Err(e) => return Err(Status::internal(e.to_string()))
-        };
-
-        let body_option = if req.data.is_none() || req.data.as_ref().unwrap().trim() == "{}" || req.data.as_ref().unwrap().trim().is_empty() {
-            None
-        } else {
-            req.data.clone()
-        };
-
-        let method_upper = req.method.to_uppercase();
-
-        if !req.force {
-            let spec = match auth_cli.get_openapi_spec(&req.profile, &config, false).await {
-                Ok(s) => s,
-                Err(e) => return Err(Status::internal(e.to_string()))
-            };
-            if let Err(e) = cowen_common::openapi::validate_request(&spec, &method_upper, &req.path, &body_option) {
-                return Err(Status::invalid_argument(format!("OpenAPI validation failed: {}", e)));
-            }
-            let path_no_query = req.path.split('?').next().unwrap_or(&req.path);
-            if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
-                return Err(Status::permission_denied(format!("CLI Rejected: Target path {} is not in the OpenAPI whitelist.", path_no_query)));
-            }
-        }
-
-        if req.path.starts_with("http") && !req.path.starts_with(&app_cfg.openapi_url) {
-            return Err(Status::permission_denied("CLI Security Block: Absolute external URLs are not allowed.".to_string()));
-        }
-
-        let token = match auth_cli.get_token(&req.profile, &config, &reqwest::header::HeaderMap::new()).await {
-            Ok(t) => t,
-            Err(e) => return Err(Status::internal(format!("Failed to get token: {}", e)))
-        };
-
-        let ua = cowen_infra::get_user_agent("0.4.0");
-        let client = match cowen_infra::create_client(&ua) {
-            Ok(c) => c,
-            Err(e) => return Err(Status::internal(e.to_string()))
-        };
-        let url = if req.path.starts_with("http") {
-            req.path.clone()
-        } else {
-            let base = app_cfg.openapi_url.trim_end_matches('/');
-            format!("{}{}", base, req.path)
-        };
-
-        let method_enum = match reqwest::Method::from_bytes(method_upper.as_bytes()) {
-            Ok(m) => m,
-            Err(_) => return Err(Status::invalid_argument(format!("Invalid HTTP method: {}", method_upper)))
-        };
-
-        let mut api_req = client.request(method_enum, &url)
-            .header("openToken", token.value)
-            .header("appKey", config.app_key.trim());
-
-        if let Some(b) = body_option {
-            let json_body: serde_json::Value = match serde_json::from_str(&b) {
-                Ok(j) => j,
-                Err(e) => return Err(Status::invalid_argument(format!("Invalid JSON payload: {}", e)))
-            };
-            api_req = api_req.json(&json_body);
-        }
-
-        match api_req.send().await {
-            Ok(resp) => {
-                let status = resp.status().as_u16();
-                let mut headers_map = std::collections::HashMap::new();
-                for (k, v) in resp.headers().iter() {
-                    if let Ok(v_str) = v.to_str() {
-                        headers_map.insert(k.to_string(), v_str.to_string());
-                    }
-                }
-                let body = resp.text().await.unwrap_or_default();
-                Ok(Response::new(CallApiResponse { status: status as u32, headers: headers_map, body, error_message: None }))
-            }
-            Err(e) => Ok(Response::new(CallApiResponse { status: 520, headers: std::collections::HashMap::new(), body: "".to_string(), error_message: Some(format!("Request failed: {}", e)) }))
-        }
+        check_rbac(&request, None)?;
+        self.api_orchestrator.call_api(request.into_inner()).await
     }
 
     async fn get_auth_url(&self, request: Request<GetAuthUrlRequest>) -> Result<Response<GetAuthUrlResponse>, Status> {
@@ -360,30 +284,7 @@ impl CowenDaemonService for CowenDaemonController {
     }
 
     async fn doctor(&self, request: Request<DoctorRequest>) -> Result<Response<DoctorResponse>, Status> {
-        let req = request.into_inner();
-        let config = match self.cfg_mgr.load(&req.profile).await {
-            Ok(c) => c,
-            Err(e) => return Err(Status::not_found(format!("Profile not found: {}", e)))
-        };
-        let ctx = cowen_doctor::DoctorContext { profile: req.profile.clone(), config, verbose: false, fix: false, vault: self.vault.clone(), cfg_mgr: self.cfg_mgr.clone() };
-        let results = match cowen_doctor::run_all_diagnostics(&ctx).await {
-            Ok(r) => r,
-            Err(e) => return Err(Status::internal(e.to_string()))
-        };
-        let mut report = String::new();
-        for (i, res) in results.iter().enumerate() {
-            let (status_str, details) = match &res.status {
-                cowen_doctor::DiagnosticStatus::Ok => ("OK", None),
-                cowen_doctor::DiagnosticStatus::Warning(msg) => ("WARN", Some(msg)),
-                cowen_doctor::DiagnosticStatus::Error(msg) => ("ERROR", Some(msg)),
-                cowen_doctor::DiagnosticStatus::Fixed(msg) => ("FIXED", Some(msg)),
-            };
-            report.push_str(&format!("{}. [{}] {}\n", i + 1, status_str, res.name));
-            if let Some(msg) = details {
-                report.push_str(&format!("   Details: {}\n", msg));
-            }
-        }
-        Ok(Response::new(DoctorResponse { report, error_message: None }))
+        self.system_orchestrator.doctor(request.into_inner()).await
     }
 
     async fn get_global_config(&self, _request: Request<GetGlobalConfigRequest>) -> Result<Response<GetGlobalConfigResponse>, Status> {
@@ -446,182 +347,17 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
-    async fn store_status(&self, _request: Request<StoreStatusRequest>) -> Result<Response<StoreStatusResponse>, Status> {
-        let app_config: cowen_common::config::AppConfig = self.cfg_mgr.load_app_config().await.unwrap_or_default();
-        let json = serde_json::to_string(&app_config.storage).unwrap_or_else(|_| "{}".to_string());
-        Ok(Response::new(StoreStatusResponse { json, error_message: None }))
+    async fn store_status(&self, request: Request<StoreStatusRequest>) -> Result<Response<StoreStatusResponse>, Status> {
+        self.system_orchestrator.store_status(request.into_inner()).await
     }
 
     async fn system_status(&self, request: Request<SystemStatusRequest>) -> Result<Response<SystemStatusResponse>, Status> {
-        let req = request.into_inner();
-        let mut results = Vec::new();
-        let list = self.cfg_mgr.list_profiles().await.unwrap_or_default();
-        
-        let profiles = if req.all {
-            list
-        } else {
-            vec![req.profile.clone()]
-        };
-        
-        if !profiles.is_empty() {
-            for prof in profiles {
-                let mut entries = Vec::new();
-                let config = match self.cfg_mgr.load(&prof).await {
-                    Ok(c) => c,
-                    Err(_) => {
-                        let mut c = cowen_common::config::Config::default_with_profile(&prof);
-                        c.apply_env_overrides();
-                        c
-                    },
-                };
-                
-                if !self.cfg_mgr.exists(&prof).await && config.app_key.is_empty() && config.app_secret.is_empty() {
-                    continue;
-                }
-                let app_config = match self.cfg_mgr.load_app_config().await {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
-                
-                let ctx = cowen_common::status::StatusContext {
-                    profile: prof.clone(),
-                    config: &config,
-                    app_config: &app_config,
-                    vault: self.vault.clone(),
-                };
-                
-                // Add Configuration Status Entry
-                let mode_str = format!("{:?}", config.app_mode).to_lowercase();
-                let mut details = vec![];
-                details.push(format!("Build ID:   {}", cowen_common::BUILD_ID));
-                details.push(format!("Build Time: {}", cowen_common::BUILD_TIME));
-                details.push(format!("OpenAPI:    {}", app_config.openapi_url));
-                details.push(format!("Stream:     {}", app_config.stream_url));
-
-                let ak_level = if config.app_key.trim().is_empty() {
-                    cowen_common::status::StatusLevel::ERROR
-                } else {
-                    cowen_common::status::StatusLevel::OK
-                };
-                let ak_msg = if ak_level == cowen_common::status::StatusLevel::OK {
-                    format!("AppKey: {} (Mode: {})", config.app_key, mode_str)
-                } else {
-                    "AppKey is missing".to_string()
-                };
-
-                let config_entry = cowen_common::status::StatusEntry {
-                    name: "Configuration".to_string(),
-                    icon: "⚙️".to_string(),
-                    level: ak_level,
-                    message: ak_msg,
-                    reason: if ak_level == cowen_common::status::StatusLevel::ERROR {
-                        Some("AppKey is missing".to_string())
-                    } else {
-                        None
-                    },
-                    details,
-                    children: vec![],
-                };
-                entries.push(config_entry);
-
-                let daemon_entry = cowen_common::status::collect_daemon_status(&ctx, "Daemon", "Tips", true, None).await;
-                if let Ok(e) = daemon_entry {
-                    entries.push(e);
-                }
-                
-                let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
-                if let Ok(mut diag_entries) = auth_cli.get_diagnostics(&ctx).await {
-                    entries.append(&mut diag_entries);
-                }
-                
-                let entry_val = serde_json::json!({
-                    "profile": prof,
-                    "entries": entries,
-                });
-                results.push(entry_val);
-            }
-        }
-        
-        let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
-        Ok(Response::new(SystemStatusResponse { json, error_message: None }))
+        self.system_orchestrator.system_status(request.into_inner()).await
     }
 
     async fn system_reset(&self, request: Request<SystemResetRequest>) -> Result<Response<SystemResetResponse>, Status> {
         check_rbac(&request, None)?;
-        let req = request.into_inner();
-        let profile = req.profile;
-        let dry_run = req.dry_run;
-
-        if dry_run {
-            use cowen_common::reset::ResetTask;
-            let app_dir = cowen_common::config::get_app_dir();
-            let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), profile.clone());
-            let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), profile.clone());
-            let storage_task = cowen_store::reset::StorageResetTask::new(app_dir.clone(), profile.clone());
-            
-            let mut out = String::new();
-            out.push_str("🔍 [DRY RUN] Reset Execution Plan:
-");
-            
-            for task in vec![Box::new(config_task) as Box<dyn ResetTask>, Box::new(telemetry_task), Box::new(storage_task)] {
-                out.push_str(&format!("
-  📦 Module: {}
-", task.name()));
-                out.push_str(&format!("  ℹ️  {}
-", task.description()));
-                if let Ok(actions) = task.dry_run().await {
-                    if actions.is_empty() {
-                        out.push_str("      - No actions to perform.
-");
-                    } else {
-                        for a in actions {
-                            out.push_str(&format!("      - {}
-", a));
-                        }
-                    }
-                }
-            }
-            Ok(Response::new(SystemResetResponse { success: true, message: out }))
-        } else {
-            use cowen_common::reset::ResetTask;
-            let app_dir = cowen_common::config::get_app_dir();
-            let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), profile.clone());
-            let telemetry_task = cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), profile.clone());
-            let storage_task = cowen_store::reset::StorageResetTask::new(app_dir.clone(), profile.clone());
-            
-            let mut errors = vec![];
-            for task in vec![Box::new(config_task) as Box<dyn cowen_common::reset::ResetTask>, Box::new(telemetry_task), Box::new(storage_task)] {
-                if let Err(e) = task.execute().await {
-                    errors.push(format!("{}: {}", task.name(), e));
-                }
-            }
-            
-            // OCP: Clear profile from memory cache and trigger vault deletion via ConfigManager
-            {
-                let cfg_mgr = &self.cfg_mgr;
-                if let Some(ref p) = profile {
-                    if !p.is_empty() {
-                        if let Err(e) = cfg_mgr.delete(p).await {
-                            errors.push(format!("ConfigManager Reset: {}", e));
-                        }
-                    }
-                } else {
-                    if let Ok(profiles) = cfg_mgr.list_profiles().await {
-                        for p in profiles {
-                            if let Err(e) = cfg_mgr.delete(&p).await {
-                                errors.push(format!("ConfigManager Reset: {}", e));
-                            }
-                        }
-                    }
-                }
-            }
-            
-            if errors.is_empty() {
-                Ok(Response::new(SystemResetResponse { success: true, message: "System reset successful".to_string() }))
-            } else {
-                Ok(Response::new(SystemResetResponse { success: false, message: format!("Errors occurred: {}", errors.join(", ")) }))
-            }
-        }
+        self.system_orchestrator.system_reset(request.into_inner()).await
     }
 
     async fn rename_profile(&self, request: Request<RenameProfileRequest>) -> Result<Response<RenameProfileResponse>, Status> {
@@ -640,64 +376,21 @@ impl CowenDaemonService for CowenDaemonController {
     }
 
     async fn dlq_list(&self, request: Request<DlqListRequest>) -> Result<Response<DlqListResponse>, Status> {
-        let req = request.into_inner();
-        match self.vault.list_dlq(&req.profile, req.page_size as usize).await {
-            Ok(msgs) => Ok(Response::new(DlqListResponse { json: serde_json::to_string(&msgs).unwrap_or_default(), error_message: None })),
-            Err(e) => Ok(Response::new(DlqListResponse { json: "".to_string(), error_message: Some(e.to_string()) }))
-        }
+        self.dlq_orchestrator.dlq_list(request.into_inner()).await
     }
 
     async fn dlq_view(&self, request: Request<DlqViewRequest>) -> Result<Response<DlqViewResponse>, Status> {
-        let req = request.into_inner();
-        let id_i64 = match req.id.parse::<i64>() {
-            Ok(i) => i,
-            Err(_) => return Err(Status::invalid_argument("Invalid DLQ ID format")),
-        };
-        match self.vault.get_dlq_by_id(id_i64).await {
-            Ok(Some(msg)) => Ok(Response::new(DlqViewResponse { json: serde_json::to_string(&msg).unwrap_or_default(), error_message: None })),
-            Ok(None) => Ok(Response::new(DlqViewResponse { json: "".to_string(), error_message: Some("Not found".to_string()) })),
-            Err(e) => Ok(Response::new(DlqViewResponse { json: "".to_string(), error_message: Some(e.to_string()) }))
-        }
+        self.dlq_orchestrator.dlq_view(request.into_inner()).await
     }
 
     async fn dlq_retry(&self, request: Request<DlqRetryRequest>) -> Result<Response<DlqRetryResponse>, Status> {
         check_rbac(&request, None)?;
-        let req = request.into_inner();
-        let config = match self.cfg_mgr.load(&req.profile).await {
-            Ok(c) => c,
-            Err(e) => return Err(Status::not_found(e.to_string()))
-        };
-        let app_cfg: cowen_common::config::AppConfig = self.cfg_mgr.load_app_config().await.unwrap_or_default();
-        let id_i64 = match req.id.parse::<i64>() {
-            Ok(i) => i,
-            Err(_) => return Err(Status::invalid_argument("Invalid DLQ ID format")),
-        };
-        match cowen_server::daemon::forwarder::Forwarder::new(&req.profile, config, &app_cfg, self.vault.clone()) {
-            Ok(forwarder) => {
-                match forwarder.retry_message(id_i64).await {
-                    Ok(_) => Ok(Response::new(DlqRetryResponse { success: true, message: "Retried".to_string(), error_message: None })),
-                    Err(e) => Ok(Response::new(DlqRetryResponse { success: false, message: "".to_string(), error_message: Some(e.to_string()) }))
-                }
-            }
-            Err(e) => Ok(Response::new(DlqRetryResponse { success: false, message: "".to_string(), error_message: Some(e.to_string()) }))
-        }
+        self.dlq_orchestrator.dlq_retry(request.into_inner()).await
     }
 
     async fn dlq_purge(&self, request: Request<DlqPurgeRequest>) -> Result<Response<DlqPurgeResponse>, Status> {
         check_rbac(&request, None)?;
-        let req = request.into_inner();
-        match self.vault.list_all_dlq(&req.profile).await {
-            Ok(msgs) => {
-                let mut count = 0;
-                for m in msgs {
-                    if let Some(id) = m.id {
-                        if self.vault.delete_dlq_by_id(id).await.is_ok() { count += 1; }
-                    }
-                }
-                Ok(Response::new(DlqPurgeResponse { success: true, message: format!("Purged {} messages", count), error_message: None }))
-            }
-            Err(e) => Ok(Response::new(DlqPurgeResponse { success: false, message: "".to_string(), error_message: Some(e.to_string()) }))
-        }
+        self.dlq_orchestrator.dlq_purge(request.into_inner()).await
     }
 
     async fn tail_audit(&self, request: Request<TailAuditRequest>) -> Result<Response<TailAuditResponse>, Status> {
@@ -723,30 +416,15 @@ impl CowenDaemonService for CowenDaemonController {
         let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
         match auth_cli.get_openapi_spec(&req.profile, &config, req.refresh).await {
             Ok(spec) => {
-                let mut ops = Vec::new();
-                if let Some(paths) = spec.get("paths").and_then(|p: &serde_json::Value| p.as_object()) {
-                    for (path, methods) in paths {
-                        if let Some(methods_obj) = methods.as_object() {
-                            for (method, details) in methods_obj {
-                                let summary = details.get("summary").and_then(|v: &serde_json::Value| v.as_str()).unwrap_or("");
-                                ops.push(serde_json::json!({
-                                    "id": format!("{} {}", method.to_uppercase(), path),
-                                    "method": method.to_uppercase(),
-                                    "path": path,
-                                    "summary": summary
-                                }));
-                            }
-                        }
-                    }
-                }
-                if let Some(query) = req.search.as_ref().filter(|q| !q.is_empty()) {
-                    let query = query.to_lowercase();
-                    ops.retain(|op| {
-                        let id = op["id"].as_str().unwrap_or("").to_lowercase();
-                        let summary = op["summary"].as_str().unwrap_or("").to_lowercase();
-                        id.contains(&query) || summary.contains(&query)
-                    });
-                }
+                let mut ops = crate::openapi_parser::OpenApiParser::parse_operations(&spec);
+                
+                let (filtered_ops, used_plugin_name) = self.search_orchestrator.search_if_needed(
+                    &req.profile, 
+                    ops, 
+                    &req.search
+                ).await;
+                
+                ops = filtered_ops;
                 
                 let total = ops.len() as u32;
                 
@@ -762,29 +440,14 @@ impl CowenDaemonService for CowenDaemonController {
                 };
 
                 let json = serde_json::to_string(&paged_ops).unwrap_or_default();
-                Ok(Response::new(ApiListResponse { total, json, plugin_used: None, error_message: None }))
+                Ok(Response::new(ApiListResponse { total, json, plugin_used: used_plugin_name, error_message: None }))
             }
             Err(e) => Ok(Response::new(ApiListResponse { total: 0, json: "".to_string(), plugin_used: None, error_message: Some(e.to_string()) }))
         }
     }
 
     async fn api_spec(&self, request: Request<ApiSpecRequest>) -> Result<Response<ApiSpecResponse>, Status> {
-        let req = request.into_inner();
-        let config = match self.cfg_mgr.load(&req.profile).await {
-            Ok(c) => c,
-            Err(e) => return Err(Status::not_found(e.to_string()))
-        };
-        let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
-        match auth_cli.get_openapi_spec(&req.profile, &config, false).await {
-            Ok(spec) => {
-                let method_lower = req.method.to_lowercase();
-                if let Some(op) = spec.get("paths").and_then(|p: &serde_json::Value| p.get(&req.path)).and_then(|p: &serde_json::Value| p.get(&method_lower)) {
-                    Ok(Response::new(ApiSpecResponse { json: serde_json::to_string(op).unwrap_or_default(), error_message: None }))
-                } else {
-                    Ok(Response::new(ApiSpecResponse { json: "".to_string(), error_message: Some("Not found".to_string()) }))
-                }
-            }
-            Err(e) => Ok(Response::new(ApiSpecResponse { json: "".to_string(), error_message: Some(e.to_string()) }))
-        }
+        check_rbac(&request, None)?;
+        self.api_orchestrator.api_spec(request.into_inner()).await
     }
 }

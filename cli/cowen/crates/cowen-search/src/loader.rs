@@ -8,7 +8,11 @@ pub struct FallbackProvider {
 
 impl SearchProvider for FallbackProvider {
     fn name(&self) -> &str {
-        "fallback_search"
+        if let Some(ref primary) = self.primary {
+            primary.name()
+        } else {
+            self.fallback.name()
+        }
     }
 
     fn search(&self, query: &str, top: usize) -> Vec<(f32, SearchDocument)> {
@@ -74,6 +78,62 @@ impl SearchProvider for SidecarSearchProvider {
 
         if let Err(e) = self.client.call_tool("search/update_index", params) {
             tracing::error!(target: "sys", "Sidecar update_index error: {}", e);
+        }
+    }
+}
+
+pub struct SearchProviderFactory;
+
+impl SearchProviderFactory {
+    pub fn create(tenant_id: &str) -> FallbackProvider {
+        let app_yaml_path = cowen_infra::path::get_app_dir().join("app.yaml");
+        let mut enabled_plugins: Vec<String> = vec![];
+        if let Ok(content) = std::fs::read_to_string(&app_yaml_path) {
+            if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                if let Some(plugins) = val.get("plugins").and_then(|v| v.as_sequence()) {
+                    enabled_plugins = plugins.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+                }
+            }
+        }
+        
+        let plugins_dir = cowen_infra::path::get_app_dir().join("plugins");
+        let mut search_plugin_name = None;
+        for p in &enabled_plugins {
+            let bundle_path = plugins_dir.join(p).with_extension("bundle");
+            if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path) {
+                if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
+                    if let Some(capabilities) = bundle.get("manifest").and_then(|m| m.get("capabilities")).and_then(|c| c.as_array()) {
+                        let has_search = capabilities.iter().any(|c| c.as_str() == Some("SearchProvider"));
+                        if has_search {
+                            search_plugin_name = Some(p.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        let mut primary: Option<Box<dyn SearchProvider>> = None;
+        if let Some(p_name) = search_plugin_name {
+            let expected_path = if cfg!(target_os = "windows") && !p_name.ends_with(".exe") {
+                plugins_dir.join(format!("{}.exe", p_name))
+            } else {
+                plugins_dir.join(&p_name)
+            };
+            
+            if expected_path.exists() {
+                primary = Some(Box::new(SidecarSearchProvider::new(
+                    &p_name,
+                    expected_path,
+                    tenant_id.to_string(),
+                    None,
+                )));
+            }
+        }
+
+        FallbackProvider {
+            primary,
+            fallback: Box::new(crate::StringMatchProvider { docs: std::sync::RwLock::new(vec![]) }),
         }
     }
 }

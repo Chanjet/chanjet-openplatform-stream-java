@@ -131,7 +131,7 @@ macos-aarch64: build-plugins
 	cp target/release/$(BINARY) $(OUTPUT_DIR)/macos-aarch64/$(BINARY)
 	cp target/release/cowen-daemon $(OUTPUT_DIR)/macos-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/macos-aarch64/ || true
-	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/macos-aarch64/ || true
+	if [ -f "$(OUTPUT_DIR)/macos-aarch64/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/macos-aarch64/ || exit 1; fi
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
@@ -159,7 +159,7 @@ linux-x86_64: build-plugins
 	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
 	cp target/x86_64-unknown-linux-gnu/release/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-x86_64/ || true
-	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-x86_64/ || true
+	if [ -f "$(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-x86_64/ || exit 1; fi
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -247,7 +247,7 @@ linux-aarch64: build-plugins
 	cp target/aarch64-unknown-linux-musl/release/$(BINARY) $(OUTPUT_DIR)/linux-aarch64/$(BINARY)
 	cp target/aarch64-unknown-linux-musl/release/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-aarch64/ || true
-	cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-aarch64/ || true
+	if [ -f "$(OUTPUT_DIR)/linux-aarch64/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-aarch64/ || exit 1; fi
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
@@ -317,7 +317,7 @@ impl-package-macos:
 	cp CHANGELOG.md pkg_core_root/usr/local/share/doc/cowen/
 	cp -r dist_assets/usage pkg_core_root/usr/local/share/doc/cowen/usage
 	cp target/release/libcowen_search_embedding pkg_plugin_root/usr/local/share/cowen/staging/ || true
-	cp target/release/libcowen_search_embedding.bundle pkg_plugin_root/usr/local/share/cowen/staging/ || true
+	if [ -f "pkg_plugin_root/usr/local/share/cowen/staging/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_plugin_root/usr/local/share/cowen/staging/ || exit 1; fi
 	@chmod +x dist_assets/macos/scripts_core/postinstall
 	@chmod +x dist_assets/macos/scripts_plugin/postinstall
 	pkgbuild --identifier com.chanjet.$(BINARY).core.$(ARCH) --version $(VERSION) --root pkg_core_root --install-location / --scripts dist_assets/macos/scripts_core $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg
@@ -349,7 +349,7 @@ package-linux-aarch64: clean linux-aarch64
 	@echo "📦 Packaging Linux aarch64..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
 	cp target/release/libcowen_search_embedding pkg_root_aarch64/lib/ || true
-	cp target/release/libcowen_search_embedding.bundle pkg_root_aarch64/lib/ || true
+	if [ -f "pkg_root_aarch64/lib/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_root_aarch64/lib/ || exit 1; fi
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-aarch64/
@@ -441,7 +441,7 @@ package-windows-x86-cross: windows-x86-cross
 impl-package-linux-x86_64:
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
 	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding pkg_root/lib/ || true
-	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.bundle pkg_root/lib/ || true
+	if [ -f "pkg_root/lib/libcowen_search_embedding" ]; then cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.bundle pkg_root/lib/ || exit 1; fi
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64/

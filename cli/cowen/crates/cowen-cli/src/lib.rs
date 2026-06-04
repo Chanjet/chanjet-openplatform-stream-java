@@ -32,7 +32,7 @@ impl<T: std::fmt::Display> Colorize for T {
 #[command(version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " / ", env!("BUILD_TIME"), ")"))]
 #[command(
     about = "畅捷通 (Chanjet) 开放平台官方 CLI：集安全托管、API 智能搜索与实时流式桥接于一体的生产力工具。",
-    long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。\n\n🔒 隐私说明: 默认开启的遥测仅用于收集匿名崩溃报告与性能指标，不包含任何业务数据。可通过 --no-telemetry 或全局配置关闭。"
+    long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- ⚡ 零代码代理 (Proxy): 自动在本地开启 HTTP 反向代理端口，自动注入身份凭据，支持 curl/Postman 直接调用。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。\n\n🔒 隐私说明: 默认开启的遥测仅用于收集匿名崩溃报告与性能指标，不包含任何业务数据。可通过 --no-telemetry 或全局配置关闭。"
 )]
 pub struct Cli {
     #[arg(short, long, global = true, env = "COWEN_PROFILE", help = "配置环境名称 (缺省则使用当前激活的 Profile)")]
@@ -76,7 +76,7 @@ pub enum Commands {
         proxy_port: Option<u16>,
     },
     /// 调用开放平台 API 或管理接口规范
-    #[command(long_about = "调用开放平台 API 或管理接口规范。\n\n有两种使用方式:\n1. 直接发起 API 调用: cowen api GET /v1/user\n2. 使用子命令: cowen api list 或 cowen api spec\n\n注意: METHOD 和 PATH 必须成对出现，如果遇到名为 list 的 API 路径，请写为 cowen api GET /list，以免与子命令 list 冲突。")]
+    #[command(long_about = "调用开放平台 API 或管理接口规范。\n\n有两种使用方式:\n1. 直接发起 API 调用: cowen api GET /v1/user\n2. 使用子命令: cowen api list 或 cowen api spec\n\n提示: 除了命令行，你也可以通过本地代理端口 (Proxy) 发起包含自动鉴权的 API 调用！\n\n注意: METHOD 和 PATH 必须成对出现，如果遇到名为 list 的 API 路径，请写为 cowen api GET /list，以免与子命令 list 冲突。")]
     Api {
         #[arg(help = "HTTP Method (e.g. GET, POST)")]
         method: Option<String>,
@@ -223,6 +223,7 @@ pub enum ConfigCommands {
         key: String,
     },
     /// 列出当前生效的所有配置项目
+    #[command(long_about = "列出当前生效的所有配置项目。\n\nTips: 查看 'proxy_port' 可获取本地自动鉴权代理地址，实现 curl 无感调用。")]
     List,
 }
 

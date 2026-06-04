@@ -1,26 +1,5 @@
 # Cowen CLI 待办事项与技术债清单 (TODO & Technical Debt)
 
-## 🟢 P0: 下一版本跨平台架构重构 (Cross-Platform Architecture Refactoring)
-*核心目标：解决多操作系统编译困难、AI 意外修改/破坏跨平台目标系统代码的问题。*
-
-- [x] **建立统一的 `sys` 目录分层抽象**：将涉及系统调用的底层能力下沉到统一基础 Crate (如 `cowen-infra`)。
-    - [x] 提取平台无关抽象 Trait (`sys/mod.rs`)，定义 `ProcessManager`、`SysFingerprint` 与 `IpcBinder`。
-    - [x] 将 macOS 专属底层实现迁移至 `sys/macos.rs` (`#[cfg(target_os = "macos")]`)。
-    - [x] 将 Linux 专属底层实现迁移至 `sys/linux.rs` (`#[cfg(target_os = "linux")]`)。
-    - [x] 将公共 POSIX 兼容实现收敛至 `sys/unix.rs` (`#[cfg(unix)]`)，实现代码双端复用。
-    - [x] 将现有 Windows 专属实现迁移至 `sys/windows.rs` (`#[cfg(windows)]`)。
-    - [x] 重构外围业务层，确保所有系统调用仅面向 `sys::mod.rs` 定义的公共 Trait 编程，严禁业务代码内联平台专属 `#[cfg]` 宏。
-- [x] **系统 API Mocking 注入**：为跨平台 Trait 接口实现单元测试级依赖注入。
-    - [x] 编写符合抽象 Trait 的 `MockWindowsSys` 测试桩。
-    - [x] 支持在 macOS 本地开发环境下，一键运行 Windows 分支的全部核心单元测试。
-- [x] **Fail Fast 编译检查左移**：更新工程构建工作流。
-    - [x] 在 `Makefile` 中添加 `check-cross` 靶点，执行多平台交叉 `cargo check` (`apple-darwin`, `windows-msvc`, `linux-gnu`)。
-- [x] **确立 AI 跨平台防御规范**：更新全局规则 (`GEMINI.md`)。
-    - [x] 添加“禁止直接删除 `#[cfg(windows)]` 代码块”防御性约束。
-    - [x] 制定新增系统底层能力时的“多端接口对齐与 `unimplemented!()` 占位”规范。
-    - [x] 强制重构任务结束前主动触发 `make check-cross` 进行全目标平台语法及类型校验。
-
----
 
 ## 🟢 P1: 核心可靠性增强 (Reliability Enhancements)
 *核心目标：提升端到端消息投递可靠性，防止消息在服务端或客户端流转中断时丢失。*
@@ -35,7 +14,7 @@
 ## 🗄️ 已归档完成事项 (Archived Completed Items)
 
 所有历史已完成的待办事项与解耦重构任务均已物理搬迁，详细归档记录请参见：
-- 📄 **[已完成任务归档记录表](archive/completed_tasks.md)** *(包含历史高危安全修复、多租户令牌自愈、cowen-doctor 插件化解耦及 Windows Service 企业级集成等里程碑成果)*
+- 📄 **[已完成任务归档记录表](archive/completed_tasks.md)** *(包含跨平台架构重构、历史高危安全修复、多租户令牌自愈、cowen-doctor 插件化解耦及 Windows Service 企业级集成等里程碑成果)*
 
 ---
 
@@ -248,3 +227,4 @@ check-cross:
 1. **强行接口对齐律**：任何人在 `macos.rs` / `linux.rs` 内部新增或扩展平台专属能力时，**必须**同时在 `windows.rs` 中同步重载声明，并使用 `unimplemented!()` 占位或提供等价实现，绝对保障多平台 Crate 在任何时刻都能成功过检编译。
 2. **禁止擅自物理清理**：AI 代理或开发者在单端环境下重构代码时，**绝对禁止**擅自删除其他平台的专属适配代码块。
 3. **强制本地静态回归**：本地修改涉及 `sys` 目录的任何行为，在提交代码或标记任务完成前，**必须**在控制台主动发起 `make check-cross` 检验。任何未通过三端静态类型检验的代码库提交将一律做无效化拦截退回。
+- [ ] RPC 调用方向翻转/事件驱动插件机制 (Architecture Evolution)

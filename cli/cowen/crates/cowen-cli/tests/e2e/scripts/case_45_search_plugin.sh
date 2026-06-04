@@ -14,7 +14,7 @@ setup_workspace "case_45"
 start_mock
 
 # 1. Setup paths
-PLUGIN_DIR="$COWEN_HOME/dist_assets"
+PLUGIN_DIR="$COWEN_HOME/plugins"
 PLUGIN_NAME="libcowen_search_embedding.bundle"
 [ "$IS_WINDOWS" = "true" ] && PLUGIN_NAME="libcowen_search_embedding.bundle"
 PLUGIN_PATH="$PLUGIN_DIR/$PLUGIN_NAME"
@@ -36,17 +36,32 @@ mkdir -p "$PLUGIN_DIR"
 
 # 3. Test Plugin Loading
 echo "Test 2: Loading plugin"
-# Find plugin (could be in debug or debug/deps depending on cargo version/cache)
-if [ -f "$COWEN_BUILD_DIR/$PLUGIN_NAME" ]; then
-    cp "$COWEN_BUILD_DIR/$PLUGIN_NAME" "$PLUGIN_PATH"
+
+# We must copy both the binary and the bundle to the plugins directory
+BIN_NAME="libcowen_search_embedding"
+[ "$IS_WINDOWS" = "true" ] && BIN_NAME="libcowen_search_embedding.exe"
+
+if [ -f "$COWEN_BUILD_DIR/$BIN_NAME" ]; then
+    cp "$COWEN_BUILD_DIR/$BIN_NAME" "$PLUGIN_DIR/"
+    cp "$COWEN_BUILD_DIR/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
 else
-    cp "$COWEN_BUILD_DIR/deps/$PLUGIN_NAME" "$PLUGIN_PATH"
+    cp "$COWEN_BUILD_DIR/deps/$BIN_NAME" "$PLUGIN_DIR/"
+    cp "$COWEN_BUILD_DIR/deps/libcowen_search_embedding.bundle" "$PLUGIN_DIR/" 2>/dev/null || true
 fi
 
+# Enable the plugin
+"$COWEN_BIN" plugins enable "libcowen_search_embedding" >/dev/null
+
 # Run search
-"$COWEN_BIN" api list --profile main --search "Order"
+OUTPUT=$("$COWEN_BIN" api list --profile main --search "Order")
+
+if ! echo "$OUTPUT" | grep -q "Using search plugin"; then
+    echo "❌ Semantic search plugin was NOT used during search!"
+    echo "Output: $OUTPUT"
+    exit 1
+fi
 
 echo "✅ Plugin loaded successfully."
 
 cleanup_suite
-echo "🎉 case_48_search_plugin passed!"
+echo "🎉 case_45_search_plugin passed!"

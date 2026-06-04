@@ -59,6 +59,7 @@ if (!$profile_content.Contains("# cowen completion")) {
 $exe_path = Join-Path $install_dir "cowen.exe"
 if (Test-Path $exe_path) {
     Write-Host "📟 Registering autostart daemon service..." -ForegroundColor Cyan
+    Stop-Process -Name "cowen-daemon" -Force -ErrorAction SilentlyContinue
     Start-Process -FilePath $exe_path -ArgumentList "daemon", "service", "install" -NoNewWindow -Wait
 }
 

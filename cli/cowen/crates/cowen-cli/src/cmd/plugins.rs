@@ -43,9 +43,29 @@ pub async fn list() -> Result<()> {
             if supported_exts.contains(&ext) {
                 found_any = true;
                 let file_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
-                
-                let display_trait = "unknown (Thin CLI)";
-                let display_desc = "Inspected by daemon";
+                let mut display_trait = "unknown (Thin CLI)".to_string();
+                let mut display_desc = "Inspected by daemon".to_string();
+
+                // Attempt to read the .bundle file to get metadata without loading the dylib
+                let bundle_path = path.with_extension("bundle");
+                if bundle_path.exists() {
+                    if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path) {
+                        if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
+                            if let Some(capabilities) = bundle.get("manifest").and_then(|m| m.get("capabilities")).and_then(|c| c.as_array()) {
+                                let caps: Vec<String> = capabilities.iter().filter_map(|c| c.as_str().map(|s| s.to_string())).collect();
+                                if !caps.is_empty() {
+                                    display_trait = caps.join(", ");
+                                }
+                            }
+                            if let Some(version) = bundle.get("manifest").and_then(|m| m.get("version")).and_then(|v| v.as_str()) {
+                                display_desc = format!("v{} (Signed)", version);
+                            } else {
+                                display_desc = "Signed bundle".to_string();
+                            }
+                        }
+                    }
+                }
+
                 let name = file_name;
                 let is_enabled = enabled_plugins.contains(&name.to_string());
                 let enabled_str = if is_enabled { "\x1b[32mYes\x1b[0m" } else { "\x1b[31mNo\x1b[0m" };

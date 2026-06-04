@@ -1,7 +1,8 @@
+use std::sync::RwLock;
 use crate::{SearchDocument, SearchProvider};
 
 pub struct StringMatchProvider {
-    pub docs: Vec<SearchDocument>,
+    pub docs: RwLock<Vec<SearchDocument>>,
 }
 
 impl SearchProvider for StringMatchProvider {
@@ -11,7 +12,8 @@ impl SearchProvider for StringMatchProvider {
 
     fn search(&self, query: &str, top: usize) -> Vec<(f32, SearchDocument)> {
         let query_lower = query.to_lowercase();
-        let mut results: Vec<(f32, SearchDocument)> = self.docs.iter()
+        let docs = self.docs.read().unwrap();
+        let mut results: Vec<(f32, SearchDocument)> = docs.iter()
             .filter_map(|doc| {
                 let mut score = 0.0;
                 let content = format!("{} {}", doc.summary, doc.description).to_lowercase();
@@ -38,8 +40,10 @@ impl SearchProvider for StringMatchProvider {
         results.into_iter().take(top).collect()
     }
 
-    fn update_index(&self, _docs: &[SearchDocument]) {
-        // Simple provider initialized with fixed docs. 
+    fn update_index(&self, docs: &[SearchDocument]) {
+        if let Ok(mut w) = self.docs.write() {
+            *w = docs.to_vec();
+        }
     }
 }
 
@@ -65,7 +69,7 @@ mod tests {
             },
         ];
         
-        let provider = StringMatchProvider { docs };
+        let provider = StringMatchProvider { docs: std::sync::RwLock::new(docs) };
         let results = provider.search("Order", 1);
         
         assert_eq!(results.len(), 1);

@@ -42,7 +42,7 @@ TIMED_OUT=0
 while kill -0 $STATUS_PID 2>/dev/null; do
     sleep 1
     WAIT_SECS=$((WAIT_SECS + 1))
-    if [ $WAIT_SECS -ge 5 ]; then
+    if [ $WAIT_SECS -ge 10 ]; then
         TIMED_OUT=1
         kill -9 $STATUS_PID 2>/dev/null || true
         break
@@ -53,7 +53,7 @@ echo "OUT:"
 cat "$COWEN_HOME/status.out"
 
 if [ $TIMED_OUT -eq 1 ]; then
-    echo "❌ cowen status timed out after 5s! Bug is present."
+    echo "❌ cowen status timed out after 10s! Bug is present."
     kill -9 $FAKE_SERVER_PID 2>/dev/null || true
     fail_suite "cowen status hung and timed out."
 fi
