@@ -4,7 +4,7 @@ pub(crate) fn get_ipc_port_path() -> std::path::PathBuf {
     cowen_common::config::get_app_dir().join("ipc.port")
 }
 
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
 use cowen_common::utils::get_bin_name;
 use anyhow::Result;

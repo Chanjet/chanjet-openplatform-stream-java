@@ -315,8 +315,7 @@ fn test_mcp_client_simulation() {
         "params": {
             "name": "cowen_enable_api",
             "arguments": {
-                "method": "GET",
-                "path": "/v1/test"
+                "tool_name": "get__v1_test"
             }
         }
     });
@@ -347,6 +346,79 @@ fn test_mcp_client_simulation() {
     assert!(text.contains("gRPC Error") || text.contains("transport error") || text.contains("Connection refused"), "Expected gRPC connection failure: {}", text);
     
     // Kill the process
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
+#[test]
+fn test_mcp_api_list_schema_validation() {
+    use std::io::{Write, BufRead, BufReader};
+    use std::process::Stdio;
+
+    let search_pattern = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let plugin_src = manifest_dir.join("../../target/debug").join(search_pattern);
+    if !plugin_src.exists() { return; }
+
+    let mut child = std::process::Command::new(&plugin_src)
+        .arg("server")
+        .env("COWEN_PROFILE", "default")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn mcp plugin");
+
+    let mut stdin = child.stdin.take().expect("Failed to open stdin");
+    let stdout = child.stdout.take().expect("Failed to open stdout");
+
+    // Initialize
+    let init_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": { "name": "e2e-test-client", "version": "1.0.0" }
+        }
+    });
+    let req_str = serde_json::to_string(&init_req).unwrap() + "\n";
+    stdin.write_all(req_str.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+
+    let mut reader = BufReader::new(stdout);
+    let mut line = String::new();
+    reader.read_line(&mut line).expect("Failed to read from stdout");
+
+    // Call cowen_api_list
+    let call_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "cowen_api_list",
+            "arguments": {}
+        }
+    });
+    let req_str = serde_json::to_string(&call_req).unwrap() + "\n";
+    stdin.write_all(req_str.as_bytes()).unwrap();
+    stdin.flush().unwrap();
+
+    line.clear();
+    reader.read_line(&mut line).expect("Failed to read from stdout");
+    
+    let resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(resp.get("id").unwrap().as_u64().unwrap(), 2);
+    
+    let result = resp.get("result").unwrap();
+    
+    // We expect the gRPC Error to set isError to true, and if it is false, structuredContent must exist.
+    let is_error = result.get("isError").unwrap().as_bool().unwrap_or(false);
+    
+    if !is_error {
+        assert!(result.get("structuredContent").is_some(), "MCP error -32600: Tool cowen_api_list has an output schema but did not return structuredContent! Response was: {}", resp);
+    }
+
     child.kill().unwrap();
     child.wait().unwrap();
 }

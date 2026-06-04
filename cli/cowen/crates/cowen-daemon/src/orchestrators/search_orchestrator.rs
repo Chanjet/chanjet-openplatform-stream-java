@@ -69,7 +69,13 @@ impl SearchOrchestrator {
         let mut new_ops = Vec::new();
         for (_score, doc) in results {
             if let Some(op) = ops.iter().find(|o| o["id"].as_str().unwrap_or("") == doc.id) {
-                new_ops.push(op.clone());
+                let mut new_op = op.clone();
+                if let Some(obj) = new_op.as_object_mut() {
+                    // Inject the score (rounded to 4 decimal places for readability)
+                    let rounded_score = (_score * 10000.0).round() / 10000.0;
+                    obj.insert("score".to_string(), serde_json::json!(rounded_score));
+                }
+                new_ops.push(new_op);
             }
         }
 

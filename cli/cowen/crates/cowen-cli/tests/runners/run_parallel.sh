@@ -82,7 +82,7 @@ if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
     BINARY_PATH="$TARGET_BASE/x86_64-unknown-linux-gnu/release/cowen"
 fi
 
-if COWEN_BUILD_CLIENT_ID=dummy cargo build --quiet $BUILD_ARGS -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer 2>/dev/null; then
+if COWEN_BUILD_CLIENT_ID=dummy cargo build --quiet $BUILD_ARGS -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer -p cowen-mcp-plugin 2>/dev/null; then
     echo -e " ${GREEN}[OK]${NC}"
     export COWEN_BIN="$(pwd)/$BINARY_PATH"
     # Force common.sh to refresh its SOURCE_BIN

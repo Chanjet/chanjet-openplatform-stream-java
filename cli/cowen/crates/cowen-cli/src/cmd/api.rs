@@ -77,7 +77,8 @@ pub async fn spec(profile: &str, method: &String, path: &String, raw: bool) -> R
                 // or we parse and format it here if we want to keep the CLI logic.
                 // Wait, the daemon will return the raw JSON of the Operation, and we format it here to avoid sending
                 // huge formatted strings.
-                let op: serde_json::Value = serde_json::from_str(&json)?;
+                let parsed: serde_json::Value = serde_json::from_str(&json)?;
+                let op = parsed.get("operation").unwrap_or(&parsed);
                 println!("\n📖 API Specification Details");
                 println!("--------------------------------------------------");
                 println!("📍 Endpoint:    \x1b[1;32m{} {}\x1b[0m", method.to_uppercase(), path);
