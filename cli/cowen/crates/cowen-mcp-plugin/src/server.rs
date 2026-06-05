@@ -192,6 +192,90 @@ pub async fn handle_request(
     (response, list_changed)
 }
 
+async fn fetch_apis(
+    app_state: &AppState,
+    search: Option<String>,
+    page: u32,
+    page_size: u32,
+) -> Result<(u32, Vec<serde_json::Value>), String> {
+    let mut client = get_grpc_client().await?;
+    let grpc_req = proto::ApiListRequest {
+        profile: app_state.profile.clone(),
+        search,
+        page,
+        page_size,
+        refresh: false,
+    };
+
+    let resp = client.api_list(inject_auth(grpc_req)).await
+        .map_err(|e| format!("gRPC Error listing APIs: {}", e))?;
+    
+    let inner = resp.into_inner();
+    if let Some(err) = inner.error_message {
+        return Err(format!("Error: {}", err));
+    }
+
+    let apis: Vec<serde_json::Value> = serde_json::from_str(&inner.json).unwrap_or_default();
+    Ok((inner.total, apis))
+}
+
+fn prepare_request_params(
+    tool_def: &EnabledTool,
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(String, Option<String>), String> {
+    let mut final_path = tool_def.path.clone();
+    let mut query_params = Vec::new();
+    let mut body_str = None;
+
+    let re = Regex::new(r"\{([a-zA-Z0-9_]+)\}").unwrap();
+    let path_vars: std::collections::HashSet<String> = re
+        .captures_iter(&tool_def.path)
+        .map(|cap| cap[1].to_string())
+        .collect();
+
+    let mut body_obj = serde_json::Map::new();
+
+    for (k, v) in args {
+        if tool_def.body_params.contains(k) {
+            if k == "body_payload" {
+                body_str = serde_json::to_string(v)
+                    .map_err(|e| format!("Failed to serialize body_payload: {}", e))?
+                    .into();
+            } else {
+                body_obj.insert(k.clone(), v.clone());
+            }
+        } else if path_vars.contains(k) {
+            if let Some(val_str) = v.as_str() {
+                final_path = final_path.replace(&format!("{{{}}}", k), val_str);
+            } else {
+                final_path = final_path.replace(&format!("{{{}}}", k), &v.to_string());
+            }
+        } else {
+            let val_str = v
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| v.to_string());
+            query_params.push(format!("{}={}", k, urlencoding::encode(&val_str)));
+        }
+    }
+
+    if !body_obj.is_empty() {
+        body_str = serde_json::to_string(&body_obj)
+            .map_err(|e| format!("Failed to serialize request body properties: {}", e))?
+            .into();
+    }
+
+    if !query_params.is_empty() {
+        if final_path.contains('?') {
+            final_path = format!("{}&{}", final_path, query_params.join("&"));
+        } else {
+            final_path = format!("{}?{}", final_path, query_params.join("&"));
+        }
+    }
+
+    Ok((final_path, body_str))
+}
+
 async fn handle_api_list(
     args: &serde_json::Map<String, serde_json::Value>,
     app_state: &AppState,
@@ -206,56 +290,36 @@ async fn handle_api_list(
         .and_then(|v| v.as_i64())
         .unwrap_or(1000) as u32;
 
-    let mut client = match get_grpc_client().await {
-        Ok(c) => c,
-        Err(e) => return (format!("gRPC Error: {}", e), true, None),
-    };
+    match fetch_apis(app_state, search, page, page_size).await {
+        Ok((total, apis)) => {
+            let mut text = format!("Total APIs found: {}\n", total);
+            let mut items = Vec::new();
+            for api in apis {
+                let method = api.get("method").and_then(|v| v.as_str()).unwrap_or("");
+                let path = api.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                let summary = api.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                let description = api.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let score = api.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-    let grpc_req = proto::ApiListRequest {
-        profile: app_state.profile.clone(),
-        search,
-        page,
-        page_size,
-        refresh: false,
-    };
+                text.push_str(&format!("- {} {} ({})\n", method, path, summary));
 
-    match client.api_list(inject_auth(grpc_req)).await {
-        Ok(resp) => {
-            let inner = resp.into_inner();
-            if let Some(err) = inner.error_message {
-                (format!("Error: {}", err), true, None)
-            } else {
-                let apis: Vec<serde_json::Value> =
-                    serde_json::from_str(&inner.json).unwrap_or_default();
-                let mut text = format!("Total APIs found: {}\n", inner.total);
-                let mut items = Vec::new();
-                for api in apis {
-                    let method = api.get("method").and_then(|v| v.as_str()).unwrap_or("");
-                    let path = api.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    let summary = api.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-                    let description = api.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                    let score = api.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
-
-                    text.push_str(&format!("- {} {} ({})\n", method, path, summary));
-
-                    let tool_name = generate_tool_name(method, path);
-                    items.push(json!({
-                        "tool_name": tool_name,
-                        "method": method,
-                        "path": path,
-                        "summary": summary,
-                        "description": description,
-                        "score": score
-                    }));
-                }
-                let obj_val = json!({
-                    "total": inner.total,
-                    "apis": items
-                });
-                (text, false, Some(obj_val))
+                let tool_name = generate_tool_name(method, path);
+                items.push(json!({
+                    "tool_name": tool_name,
+                    "method": method,
+                    "path": path,
+                    "summary": summary,
+                    "description": description,
+                    "score": score
+                }));
             }
+            let obj_val = json!({
+                "total": total,
+                "apis": items
+            });
+            (text, false, Some(obj_val))
         }
-        Err(e) => (format!("gRPC Error: {}", e), true, None),
+        Err(e) => (e, true, None),
     }
 }
 
@@ -269,44 +333,30 @@ async fn handle_enable_api(
     let mut path = String::new();
     let mut api_found = false;
 
+    match fetch_apis(app_state, None, 1, 1000).await {
+        Ok((_, apis)) => {
+            for api in apis {
+                let m = api.get("method").and_then(|v| v.as_str()).unwrap_or("");
+                let p = api.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                if generate_tool_name(m, p) == target_tool_name {
+                    method = m.to_string();
+                    path = p.to_string();
+                    api_found = true;
+                    break;
+                }
+            }
+        }
+        Err(e) => return (e, true, None),
+    }
+
+    if !api_found {
+        return (format!("API for tool_name '{}' not found", target_tool_name), true, None);
+    }
+
     let mut client = match get_grpc_client().await {
         Ok(c) => c,
         Err(e) => return (format!("gRPC Error: {}", e), true, None),
     };
-
-    let grpc_req = proto::ApiListRequest {
-        profile: app_state.profile.clone(),
-        search: None,
-        page: 1,
-        page_size: 1000,
-        refresh: false,
-    };
-
-    match client.api_list(inject_auth(grpc_req)).await {
-        Ok(resp) => {
-            let inner = resp.into_inner();
-            if let Some(err) = inner.error_message {
-                return (format!("Error listing APIs: {}", err), true, None);
-            } else {
-                let apis: Vec<serde_json::Value> =
-                    serde_json::from_str(&inner.json).unwrap_or_default();
-                for api in apis {
-                    let m = api.get("method").and_then(|v| v.as_str()).unwrap_or("");
-                    let p = api.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    if generate_tool_name(m, p) == target_tool_name {
-                        method = m.to_string();
-                        path = p.to_string();
-                        api_found = true;
-                        break;
-                    }
-                }
-                if !api_found {
-                    return (format!("API for tool_name '{}' not found", target_tool_name), true, None);
-                }
-            }
-        }
-        Err(e) => return (format!("gRPC Error listing APIs: {}", e), true, None),
-    }
 
     let grpc_req_spec = proto::ApiSpecRequest {
         profile: app_state.profile.clone(),
@@ -422,51 +472,10 @@ async fn handle_dynamic_tool_call(
     };
     drop(state);
 
-    let mut final_path = tool_def.path.clone();
-    let mut query_params = Vec::new();
-    let mut body_str = None;
-
-    let re = Regex::new(r"\{([a-zA-Z0-9_]+)\}").unwrap();
-    let path_vars: std::collections::HashSet<String> = re
-        .captures_iter(&tool_def.path)
-        .map(|cap| cap[1].to_string())
-        .collect();
-
-    let mut body_obj = serde_json::Map::new();
-
-    for (k, v) in args {
-        if tool_def.body_params.contains(k) {
-            if k == "body_payload" {
-                body_str = serde_json::to_string(v).ok();
-            } else {
-                body_obj.insert(k.clone(), v.clone());
-            }
-        } else if path_vars.contains(k) {
-            if let Some(val_str) = v.as_str() {
-                final_path = final_path.replace(&format!("{{{}}}", k), val_str);
-            } else {
-                final_path = final_path.replace(&format!("{{{}}}", k), &v.to_string());
-            }
-        } else {
-            let val_str = v
-                .as_str()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| v.to_string());
-            query_params.push(format!("{}={}", k, urlencoding::encode(&val_str)));
-        }
-    }
-
-    if !body_obj.is_empty() {
-        body_str = serde_json::to_string(&body_obj).ok();
-    }
-
-    if !query_params.is_empty() {
-        if final_path.contains('?') {
-            final_path = format!("{}&{}", final_path, query_params.join("&"));
-        } else {
-            final_path = format!("{}?{}", final_path, query_params.join("&"));
-        }
-    }
+    let (final_path, body_str) = match prepare_request_params(&tool_def, args) {
+        Ok(params) => params,
+        Err(e) => return (e, true, None),
+    };
 
     let mut client = match get_grpc_client().await {
         Ok(c) => c,
