@@ -10,6 +10,7 @@ mod client;
 mod schema;
 mod handlers;
 mod server;
+mod capabilities;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

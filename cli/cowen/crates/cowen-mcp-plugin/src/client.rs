@@ -4,12 +4,31 @@ pub mod proto {
 use proto::cowen_daemon_service_client::CowenDaemonServiceClient;
 
 pub async fn get_grpc_client() -> Result<CowenDaemonServiceClient<tonic::transport::Channel>, String> {
-    let port_str = std::env::var("COWEN_IPC_PORT")
-        .map_err(|_| "Missing COWEN_IPC_PORT env var".to_string())?;
+    let port_str = match std::env::var("COWEN_IPC_PORT") {
+        Ok(p) => p,
+        Err(_) => {
+            eprintln!("Missing COWEN_IPC_PORT env var. Host failed to inject context. Exiting to trigger MCP Client restart.");
+            std::process::exit(1);
+        }
+    };
     let endpoint = format!("http://127.0.0.1:{}", port_str);
     CowenDaemonServiceClient::connect(endpoint)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            if e.to_string().contains("transport error") {
+                eprintln!("Failed to connect to daemon (transport error). Exiting to trigger MCP Client restart.");
+                std::process::exit(1);
+            }
+            e.to_string()
+        })
+}
+
+pub fn handle_grpc_status(e: tonic::Status) -> String {
+    if e.code() == tonic::Code::Unavailable || e.to_string().contains("transport error") {
+        eprintln!("Lost connection to daemon (transport error). Exiting to trigger MCP Client restart.");
+        std::process::exit(1);
+    }
+    format!("gRPC Error: {}", e)
 }
 
 pub fn inject_auth<T>(req: T) -> tonic::Request<T> {

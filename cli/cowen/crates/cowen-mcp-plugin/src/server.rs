@@ -12,7 +12,7 @@ pub async fn handle_request(
     let mut list_changed = false;
 
     let response = match req.method.as_str() {
-        "initialize" => Some(handle_initialize(req)),
+        "initialize" => Some(handle_initialize(req, app_state).await),
         "notifications/initialized" => None,
         "tools/list" => Some(handle_tools_list(req, app_state).await),
         "tools/call" => {
@@ -45,6 +45,7 @@ mod tests {
         let app_state = AppState::new("test_tenant".to_string());
         
         let mut state = app_state.mcp_state.lock().await;
+        state.protocol_version = Some("2025-06-18".to_string());
         state.tools.insert(
             "get__v1_test".to_string(),
             EnabledTool {
@@ -87,6 +88,7 @@ mod tests {
         let app_state = AppState::new("test_tenant".to_string());
         
         let mut state = app_state.mcp_state.lock().await;
+        state.protocol_version = Some("2025-06-18".to_string());
         state.tools.insert(
             "get__v1_array".to_string(),
             EnabledTool {
@@ -134,7 +136,7 @@ mod tests {
             id: Some(json!(1)),
             method: "initialize".to_string(),
             params: Some(json!({
-                "protocolVersion": "2025-11-25",
+                "protocolVersion": "2024-11-05",
                 "capabilities": {},
                 "clientInfo": { "name": "test-client", "version": "1.0.0" }
             })),
@@ -150,5 +152,196 @@ mod tests {
         assert!(description.contains("cowen_enable_api"));
         assert!(description.contains("cowen_disable_api"));
         assert!(description.contains("orchestrat"));
+    }
+
+    #[tokio::test]
+    async fn test_initialize_tracks_client_version() {
+        let app_state = AppState::new("test_tenant".to_string());
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "initialize".to_string(),
+            params: Some(json!({
+                "protocolVersion": "2024-10-01",
+                "capabilities": {},
+                "clientInfo": { "name": "legacy-client", "version": "3.0.0" }
+            })),
+        };
+
+        let _ = handle_request(req, &app_state).await;
+
+        let state = app_state.mcp_state.lock().await;
+        assert_eq!(state.protocol_version.as_deref(), Some("2024-10-01"));
+    }
+
+    #[tokio::test]
+    async fn test_tools_list_omits_output_schema_for_legacy_clients() {
+        let app_state = AppState::new("test_tenant".to_string());
+        
+        let mut state = app_state.mcp_state.lock().await;
+        state.protocol_version = Some("2024-10-01".to_string());
+        state.tools.insert(
+            "get__v1_test".to_string(),
+            EnabledTool {
+                method: "GET".to_string(),
+                path: "/v1/test".to_string(),
+                description: "Test description".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+                output_schema: Some(json!({ "type": "object" })),
+                body_params: vec![],
+            },
+        );
+        drop(state);
+
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "tools/list".to_string(),
+            params: None,
+        };
+
+        let (resp, _) = handle_request(req, &app_state).await;
+        let response = resp.unwrap();
+        let tools = response.result.unwrap().get("tools").unwrap().as_array().unwrap().clone();
+        
+        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test").unwrap();
+        assert!(tool.get("outputSchema").is_none());
+        
+        let list_tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "cowen_api_list").unwrap();
+        assert!(list_tool.get("outputSchema").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_tools_list_includes_output_schema_for_modern_clients() {
+        let app_state = AppState::new("test_tenant".to_string());
+        
+        let mut state = app_state.mcp_state.lock().await;
+        state.protocol_version = Some("2025-06-18".to_string());
+        state.tools.insert(
+            "get__v1_test".to_string(),
+            EnabledTool {
+                method: "GET".to_string(),
+                path: "/v1/test".to_string(),
+                description: "Test description".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+                output_schema: Some(json!({ "type": "object" })),
+                body_params: vec![],
+            },
+        );
+        drop(state);
+
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "tools/list".to_string(),
+            params: None,
+        };
+
+        let (resp, _) = handle_request(req, &app_state).await;
+        let response = resp.unwrap();
+        let tools = response.result.unwrap().get("tools").unwrap().as_array().unwrap().clone();
+        
+        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test").unwrap();
+        assert!(tool.get("outputSchema").is_some());
+        
+        let list_tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "cowen_api_list").unwrap();
+        assert!(list_tool.get("outputSchema").is_some());
+    }
+    #[tokio::test]
+    async fn test_tools_list_omits_output_schema_for_legacy_version_2024_11_05() {
+        let app_state = AppState::new("test_tenant".to_string());
+        
+        let mut state = app_state.mcp_state.lock().await;
+        state.protocol_version = Some("2024-11-05".to_string());
+        state.tools.insert(
+            "get__v1_test".to_string(),
+            EnabledTool {
+                method: "GET".to_string(),
+                path: "/v1/test".to_string(),
+                description: "Test description".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+                output_schema: Some(json!({ "type": "object" })),
+                body_params: vec![],
+            },
+        );
+        drop(state);
+
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "tools/list".to_string(),
+            params: None,
+        };
+
+        let (resp, _) = handle_request(req, &app_state).await;
+        let tools = resp.unwrap().result.unwrap().get("tools").unwrap().as_array().unwrap().clone();
+        
+        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test").unwrap();
+        assert!(tool.get("outputSchema").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_tools_list_includes_output_schema_for_modern_version_2026_01_01() {
+        let app_state = AppState::new("test_tenant".to_string());
+        
+        let mut state = app_state.mcp_state.lock().await;
+        state.protocol_version = Some("2026-01-01".to_string());
+        state.tools.insert(
+            "get__v1_test".to_string(),
+            EnabledTool {
+                method: "GET".to_string(),
+                path: "/v1/test".to_string(),
+                description: "Test description".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+                output_schema: Some(json!({ "type": "object" })),
+                body_params: vec![],
+            },
+        );
+        drop(state);
+
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "tools/list".to_string(),
+            params: None,
+        };
+
+        let (resp, _) = handle_request(req, &app_state).await;
+        let tools = resp.unwrap().result.unwrap().get("tools").unwrap().as_array().unwrap().clone();
+        
+        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test").unwrap();
+        assert!(tool.get("outputSchema").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_omits_structured_content_for_legacy_version_2024_11_05() {
+        let app_state = AppState::new("test_tenant".to_string());
+        
+        let mut state = app_state.mcp_state.lock().await;
+        state.protocol_version = Some("2024-11-05".to_string());
+        state.tools.insert(
+            "get__v1_test".to_string(),
+            EnabledTool {
+                method: "GET".to_string(),
+                path: "/v1/test".to_string(),
+                description: "Test description".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+                output_schema: Some(json!({ "type": "object", "properties": { "data": { "type": "string" } } })),
+                body_params: vec![],
+            },
+        );
+        drop(state);
+
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "tools/call".to_string(),
+            params: Some(json!({ "name": "get__v1_test", "arguments": {} })),
+        };
+
+        let (resp, _) = handle_request(req, &app_state).await;
+        let result = resp.unwrap().result.unwrap();
+        
+        assert!(result.get("structuredContent").is_none());
     }
 }

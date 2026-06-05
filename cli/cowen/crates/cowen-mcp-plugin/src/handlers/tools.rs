@@ -3,17 +3,23 @@ use super::api::{handle_api_list, handle_enable_api, handle_disable_api};
 use super::dynamic::handle_dynamic_tool_call;
 use serde_json::json;
 
+use crate::capabilities::McpFeature;
+
 pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> JsonRpcResponse {
+    let state_lock = app_state.mcp_state.lock().await;
+    let supports_output_schema = state_lock.supports_feature(&McpFeature::OutputSchema);
+    drop(state_lock);
+
     let mut tools = vec![
         json!({
             "name": "cowen_api_list",
             "description": "Lists all available Cowen APIs by searching keywords. (Step 1 of the API orchestration workflow: find the tool_name you want to enable, then call cowen_enable_api)",
-            "inputSchema": {
+                        "inputSchema": {
                 "type": "object",
                 "properties": {
                     "search": { "type": "string", "description": "Optional search query" },
                     "page": { "type": "integer", "description": "Optional page number, default 1" },
-                    "page_size": { "type": "integer", "description": "Optional page size, default 1000" }
+                    "page_size": { "type": "integer", "description": "Optional page size, default 20" }
                 }
             },
             "outputSchema": {
@@ -40,7 +46,7 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
         json!({
             "name": "cowen_enable_api",
             "description": "Enable a specific Cowen API as a standalone MCP Tool so you can call it. (Step 2 of the API orchestration workflow: register a tool_name found via cowen_api_list to expose it as a standard MCP tool. Once registered, you can directly invoke it)",
-            "inputSchema": {
+                        "inputSchema": {
                 "type": "object",
                 "properties": {
                     "tool_name": { "type": "string", "description": "The tool_name of the API returned by cowen_api_list" }
@@ -59,7 +65,7 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
         json!({
             "name": "cowen_disable_api",
             "description": "Disable a previously enabled Cowen API Tool. (Step 3 of the API orchestration workflow: deregister dynamic tools when no longer needed)",
-            "inputSchema": {
+                        "inputSchema": {
                 "type": "object",
                 "properties": {
                     "tool_name": { "type": "string", "description": "The tool_name of the enabled API" }
@@ -113,6 +119,14 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
     }
     drop(state);
 
+    if !supports_output_schema {
+        for tool in tools.iter_mut() {
+            if let Some(obj) = tool.as_object_mut() {
+                obj.remove("outputSchema");
+            }
+        }
+    }
+
     JsonRpcResponse {
         jsonrpc: "2.0".to_string(),
         id: req.id,
@@ -150,24 +164,38 @@ pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (Js
         _ => handle_dynamic_tool_call(name, &args, app_state).await,
     };
 
-    let has_output_schema = match name {
-        "cowen_api_list" | "cowen_enable_api" | "cowen_disable_api" => true,
-        _ => {
-            let state = app_state.mcp_state.lock().await;
-            state.tools.get(name)
-                .and_then(|t| t.output_schema.as_ref())
-                .is_some()
-        }
+    let supports_output_schema = {
+        let state = app_state.mcp_state.lock().await;
+        state.supports_feature(&crate::capabilities::McpFeature::OutputSchema)
     };
 
-    if has_output_schema && structured_content.is_none() {
-        structured_content = Some(json!({}));
+    let mut final_text = result_text;
+
+    if supports_output_schema {
+        let has_output_schema = match name {
+            "cowen_api_list" | "cowen_enable_api" | "cowen_disable_api" => true,
+            _ => {
+                let state = app_state.mcp_state.lock().await;
+                state.tools.get(name)
+                    .and_then(|t| t.output_schema.as_ref())
+                    .is_some()
+            }
+        };
+
+        if has_output_schema && structured_content.is_none() {
+            structured_content = Some(json!({}));
+        }
+    } else {
+        if let Some(structured) = &structured_content {
+            final_text = serde_json::to_string_pretty(structured).unwrap_or_else(|_| final_text);
+        }
+        structured_content = None;
     }
 
     let mut content_items = vec![
         json!({
             "type": "text",
-            "text": result_text
+            "text": final_text
         })
     ];
 

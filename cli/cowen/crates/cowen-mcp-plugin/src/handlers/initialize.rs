@@ -1,12 +1,25 @@
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use crate::protocol::{AppState, JsonRpcRequest, JsonRpcResponse};
 use serde_json::json;
 
-pub fn handle_initialize(req: JsonRpcRequest) -> JsonRpcResponse {
+pub const LATEST_PROTOCOL_VERSION: &str = "2024-11-05";
+
+pub async fn handle_initialize(req: JsonRpcRequest, app_state: &AppState) -> JsonRpcResponse {
+    let mut negotiated_version = LATEST_PROTOCOL_VERSION.to_string();
+
+    if let Some(params) = &req.params {
+        let mut state = app_state.mcp_state.lock().await;
+        
+        if let Some(pv) = params.get("protocolVersion").and_then(|v| v.as_str()) {
+            negotiated_version = pv.to_string();
+            state.protocol_version = Some(pv.to_string());
+        }
+    }
+
     JsonRpcResponse {
         jsonrpc: "2.0".to_string(),
         id: req.id,
         result: Some(json!({
-            "protocolVersion": "2025-11-25",
+            "protocolVersion": negotiated_version,
             "capabilities": {
                 "tools": { "listChanged": true }
             },

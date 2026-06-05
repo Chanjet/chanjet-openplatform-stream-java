@@ -47,6 +47,13 @@ pub struct EnabledTool {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct McpState {
     pub tools: HashMap<String, EnabledTool>,
+    pub protocol_version: Option<String>,
+}
+
+impl McpState {
+    pub fn supports_feature(&self, feature: &crate::capabilities::McpFeature) -> bool {
+        crate::capabilities::get_global_registry().supports(feature, self.protocol_version.as_deref())
+    }
 }
 
 pub struct AppState {

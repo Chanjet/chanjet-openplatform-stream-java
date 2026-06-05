@@ -19,7 +19,7 @@ pub async fn fetch_apis(
     };
 
     let resp = client.api_list(inject_auth(grpc_req)).await
-        .map_err(|e| format!("gRPC Error listing APIs: {}", e))?;
+        .map_err(|e| crate::client::handle_grpc_status(e))?;
     
     let inner = resp.into_inner();
     if let Some(err) = inner.error_message {
@@ -42,7 +42,7 @@ pub async fn handle_api_list(
     let page_size = args
         .get("page_size")
         .and_then(|v| v.as_i64())
-        .unwrap_or(1000) as u32;
+        .unwrap_or(20) as u32;
 
     match fetch_apis(app_state, search, page, page_size).await {
         Ok((total, apis)) => {
@@ -54,10 +54,9 @@ pub async fn handle_api_list(
                 let summary = api.get("summary").and_then(|v| v.as_str()).unwrap_or("");
                 let description = api.get("description").and_then(|v| v.as_str()).unwrap_or("");
                 let score = api.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
-
-                text.push_str(&format!("- {} {} ({})\n", method, path, summary));
-
                 let tool_name = generate_tool_name(method, path);
+
+                text.push_str(&format!("- [{}] {} {} ({})\n", tool_name, method, path, summary));
                 items.push(json!({
                     "tool_name": tool_name,
                     "method": method,
@@ -152,30 +151,59 @@ pub async fn handle_enable_api(
     let mut state = app_state.mcp_state.lock().await;
     state.tools.insert(
         target_tool_name.to_string(),
-        EnabledTool {
-            method,
-            path,
-            description: summary,
-            input_schema,
-            output_schema,
+        crate::protocol::EnabledTool {
+            method: method.clone(),
+            path: path.clone(),
+            description: summary.clone(),
+            input_schema: input_schema.clone(),
+            output_schema: output_schema.clone(),
             body_params,
         },
     );
     drop(state);
 
+    let mut tool_json = json!({
+        "name": target_tool_name,
+        "description": format!("Dynamic API: {} {}\n{}", method, path, summary),
+        "inputSchema": input_schema
+    });
+
+    if let Some(out_schema) = &output_schema {
+        let is_object_schema = out_schema
+            .get("type")
+            .and_then(|t| t.as_str())
+            .map(|t| t == "object")
+            .unwrap_or(true);
+        if is_object_schema {
+            tool_json
+                .as_object_mut()
+                .unwrap()
+                .insert("outputSchema".to_string(), out_schema.clone());
+        } else {
+            let wrapped = json!({
+                "type": "object",
+                "properties": {
+                    "value": out_schema.clone()
+                },
+                "required": ["value"]
+            });
+            tool_json
+                .as_object_mut()
+                .unwrap()
+                .insert("outputSchema".to_string(), wrapped);
+        }
+    }
+
     let msg = format!(
-        "Successfully enabled tool '{}'. Tools list changed notification sent.",
-        target_tool_name
+        "Successfully enabled tool '{}'.\n\nTool Definition:\n{}",
+        target_tool_name,
+        serde_json::to_string_pretty(&tool_json).unwrap_or_default()
     );
     
     (
         msg.clone(),
         false,
-        Some(json!({
-            "success": true,
-            "tool_name": target_tool_name,
-            "message": msg
-        })),
+        Some(tool_json),
     )
 }
 

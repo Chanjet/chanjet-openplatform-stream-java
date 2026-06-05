@@ -101,7 +101,7 @@ pub async fn handle_dynamic_tool_call(
                 (result_text, is_err, structured_content, schema_error)
             }
         }
-        Err(e) => (format!("gRPC Error: {}", e), true, None, None),
+        Err(e) => (crate::client::handle_grpc_status(e), true, None, None),
     }
 }
 
@@ -111,7 +111,7 @@ pub fn process_api_response(
     output_schema: &Option<serde_json::Value>,
 ) -> (String, bool, Option<serde_json::Value>, Option<String>) {
     let result_text = format!("Status: {}\n{}", status, body);
-    let is_err = false;
+    let mut is_err = false;
     let mut structured_content = None;
     let mut schema_error = None;
 
@@ -140,6 +140,7 @@ pub fn process_api_response(
                 Err(e) => {
                     eprintln!("DEBUG: MCP Tool output schema validation failed: {}", e);
                     schema_error = Some(format!("Schema Validation Error: {}", e));
+                    is_err = true;
                 }
             }
         } else {
@@ -170,7 +171,7 @@ mod tests {
         let (result_text, is_err, structured, schema_err) = process_api_response(status, body, &output_schema);
 
         assert_eq!(result_text, "Status: 200\n{\"data\": \"not an array\"}");
-        assert_eq!(is_err, false);
+        assert_eq!(is_err, true);
         assert!(structured.is_none());
         assert!(schema_err.is_some());
         assert_eq!(
