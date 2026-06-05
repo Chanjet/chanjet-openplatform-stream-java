@@ -1,5 +1,5 @@
 use crate::client::{get_grpc_client, inject_auth, proto};
-use crate::protocol::{AppState, EnabledTool, generate_tool_name};
+use crate::protocol::{AppState, generate_tool_name};
 use crate::schema::build_schema_from_openapi;
 use serde_json::json;
 
@@ -46,7 +46,7 @@ pub async fn handle_api_list(
 
     match fetch_apis(app_state, search, page, page_size).await {
         Ok((total, apis)) => {
-            let mut text = format!("Total APIs found: {}\n", total);
+            let text = format!("Total APIs found: {}", total);
             let mut items = Vec::new();
             for api in apis {
                 let method = api.get("method").and_then(|v| v.as_str()).unwrap_or("");
@@ -56,7 +56,6 @@ pub async fn handle_api_list(
                 let score = api.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let tool_name = generate_tool_name(method, path);
 
-                text.push_str(&format!("- [{}] {} {} ({})\n", tool_name, method, path, summary));
                 items.push(json!({
                     "tool_name": tool_name,
                     "method": method,

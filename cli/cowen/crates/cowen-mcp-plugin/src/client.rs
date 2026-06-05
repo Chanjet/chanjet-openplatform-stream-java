@@ -7,14 +7,22 @@ pub async fn get_grpc_client() -> Result<CowenDaemonServiceClient<tonic::transpo
     let port_str = match std::env::var("COWEN_IPC_PORT") {
         Ok(p) => p,
         Err(_) => {
-            eprintln!("Missing COWEN_IPC_PORT env var. Host failed to inject context. Exiting to trigger MCP Client restart.");
-            std::process::exit(1);
+            #[cfg(test)]
+            {
+                return Err("Missing COWEN_IPC_PORT env var".to_string());
+            }
+            #[cfg(not(test))]
+            {
+                eprintln!("Missing COWEN_IPC_PORT env var. Host failed to inject context. Exiting to trigger MCP Client restart.");
+                std::process::exit(1);
+            }
         }
     };
     let endpoint = format!("http://127.0.0.1:{}", port_str);
     CowenDaemonServiceClient::connect(endpoint)
         .await
         .map_err(|e| {
+            #[cfg(not(test))]
             if e.to_string().contains("transport error") {
                 eprintln!("Failed to connect to daemon (transport error). Exiting to trigger MCP Client restart.");
                 std::process::exit(1);
@@ -24,6 +32,7 @@ pub async fn get_grpc_client() -> Result<CowenDaemonServiceClient<tonic::transpo
 }
 
 pub fn handle_grpc_status(e: tonic::Status) -> String {
+    #[cfg(not(test))]
     if e.code() == tonic::Code::Unavailable || e.to_string().contains("transport error") {
         eprintln!("Lost connection to daemon (transport error). Exiting to trigger MCP Client restart.");
         std::process::exit(1);
