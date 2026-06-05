@@ -81,4 +81,48 @@ mod tests {
         
         assert_eq!(result.get("structuredContent").unwrap(), &json!({}));
     }
+
+    #[tokio::test]
+    async fn test_tools_list_wraps_non_object_schema() {
+        let app_state = AppState::new("test_tenant".to_string());
+        
+        let mut state = app_state.mcp_state.lock().await;
+        state.tools.insert(
+            "get__v1_array".to_string(),
+            EnabledTool {
+                method: "GET".to_string(),
+                path: "/v1/array".to_string(),
+                description: "Test description".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+                output_schema: Some(json!({
+                    "type": "array",
+                    "items": { "type": "string" }
+                })),
+                body_params: vec![],
+            },
+        );
+        drop(state);
+
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "tools/list".to_string(),
+            params: None,
+        };
+
+        let (resp, _) = handle_request(req, &app_state).await;
+        let response = resp.unwrap();
+        let result = response.result.unwrap();
+        let tools = result.get("tools").unwrap().as_array().unwrap();
+        
+        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_array").unwrap();
+        let output_schema = tool.get("outputSchema").unwrap();
+        
+        assert_eq!(output_schema.get("type").unwrap().as_str().unwrap(), "object");
+        let properties = output_schema.get("properties").unwrap();
+        let value_schema = properties.get("value").unwrap();
+        assert_eq!(value_schema.get("type").unwrap().as_str().unwrap(), "array");
+        assert_eq!(value_schema.get("items").unwrap().get("type").unwrap().as_str().unwrap(), "string");
+        assert_eq!(output_schema.get("required").unwrap(), &json!(["value"]));
+    }
 }

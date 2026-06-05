@@ -95,6 +95,18 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
                     .as_object_mut()
                     .unwrap()
                     .insert("outputSchema".to_string(), out_schema.clone());
+            } else {
+                let wrapped = json!({
+                    "type": "object",
+                    "properties": {
+                        "value": out_schema.clone()
+                    },
+                    "required": ["value"]
+                });
+                tool_json
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("outputSchema".to_string(), wrapped);
             }
         }
         tools.push(tool_json);
@@ -141,15 +153,7 @@ pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (Js
             let state = app_state.mcp_state.lock().await;
             state.tools.get(name)
                 .and_then(|t| t.output_schema.as_ref())
-                .map(|out_schema| {
-                    let is_object_schema = out_schema
-                        .get("type")
-                        .and_then(|t| t.as_str())
-                        .map(|t| t == "object")
-                        .unwrap_or(true);
-                    is_object_schema
-                })
-                .unwrap_or(false)
+                .is_some()
         }
     };
 

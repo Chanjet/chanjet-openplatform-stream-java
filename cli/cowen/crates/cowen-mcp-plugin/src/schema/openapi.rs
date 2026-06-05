@@ -219,7 +219,7 @@ pub fn build_schema_from_openapi(
             for (mime, media_type) in content {
                 if mime.starts_with("application/json") || mime.contains("json") {
                     if let Some(s) = media_type.get("schema") {
-                        schema_val = Some(s.clone());
+                        schema_val = Some((s.clone(), media_type.clone()));
                         break;
                     }
                 }
@@ -227,15 +227,29 @@ pub fn build_schema_from_openapi(
             if schema_val.is_none() {
                 for (_, media_type) in content {
                     if let Some(s) = media_type.get("schema") {
-                        schema_val = Some(s.clone());
+                        schema_val = Some((s.clone(), media_type.clone()));
                         break;
                     }
                 }
             }
         }
 
-        if let Some(mut schema) = schema_val {
+        if let Some((mut schema, media_type)) = schema_val {
             resolve_refs(&mut schema, components, 0);
+
+            let has_array_type = media_type.get("type").and_then(|t| t.as_str()).map(|t| t == "array").unwrap_or(false)
+                || media_type.get("types").and_then(|ts| ts.as_array()).map(|arr| arr.iter().any(|val| val.as_str() == Some("array"))).unwrap_or(false);
+
+            if has_array_type {
+                let schema_type = schema.get("type").and_then(|t| t.as_str());
+                if schema_type != Some("array") {
+                    schema = serde_json::json!({
+                        "type": "array",
+                        "items": schema
+                    });
+                }
+            }
+
             output_schema = Some(schema);
         }
     }
@@ -402,5 +416,35 @@ mod tests {
         let (_, out_schema_fallback, _) = build_schema_from_openapi("/test", &spec_fallback_mime);
         assert!(out_schema_fallback.is_some());
         assert_eq!(out_schema_fallback.unwrap().get("type").unwrap().as_str().unwrap(), "string");
+    }
+
+    #[test]
+    fn test_build_schema_non_standard_array_response() {
+        let spec = json!({
+            "operation": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": { "type": "string" }
+                                    }
+                                },
+                                "type": "array"
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        let (_, out_schema, _) = build_schema_from_openapi("/test", &spec);
+        assert!(out_schema.is_some());
+        let schema = out_schema.unwrap();
+        assert_eq!(schema.get("type").unwrap().as_str().unwrap(), "array");
+        let items = schema.get("items").unwrap();
+        assert_eq!(items.get("type").unwrap().as_str().unwrap(), "object");
+        assert!(items.get("properties").unwrap().get("id").is_some());
     }
 }

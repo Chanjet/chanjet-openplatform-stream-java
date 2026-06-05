@@ -100,22 +100,36 @@ pub async fn handle_dynamic_tool_call(
                 let mut is_err = false;
                 let mut structured_content = None;
                 if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&inner.body) {
-                    let mut matched = true;
                     if let Some(out_schema) = &tool_def.output_schema {
-                        if let Err(e) = validate_json_against_schema(&json_val, out_schema) {
-                            matched = false;
-                            eprintln!("DEBUG: MCP Tool output schema validation failed: {}", e);
-                            result_text = format!("Schema Validation Error: {}\nResponse Body: {}", e, inner.body);
-                            is_err = true;
+                        let is_object_schema = out_schema
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .map(|t| t == "object")
+                            .unwrap_or(true);
+
+                        match validate_json_against_schema(&json_val, out_schema) {
+                            Ok(_) => {
+                                if is_object_schema {
+                                    if json_val.is_object() {
+                                        structured_content = Some(json_val);
+                                    } else {
+                                        eprintln!("DEBUG: MCP Tool output schema validation succeeded but payload is not a JSON Object (record), skipping structuredContent. Payload type: {}", get_type_name(&json_val));
+                                    }
+                                } else {
+                                    structured_content = Some(serde_json::json!({
+                                        "value": json_val
+                                    }));
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("DEBUG: MCP Tool output schema validation failed: {}", e);
+                                result_text = format!("Schema Validation Error: {}\nResponse Body: {}", e, inner.body);
+                                is_err = true;
+                            }
                         }
-                    } else if !json_val.is_object() {
-                        matched = false;
-                    }
-                    if matched {
+                    } else {
                         if json_val.is_object() {
                             structured_content = Some(json_val);
-                        } else {
-                            eprintln!("DEBUG: MCP Tool output schema validation succeeded but payload is not a JSON Object (record), skipping structuredContent. Payload type: {}", get_type_name(&json_val));
                         }
                     }
                 }
