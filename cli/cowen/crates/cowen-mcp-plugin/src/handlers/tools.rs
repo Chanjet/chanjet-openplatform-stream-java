@@ -128,21 +128,24 @@ pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (Js
 
     let mut list_changed = false;
 
-    let (result_text, is_error, mut structured_content) = match name {
-        "cowen_api_list" => handle_api_list(&args, app_state).await,
+    let (result_text, is_error, mut structured_content, schema_error) = match name {
+        "cowen_api_list" => {
+            let res = handle_api_list(&args, app_state).await;
+            (res.0, res.1, res.2, None)
+        }
         "cowen_enable_api" => {
             let res = handle_enable_api(&args, app_state).await;
             if !res.1 {
                 list_changed = true;
             }
-            res
+            (res.0, res.1, res.2, None)
         }
         "cowen_disable_api" => {
             let res = handle_disable_api(&args, app_state).await;
             if !res.1 {
                 list_changed = true;
             }
-            res
+            (res.0, res.1, res.2, None)
         }
         _ => handle_dynamic_tool_call(name, &args, app_state).await,
     };
@@ -161,13 +164,22 @@ pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (Js
         structured_content = Some(json!({}));
     }
 
+    let mut content_items = vec![
+        json!({
+            "type": "text",
+            "text": result_text
+        })
+    ];
+
+    if let Some(err_msg) = schema_error {
+        content_items.push(json!({
+            "type": "text",
+            "text": err_msg
+        }));
+    }
+
     let mut result_obj = json!({
-        "content": [
-            {
-                "type": "text",
-                "text": result_text
-            }
-        ],
+        "content": content_items,
         "isError": is_error
     });
 

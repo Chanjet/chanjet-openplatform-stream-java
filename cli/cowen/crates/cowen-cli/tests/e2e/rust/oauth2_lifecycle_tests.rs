@@ -97,14 +97,16 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     let pid_file = std::path::Path::new(&home).join("master_daemon.pid");
     if pid_file.exists() {
         let pid_str = fs::read_to_string(&pid_file).unwrap();
-        if let Ok(pid) = pid_str.trim().parse::<u32>() {
-            #[cfg(unix)]
-            {
-                let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
-            }
-            #[cfg(windows)]
-            {
-                let _ = std::process::Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
+        if let Some(first_line) = pid_str.lines().next() {
+            if let Ok(pid) = first_line.trim().parse::<u32>() {
+                #[cfg(unix)]
+                {
+                    let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+                }
+                #[cfg(windows)]
+                {
+                    let _ = std::process::Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
+                }
             }
         }
     }

@@ -4,10 +4,35 @@ use std::fs;
 use serde_json::json;
 use predicates::prelude::*;
 
+struct ChildGuard(std::process::Child);
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+struct PluginTestGuard {
+    home: String,
+}
+impl Drop for PluginTestGuard {
+    fn drop(&mut self) {
+        let pid_file = std::path::Path::new(&self.home).join("master_daemon.pid");
+        if let Ok(content) = std::fs::read_to_string(&pid_file) {
+            if let Some(first_line) = content.lines().next() {
+                if let Ok(pid) = first_line.trim().parse::<i32>() {
+                    let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn test_plugin_auto_discovery() {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().to_str().unwrap().to_string();
+    let _guard = PluginTestGuard { home: cowen_home.clone() };
     
     // 1. Create plugins directory
     let plugins_dir = dir.path().join("plugins");
@@ -118,6 +143,7 @@ fn test_plugin_auto_discovery() {
 fn test_mcp_plugin_run_no_args() {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().to_str().unwrap().to_string();
+    let _guard = PluginTestGuard { home: cowen_home.clone() };
     let plugins_dir = dir.path().join("plugins");
     fs::create_dir_all(&plugins_dir).unwrap();
 
@@ -152,6 +178,7 @@ fn test_mcp_plugin_run_no_args() {
 fn test_mcp_plugin_run_config() {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().to_str().unwrap().to_string();
+    let _guard = PluginTestGuard { home: cowen_home.clone() };
     let plugins_dir = dir.path().join("plugins");
     fs::create_dir_all(&plugins_dir).unwrap();
 
@@ -192,6 +219,7 @@ fn test_mcp_plugin_run_config() {
 fn test_mcp_plugin_run_non_mcp_error() {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().to_str().unwrap().to_string();
+    let _guard = PluginTestGuard { home: cowen_home.clone() };
     let plugins_dir = dir.path().join("plugins");
     fs::create_dir_all(&plugins_dir).unwrap();
 
@@ -243,6 +271,7 @@ fn test_mcp_client_simulation() {
 
     let mut stdin = child.stdin.take().expect("Failed to open stdin");
     let stdout = child.stdout.take().expect("Failed to open stdout");
+    let _guard = ChildGuard(child);
     
     let init_req = json!({
         "jsonrpc": "2.0",
@@ -344,9 +373,6 @@ fn test_mcp_client_simulation() {
     // Since there's no daemon running in this test, it should return a gRPC error string gracefully
     assert!(text.contains("gRPC Error") || text.contains("transport error") || text.contains("Connection refused"), "Expected gRPC connection failure: {}", text);
     
-    // Kill the process
-    child.kill().unwrap();
-    child.wait().unwrap();
 }
 
 #[test]
@@ -370,6 +396,7 @@ fn test_mcp_api_list_schema_validation() {
 
     let mut stdin = child.stdin.take().expect("Failed to open stdin");
     let stdout = child.stdout.take().expect("Failed to open stdout");
+    let _guard = ChildGuard(child);
 
     // Initialize
     let init_req = serde_json::json!({
@@ -419,6 +446,4 @@ fn test_mcp_api_list_schema_validation() {
         assert!(result.get("structuredContent").is_some(), "MCP error -32600: Tool cowen_api_list has an output schema but did not return structuredContent! Response was: {}", resp);
     }
 
-    child.kill().unwrap();
-    child.wait().unwrap();
 }

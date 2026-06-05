@@ -9,19 +9,27 @@ pub struct DaemonKiller {
 impl Drop for DaemonKiller {
     fn drop(&mut self) {
         let pid_file = std::path::PathBuf::from(&self.home).join("master_daemon.pid");
+        eprintln!("DEBUG_TEST: DaemonKiller dropping. home={}, pid_file={:?}, exists={}", self.home, pid_file, pid_file.exists());
         if let Ok(content) = std::fs::read_to_string(&pid_file) {
             if let Some(pid_str) = content.lines().next() {
-                if let Ok(pid) = pid_str.parse::<i32>() {
-                    let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).output();
+                if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                    eprintln!("DEBUG_TEST: DaemonKiller killing master daemon pid {}", pid);
+                    let kill_status = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+                    eprintln!("DEBUG_TEST: kill -9 status: {:?}", kill_status);
                 }
             }
+        } else {
+            eprintln!("DEBUG_TEST: DaemonKiller failed to read pid file");
         }
+        
         // Also stop workers gracefully if possible
         let bin_path = assert_cmd::cargo::cargo_bin("cowen");
         let _ = std::process::Command::new(bin_path)
             .env("COWEN_HOME", &self.home)
             .arg("daemon").arg("stop")
             .output();
+            
+        let _ = std::fs::remove_file(pid_file);
     }
 }
 

@@ -1,6 +1,41 @@
 use assert_cmd::Command;
 
-fn start_daemon_for_test(home: &str, profile: &str) -> std::process::Child {
+struct TestDaemonGuard {
+    home: String,
+    child: std::process::Child,
+}
+
+impl Drop for TestDaemonGuard {
+    fn drop(&mut self) {
+        let child_pid = self.child.id();
+        let pid_file = std::path::Path::new(&self.home).join("master_daemon.pid");
+        eprintln!("DEBUG_TEST: TestDaemonGuard dropping. home={}, child_pid={}, pid_file={:?}, exists={}", self.home, child_pid, pid_file, pid_file.exists());
+
+        // 1. Send SIGTERM to the CLI child process so it can shut down its child daemon gracefully
+        #[cfg(unix)]
+        {
+            let _ = std::process::Command::new("kill").arg("-15").arg(child_pid.to_string()).status();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // 2. Force kill the CLI process just in case
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+
+        // 3. Fallback: Force kill the daemon process directly if it still exists
+        if let Ok(content) = std::fs::read_to_string(&pid_file) {
+            if let Some(pid_str) = content.lines().next() {
+                if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                    eprintln!("DEBUG_TEST: TestDaemonGuard force-killing master daemon pid {}", pid);
+                    let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+                }
+            }
+        }
+        let _ = std::fs::remove_file(pid_file);
+    }
+}
+
+fn start_daemon_for_test(home: &str, profile: &str) -> TestDaemonGuard {
     let app_config_path = std::path::Path::new(home).join("app.yaml");
     let app_config = serde_json::json!({
         "openapi_url": "http://localhost:12345",
@@ -39,7 +74,10 @@ fn start_daemon_for_test(home: &str, profile: &str) -> std::process::Child {
         .unwrap();
     
     std::thread::sleep(std::time::Duration::from_millis(1500));
-    child
+    TestDaemonGuard {
+        home: home.to_string(),
+        child,
+    }
 }
 
 
@@ -81,7 +119,6 @@ fn test_cli_config_set_global() {
     cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
     cmd.args(&["config", "set", "log.level", "debug", "--global"]);
     cmd.assert().success();
-    let _ = daemon.kill();
 }
 
 #[test]
@@ -114,7 +151,6 @@ fn test_config_list_json_format() {
     println!("STDOUT: {}", stdout);
     
     assert!(stdout.contains("\"openapi_url\":"));
-    let _ = daemon.kill();
 }
 
 #[test]
@@ -144,7 +180,6 @@ fn test_reset_specific_profile_only() {
     assert!(profile_keep_config.exists(), "profile_keep.yaml should NOT have been deleted");
     assert!(profile_keep_db.exists(), "profile_keep.db should NOT have been deleted");
     assert!(app_config_path.exists(), "app.yaml should NOT have been deleted");
-    let _ = daemon.kill();
 }
 
 #[test]
@@ -174,7 +209,6 @@ fn test_reset_all_profiles() {
     assert!(!profile_keep_config.exists(), "profile_keep.yaml should have been deleted");
     assert!(!profile_keep_db.exists(), "profile_keep.db should have been deleted");
     assert!(!app_config_path.exists(), "app.yaml should have been deleted");
-    let _ = daemon.kill();
 }
 
 #[test]
@@ -207,7 +241,6 @@ fn test_reset_active_profile_by_default() {
     assert!(profile_keep_config.exists(), "profile_keep.yaml should NOT have been deleted");
     assert!(profile_keep_db.exists(), "profile_keep.db should NOT have been deleted");
     assert!(app_config_path.exists(), "app.yaml should NOT have been deleted");
-    let _ = daemon.kill();
 }
 
 

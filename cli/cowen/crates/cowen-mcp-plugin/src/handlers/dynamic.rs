@@ -64,22 +64,22 @@ pub async fn handle_dynamic_tool_call(
     name: &str,
     args: &serde_json::Map<String, serde_json::Value>,
     app_state: &AppState,
-) -> (String, bool, Option<serde_json::Value>) {
+) -> (String, bool, Option<serde_json::Value>, Option<String>) {
     let state = app_state.mcp_state.lock().await;
     let tool_def = match state.tools.get(name).cloned() {
         Some(td) => td,
-        None => return (format!("Tool {} not found", name), true, None),
+        None => return (format!("Tool {} not found", name), true, None, None),
     };
     drop(state);
 
     let (final_path, body_str) = match prepare_request_params(&tool_def, args) {
         Ok(params) => params,
-        Err(e) => return (e, true, None),
+        Err(e) => return (e, true, None, None),
     };
 
     let mut client = match get_grpc_client().await {
         Ok(c) => c,
-        Err(e) => return (format!("gRPC Error: {}", e), true, None),
+        Err(e) => return (format!("gRPC Error: {}", e), true, None, None),
     };
 
     let grpc_req = proto::CallApiRequest {
@@ -94,48 +94,89 @@ pub async fn handle_dynamic_tool_call(
         Ok(resp) => {
             let inner = resp.into_inner();
             if let Some(err) = inner.error_message {
-                (format!("Error: {}", err), true, None)
+                (format!("Error: {}", err), true, None, None)
             } else {
-                let mut result_text = format!("Status: {}\n{}", inner.status, inner.body);
-                let mut is_err = false;
-                let mut structured_content = None;
-                if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&inner.body) {
-                    if let Some(out_schema) = &tool_def.output_schema {
-                        let is_object_schema = out_schema
-                            .get("type")
-                            .and_then(|t| t.as_str())
-                            .map(|t| t == "object")
-                            .unwrap_or(true);
-
-                        match validate_json_against_schema(&json_val, out_schema) {
-                            Ok(_) => {
-                                if is_object_schema {
-                                    if json_val.is_object() {
-                                        structured_content = Some(json_val);
-                                    } else {
-                                        eprintln!("DEBUG: MCP Tool output schema validation succeeded but payload is not a JSON Object (record), skipping structuredContent. Payload type: {}", get_type_name(&json_val));
-                                    }
-                                } else {
-                                    structured_content = Some(serde_json::json!({
-                                        "value": json_val
-                                    }));
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("DEBUG: MCP Tool output schema validation failed: {}", e);
-                                result_text = format!("Schema Validation Error: {}\nResponse Body: {}", e, inner.body);
-                                is_err = true;
-                            }
-                        }
-                    } else {
-                        if json_val.is_object() {
-                            structured_content = Some(json_val);
-                        }
-                    }
-                }
-                (result_text, is_err, structured_content)
+                let (result_text, is_err, structured_content, schema_error) =
+                    process_api_response(inner.status, &inner.body, &tool_def.output_schema);
+                (result_text, is_err, structured_content, schema_error)
             }
         }
-        Err(e) => (format!("gRPC Error: {}", e), true, None),
+        Err(e) => (format!("gRPC Error: {}", e), true, None, None),
     }
 }
+
+pub fn process_api_response(
+    status: u32,
+    body: &str,
+    output_schema: &Option<serde_json::Value>,
+) -> (String, bool, Option<serde_json::Value>, Option<String>) {
+    let result_text = format!("Status: {}\n{}", status, body);
+    let is_err = false;
+    let mut structured_content = None;
+    let mut schema_error = None;
+
+    if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(out_schema) = output_schema {
+            let is_object_schema = out_schema
+                .get("type")
+                .and_then(|t| t.as_str())
+                .map(|t| t == "object")
+                .unwrap_or(true);
+
+            match validate_json_against_schema(&json_val, out_schema) {
+                Ok(_) => {
+                    if is_object_schema {
+                        if json_val.is_object() {
+                            structured_content = Some(json_val);
+                        } else {
+                            eprintln!("DEBUG: MCP Tool output schema validation succeeded but payload is not a JSON Object (record), skipping structuredContent. Payload type: {}", get_type_name(&json_val));
+                        }
+                    } else {
+                        structured_content = Some(serde_json::json!({
+                            "value": json_val
+                        }));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("DEBUG: MCP Tool output schema validation failed: {}", e);
+                    schema_error = Some(format!("Schema Validation Error: {}", e));
+                }
+            }
+        } else {
+            if json_val.is_object() {
+                structured_content = Some(json_val);
+            }
+        }
+    }
+
+    (result_text, is_err, structured_content, schema_error)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_process_api_response_schema_validation_failure() {
+        let status = 200;
+        let output_schema = Some(json!({
+            "type": "array",
+            "items": { "type": "string" }
+        }));
+        let body = r#"{"data": "not an array"}"#;
+
+        let (result_text, is_err, structured, schema_err) = process_api_response(status, body, &output_schema);
+
+        assert_eq!(result_text, "Status: 200\n{\"data\": \"not an array\"}");
+        assert_eq!(is_err, false);
+        assert!(structured.is_none());
+        assert!(schema_err.is_some());
+        assert_eq!(
+            schema_err.unwrap(),
+            "Schema Validation Error: Expected array, found object"
+        );
+    }
+}
+
