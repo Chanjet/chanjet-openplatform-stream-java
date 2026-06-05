@@ -96,7 +96,8 @@ pub async fn handle_dynamic_tool_call(
             if let Some(err) = inner.error_message {
                 (format!("Error: {}", err), true, None)
             } else {
-                let result_text = format!("Status: {}\n{}", inner.status, inner.body);
+                let mut result_text = format!("Status: {}\n{}", inner.status, inner.body);
+                let mut is_err = false;
                 let mut structured_content = None;
                 if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&inner.body) {
                     let mut matched = true;
@@ -104,6 +105,8 @@ pub async fn handle_dynamic_tool_call(
                         if let Err(e) = validate_json_against_schema(&json_val, out_schema) {
                             matched = false;
                             eprintln!("DEBUG: MCP Tool output schema validation failed: {}", e);
+                            result_text = format!("Schema Validation Error: {}\nResponse Body: {}", e, inner.body);
+                            is_err = true;
                         }
                     } else if !json_val.is_object() {
                         matched = false;
@@ -116,7 +119,7 @@ pub async fn handle_dynamic_tool_call(
                         }
                     }
                 }
-                (result_text, false, structured_content)
+                (result_text, is_err, structured_content)
             }
         }
         Err(e) => (format!("gRPC Error: {}", e), true, None),
