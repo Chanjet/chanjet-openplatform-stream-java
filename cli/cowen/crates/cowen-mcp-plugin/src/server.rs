@@ -79,6 +79,6 @@ mod tests {
         assert_eq!(response.id.unwrap().as_i64().unwrap(), 1);
         let result = response.result.unwrap();
         
-        assert!(result.get("structuredContent").is_none());
+        assert_eq!(result.get("structuredContent").unwrap(), &json!({}));
     }
 }

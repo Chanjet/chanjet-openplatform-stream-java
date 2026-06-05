@@ -116,7 +116,7 @@ pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (Js
 
     let mut list_changed = false;
 
-    let (result_text, is_error, structured_content) = match name {
+    let (result_text, is_error, mut structured_content) = match name {
         "cowen_api_list" => handle_api_list(&args, app_state).await,
         "cowen_enable_api" => {
             let res = handle_enable_api(&args, app_state).await;
@@ -134,6 +134,28 @@ pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (Js
         }
         _ => handle_dynamic_tool_call(name, &args, app_state).await,
     };
+
+    let has_output_schema = match name {
+        "cowen_api_list" | "cowen_enable_api" | "cowen_disable_api" => true,
+        _ => {
+            let state = app_state.mcp_state.lock().await;
+            state.tools.get(name)
+                .and_then(|t| t.output_schema.as_ref())
+                .map(|out_schema| {
+                    let is_object_schema = out_schema
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .map(|t| t == "object")
+                        .unwrap_or(true);
+                    is_object_schema
+                })
+                .unwrap_or(false)
+        }
+    };
+
+    if has_output_schema && structured_content.is_none() {
+        structured_content = Some(json!({}));
+    }
 
     let mut result_obj = json!({
         "content": [
