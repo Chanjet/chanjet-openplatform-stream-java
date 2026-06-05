@@ -8,6 +8,7 @@ mod cli;
 mod protocol;
 mod client;
 mod schema;
+mod handlers;
 mod server;
 
 #[tokio::main]
