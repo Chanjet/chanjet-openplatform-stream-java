@@ -1,0 +1,26 @@
+[package]
+name = "cowen-sys"
+version = "0.4.0"
+edition = "2021"
+
+[dependencies]
+cowen-infra = { path = "../../core/cowen-infra" }
+cowen-plugin = { path = "../../core/cowen-plugin" }
+async-trait = "0.1"
+tokio = { version = "1.50", features = ["full"] }
+anyhow = "1.0"
+sysinfo = "0.38"
+sha2 = "0.10"
+hostname = "0.4"
+libc = "0.2"
+tracing = "0.1"
+directories = "6.0"
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+winreg = "0.52"
+
+[dev-dependencies]
+tempfile = "3.27.0"

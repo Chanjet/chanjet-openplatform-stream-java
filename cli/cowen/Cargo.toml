@@ -1,7 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/*"
+    "crates/core/*",
+    "crates/services/*",
+    "crates/plugins/*",
+    "crates/app/*",
+    "crates/tools/*"
 ]
 
 [profile.release]

@@ -1,0 +1,42 @@
+[package]
+name = "cowen-daemon"
+version = "0.4.0"
+edition = "2021"
+
+[dependencies]
+cowen-common = { path = "../../core/cowen-common" }
+cowen-server = { path = "../../app/cowen-server" }
+cowen-config = { path = "../../services/cowen-config" }
+cowen-monitor = { path = "../../services/cowen-monitor" }
+cowen-auth = { path = "../../services/cowen-auth" }
+cowen-store = { path = "../../services/cowen-store", features = ["all-stores"] }
+cowen-infra = { path = "../../core/cowen-infra" }
+cowen-sys = { path = "../../core/cowen-sys" }
+cowen-search = { path = "../../services/cowen-search" }
+cowen-doctor = { path = "../../services/cowen-doctor" }
+
+tokio = { version = "1.50", features = ["full"] }
+tokio-stream = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4.6", features = ["derive"] }
+futures = "0.3"
+directories = "6.0"
+rustls = { version = "0.23", features = ["ring"] }
+chrono = "0.4.44"
+uuid = { version = "1.23.1", features = ["v4"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "form", "query"] }
+
+# gRPC access layer dependencies
+tonic = "0.12"
+prost = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"

@@ -4,9 +4,9 @@ OUTPUT_DIR=../../bin
 
 # 从 Cargo.toml 自动提取版本号
 ifeq ($(OS),Windows_NT)
-    VERSION := $(shell powershell -NoProfile -Command "(Get-Content crates/cowen-cli/Cargo.toml | Select-String '^version =').ToString().Split('\"')[1].Trim()")
+    VERSION := $(shell powershell -NoProfile -Command "(Get-Content crates/app/cowen-cli/Cargo.toml | Select-String '^version =').ToString().Split('\"')[1].Trim()")
 else
-    VERSION := $(shell grep '^version =' crates/cowen-cli/Cargo.toml | cut -d '"' -f 2)
+    VERSION := $(shell grep '^version =' crates/app/cowen-cli/Cargo.toml | cut -d '"' -f 2)
 endif
 
 # 缓存目录与镜像定义
@@ -64,7 +64,7 @@ else
     SHA1 = (shasum -a 1 $(1) 2>/dev/null || sha1sum $(1)) | cut -d ' ' -f 1 > $(1).sha1
 endif
 
-VERIFY_BIN = ./crates/cowen-cli/tests/e2e/scripts/verify-binary.sh $(1)
+VERIFY_BIN = ./crates/app/cowen-cli/tests/e2e/scripts/verify-binary.sh $(1)
 
 # 生产/测试环境配置
 PROD_OPENAPI = https://openapi.chanjet.com
@@ -387,7 +387,7 @@ package-windows-x86_64: clean windows-x86_64
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@echo "🔍 Automating Windows package verification..."
-	powershell -NoProfile -ExecutionPolicy Bypass -File "crates/cowen-cli/tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
+	powershell -NoProfile -ExecutionPolicy Bypass -File "crates/app/cowen-cli/tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
 
 package-windows-x86_64-cross: windows-x86_64-cross
 	@echo "📦 Cross-packaging Windows x86_64 on macOS/Linux..."
@@ -518,19 +518,19 @@ test-linux: prepare-podman-machine prepare-podman-image
 		-e MAX_PARALLEL=$(MAX_PARALLEL) \
 		-e QEMU_LD_PREFIX=/usr/x86_64-linux-gnu/ \
 		$(BUILDER_IMAGE) \
-		bash -c "COWEN_SKIP_BROWSER=true RUSTFLAGS=\"-D warnings\" cargo test --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true crates/cowen-cli/tests/runners/run_parallel.sh"
+		bash -c "COWEN_SKIP_BROWSER=true RUSTFLAGS=\"-D warnings\" cargo test --release -j $(MAX_PARALLEL) --target x86_64-unknown-linux-gnu && COWEN_SKIP_BROWSER=true crates/app/cowen-cli/tests/runners/run_parallel.sh"
 
 # 在 Windows PowerShell 环境下执行测试
 
 # 在 Windows PowerShell 环境下执行测试
 test-win: test-rust
 	@echo "🧪 Running Full E2E Suite in Windows PowerShell..."
-	powershell -NoProfile -ExecutionPolicy Bypass -Command "$$env:COWEN_SKIP_BROWSER='true'; crates/cowen-cli/tests/runners/run_suites.ps1"
+	powershell -NoProfile -ExecutionPolicy Bypass -Command "$$env:COWEN_SKIP_BROWSER='true'; crates/app/cowen-cli/tests/runners/run_suites.ps1"
 
 # 在 macOS 原生环境执行并行测试
 test-macos: test-rust local-db-up
 	@echo "🧪 Running Parallel E2E Suite natively on macOS (Isolated)..."
-	COWEN_SKIP_BROWSER=true TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 crates/cowen-cli/tests/runners/run_parallel.sh
+	COWEN_SKIP_BROWSER=true TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 crates/app/cowen-cli/tests/runners/run_parallel.sh
 
 # --- 数据库管理 (Database Management) ---
 
@@ -605,8 +605,8 @@ db-up: prepare-podman-machine
 		podman run -d --name cowen-redis -p 6379:6379 --health-cmd="redis-cli ping" --health-interval=5s redis:7.0-alpine; \
 	else \
 		echo "🚀 Using $(COMPOSE_BIN)..."; \
-		cd crates/cowen-cli/tests/infra && $(COMPOSE_BIN) down -v 2>/dev/null || true; \
-		cd crates/cowen-cli/tests/infra && $(COMPOSE_BIN) up -d || (echo "❌ Failed to start containers." && exit 1); \
+		cd crates/app/cowen-cli/tests/infra && $(COMPOSE_BIN) down -v 2>/dev/null || true; \
+		cd crates/app/cowen-cli/tests/infra && $(COMPOSE_BIN) up -d || (echo "❌ Failed to start containers." && exit 1); \
 	fi; \
 	echo "⌛ Waiting for databases to be ready..."; \
 	MAX_WAIT=30; count=0; \
@@ -622,7 +622,7 @@ db-down:
 		podman stop cowen-mysql cowen-postgres cowen-redis 2>/dev/null || true; \
 		podman rm cowen-mysql cowen-postgres cowen-redis 2>/dev/null || true; \
 	else \
-		cd crates/cowen-cli/tests/infra && $(COMPOSE_BIN) down -v; \
+		cd crates/app/cowen-cli/tests/infra && $(COMPOSE_BIN) down -v; \
 	fi; \
 	$(MAKE) stop-podman-machine
 
