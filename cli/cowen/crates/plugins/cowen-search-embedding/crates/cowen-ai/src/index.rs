@@ -1,4 +1,4 @@
-use cowen_common::CowenResult;
+
 use serde::{Serialize, Deserialize};
 use std::fs;
 use std::path::PathBuf;
@@ -66,8 +66,8 @@ impl SearchIndex {
 
     /// Ensure embedding model assets are available locally.
     /// This extracts embedded models into the local application directory.
-    pub fn ensure_assets(target_dir: &std::path::Path) -> CowenResult<()> {
-        let models_dir = target_dir.join("search").join("models");
+    pub fn ensure_assets(base_dir: &std::path::Path) -> anyhow::Result<()> {
+        let models_dir = base_dir.join("search").join("models");
         if !models_dir.exists() {
             fs::create_dir_all(&models_dir)?;
         }
@@ -83,7 +83,7 @@ impl SearchIndex {
         Ok(())
     }
 
-    fn ensure_asset(path: &PathBuf, content: &[u8]) -> CowenResult<()> {
+    fn ensure_asset(path: &std::path::Path, content: &[u8]) -> anyhow::Result<()> {
         if !path.exists() || fs::metadata(path)?.len() != content.len() as u64 {
             fs::write(path, content)?;
         }

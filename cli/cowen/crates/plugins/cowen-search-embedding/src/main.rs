@@ -4,8 +4,47 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use cowen_ai::{ONNXEmbedder, SearchIndex, SearchDocument as AiDocument};
-use cowen_search::SearchDocument;
-use cowen_plugin::{JsonRpcRequest, JsonRpcResponse, JsonRpcError};
+use serde::Serialize;
+use std::path::PathBuf;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchDocument {
+    pub id: String,
+    pub summary: String,
+    pub description: String,
+    pub vector: Vec<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JsonRpcRequest {
+    pub jsonrpc: String,
+    pub id: Option<serde_json::Value>,
+    pub method: String,
+    pub params: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JsonRpcError {
+    pub code: i32,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JsonRpcResponse {
+    pub jsonrpc: String,
+    pub id: Option<serde_json::Value>,
+    pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JsonRpcError>,
+}
+
+fn get_app_dir() -> PathBuf {
+    if let Ok(p) = std::env::var("COWEN_HOME") {
+        PathBuf::from(p)
+    } else {
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".cowen")
+    }
+}
 
 
 #[derive(Deserialize)]
@@ -31,7 +70,7 @@ static ENGINE: Mutex<Option<SidecarEngine>> = Mutex::new(None);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_dir = cowen_common::config::get_app_dir();
+    let app_dir = get_app_dir();
     let default_model = app_dir.join("search").join("models").join("model_quantized.onnx");
     let default_tokenizer = app_dir.join("search").join("models").join("tokenizer.json");
 
@@ -122,7 +161,7 @@ fn process_line(line: &str) -> JsonRpcResponse {
                 Err(e) => return invalid_params_error(req.id, e),
             };
 
-            let cache_dir = cowen_common::config::get_app_dir().join("search").join("cache");
+            let cache_dir = get_app_dir().join("search").join("cache");
             let cache_file = cache_dir.join(format!("{}.json", &params.tenant_id));
 
             // Load existing disk cache to reuse unmodified vector embeddings
@@ -194,7 +233,7 @@ fn process_line(line: &str) -> JsonRpcResponse {
             let has_index = if engine.indexes.contains_key(&params.tenant_id) {
                 true
             } else {
-                let cache_dir = cowen_common::config::get_app_dir().join("search").join("cache");
+                let cache_dir = get_app_dir().join("search").join("cache");
                 let cache_file = cache_dir.join(format!("{}.json", &params.tenant_id));
                 if cache_file.exists() {
                     if let Ok(content) = std::fs::read_to_string(&cache_file) {
@@ -284,7 +323,7 @@ mod tests {
         unsafe {
             std::env::set_var("COWEN_HOME", temp_dir.to_str().unwrap());
         }
-        let app_dir = cowen_common::config::get_app_dir();
+        let app_dir = get_app_dir();
         
         // Extract embedded ONNX models to sandbox
         let _ = cowen_ai::SearchIndex::ensure_assets(&app_dir);
