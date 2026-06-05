@@ -4,6 +4,7 @@ members = [
     "crates/core/*",
     "crates/services/*",
     "crates/plugins/*",
+    "crates/plugins/cowen-search-embedding/crates/*",
     "crates/app/*",
     "crates/tools/*"
 ]

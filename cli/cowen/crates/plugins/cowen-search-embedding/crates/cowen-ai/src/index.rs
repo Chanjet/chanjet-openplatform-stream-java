@@ -76,9 +76,9 @@ impl SearchIndex {
         let data_path = models_dir.join("model_quantized.onnx_data");
         let tokenizer_path = models_dir.join("tokenizer.json");
 
-        Self::ensure_asset(&model_path, include_bytes!("../../../../../../assets/search/models/model_quantized.onnx"))?;
-        Self::ensure_asset(&data_path, include_bytes!("../../../../../../assets/search/models/model_quantized.onnx_data"))?;
-        Self::ensure_asset(&tokenizer_path, include_bytes!("../../../../../../assets/search/models/tokenizer.json"))?;
+        Self::ensure_asset(&model_path, include_bytes!("../../../../../../../../assets/search/models/model_quantized.onnx"))?;
+        Self::ensure_asset(&data_path, include_bytes!("../../../../../../../../assets/search/models/model_quantized.onnx_data"))?;
+        Self::ensure_asset(&tokenizer_path, include_bytes!("../../../../../../../../assets/search/models/tokenizer.json"))?;
 
         Ok(())
     }
