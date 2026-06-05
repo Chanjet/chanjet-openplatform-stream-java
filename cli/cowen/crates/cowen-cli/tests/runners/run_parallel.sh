@@ -97,11 +97,16 @@ fi
 
 # 🔌 🔌 ENSURE SEARCH PLUGINS ARE SIGNED FOR TESTS
 PLUGIN_NAME="libcowen_search_embedding"
+MCP_PLUGIN_NAME="cowen-mcp-plugin"
 LOCAL_OS_TYPE=${OS_TYPE:-$(uname -s)}
-if [[ "$LOCAL_OS_TYPE" == *"MINGW"* || "$LOCAL_OS_TYPE" == *"MSYS"* || "$LOCAL_OS_TYPE" == *"CYGWIN"* ]]; then PLUGIN_NAME="libcowen_search_embedding.exe"; fi
+if [[ "$LOCAL_OS_TYPE" == *"MINGW"* || "$LOCAL_OS_TYPE" == *"MSYS"* || "$LOCAL_OS_TYPE" == *"CYGWIN"* ]]; then 
+    PLUGIN_NAME="libcowen_search_embedding.exe"
+    MCP_PLUGIN_NAME="cowen-mcp-plugin.exe"
+fi
 
 BUILD_DIR="$(dirname "$BINARY_PATH")"
 PLUGIN_SRC="$BUILD_DIR/$PLUGIN_NAME"
+MCP_PLUGIN_SRC="$BUILD_DIR/$MCP_PLUGIN_NAME"
 
 # If the plugin was built and we have dev keys, sign it so E2E tests pass PKI validation
 if [ -f "$PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
@@ -114,6 +119,20 @@ if [ -f "$PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
         --out-bundle "$BUILD_DIR/libcowen_search_embedding.bundle" \
         --capabilities SearchProvider \
         --required-privileges LocalCacheAccess,ModelAssetFetch,ComputeHeavy
+    echo "✅ Plugin signed and bundle generated: \"$BUILD_DIR/libcowen_search_embedding.bundle\""
+fi
+
+if [ -f "$MCP_PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
+    cargo run --quiet $BUILD_ARGS -p cowen-signer -- sign-plugin \
+        --dylib "$MCP_PLUGIN_SRC" \
+        --name cowen-mcp-plugin \
+        --version "0.4.0" \
+        --dev-key dist_assets/keys/official_dev.pk8 \
+        --dev-cert dist_assets/keys/official_dev_cert.json \
+        --out-bundle "$BUILD_DIR/cowen-mcp-plugin.bundle" \
+        --capabilities core.rpc.stdio \
+        --required-privileges LocalCacheAccess
+    echo "✅ Plugin signed and bundle generated: \"$BUILD_DIR/cowen-mcp-plugin.bundle\""
 fi
 
 cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"
