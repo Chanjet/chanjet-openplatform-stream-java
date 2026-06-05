@@ -87,7 +87,29 @@ fn setup_test_env(ai_enabled: bool) -> (tempfile::TempDir, String, crate::e2e::r
                         { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
                     ],
                     "responses": {
-                        "200": { "description": "OK" }
+                        "200": {
+                            "description": "OK",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": { "type": "string", "description": "User ID" },
+                                            "name": { "type": "string", "description": "User Name" }
+                                        }
+                                    },
+                                    "examples": {
+                                        "success": {
+                                            "summary": "success example",
+                                            "value": {
+                                                "id": "123",
+                                                "name": "Alice"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -192,6 +214,13 @@ fn test_api_spec_details() {
         .success()
         .stdout(predicates::str::contains("📌 Summary:     Get user"))
         .stdout(predicates::str::contains("id").and(predicates::str::contains("(path    )")))
+        .stdout(predicates::str::contains("📤 Responses:"))
+        .stdout(predicates::str::contains("200 (OK):"))
+        .stdout(predicates::str::contains("id: <string> - User ID"))
+        .stdout(predicates::str::contains("name: <string> - User Name"))
+        .stdout(predicates::str::contains("Example Response:"))
+        .stdout(predicates::str::contains("\"id\": \"123\""))
+        .stdout(predicates::str::contains("\"name\": \"Alice\""))
         .stdout(predicates::str::contains("💡 Usage Example:"))
         .stdout(predicates::str::contains("cowen api GET \"/v1/users/<id>\""));
     

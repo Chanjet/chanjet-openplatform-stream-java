@@ -63,11 +63,40 @@ pub async fn list(profile: &str, search: &Option<String>, page: usize, page_size
     Ok(())
 }
 
+fn print_schema_properties(props: &serde_json::Map<String, serde_json::Value>, indent: &str) {
+    for (k, v) in props {
+        let p_type = v.get("type")
+            .and_then(|t| t.as_str())
+            .or_else(|| v.get("types").and_then(|ts| ts.as_array()).and_then(|a| a.first()).and_then(|f| f.as_str()))
+            .unwrap_or("string");
+        let p_desc = v["description"].as_str().unwrap_or("");
+        
+        let desc_str = if p_desc.is_empty() {
+            "".to_string()
+        } else {
+            format!(" - {}", p_desc)
+        };
+        
+        println!("{}- {}: <{}>{}", indent, k, p_type, desc_str);
+        
+        // If it's an object with nested properties, recurse
+        if p_type == "object" {
+            let mut nested_props = v.get("properties").and_then(|p| p.as_object());
+            if nested_props.is_none() {
+                nested_props = v.get("jsonSchema").and_then(|js| js.get("properties")).and_then(|p| p.as_object());
+            }
+            if let Some(np) = nested_props {
+                print_schema_properties(np, &format!("{}  ", indent));
+            }
+        }
+    }
+}
+
 pub async fn spec(profile: &str, method: &String, path: &String, raw: bool) -> Result<()> {
     let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     match ipc.api_spec(profile, method, path).await {
         Ok(DaemonResponse::ApiSpecData { json }) => {
-            eprintln!("DEBUG JSON: {}", json);
+            tracing::debug!(target: "sys", "DEBUG JSON: {}", json);
             if raw {
                 println!("{}", json);
             } else {
@@ -104,6 +133,57 @@ pub async fn spec(profile: &str, method: &String, path: &String, raw: bool) -> R
                                 if let Some(props) = schema["properties"].as_object() {
                                     for (k, _v) in props {
                                         println!("    - {}: <string>", k);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(responses) = op["responses"].as_object() {
+                    println!("\n📤 Responses:");
+                    for (status_code, resp_val) in responses {
+                        let desc = resp_val["description"].as_str().unwrap_or("");
+                        println!("  {} ({}):", status_code, desc);
+                        if let Some(content) = resp_val["content"].as_object() {
+                            if let Some(app_json) = content["application/json"].as_object() {
+                                if let Some(schema) = app_json["schema"].as_object() {
+                                    println!("    Schema:");
+                                    let is_array = app_json.get("type").and_then(|t| t.as_str()) == Some("array")
+                                        || schema.get("type").and_then(|t| t.as_str()) == Some("array");
+                                    
+                                    if is_array {
+                                        println!("      Type: array of object");
+                                    }
+                                    
+                                    let mut properties_opt = schema.get("properties").and_then(|p| p.as_object());
+                                    if properties_opt.is_none() {
+                                        properties_opt = schema.get("items")
+                                            .and_then(|i| i.get("properties"))
+                                            .and_then(|p| p.as_object());
+                                    }
+                                    if properties_opt.is_none() {
+                                        properties_opt = schema.get("items")
+                                            .and_then(|i| i.get("jsonSchema"))
+                                            .and_then(|js| js.get("properties"))
+                                            .and_then(|p| p.as_object());
+                                    }
+
+                                    if let Some(props) = properties_opt {
+                                        let base_indent = if is_array { "        " } else { "      " };
+                                        print_schema_properties(props, base_indent);
+                                    }
+                                }
+
+                                if let Some(examples) = app_json.get("examples").and_then(|e| e.as_object()) {
+                                    if let Some(success) = examples.get("success") {
+                                        if let Some(val) = success.get("value") {
+                                            println!("    Example Response:");
+                                            let pretty_val = serde_json::to_string_pretty(val).unwrap_or_default();
+                                            for line in pretty_val.lines() {
+                                                println!("      {}", line);
+                                            }
+                                        }
                                     }
                                 }
                             }
