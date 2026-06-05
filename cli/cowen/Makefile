@@ -166,6 +166,8 @@ linux-x86_64: build-plugins
 	cp target/x86_64-unknown-linux-gnu/release/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-x86_64/ || true
 	if [ -f "$(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-x86_64/ || exit 1; fi
+	cp target/release/cowen-mcp-plugin $(OUTPUT_DIR)/linux-x86_64/ || true
+	if [ -f "$(OUTPUT_DIR)/linux-x86_64/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/linux-x86_64/ || exit 1; fi
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -241,7 +243,9 @@ linux-x86_64-with-podman: prepare-podman-image
 			cp target_podman/x86_64-unknown-linux-gnu/release/$(BINARY) ../../bin/linux-x86_64/$(BINARY) && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-daemon ../../bin/linux-x86_64/cowen-daemon && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding ../../bin/linux-x86_64/ && \
-			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle ../../bin/linux-x86_64/" && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle ../../bin/linux-x86_64/ && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-mcp-plugin ../../bin/linux-x86_64/ && \
+			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-mcp-plugin.bundle ../../bin/linux-x86_64/" && \
 	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
@@ -254,6 +258,8 @@ linux-aarch64: build-plugins
 	cp target/aarch64-unknown-linux-musl/release/cowen-daemon $(OUTPUT_DIR)/linux-aarch64/cowen-daemon
 	cp target/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-aarch64/ || true
 	if [ -f "$(OUTPUT_DIR)/linux-aarch64/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-aarch64/ || exit 1; fi
+	cp target/release/cowen-mcp-plugin $(OUTPUT_DIR)/linux-aarch64/ || true
+	if [ -f "$(OUTPUT_DIR)/linux-aarch64/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/linux-aarch64/ || exit 1; fi
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
@@ -265,6 +271,7 @@ windows-x86_64: build-plugins
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/$(BINARY).exe -Destination $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe -Force"
 	powershell -NoProfile -Command "Copy-Item -Path target/x86_64-pc-windows-msvc/release/cowen-daemon.exe -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-daemon.exe -Force"
 	powershell -NoProfile -Command "if (Test-Path target/release/cowen_search_embedding.dll) { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen_search_embedding.bundle --capabilities SearchProvider --required-privileges LocalCacheAccess,ModelAssetFetch,ComputeHeavy; Copy-Item -Path target/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force; Copy-Item -Path target/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.bundle -Force }"
+	powershell -NoProfile -Command "if (Test-Path target/release/cowen-mcp-plugin.exe) { Copy-Item -Path target/release/cowen-mcp-plugin.exe -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-mcp-plugin.exe -Force; Copy-Item -Path target/release/cowen-mcp-plugin.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-mcp-plugin.bundle -Force }"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 
@@ -324,21 +331,23 @@ impl-package-macos:
 	cp -r dist_assets/usage pkg_core_root/usr/local/share/doc/cowen/usage
 	cp target/release/libcowen_search_embedding pkg_plugin_root/usr/local/share/cowen/staging/ || true
 	if [ -f "pkg_plugin_root/usr/local/share/cowen/staging/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_plugin_root/usr/local/share/cowen/staging/ || exit 1; fi
+	cp target/release/cowen-mcp-plugin pkg_plugin_root/usr/local/share/cowen/staging/ || true
+	if [ -f "pkg_plugin_root/usr/local/share/cowen/staging/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle pkg_plugin_root/usr/local/share/cowen/staging/ || exit 1; fi
 	@chmod +x dist_assets/macos/scripts_core/postinstall
 	@chmod +x dist_assets/macos/scripts_plugin/postinstall
 	pkgbuild --identifier com.chanjet.$(BINARY).core.$(ARCH) --version $(VERSION) --root pkg_core_root --install-location / --scripts dist_assets/macos/scripts_core $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg
-	pkgbuild --identifier com.chanjet.$(BINARY).aiplugin.$(ARCH) --version $(VERSION) --root pkg_plugin_root --install-location / --scripts dist_assets/macos/scripts_plugin $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-ai-plugin.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).plugin.$(ARCH) --version $(VERSION) --root pkg_plugin_root --install-location / --scripts dist_assets/macos/scripts_plugin $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin.pkg
 	@echo "🧩 Synthesizing Distribution UI..."
 	cd $(OUTPUT_DIR)/macos-$(ARCH)/release && \
-	productbuild --synthesize --package cowen-core.pkg --package cowen-ai-plugin.pkg Distribution.xml && \
+	productbuild --synthesize --package cowen-core.pkg --package cowen-plugin.pkg Distribution.xml && \
 	sed -i '' 's/customize="never"/customize="always"/' Distribution.xml && \
-	perl -0777 -pi -e 's#<choices-outline>.*?</choices-outline>#<choices-outline>\\n        <line choice="com.chanjet.$(BINARY).core.$(ARCH)"/>\\n        <line choice="com.chanjet.$(BINARY).aiplugin.$(ARCH)"/>\\n    </choices-outline>#s' Distribution.xml && \
+	perl -0777 -pi -e 's#<choices-outline>.*?</choices-outline>#<choices-outline>\\n        <line choice="com.chanjet.$(BINARY).core.$(ARCH)"/>\\n        <line choice="com.chanjet.$(BINARY).plugin.$(ARCH)"/>\\n    </choices-outline>#s' Distribution.xml && \
 	perl -pi -e 's#<choice id="default"/>##g' Distribution.xml && \
 	sed -i '' 's/<choice id="com.chanjet.$(BINARY).core.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).core.$(ARCH)" title="Cowen Core CLI" description="The core Cowen CLI and daemon." visible="true" enabled="false" selected="true">/' Distribution.xml && \
-	sed -i '' 's/<choice id="com.chanjet.$(BINARY).aiplugin.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).aiplugin.$(ARCH)" title="AI Embedding Plugin" description="Installs the AI embedding capabilities (Optional)." visible="true" selected="true">/' Distribution.xml && \
+	sed -i '' 's/<choice id="com.chanjet.$(BINARY).plugin.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).plugin.$(ARCH)" title="Cowen Plugins" description="Installs the bundled plugins (AI Embedding, MCP Plugin)." visible="true" selected="true">/' Distribution.xml && \
 	productbuild --distribution Distribution.xml --package-path . $(BINARY)-v$(VERSION)-macos-$(ARCH).pkg
 	rm -rf pkg_core_root pkg_plugin_root
-	rm -f $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-ai-plugin.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/Distribution.xml
+	rm -f $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/Distribution.xml
 	cp dist_assets/macos/cowen-uninstall $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-uninstall
 	@$(call MD5,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)
 	@$(call SHA1,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)
@@ -356,6 +365,8 @@ package-linux-aarch64: clean linux-aarch64
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
 	cp target/release/libcowen_search_embedding pkg_root_aarch64/lib/ || true
 	if [ -f "pkg_root_aarch64/lib/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_root_aarch64/lib/ || exit 1; fi
+	cp target/release/cowen-mcp-plugin pkg_root_aarch64/lib/ || true
+	if [ -f "pkg_root_aarch64/lib/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle pkg_root_aarch64/lib/ || exit 1; fi
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-aarch64/
@@ -404,6 +415,15 @@ package-windows-x86_64-cross: windows-x86_64-cross
 	else \
 		echo "⚠️ WARNING: cowen_search_embedding.dll not found. The package will be compiled WITHOUT AI embedding features."; \
 	fi
+	@if [ -f "$(OUTPUT_DIR)/windows-x86_64-cross/cowen-mcp-plugin.exe" ]; then \
+		echo "✅ Found cowen-mcp-plugin.exe in output dir (copied from cross compilation), copying into package..."; \
+		cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen-mcp-plugin.exe $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
+		cp $(OUTPUT_DIR)/windows-x86_64-cross/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/ || true; \
+	elif [ -f "target/x86_64-pc-windows-msvc/release/cowen-mcp-plugin.exe" ]; then \
+		echo "✅ Found cowen-mcp-plugin.exe in target, copying into package..."; \
+		cp target/x86_64-pc-windows-msvc/release/cowen-mcp-plugin.exe $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/; \
+		cp target/x86_64-pc-windows-msvc/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/ || true; \
+	fi
 	@echo "🗜️ Zipping Windows package..."
 	cd $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86_64.zip .
 	rm -rf $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg
@@ -436,6 +456,15 @@ package-windows-x86-cross: windows-x86-cross
 	else \
 		echo "⚠️ WARNING: 32-bit cowen_search_embedding.dll not found. The package will be compiled WITHOUT AI embedding features."; \
 	fi
+	@if [ -f "$(OUTPUT_DIR)/windows-x86/cowen-mcp-plugin.exe" ]; then \
+		echo "✅ Found 32-bit cowen-mcp-plugin.exe in output dir, copying into package..."; \
+		cp $(OUTPUT_DIR)/windows-x86/cowen-mcp-plugin.exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
+		cp $(OUTPUT_DIR)/windows-x86/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
+	elif [ -f "target/i686-pc-windows-msvc/release/cowen-mcp-plugin.exe" ]; then \
+		echo "✅ Found 32-bit cowen-mcp-plugin.exe in target, copying into package..."; \
+		cp target/i686-pc-windows-msvc/release/cowen-mcp-plugin.exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
+		cp target/i686-pc-windows-msvc/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
+	fi
 	@echo "🗜️ Zipping Windows package..."
 	cd $(OUTPUT_DIR)/windows-x86/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86.zip .
 	rm -rf $(OUTPUT_DIR)/windows-x86/tmp_pkg
@@ -448,6 +477,8 @@ impl-package-linux-x86_64:
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
 	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding pkg_root/lib/ || true
 	if [ -f "pkg_root/lib/libcowen_search_embedding" ]; then cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.bundle pkg_root/lib/ || exit 1; fi
+	cp $(OUTPUT_DIR)/linux-x86_64/cowen-mcp-plugin pkg_root/lib/ || true
+	if [ -f "pkg_root/lib/cowen-mcp-plugin" ]; then cp $(OUTPUT_DIR)/linux-x86_64/cowen-mcp-plugin.bundle pkg_root/lib/ || exit 1; fi
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64/
