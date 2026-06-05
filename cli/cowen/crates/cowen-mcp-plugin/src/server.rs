@@ -125,4 +125,30 @@ mod tests {
         assert_eq!(value_schema.get("items").unwrap().get("type").unwrap().as_str().unwrap(), "string");
         assert_eq!(output_schema.get("required").unwrap(), &json!(["value"]));
     }
+
+    #[tokio::test]
+    async fn test_initialize_contains_orchestration_instructions() {
+        let app_state = AppState::new("test_tenant".to_string());
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "initialize".to_string(),
+            params: Some(json!({
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "test-client", "version": "1.0.0" }
+            })),
+        };
+
+        let (resp, _) = handle_request(req, &app_state).await;
+        let response = resp.unwrap();
+        let result = response.result.unwrap();
+        let server_info = result.get("serverInfo").unwrap();
+        let description = server_info.get("description").unwrap().as_str().unwrap();
+
+        assert!(description.contains("cowen_api_list"));
+        assert!(description.contains("cowen_enable_api"));
+        assert!(description.contains("cowen_disable_api"));
+        assert!(description.contains("orchestrat"));
+    }
 }

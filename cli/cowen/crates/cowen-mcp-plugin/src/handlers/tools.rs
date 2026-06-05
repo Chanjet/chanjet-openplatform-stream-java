@@ -7,7 +7,7 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
     let mut tools = vec![
         json!({
             "name": "cowen_api_list",
-            "description": "Lists all available Cowen APIs by searching keywords.",
+            "description": "Lists all available Cowen APIs by searching keywords. (Step 1 of the API orchestration workflow: find the tool_name you want to enable, then call cowen_enable_api)",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -39,7 +39,7 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
         }),
         json!({
             "name": "cowen_enable_api",
-            "description": "Enable a specific Cowen API as a standalone MCP Tool so you can call it.",
+            "description": "Enable a specific Cowen API as a standalone MCP Tool so you can call it. (Step 2 of the API orchestration workflow: register a tool_name found via cowen_api_list to expose it as a standard MCP tool. Once registered, you can directly invoke it)",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -58,7 +58,7 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
         }),
         json!({
             "name": "cowen_disable_api",
-            "description": "Disable a previously enabled Cowen API Tool.",
+            "description": "Disable a previously enabled Cowen API Tool. (Step 3 of the API orchestration workflow: deregister dynamic tools when no longer needed)",
             "inputSchema": {
                 "type": "object",
                 "properties": {

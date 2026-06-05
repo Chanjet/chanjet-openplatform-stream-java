@@ -7,7 +7,7 @@ pub struct Cli {
     pub profile: String,
 
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]

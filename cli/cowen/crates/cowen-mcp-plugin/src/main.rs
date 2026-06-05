@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Config => {
+        Some(Commands::Config) => {
             let config_json = serde_json::json!({
                 "mcpServers": {
                     "cowen-mcp": {
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
             println!("{}", serde_json::to_string_pretty(&config_json)?);
         }
-        Commands::Server => {
+        Some(Commands::Server) => {
             let app_state = AppState::new(cli.profile);
 
             let mut reader = BufReader::new(tokio::io::stdin());
@@ -59,6 +59,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 line.clear();
             }
+        }
+        None => {
+            use clap::CommandFactory;
+            Cli::command().print_help()?;
+            println!();
         }
     }
 

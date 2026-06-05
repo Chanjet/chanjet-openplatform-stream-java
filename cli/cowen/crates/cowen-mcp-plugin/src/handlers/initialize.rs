@@ -12,7 +12,8 @@ pub fn handle_initialize(req: JsonRpcRequest) -> JsonRpcResponse {
             },
             "serverInfo": {
                 "name": "cowen-mcp-plugin",
-                "version": "1.0.0"
+                "version": "1.0.0",
+                "description": "This MCP server provides three meta-tools to manage and orchestrate dynamic Cowen APIs:\n1. Use `cowen_api_list` to search and discover available APIs and find the target `tool_name`.\n2. Call `cowen_enable_api` with the `tool_name` to dynamically load that API as a new standard MCP Tool.\n3. Once registered, you (the LLM) can invoke the newly registered API tool directly to perform operations.\n4. Call `cowen_disable_api` with the `tool_name` to deregister the tool when it is no longer needed."
             }
         })),
         error: None,

@@ -447,3 +447,22 @@ fn test_mcp_api_list_schema_validation() {
     }
 
 }
+
+#[test]
+fn test_mcp_plugin_no_subcommand_prints_help() {
+    let search_pattern = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
+    let target_dir = std::env::current_dir().unwrap().join("target").join("debug").join("deps");
+    let mut plugin_src = target_dir.join(search_pattern);
+    if !plugin_src.exists() {
+        plugin_src = std::env::current_dir().unwrap().join("target").join("debug").join(search_pattern);
+    }
+    if !plugin_src.exists() { return; }
+
+    let mut cmd = std::process::Command::new(&plugin_src);
+    let output = cmd.output().unwrap();
+
+    assert!(output.status.success(), "Expected exit status 0 when running with no subcommand, got {:?}", output.status);
+    let stdout_str = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout_str.contains("Cowen MCP Plugin"), "Expected help output containing 'Cowen MCP Plugin', got stdout: {}", stdout_str);
+}
+
