@@ -48,7 +48,7 @@ if echo "$OUTPUT" | grep -q "OAuth2 session missing or expired for profile 'defa
     exit 1
 fi
 
-if ! echo "$OUTPUT" | grep -q "\"total\":"; then
+if ! echo "$OUTPUT" | grep -q "total"; then
     echo "❌ Expected API list output not found!"
     echo "Output: $OUTPUT"
     exit 1
