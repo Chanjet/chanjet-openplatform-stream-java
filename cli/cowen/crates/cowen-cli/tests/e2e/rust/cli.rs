@@ -112,7 +112,7 @@ fn test_cli_invalid_command() {
 fn test_cli_config_set_global() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
-    let mut daemon = start_daemon_for_test(&home, "default");
+    let _daemon = start_daemon_for_test(&home, "default");
     
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
@@ -136,7 +136,7 @@ fn test_cli_dlq_list_page_size_short_n() {
 fn test_config_list_json_format() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
-    let mut daemon = start_daemon_for_test(&home, "default");
+    let _daemon = start_daemon_for_test(&home, "default");
 
     let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
@@ -157,7 +157,7 @@ fn test_config_list_json_format() {
 fn test_reset_specific_profile_only() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
-    let mut daemon = start_daemon_for_test(&home, "profile_reset");
+    let _daemon = start_daemon_for_test(&home, "profile_reset");
     
     let app_config_path = dir.path().join("app.yaml");
     let profile_keep_config = dir.path().join("profile_keep.yaml");
@@ -186,7 +186,7 @@ fn test_reset_specific_profile_only() {
 fn test_reset_all_profiles() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
-    let mut daemon = start_daemon_for_test(&home, "profile_reset");
+    let _daemon = start_daemon_for_test(&home, "profile_reset");
     
     let app_config_path = dir.path().join("app.yaml");
     let profile_keep_config = dir.path().join("profile_keep.yaml");
@@ -215,7 +215,7 @@ fn test_reset_all_profiles() {
 fn test_reset_active_profile_by_default() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
-    let mut daemon = start_daemon_for_test(&home, "profile_reset");
+    let _daemon = start_daemon_for_test(&home, "profile_reset");
     
     let current_profile_path = dir.path().join("current_profile");
     std::fs::write(&current_profile_path, "profile_reset").unwrap();

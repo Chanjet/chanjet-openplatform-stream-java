@@ -66,7 +66,7 @@ echo -e "${BLUE}🧹 Cleaning up previous test artifacts in $TEST_BASE...${NC}"
 rm -rf "$TEST_BASE"
 mkdir -p "$RESULTS_DIR/tmp_scripts"
 cp crates/cowen-cli/tests/e2e/scripts/common.sh "$RESULTS_DIR/tmp_scripts/"
-cp crates/cowen-cli/tests/e2e/scripts/verify-binary.sh "$RESULTS_DIR/tmp_scripts/" 2>/dev/null || true
+cp crates/cowen-cli/tests/e2e/scripts/verify-binary.sh "$RESULTS_DIR/tmp_scripts/"  || true
 
 
 echo -n "  Building cowen binary and plugins (release)..."
@@ -82,7 +82,7 @@ if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
     BINARY_PATH="$TARGET_BASE/x86_64-unknown-linux-gnu/release/cowen"
 fi
 
-if COWEN_BUILD_CLIENT_ID=dummy cargo build --quiet $BUILD_ARGS -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer -p cowen-mcp-plugin 2>/dev/null; then
+if COWEN_BUILD_CLIENT_ID=dummy cargo build --quiet $BUILD_ARGS -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer -p cowen-mcp-plugin; then
     echo -e " ${GREEN}[OK]${NC}"
     export COWEN_BIN="$(pwd)/$BINARY_PATH"
     # Force common.sh to refresh its SOURCE_BIN
@@ -123,7 +123,7 @@ export COWEN_BIN="$(pwd)/$(dirname "$BINARY_PATH")/cowen-test"
 if [ $# -gt 0 ]; then
     PARALLEL_SUITES=("$@")
 else
-    PARALLEL_SUITES=($(ls crates/cowen-cli/tests/e2e/scripts/case_*.sh 2>/dev/null))
+    PARALLEL_SUITES=($(ls crates/cowen-cli/tests/e2e/scripts/case_*.sh ))
 fi
 SEQUENTIAL_SUITES=()
 
@@ -238,7 +238,7 @@ while IFS= read -r log; do
         echo -e "  ${RED}FAILED:${NC} Job log $log"
         tail -n 5 "$log" | sed 's/^/      /'
     fi
-done < <(find "$RESULTS_DIR" -name "job_*.log" 2>/dev/null)
+done < <(find "$RESULTS_DIR" -name "job_*.log" )
 
 if [ "$FAILED_COUNT" -eq 0 ]; then
     echo -e "${GREEN}${BOLD}✅ ALL SUITES PASSED!${NC}"
