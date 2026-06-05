@@ -296,19 +296,49 @@ fn build_schema_from_openapi(
     }
 
     let mut output_schema = None;
+    let mut ok_resp = None;
     if let Some(responses) = operation.get("responses").and_then(|r| r.as_object()) {
-        if let Some(ok_resp) = responses.get("200") {
-            let mut resp_obj = ok_resp.clone();
-            resolve_refs(&mut resp_obj, components, 0);
-            if let Some(schema) = resp_obj
-                .get("content")
-                .and_then(|c| c.get("application/json"))
-                .and_then(|j| j.get("schema"))
-            {
-                let mut out_schema = schema.clone();
-                resolve_refs(&mut out_schema, components, 0);
-                output_schema = Some(out_schema);
+        for key in &["200", "201", "202", "204", "default"] {
+            if let Some(resp) = responses.get(*key) {
+                ok_resp = Some(resp.clone());
+                break;
             }
+        }
+        if ok_resp.is_none() {
+            for (k, v) in responses {
+                if k.starts_with('2') || k == "default" {
+                    ok_resp = Some(v.clone());
+                    break;
+                }
+            }
+        }
+    }
+
+    if let Some(mut resp_obj) = ok_resp {
+        resolve_refs(&mut resp_obj, components, 0);
+        let mut schema_val = None;
+        if let Some(content) = resp_obj.get("content").and_then(|c| c.as_object()) {
+            for (mime, media_type) in content {
+                if mime.starts_with("application/json") || mime.contains("json") {
+                    if let Some(s) = media_type.get("schema") {
+                        schema_val = Some(s.clone());
+                        break;
+                    }
+                }
+            }
+            if schema_val.is_none() {
+                for (_, media_type) in content {
+                    if let Some(s) = media_type.get("schema") {
+                        schema_val = Some(s.clone());
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some(mut schema) = schema_val {
+            resolve_refs(&mut schema, components, 0);
+            output_schema = Some(schema);
         }
     }
 
@@ -415,6 +445,7 @@ async fn handle_request(
             error: None,
         }),
         "notifications/initialized" => None,
+
         "tools/list" => {
             let mut tools = vec![
                 json!({
@@ -816,31 +847,47 @@ async fn handle_request(
                                 Ok(resp) => {
                                     let inner = resp.into_inner();
                                     if let Some(err) = inner.error_message {
-                                        {
-                                            result_text = format!("Error: {}", err);
-                                            is_error = true;
-                                        }
+                                        result_text = format!("Error: {}", err);
+                                        is_error = true;
+                                        structured_content = Some(json!({
+                                            "error": err
+                                        }));
                                     } else {
                                         result_text =
                                             format!("Status: {}\n{}", inner.status, inner.body);
+                                        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&inner.body) {
+                                            structured_content = Some(json_val);
+                                        } else {
+                                            structured_content = Some(json!({
+                                                "status": inner.status,
+                                                "body": inner.body
+                                            }));
+                                        }
                                     }
                                 }
                                 Err(e) => {
                                     result_text = format!("gRPC Error: {}", e);
                                     is_error = true;
+                                    structured_content = Some(json!({
+                                        "error": e.to_string()
+                                    }));
                                 }
                             }
                         }
                         Err(e) => {
                             result_text = format!("gRPC Error: {}", e);
                             is_error = true;
+                            structured_content = Some(json!({
+                                "error": e.to_string()
+                            }));
                         }
                     }
                 } else {
-                    {
-                        result_text = format!("Tool {} not found", name);
-                        is_error = true;
-                    }
+                    result_text = format!("Tool {} not found", name);
+                    is_error = true;
+                    structured_content = Some(json!({
+                        "error": format!("Tool {} not found", name)
+                    }));
                 }
             }
 
@@ -967,5 +1014,129 @@ mod tests {
 
         assert_eq!(user_prop.get("type").unwrap().as_str().unwrap(), "object");
         assert!(user_prop.get("properties").unwrap().get("name").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_tool_structured_content_fallback() {
+        let app_state = AppState::new("test_tenant".to_string());
+        
+        let mut state = app_state.mcp_state.lock().await;
+        state.tools.insert(
+            "get__v1_test".to_string(),
+            EnabledTool {
+                method: "GET".to_string(),
+                path: "/v1/test".to_string(),
+                description: "Test description".to_string(),
+                input_schema: json!({ "type": "object", "properties": {} }),
+                output_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "data": { "type": "string" }
+                    }
+                })),
+                body_params: vec![],
+            },
+        );
+        drop(state);
+
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(json!(1)),
+            method: "tools/call".to_string(),
+            params: Some(json!({
+                "name": "get__v1_test",
+                "arguments": {}
+            })),
+        };
+
+        let (resp, _changed) = handle_request(req, &app_state).await;
+        let response = resp.unwrap();
+
+        assert_eq!(response.id.unwrap().as_i64().unwrap(), 1);
+        let result = response.result.unwrap();
+        
+        assert!(result.get("structuredContent").is_some());
+        let structured = result.get("structuredContent").unwrap();
+        assert!(structured.get("error").is_some());
+    }
+
+    #[test]
+    fn test_build_schema_output_schema_translation() {
+        let components = json!({
+            "schemas": {
+                "User": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "integer" }
+                    }
+                }
+            }
+        });
+
+        // 1. Test standard 200 response with application/json
+        let spec_200 = json!({
+            "operation": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/User"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": components
+        });
+        let (_, out_schema_200, _) = build_schema_from_openapi("/test", &spec_200);
+        assert!(out_schema_200.is_some());
+        let schema_200 = out_schema_200.unwrap();
+        assert_eq!(schema_200.get("type").unwrap().as_str().unwrap(), "object");
+        assert!(schema_200.get("properties").unwrap().get("id").is_some());
+
+        // 2. Test 201 status code with charset parameter in mime-type
+        let spec_201_charset = json!({
+            "operation": {
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json; charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/User"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": components
+        });
+        let (_, out_schema_201, _) = build_schema_from_openapi("/test", &spec_201_charset);
+        assert!(out_schema_201.is_some());
+        assert_eq!(out_schema_201.unwrap().get("type").unwrap().as_str().unwrap(), "object");
+
+        // 3. Test fallback to first mime-type when json-like media type is absent
+        let spec_fallback_mime = json!({
+            "operation": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string",
+                                    "description": "Raw string response"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": components
+        });
+        let (_, out_schema_fallback, _) = build_schema_from_openapi("/test", &spec_fallback_mime);
+        assert!(out_schema_fallback.is_some());
+        assert_eq!(out_schema_fallback.unwrap().get("type").unwrap().as_str().unwrap(), "string");
     }
 }

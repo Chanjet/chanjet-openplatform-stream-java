@@ -228,14 +228,12 @@ fn test_mcp_client_simulation() {
     use std::process::Stdio;
 
     let search_pattern = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
-    let target_dir = std::env::current_dir().unwrap().join("target").join("debug").join("deps");
-    let mut plugin_src = target_dir.join(search_pattern);
-    if !plugin_src.exists() {
-        plugin_src = std::env::current_dir().unwrap().join("target").join("debug").join(search_pattern);
-    }
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let plugin_src = manifest_dir.join("../../target/debug").join(search_pattern);
     if !plugin_src.exists() { return; }
 
     let mut child = std::process::Command::new(&plugin_src)
+        .arg("server")
         .env("COWEN_PROFILE", "default")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
