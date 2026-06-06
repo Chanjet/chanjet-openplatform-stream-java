@@ -54,6 +54,7 @@ log:
     // Also double check file persistence contains lowercase "level: info"
     let file_content = fs::read_to_string(&app_yaml_path).unwrap();
     assert!(file_content.contains("level: info"));
+    std::mem::forget(dir);
 }
 
 #[tokio::test]

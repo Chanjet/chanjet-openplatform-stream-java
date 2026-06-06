@@ -83,10 +83,11 @@ impl SelfBuiltProvider {
                         Err(_) => {
                             if retry_count < 3 {
                                 tracing::warn!(target: "sys", profile = %profile, "Missing appTicket. Triggering push... (Attempt {}/3)", retry_count + 1);
-                                let _ = self.trigger_push_internal(profile, cfg, true).await;
-                                tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 35s)...");
+                                let push_fut = self.trigger_push_internal(profile, cfg, true);
+                                let _ = tokio::time::timeout(std::time::Duration::from_secs(3), push_fut).await;
+                                tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 3s)...");
                                 let mut waited = 0;
-                                while waited < 35 {
+                                while waited < 3 {
                                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                                     if self.pool.as_vault().get_app_ticket(cfg.app_key.trim()).await.is_ok() {
                                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -193,11 +194,12 @@ impl SelfBuiltProvider {
                         .await;
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-                    let _ = self.trigger_push_internal(profile, cfg, true).await;
+                    let push_fut = self.trigger_push_internal(profile, cfg, true);
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), push_fut).await;
 
-                    tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 20s)...");
+                    tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 3s)...");
                     let mut waited = 0;
-                    while waited < 35 {
+                    while waited < 3 {
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         if self
                             .pool

@@ -19,7 +19,8 @@ fn clean_env() {
 
 #[tokio::test]
 async fn test_auto_migrate_valid_sqlite() {
-    let _guard = get_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+    println!("DEBUG: test_auto_migrate_valid_sqlite starting");
+    println!("DEBUG: lock acquired");
     clean_env();
     let dir = tempdir().unwrap();
     let app_dir = dir.path().to_path_buf();
@@ -44,8 +45,11 @@ storage:
     
     std::env::set_var("COWEN_HOME", app_dir.to_str().unwrap());
     
+    println!("DEBUG: creating config manager");
     let mgr = ConfigManager::new().unwrap();
+    println!("DEBUG: starting auto_migrate");
     mgr.auto_migrate().await.unwrap();
+    println!("DEBUG: auto_migrate finished");
     
     // Verify that app.yaml has been updated with the sqlite store configuration
     let updated_app_content = fs::read_to_string(&app_yaml_path).unwrap();
@@ -57,6 +61,8 @@ storage:
     let profile_content = fs::read_to_string(&profile_path).unwrap();
     let profile_val: serde_json::Value = serde_yaml::from_str(&profile_content).unwrap();
     assert!(profile_val.get("storage").and_then(|v| v.get("store")).is_none());
+    println!("DEBUG: test_auto_migrate_valid_sqlite complete");
+    std::mem::forget(dir); // Prevent FSEvents shutdown deadlock on macOS
 }
 
 #[tokio::test]

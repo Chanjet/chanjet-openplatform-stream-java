@@ -67,6 +67,13 @@ EOF
     fi
     echo -e "  ${GREEN}✓${NC} 'old_prof' removed from list"
 
+    # Verify no residual files for 'old_prof'
+    RESIDUALS=$(ls -1 "$COWEN_HOME"/old_prof* 2>/dev/null || true)
+    if [ -n "$RESIDUALS" ]; then
+        fail_suite "Residual files found for 'old_prof' in $mode after rename:\n$RESIDUALS"
+    fi
+    echo -e "  ${GREEN}✓${NC} No residual files for 'old_prof'"
+
     # 7. Verify 'new_prof' exists and has data
     assert_match "$LIST" "new_prof" "List contains 'new_prof'"
     

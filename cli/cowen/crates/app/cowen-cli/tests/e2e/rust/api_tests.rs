@@ -307,3 +307,81 @@ fn test_api_call_ssrf_block() {
     
     let _ = dir;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_api_list_self_built_refresh_timeout() {
+    let (dir, home, _killer) = setup_test_env(false);
+    
+    // Create self-built profile config without seeding token
+    let profile = "test_sb_timeout";
+    let config_path = dir.path().join(format!("{}.yaml", profile));
+    let config = json!({
+        "app_key": "test_key",
+        "app_mode": "self-built",
+        "webhook_target": "http://localhost:59999",
+        "auto_start": false,
+        "version": 1
+    });
+    fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+
+    let app_cfg_path = dir.path().join("app.yaml");
+    let app_cfg_json = json!({
+        "openapi_url": "http://localhost:59999", // dead port
+        "stream_url": "http://localhost:59999",
+        "webhook_target": "http://localhost:59999"
+    });
+    fs::write(app_cfg_path, serde_yaml::to_string(&app_cfg_json).unwrap()).unwrap();
+
+    // Seed vault
+    let app_cfg = cowen_common::config::AppConfig { openapi_url: "http://localhost:59999".to_string(), stream_url: "http://localhost:59999".to_string(), ..Default::default() };
+    let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
+    vault.set_config(profile, "app_key", "test_key").await.unwrap();
+    vault.set_secret(profile, "app_secret", "test_secret").await.unwrap();
+    vault.set_secret(profile, "encrypt_key", "1234567890123456").await.unwrap();
+
+    // Start daemon
+    let mut cmd_start = Command::cargo_bin("cowen").unwrap();
+    cmd_start.env("COWEN_HOME", &home);
+    cmd_start.env("HOME", &home);
+    cmd_start.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_start.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    cmd_start.env("COWEN_HTTP_TIMEOUT", "1");
+    
+    let daemon_bin = assert_cmd::cargo::cargo_bin("cowen-daemon");
+    cmd_start.env("COWEN_DAEMON_PATH", daemon_bin.to_str().unwrap());
+
+    cmd_start.arg("--profile").arg(profile).arg("daemon").arg("start");
+    let _ = cmd_start.output();
+    
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // Now run api list
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd.env("COWEN_DAEMON_PATH", daemon_bin.to_str().unwrap());
+    cmd.env("COWEN_HTTP_TIMEOUT", "1");
+    cmd.arg("--profile").arg(profile);
+    cmd.arg("api").arg("list");
+    
+    // We expect it to exit with code 0 (CLI prints to stderr but doesn't exit 1 for API failures sometimes)
+    // or exit with code 1. Let's just get output.
+    let output = cmd.output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    
+    // Stop daemon
+    let mut cmd_stop = Command::cargo_bin("cowen").unwrap();
+    cmd_stop.env("COWEN_HOME", &home);
+    cmd_stop.env("HOME", &home);
+    cmd_stop.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_stop.arg("--profile").arg(profile).arg("daemon").arg("stop");
+    let _ = cmd_stop.output();
+    // Should fail with Missing appTicket instead of Timeout expired
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Should fail with Missing appTicket instead of Timeout expired
+    assert!(!stderr.contains("Timeout expired") && !stderr.contains("transport error"), "CLI timed out instead of getting the proper error from daemon. Output: stderr={}, stdout={}", stderr, stdout);
+    assert!(stderr.contains("Missing appTicket"), "CLI did not receive the expected Missing appTicket error. Output: stderr={}, stdout={}", stderr, stdout);
+
+    
+    let _ = dir;
+}

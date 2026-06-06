@@ -71,6 +71,14 @@ echo -e "\n${BOLD}3. Rename Profile${NC}"
 "$COWEN_BIN" profile rename "$PROF" p2 >/dev/null
 echo -e "  ${GREEN}✓${NC} Renamed $PROF to p2"
 
+echo -e "\n${BOLD}3.5 Verify File System Residuals${NC}"
+RESIDUALS=$(ls -1 "$COWEN_HOME"/${PROF}* 2>/dev/null || true)
+if [ -n "$RESIDUALS" ]; then
+    fail_suite "Residual files found for $PROF after rename:\n$RESIDUALS"
+fi
+echo -e "  ${GREEN}✓${NC} No residual files for $PROF"
+
+
 echo -e "\n${BOLD}4. Verify Status After Rename${NC}"
 OUT2=$("$COWEN_BIN" status --profile p2)
 if echo "$OUT2" | grep -q "Not logged in or session expired"; then

@@ -61,9 +61,9 @@ impl Default for ReqwestSender {
 
 impl ReqwestSender {
     pub fn new() -> Self {
-        Self {
-            client: HttpClient::new(),
-        }
+        let ua = cowen_infra::http::get_user_agent(env!("CARGO_PKG_VERSION"));
+        let client = cowen_infra::http::create_client(&ua).unwrap_or_else(|_| HttpClient::new());
+        Self { client }
     }
 }
 
@@ -513,6 +513,24 @@ impl Client for AuthClient {
         }
 
         let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        
+        // Both OpenAPI and Dynamic Discovery require a valid token. Fetch it once here!
+        let token = match self.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await {
+            Ok(t) => t,
+            Err(e) => {
+                // If we can't get a token, check if we have a local cache to fallback to
+                if cache_path.exists() {
+                    if let Ok(data) = std::fs::read_to_string(&cache_path) {
+                        if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
+                            tracing::warn!(target: "sys", "Token fetch failed, falling back to expired local cache: {}", e);
+                            return Ok(spec);
+                        }
+                    }
+                }
+                return Err(e);
+            }
+        };
+
         // 2. Fetch fresh spec from Platform
         if !app_cfg.openapi_url.is_empty() {
             let mut spec_url = format!(
@@ -520,32 +538,28 @@ impl Client for AuthClient {
                 app_cfg.openapi_url.trim_end_matches('/'),
                 obfs!("/v1/common/openapi/spec")
             );
-            if let Ok(token) = self
-                .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
-                .await
-            {
-                let mut headers = reqwest::header::HeaderMap::new();
+            
+            let mut headers = reqwest::header::HeaderMap::new();
 
-                // OCP: Delegate URL and Header decoration to provider
-                self.provider(&cfg.app_mode).decorate_openapi_request(
-                    &mut spec_url,
-                    &mut headers,
-                    &token,
-                    cfg,
-                );
+            // OCP: Delegate URL and Header decoration to provider
+            self.provider(&cfg.app_mode).decorate_openapi_request(
+                &mut spec_url,
+                &mut headers,
+                &token,
+                cfg,
+            );
 
-                match self.http_sender.get(&spec_url, headers).await {
-                    Ok(resp) if resp.is_success() => {
-                        if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
-                            Self::clean_non_standard_fields(&mut fresh_spec);
-                            if let Err(e) = self.save_spec_to_cache(&cache_path, &fresh_spec) {
-                                tracing::warn!(target: "sys", "Failed to save spec cache: {}", e);
-                            }
-                            return Ok(fresh_spec);
+            match self.http_sender.get(&spec_url, headers).await {
+                Ok(resp) if resp.is_success() => {
+                    if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
+                        Self::clean_non_standard_fields(&mut fresh_spec);
+                        if let Err(e) = self.save_spec_to_cache(&cache_path, &fresh_spec) {
+                            tracing::warn!(target: "sys", "Failed to save spec cache: {}", e);
                         }
+                        return Ok(fresh_spec);
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
 
@@ -582,6 +596,7 @@ impl Client for AuthClient {
         profile: &str,
         cfg: &Config,
     ) -> CowenResult<serde_json::Value> {
+        // We might be called directly, so ensure we get the token
         let token = self
             .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
             .await?;

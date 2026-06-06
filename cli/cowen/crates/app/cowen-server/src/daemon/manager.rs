@@ -301,7 +301,7 @@ async fn run_profile_worker(
     if let Err(e) = crate::cmd::bridge::run(
         profile, &config, vault, config.proxy_port, config.proxy_enabled, cfg_mgr.is_distributed_storage(&app_cfg), cancel_token, shutdown_gate
     ).await {
-         return Err(CowenError::Internal(format!("Bridge task failed: {}", e)));
+         return Err(CowenError::Internal(format!("Bridge task failed: {:?}", e)));
     }
 
     Ok(())
