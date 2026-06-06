@@ -64,11 +64,12 @@ impl SystemOrchestrator {
         let mut results = Vec::new();
         let list = self.cfg_mgr.list_profiles().await.unwrap_or_default();
         
-        let profiles = if req.all {
+        let profiles: Vec<String> = if req.all {
             list
         } else {
             vec![req.profile.clone()]
         };
+        let profiles: Vec<String> = profiles.into_iter().filter(|p| !p.trim().is_empty()).collect();
         
         if !profiles.is_empty() {
             for prof in profiles {

@@ -527,11 +527,22 @@ impl SqlDriver for SqliteDriver {
     }
 
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
-        sqlx::query("DELETE FROM cowen_config WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        sqlx::query("DELETE FROM cowen_secret WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        sqlx::query("DELETE FROM cowen_token WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        sqlx::query("DELETE FROM cowen_audit WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        sqlx::query("DELETE FROM cowen_dlq WHERE profile = ?").bind(profile).execute(&self.pool).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let queries = [
+            "DELETE FROM cowen_config WHERE profile = ?",
+            "DELETE FROM cowen_secret WHERE profile = ?",
+            "DELETE FROM cowen_token WHERE profile = ?",
+            "DELETE FROM cowen_audit WHERE profile = ?",
+            "DELETE FROM cowen_dlq WHERE profile = ?",
+        ];
+
+        for q in queries {
+            if let Err(e) = sqlx::query(q).bind(profile).execute(&self.pool).await {
+                let err_msg = e.to_string();
+                if !err_msg.contains("no such table") {
+                    return Err(CowenError::Store(err_msg));
+                }
+            }
+        }
         Ok(())
     }
 
