@@ -132,7 +132,11 @@ impl SystemOrchestrator {
                 };
                 entries.push(config_entry);
 
-                let daemon_entry = cowen_common::status::collect_daemon_status(&ctx, "Daemon", "Tips", true, None).await;
+                use cowen_auth::client::Client;
+                let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
+                let supports_webhooks = auth_cli.supports_webhooks(&config);
+
+                let daemon_entry = cowen_common::status::collect_daemon_status(&ctx, "Daemon", "Tips", supports_webhooks, None).await;
                 if let Ok(e) = daemon_entry {
                     entries.push(e);
                 }
@@ -160,8 +164,6 @@ impl SystemOrchestrator {
                 }
 
                 
-                use cowen_auth::client::Client;
-                let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
                 if let Ok(mut diag_entries) = auth_cli.get_diagnostics(&ctx).await {
                     entries.append(&mut diag_entries);
                 }
