@@ -202,6 +202,29 @@ pub async fn run(
         }
     });
 
+    let status_file_for_heartbeat = status_file.clone();
+    let requires_stream_for_heartbeat = requires_stream;
+    let cancel_token_for_heartbeat = cancel_token.clone();
+    tokio::spawn(async move {
+        if requires_stream_for_heartbeat {
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                        if let Ok(content) = std::fs::read_to_string(&status_file_for_heartbeat) {
+                            if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&content) {
+                                json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+                                let _ = std::fs::write(&status_file_for_heartbeat, serde_json::to_string(&json).unwrap_or_default());
+                            }
+                        }
+                    }
+                    _ = cancel_token_for_heartbeat.cancelled() => {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
     tokio::select! {
         res = proxy_fut => res,
         res = stream_fut => res,

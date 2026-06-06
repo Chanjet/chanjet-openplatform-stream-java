@@ -20,6 +20,7 @@ fn clean_env() {
 #[tokio::test]
 async fn test_auto_migrate_valid_sqlite() {
     println!("DEBUG: test_auto_migrate_valid_sqlite starting");
+    let _guard = get_test_lock().lock().unwrap_or_else(|e| e.into_inner());
     println!("DEBUG: lock acquired");
     clean_env();
     let dir = tempdir().unwrap();
