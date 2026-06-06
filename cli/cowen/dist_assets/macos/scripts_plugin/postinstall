@@ -21,8 +21,9 @@ PLUGIN_DIR="$REAL_HOME/.cowen/plugins"
 
 echo "📟 Installing plugins for user: $CURRENT_USER (Home: $REAL_HOME)"
 
-# 2. 为该用户创建目录
-mkdir -p "$PLUGIN_DIR"
+# 2. 为该用户创建目录并修复历史可能由 root 创建的权限问题
+sudo -u "$CURRENT_USER" mkdir -p "$PLUGIN_DIR"
+chown -R "$CURRENT_USER" "$REAL_HOME/.cowen" 2>/dev/null || true
 
 # 3. 动态将 staging 目录下的所有插件移动到用户的真实目录下
 if [ -d "$STAGING_DIR" ]; then
