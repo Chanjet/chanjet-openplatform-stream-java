@@ -162,11 +162,11 @@ fn test_reset_specific_profile_only() {
     let app_config_path = dir.path().join("app.yaml");
     let profile_keep_config = dir.path().join("profile_keep.yaml");
     std::fs::write(&profile_keep_config, "app_key: \"keep_key\"").unwrap();
-    let profile_keep_db = dir.path().join("profile_keep.db");
+    let profile_keep_db = dir.path().join("profile_keep_dlq.db");
     std::fs::write(&profile_keep_db, "mock keep db").unwrap();
 
     let profile_reset_config = dir.path().join("profile_reset.yaml");
-    let profile_reset_db = dir.path().join("profile_reset.db");
+    let profile_reset_db = dir.path().join("profile_reset_dlq.db");
     std::fs::write(&profile_reset_db, "mock reset db").unwrap();
 
     let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
@@ -176,9 +176,9 @@ fn test_reset_specific_profile_only() {
     cmd.assert().success();
 
     assert!(!profile_reset_config.exists(), "profile_reset.yaml should have been deleted");
-    assert!(!profile_reset_db.exists(), "profile_reset.db should have been deleted");
+    assert!(!profile_reset_db.exists(), "profile_reset_dlq.db should have been deleted");
     assert!(profile_keep_config.exists(), "profile_keep.yaml should NOT have been deleted");
-    assert!(profile_keep_db.exists(), "profile_keep.db should NOT have been deleted");
+    assert!(profile_keep_db.exists(), "profile_keep_dlq.db should NOT have been deleted");
     assert!(app_config_path.exists(), "app.yaml should NOT have been deleted");
 }
 
@@ -191,11 +191,11 @@ fn test_reset_all_profiles() {
     let app_config_path = dir.path().join("app.yaml");
     let profile_keep_config = dir.path().join("profile_keep.yaml");
     std::fs::write(&profile_keep_config, "app_key: \"keep_key\"").unwrap();
-    let profile_keep_db = dir.path().join("profile_keep.db");
+    let profile_keep_db = dir.path().join("profile_keep_dlq.db");
     std::fs::write(&profile_keep_db, "mock keep db").unwrap();
 
     let profile_reset_config = dir.path().join("profile_reset.yaml");
-    let profile_reset_db = dir.path().join("profile_reset.db");
+    let profile_reset_db = dir.path().join("profile_reset_dlq.db");
     std::fs::write(&profile_reset_db, "mock reset db").unwrap();
 
     let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
@@ -205,9 +205,9 @@ fn test_reset_all_profiles() {
     cmd.assert().success();
 
     assert!(!profile_reset_config.exists(), "profile_reset.yaml should have been deleted");
-    assert!(!profile_reset_db.exists(), "profile_reset.db should have been deleted");
+    assert!(!profile_reset_db.exists(), "profile_reset_dlq.db should have been deleted");
     assert!(!profile_keep_config.exists(), "profile_keep.yaml should have been deleted");
-    assert!(!profile_keep_db.exists(), "profile_keep.db should have been deleted");
+    assert!(!profile_keep_db.exists(), "profile_keep_dlq.db should have been deleted");
     assert!(!app_config_path.exists(), "app.yaml should have been deleted");
 }
 
@@ -223,11 +223,11 @@ fn test_reset_active_profile_by_default() {
     let app_config_path = dir.path().join("app.yaml");
     let profile_keep_config = dir.path().join("profile_keep.yaml");
     std::fs::write(&profile_keep_config, "app_key: \"keep_key\"").unwrap();
-    let profile_keep_db = dir.path().join("profile_keep.db");
+    let profile_keep_db = dir.path().join("profile_keep_dlq.db");
     std::fs::write(&profile_keep_db, "mock keep db").unwrap();
 
     let profile_reset_config = dir.path().join("profile_reset.yaml");
-    let profile_reset_db = dir.path().join("profile_reset.db");
+    let profile_reset_db = dir.path().join("profile_reset_dlq.db");
     std::fs::write(&profile_reset_db, "mock reset db").unwrap();
 
     let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
@@ -237,9 +237,9 @@ fn test_reset_active_profile_by_default() {
     cmd.assert().success();
 
     assert!(!profile_reset_config.exists(), "profile_reset.yaml should have been deleted");
-    assert!(!profile_reset_db.exists(), "profile_reset.db should have been deleted");
+    assert!(!profile_reset_db.exists(), "profile_reset_dlq.db should have been deleted");
     assert!(profile_keep_config.exists(), "profile_keep.yaml should NOT have been deleted");
-    assert!(profile_keep_db.exists(), "profile_keep.db should NOT have been deleted");
+    assert!(profile_keep_db.exists(), "profile_keep_dlq.db should NOT have been deleted");
     assert!(app_config_path.exists(), "app.yaml should NOT have been deleted");
 }
 

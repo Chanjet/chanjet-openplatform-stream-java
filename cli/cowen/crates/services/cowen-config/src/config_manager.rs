@@ -783,8 +783,9 @@ impl ConfigManager {
             if let Ok(remote_profiles) = vault.list_all_profiles().await {
                 let remote_profiles: Vec<String> = remote_profiles;
                 for p in remote_profiles {
-                    if !p.is_empty() && !p.starts_with("app:") && !p.starts_with("plugin_") && p != "global" && p != "system" {
-                        profiles.insert(p);
+                    let p_trimmed = p.trim();
+                    if !p_trimmed.is_empty() && !p_trimmed.starts_with("app:") && !p_trimmed.starts_with("plugin_") && p_trimmed != "global" && p_trimmed != "system" {
+                        profiles.insert(p_trimmed.to_string());
                     }
                 }
             }
@@ -794,8 +795,9 @@ impl ConfigManager {
                 let path = entry.path();
                 if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
                     if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        if !name.is_empty() && !name.contains("_openapi") && name != "app" && !name.starts_with("plugin_") {
-                            profiles.insert(name.to_string());
+                        let n_trimmed = name.trim();
+                        if !n_trimmed.is_empty() && !n_trimmed.contains("_openapi") && n_trimmed != "app" && !n_trimmed.starts_with("plugin_") {
+                            profiles.insert(n_trimmed.to_string());
                         }
                     }
                 }

@@ -533,6 +533,7 @@ impl SqlDriver for SqliteDriver {
             "DELETE FROM cowen_token WHERE profile = ?",
             "DELETE FROM cowen_audit WHERE profile = ?",
             "DELETE FROM cowen_dlq WHERE profile = ?",
+            "DELETE FROM cowen_tenant_token WHERE profile = ?",
         ];
 
         for q in queries {

@@ -27,10 +27,24 @@ impl ResetTask for StorageResetTask {
         let mut actions = Vec::new();
         if self.profile.is_none() {
             let files_to_check = vec![
-                "cowen.db",
-                "cowen.db-shm",
-                "cowen.db-wal",
-                "cowen.ddl.lock",
+                "cowen.db".to_string(),
+                "cowen.db-shm".to_string(),
+                "cowen.db-wal".to_string(),
+                "cowen.ddl.lock".to_string(),
+            ];
+            for file in files_to_check {
+                let path = self.app_dir.join(file);
+                if path.exists() {
+                    actions.push(format!("Delete file: {}", path.display()));
+                }
+            }
+        } else if let Some(ref profile) = self.profile {
+            let files_to_check = vec![
+                format!("{}_dlq.db", profile),
+                format!("{}_dlq.db-wal", profile),
+                format!("{}_dlq.db-shm", profile),
+                format!("{}_status.json", profile),
+                format!("{}_status.json.tmp", profile),
             ];
             for file in files_to_check {
                 let path = self.app_dir.join(file);
@@ -45,10 +59,28 @@ impl ResetTask for StorageResetTask {
     async fn execute(&self) -> anyhow::Result<()> {
         if self.profile.is_none() {
             let files_to_check = vec![
-                "cowen.db",
-                "cowen.db-shm",
-                "cowen.db-wal",
-                "cowen.ddl.lock",
+                "cowen.db".to_string(),
+                "cowen.db-shm".to_string(),
+                "cowen.db-wal".to_string(),
+                "cowen.ddl.lock".to_string(),
+            ];
+            for file in files_to_check {
+                let path = self.app_dir.join(file);
+                if path.exists() {
+                    if let Err(e) = std::fs::remove_file(&path) {
+                        tracing::error!("Failed to delete {:?}: {}", path, e);
+                    } else {
+                        tracing::info!("Deleted {:?}", path);
+                    }
+                }
+            }
+        } else if let Some(ref profile) = self.profile {
+            let files_to_check = vec![
+                format!("{}_dlq.db", profile),
+                format!("{}_dlq.db-wal", profile),
+                format!("{}_dlq.db-shm", profile),
+                format!("{}_status.json", profile),
+                format!("{}_status.json.tmp", profile),
             ];
             for file in files_to_check {
                 let path = self.app_dir.join(file);

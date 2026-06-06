@@ -642,14 +642,26 @@ install: build
 	rm -f $(BINDIR)/$(BINARY) $(BINDIR)/cowen-daemon
 	cp target/release/$(BINARY) $(BINDIR)/$(BINARY)
 	cp target/release/cowen-daemon $(BINDIR)/cowen-daemon
-	@echo "🚀 Installing plugins to $(HOME)/.cowen/plugins/..."
-	@mkdir -p $(HOME)/.cowen/plugins
-	@rm -f $(HOME)/.cowen/plugins/cowen-mcp-plugin $(HOME)/.cowen/plugins/cowen-mcp-plugin.bundle
-	@rm -f $(HOME)/.cowen/plugins/libcowen_search_embedding $(HOME)/.cowen/plugins/libcowen_search_embedding.bundle
-	cp target/release/cowen-mcp-plugin $(HOME)/.cowen/plugins/ || true
-	cp target/release/cowen-mcp-plugin.bundle $(HOME)/.cowen/plugins/ || true
-	cp target/release/libcowen_search_embedding $(HOME)/.cowen/plugins/ || true
-	cp target/release/libcowen_search_embedding.bundle $(HOME)/.cowen/plugins/ || true
+	@echo "🚀 Installing plugins to ~/.cowen/plugins/..."
+	@if [ -n "$$SUDO_USER" ]; then \
+		REAL_HOME=$$(eval echo "~$$SUDO_USER"); \
+		mkdir -p $$REAL_HOME/.cowen/plugins; \
+		rm -f $$REAL_HOME/.cowen/plugins/cowen-mcp-plugin $$REAL_HOME/.cowen/plugins/cowen-mcp-plugin.bundle; \
+		rm -f $$REAL_HOME/.cowen/plugins/libcowen_search_embedding $$REAL_HOME/.cowen/plugins/libcowen_search_embedding.bundle; \
+		cp target/release/cowen-mcp-plugin $$REAL_HOME/.cowen/plugins/ || true; \
+		cp target/release/cowen-mcp-plugin.bundle $$REAL_HOME/.cowen/plugins/ || true; \
+		cp target/release/libcowen_search_embedding $$REAL_HOME/.cowen/plugins/ || true; \
+		cp target/release/libcowen_search_embedding.bundle $$REAL_HOME/.cowen/plugins/ || true; \
+		chown -R $$SUDO_USER $$REAL_HOME/.cowen; \
+	else \
+		mkdir -p $(HOME)/.cowen/plugins; \
+		rm -f $(HOME)/.cowen/plugins/cowen-mcp-plugin $(HOME)/.cowen/plugins/cowen-mcp-plugin.bundle; \
+		rm -f $(HOME)/.cowen/plugins/libcowen_search_embedding $(HOME)/.cowen/plugins/libcowen_search_embedding.bundle; \
+		cp target/release/cowen-mcp-plugin $(HOME)/.cowen/plugins/ || true; \
+		cp target/release/cowen-mcp-plugin.bundle $(HOME)/.cowen/plugins/ || true; \
+		cp target/release/libcowen_search_embedding $(HOME)/.cowen/plugins/ || true; \
+		cp target/release/libcowen_search_embedding.bundle $(HOME)/.cowen/plugins/ || true; \
+	fi
 	@echo "🚀 Installed to $(BINDIR)/$(BINARY), $(BINDIR)/cowen-daemon and $(HOME)/.cowen/plugins/"
 
 run:

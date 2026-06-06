@@ -32,22 +32,6 @@ impl ResetTask for ConfigResetTask {
             if config_file.exists() {
                 actions.push(format!("Delete Config YAML: {}", config_file.display()));
             }
-            let db_file = self.app_dir.join(format!("{}.db", profile));
-            if db_file.exists() {
-                actions.push(format!("Delete Vault DB: {}", db_file.display()));
-            }
-            let db_wal = self.app_dir.join(format!("{}.db-wal", profile));
-            if db_wal.exists() {
-                actions.push(format!("Delete Vault DB WAL: {}", db_wal.display()));
-            }
-            let db_shm = self.app_dir.join(format!("{}.db-shm", profile));
-            if db_shm.exists() {
-                actions.push(format!("Delete Vault DB SHM: {}", db_shm.display()));
-            }
-            let lock_file = self.app_dir.join(format!("{}.ddl.lock", profile));
-            if lock_file.exists() {
-                actions.push(format!("Delete DDL Lock: {}", lock_file.display()));
-            }
         } else {
             // Profiles (Vaults) and configs
             for entry in std::fs::read_dir(&self.app_dir)?.flatten() {
@@ -81,23 +65,11 @@ impl ResetTask for ConfigResetTask {
         if let Some(ref profile) = self.target_profile {
             let config_file = self.app_dir.join(format!("{}.yaml", profile));
             if config_file.exists() {
-                let _ = std::fs::remove_file(config_file);
-            }
-            let db_file = self.app_dir.join(format!("{}.db", profile));
-            if db_file.exists() {
-                let _ = std::fs::remove_file(db_file);
-            }
-            let db_wal = self.app_dir.join(format!("{}.db-wal", profile));
-            if db_wal.exists() {
-                let _ = std::fs::remove_file(db_wal);
-            }
-            let db_shm = self.app_dir.join(format!("{}.db-shm", profile));
-            if db_shm.exists() {
-                let _ = std::fs::remove_file(db_shm);
-            }
-            let lock_file = self.app_dir.join(format!("{}.ddl.lock", profile));
-            if lock_file.exists() {
-                let _ = std::fs::remove_file(lock_file);
+                if let Err(e) = std::fs::remove_file(&config_file) {
+                    tracing::error!("Failed to delete {:?}: {}", config_file, e);
+                } else {
+                    tracing::info!("Deleted {:?}", config_file);
+                }
             }
         } else {
             for entry in std::fs::read_dir(&self.app_dir)?.flatten() {

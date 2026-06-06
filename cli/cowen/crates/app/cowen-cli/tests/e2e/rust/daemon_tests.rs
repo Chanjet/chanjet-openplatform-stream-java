@@ -4,12 +4,24 @@ use serde_json::json;
 use tempfile::tempdir;
 use std::sync::atomic::{AtomicU16, Ordering};
 
-static NEXT_PORT: AtomicU16 = AtomicU16::new(17000);
+static NEXT_PORT: AtomicU16 = AtomicU16::new(0);
+
+fn get_next_port() -> u16 {
+    let port = NEXT_PORT.load(Ordering::SeqCst);
+    if port == 0 {
+        let base = std::process::id() as u16 % 15000;
+        let new_port = 17000 + base;
+        let _ = NEXT_PORT.compare_exchange(0, new_port, Ordering::SeqCst, Ordering::SeqCst);
+    }
+    NEXT_PORT.fetch_add(1, Ordering::SeqCst)
+}
 
 fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String, crate::e2e::rust::common::DaemonKiller) {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().join(".cowen");
     fs::create_dir_all(&cowen_home).unwrap();
+    
+    let proxy_port = get_next_port();
     
     // Create profile config
     let config_path = cowen_home.join(format!("{}.yaml", profile));
@@ -19,11 +31,12 @@ fn setup_daemon_env(profile: &str, mode: &str) -> (tempfile::TempDir, String, cr
         "encrypt_key": "1234567890123456", // 16-byte dummy key to pass validation rules
         "webhook_target": "http://localhost:8080",
         "auto_start": false,
+        "proxy_port": proxy_port,
         "version": 1
     });
     fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
 
-    let port = NEXT_PORT.fetch_add(1, Ordering::SeqCst);
+    let port = get_next_port();
 
     // Create app config
     let app_config_path = cowen_home.join("app.yaml");
@@ -130,6 +143,8 @@ fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, Stri
     let cowen_home = dir.path().join(".cowen");
     fs::create_dir_all(&cowen_home).unwrap();
     
+    let proxy_port = get_next_port();
+    
     // Create profile config
     let config_path = cowen_home.join(format!("{}.yaml", profile));
     let config = json!({
@@ -138,11 +153,12 @@ fn setup_daemon_env_https(profile: &str, mode: &str) -> (tempfile::TempDir, Stri
         "encrypt_key": "1234567890123456", // 16-byte dummy key to pass validation rules
         "webhook_target": "http://localhost:8080",
         "auto_start": false,
+        "proxy_port": proxy_port,
         "version": 1
     });
     fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
 
-    let port = NEXT_PORT.fetch_add(1, Ordering::SeqCst);
+    let port = get_next_port();
 
     // Create app config with HTTPS URLs to force Rustls/TLS initialization
     let app_config_path = cowen_home.join("app.yaml");
@@ -254,3 +270,67 @@ async fn test_daemon_https_crash_prevention() {
     let _ = dir;
 }
 
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_daemon_reset_and_status_empty_profiles() {
+    let profile = "test_reset_profile";
+    let (_dir, home, _killer) = setup_daemon_env(profile, "self-built");
+    
+    // Seed dummy token in vault to pass auth checks on startup
+    let app_cfg = cowen_common::config::AppConfig { openapi_url: "http://localhost:12345".to_string(), stream_url: "http://localhost:12345".to_string(), ..Default::default() };
+    let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint").await.unwrap();
+    vault.set_config(profile, "app_key", "test_key").await.unwrap();
+    vault.set_secret(profile, "app_secret", "test_secret").await.unwrap();
+    
+    // 1. Start daemon
+    let mut cmd_start = Command::cargo_bin("cowen").unwrap();
+    cmd_start.env("COWEN_HOME", &home);
+    cmd_start.env("HOME", &home);
+    cmd_start.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_start.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    
+    let bin_path = std::env::current_dir().unwrap().join("../../bin/macos-aarch64/cowen-daemon");
+    cmd_start.env("COWEN_DAEMON_PATH", bin_path.to_str().unwrap());
+
+    cmd_start.arg("--profile").arg(profile).arg("daemon").arg("start");
+    let _ = cmd_start.output().unwrap();
+    
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    // 2. Write empty status file to test Profile: '' bug
+    let empty_status_file = std::path::Path::new(&home).join("_status.json");
+    fs::write(empty_status_file, "{}").unwrap();
+
+    // 3. Reset profile
+    let mut cmd_reset = Command::cargo_bin("cowen").unwrap();
+    cmd_reset.env("COWEN_HOME", &home);
+    cmd_reset.env("HOME", &home);
+    cmd_reset.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_reset.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    cmd_reset.arg("reset").arg("-p").arg(profile);
+    let reset_out = cmd_reset.output().unwrap();
+    assert!(reset_out.status.success(), "Reset should succeed\nstdout: {}\nstderr: {}", String::from_utf8_lossy(&reset_out.stdout), String::from_utf8_lossy(&reset_out.stderr));
+
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // 4. Status --all
+    let mut cmd_status = Command::cargo_bin("cowen").unwrap();
+    cmd_status.env("COWEN_HOME", &home);
+    cmd_status.env("HOME", &home);
+    cmd_status.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_status.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    cmd_status.arg("status").arg("--all");
+    let status_out = cmd_status.output().unwrap();
+    let status_str = String::from_utf8_lossy(&status_out.stdout);
+
+    // Profile should not exist anymore, and no empty profile
+    assert!(!status_str.contains(&format!("Profile: '{}'", profile)), "Profile should be physically deleted");
+    assert!(!status_str.contains("Profile: ''"), "Empty profile should not exist");
+
+    // 5. Cleanup
+    let mut cmd_stop = Command::cargo_bin("cowen").unwrap();
+    cmd_stop.env("COWEN_HOME", &home);
+    cmd_stop.env("HOME", &home);
+    cmd_stop.arg("--profile").arg(profile).arg("daemon").arg("stop");
+    let _ = cmd_stop.output();
+}

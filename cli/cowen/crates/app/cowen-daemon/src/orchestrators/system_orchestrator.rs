@@ -86,7 +86,7 @@ impl SystemOrchestrator {
                     },
                 };
                 
-                if prof != "default" && !self.cfg_mgr.exists(&prof).await && config.app_key.is_empty() && config.app_secret.is_empty() {
+                if !self.cfg_mgr.exists(&prof).await && config.app_key.is_empty() && config.app_secret.is_empty() {
                     continue;
                 }
                 let app_config = match self.cfg_mgr.load_app_config().await {

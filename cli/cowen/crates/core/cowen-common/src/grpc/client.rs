@@ -104,7 +104,7 @@ impl DaemonClient {
             PathBuf::from("cowen-daemon")
         };
         if daemon_path.components().count() > 1 && !daemon_path.exists() {
-            bail!("cowen-daemon executable not found at {}", daemon_path.display());
+            bail!("cowen-daemon executable not found at {}. Please ensure it is installed alongside the cowen CLI or set COWEN_DAEMON_BIN.", daemon_path.display());
         }
         let app_dir = crate::config::get_app_dir();
         let log_dir = app_dir.join("logs");
@@ -122,7 +122,7 @@ impl DaemonClient {
             .stdout(std::process::Stdio::from(stdout_file))
             .stderr(std::process::Stdio::from(stderr_file))
             .spawn()
-            .context("Failed to spawn cowen-daemon process")?;
+            .context(format!("Failed to spawn cowen-daemon process from '{}'. Please ensure cowen-daemon is installed.", daemon_path.display()))?;
         eprintln!("🚀 Starting daemon...");
         for _ in 0..30 {
             tokio::time::sleep(Duration::from_millis(100)).await;

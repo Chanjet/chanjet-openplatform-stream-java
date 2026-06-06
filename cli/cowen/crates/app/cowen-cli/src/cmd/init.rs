@@ -21,7 +21,7 @@ pub async fn execute(
     // Ensure the daemon is running before initialization so we can start the worker after via IPC
     let port_path = crate::get_ipc_port_path();
     let _ = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await
-        .map_err(|e| anyhow::anyhow!("Failed to ensure daemon is running for init: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to ensure daemon is running for init: {:#}", e))?;
         
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
     

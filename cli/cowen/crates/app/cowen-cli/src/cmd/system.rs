@@ -52,7 +52,10 @@ pub async fn status(
                 println!("⚙️  System is not initialized. Please run `cowen auth login` or `cowen init` to configure a profile.\n");
             } else {
                 for s in results {
-                    let prof = s["profile"].as_str().unwrap_or("Unknown");
+                    let prof = s["profile"].as_str().unwrap_or("");
+                    if prof.trim().is_empty() {
+                        continue;
+                    }
                     println!("👤 Profile: '{}'", prof);
                     println!("----------------------------------");
                     if let Some(entries) = s["entries"].as_array() {
@@ -133,24 +136,20 @@ pub async fn reset(
     target_profile: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
+    if !dry_run {
+        let _ = ensure_daemon_running("").await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
     let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
-    if !dry_run && target_profile.is_none() {
-        let app_dir = cowen_common::config::get_app_dir();
-        let daemon_pid_file = app_dir.join("master_daemon.pid");
-        if daemon_pid_file.exists() {
-            if let Ok(pid_str) = std::fs::read_to_string(&daemon_pid_file) {
-                if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                    let sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing()));
-                    if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
-                        process.kill();
-                    }
-                }
-            }
+    if !dry_run {
+        if let Some(profile) = target_profile {
+            // Tell the daemon to stop the workers for this profile before resetting its data
+            let _ = ipc.stop_daemon(profile).await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        // Small delay to allow daemon to exit
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 
     let is_ipc_error = match ipc.system_reset(target_profile, dry_run).await {
@@ -179,6 +178,22 @@ pub async fn reset(
     if is_ipc_error {
         eprintln!("❌ Daemon not reachable. Reset cannot be performed locally in this CLI mode. Please start the daemon first.");
         return Err(anyhow::anyhow!("Reset failed: daemon unreachable"));
+    }
+
+    if !dry_run && target_profile.is_none() {
+        let app_dir = cowen_common::config::get_app_dir();
+        let daemon_pid_file = app_dir.join("master_daemon.pid");
+        if daemon_pid_file.exists() {
+            if let Ok(pid_str) = std::fs::read_to_string(&daemon_pid_file) {
+                if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                    let sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing()));
+                    if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
+                        process.kill();
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
     
     Ok(())
