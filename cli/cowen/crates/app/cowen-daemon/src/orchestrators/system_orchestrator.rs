@@ -62,7 +62,10 @@ impl SystemOrchestrator {
 
     pub async fn system_status(&self, req: SystemStatusRequest) -> Result<Response<SystemStatusResponse>, Status> {
         let mut results = Vec::new();
-        let list = self.cfg_mgr.list_profiles().await.unwrap_or_default();
+        let mut list = self.cfg_mgr.list_profiles().await.unwrap_or_default();
+        if !list.contains(&"default".to_string()) {
+            list.push("default".to_string());
+        }
         
         let profiles: Vec<String> = if req.all {
             list
@@ -83,7 +86,7 @@ impl SystemOrchestrator {
                     },
                 };
                 
-                if !self.cfg_mgr.exists(&prof).await && config.app_key.is_empty() && config.app_secret.is_empty() {
+                if prof != "default" && !self.cfg_mgr.exists(&prof).await && config.app_key.is_empty() && config.app_secret.is_empty() {
                     continue;
                 }
                 let app_config = match self.cfg_mgr.load_app_config().await {

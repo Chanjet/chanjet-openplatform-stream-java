@@ -96,11 +96,14 @@ impl DaemonClient {
         }
         let daemon_path = if let Ok(env_path) = std::env::var("COWEN_DAEMON_BIN") {
             PathBuf::from(env_path)
+        } else if let Ok(path) = std::env::current_exe() {
+            let exe_dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
+            let dir = if exe_dir.as_os_str().is_empty() { PathBuf::from(".") } else { exe_dir };
+            dir.join("cowen-daemon")
         } else {
-            let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
-            exe_dir.join("cowen-daemon")
+            PathBuf::from("cowen-daemon")
         };
-        if !daemon_path.exists() {
+        if daemon_path.components().count() > 1 && !daemon_path.exists() {
             bail!("cowen-daemon executable not found at {}", daemon_path.display());
         }
         let app_dir = crate::config::get_app_dir();
