@@ -136,8 +136,52 @@ pub async fn reset(
     target_profile: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
+    if target_profile.is_none() {
+        if dry_run {
+            println!("🔍 [DRY RUN] Full Reset Execution Plan:");
+            println!("  - Kill master daemon");
+            println!("  - Delete all .db, .db-wal, .db-shm, .yaml, .lock, .pid files");
+            println!("  - Delete logs/ and profiles/ directories");
+            return Ok(());
+        }
+
+        let app_dir = cowen_common::config::get_app_dir();
+        let daemon_pid_file = app_dir.join("master_daemon.pid");
+        if daemon_pid_file.exists() {
+            if let Ok(pid_str) = std::fs::read_to_string(&daemon_pid_file) {
+                if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                    let sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing()));
+                    if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
+                        process.kill();
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        if let Ok(entries) = std::fs::read_dir(&app_dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.ends_with(".db")
+                        || name.ends_with(".db-wal")
+                        || name.ends_with(".db-shm")
+                        || name.ends_with(".ddl.lock")
+                        || name.ends_with(".yaml")
+                        || name.ends_with(".pid")
+                    {
+                        let _ = std::fs::remove_file(entry.path());
+                    } else if name == "profiles" || name == "logs" {
+                        let _ = std::fs::remove_dir_all(entry.path());
+                    }
+                }
+            }
+        }
+        println!("✅ System reset successful");
+        return Ok(());
+    }
+
     if !dry_run {
-        let _ = ensure_daemon_running("").await;
+        let _ = ensure_daemon_running(target_profile.unwrap_or("")).await;
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
@@ -146,7 +190,6 @@ pub async fn reset(
 
     if !dry_run {
         if let Some(profile) = target_profile {
-            // Tell the daemon to stop the workers for this profile before resetting its data
             let _ = ipc.stop_daemon(profile).await;
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
@@ -178,22 +221,6 @@ pub async fn reset(
     if is_ipc_error {
         eprintln!("❌ Daemon not reachable. Reset cannot be performed locally in this CLI mode. Please start the daemon first.");
         return Err(anyhow::anyhow!("Reset failed: daemon unreachable"));
-    }
-
-    if !dry_run && target_profile.is_none() {
-        let app_dir = cowen_common::config::get_app_dir();
-        let daemon_pid_file = app_dir.join("master_daemon.pid");
-        if daemon_pid_file.exists() {
-            if let Ok(pid_str) = std::fs::read_to_string(&daemon_pid_file) {
-                if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                    let sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::nothing().with_processes(sysinfo::ProcessRefreshKind::nothing()));
-                    if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
-                        process.kill();
-                    }
-                }
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
     
     Ok(())
