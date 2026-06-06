@@ -154,3 +154,37 @@ pub async fn restart(
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     start(profile, proxy_port, enable_proxy, false, all).await
 }
+
+pub async fn service_install() -> Result<()> {
+    let bin_name = cowen_common::utils::get_bin_name();
+    let manager = cowen_sys::get_service_manager();
+    
+    let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
+    let daemon_bin_name = cowen_sys::get_daemon_binary_name();
+    let bin_path = std::env::var("COWEN_DAEMON_BIN")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| exe_dir.join(daemon_bin_name));
+    let bin_path_str = bin_path.to_string_lossy();
+    let app_dir = cowen_common::config::get_app_dir();
+    let log_dir = app_dir.join("logs");
+    let log_dir_str = log_dir.to_string_lossy();
+    
+    manager.install(&bin_name, &bin_path_str, &log_dir_str).await?;
+    Ok(())
+}
+
+pub async fn service_uninstall() -> Result<()> {
+    let bin_name = cowen_common::utils::get_bin_name();
+    let manager = cowen_sys::get_service_manager();
+    manager.uninstall(&bin_name).await?;
+    Ok(())
+}
+
+pub async fn service_status() -> Result<()> {
+    let bin_name = cowen_common::utils::get_bin_name();
+    let manager = cowen_sys::get_service_manager();
+    let status_msg = manager.status(&bin_name).await?;
+    println!("{}", status_msg);
+    Ok(())
+}
+

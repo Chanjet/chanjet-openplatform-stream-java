@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 cowen-common = { path = "../../core/cowen-common" }
+cowen-sys = { path = "../../core/cowen-sys" }
 hex = "0.4"
 
 clap = { version = "4.6", features = ["derive", "env"] }

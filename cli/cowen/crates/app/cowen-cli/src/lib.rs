@@ -444,6 +444,21 @@ pub enum DaemonCommands {
         #[arg(short, long, help = "热重启所有激活环境的工作子进程")]
         all: bool,
     },
+    /// 安装、卸载与查看系统级后台开机自启服务 (Systemd/Launchd/Windows Service)
+    Service {
+        #[command(subcommand)]
+        action: DaemonServiceCommands,
+    },
+}
+
+#[derive(clap::Subcommand)]
+pub enum DaemonServiceCommands {
+    /// 将 daemon 服务注册到操作系统并设置为开机自启
+    Install,
+    /// 从操作系统中卸载并取消自启 daemon 服务
+    Uninstall,
+    /// 查看系统级守护进程在操作系统中的注册状态
+    Status,
 }
 
 #[derive(clap::Subcommand)]
@@ -765,6 +780,11 @@ pub async fn run(cli: Cli) -> Result<()> {
                 
                 let _ = daemon_svc.reload_daemon(&active_profile).await;
                 println!("✅ Daemon workers reloaded successfully.");
+            }
+            DaemonCommands::Service { action } => match action {
+                DaemonServiceCommands::Install => cmd::daemon::service_install().await?,
+                DaemonServiceCommands::Uninstall => cmd::daemon::service_uninstall().await?,
+                DaemonServiceCommands::Status => cmd::daemon::service_status().await?,
             }
         }
         Commands::Doctor { profile, verbose, fix } => {

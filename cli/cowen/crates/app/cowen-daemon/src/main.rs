@@ -128,6 +128,18 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
     let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await.map_err(|e| anyhow::anyhow!("Failed to init Vault: {}", e))?;
     let _ = cfg_mgr.set_vault(vault.clone());
 
+    // Clean up any leftover status files from previous runs to prevent false 'Stale' errors
+    if let Ok(entries) = std::fs::read_dir(&app_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.ends_with("_status.json") {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+    }
+
     use tracing_subscriber::prelude::*;
     use tracing_subscriber::fmt::writer::MakeWriterExt;
     

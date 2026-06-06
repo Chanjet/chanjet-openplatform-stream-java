@@ -270,7 +270,7 @@ pub async fn collect_daemon_status(
                     } else { false }
                 } else { false };
 
-                let (mut conn_level, conn_icon_override, mut final_state) = if supports_webhooks && !is_fresh {
+                let (mut conn_level, conn_icon_override, mut final_state) = if supports_webhooks && !is_fresh && conn_state == "Connected" {
                     (StatusLevel::ERROR, Some("💤"), format!("{} (Stale)", conn_state))
                 } else {
                     match conn_state.as_str() {

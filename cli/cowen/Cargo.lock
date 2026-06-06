@@ -868,6 +868,7 @@ dependencies = [
  "cowen-common",
  "cowen-config",
  "cowen-store",
+ "cowen-sys",
  "directories",
  "futures-util",
  "hex",
