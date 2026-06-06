@@ -77,11 +77,16 @@ fn render_json_entry(entry: &Value, indent: usize) {
     let icon = entry["icon"].as_str().unwrap_or("");
     let message = entry["message"].as_str().unwrap_or("");
     
-    let level_str = match entry["level"].as_i64().unwrap_or(0) {
-        0 => "\x1b[32m(OK)\x1b[0m",
-        1 => "\x1b[33m(WARN)\x1b[0m",
-        2 => "\x1b[31m(ERROR)\x1b[0m",
-        _ => "(UNKNOWN)",
+    let level_str = match entry["level"].as_i64() {
+        Some(0) => "\x1b[32m(OK)\x1b[0m",
+        Some(1) => "\x1b[33m(WARN)\x1b[0m",
+        Some(2) => "\x1b[31m(ERROR)\x1b[0m",
+        _ => match entry["level"].as_str() {
+            Some("OK") => "\x1b[32m(OK)\x1b[0m",
+            Some("WARN") => "\x1b[33m(WARN)\x1b[0m",
+            Some("ERROR") => "\x1b[31m(ERROR)\x1b[0m",
+            _ => "(UNKNOWN)",
+        }
     };
 
     println!("{}{} {}: {} {}", prefix, icon, name, message, level_str);
