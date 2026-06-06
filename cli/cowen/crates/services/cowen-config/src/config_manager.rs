@@ -861,6 +861,20 @@ impl ConfigManager {
             vault.rename_profile(old_name, new_name).await?;
         }
 
+        let exts = vec![
+            "_dlq.db", "_dlq.db-wal", "_dlq.db-shm",
+            "_status.json", "_status.json.tmp",
+            "_daemon.pid", "_daemon.pid.lock",
+            ".yaml.bak"
+        ];
+        for ext in exts {
+            let old_f = self.app_dir.join(format!("{}{}", old_name, ext));
+            let new_f = self.app_dir.join(format!("{}{}", new_name, ext));
+            if old_f.exists() {
+                let _ = fs::rename(old_f, new_f);
+            }
+        }
+
         {
             let mut cache = self.manifest_cache.lock().await;
             cache.remove(old_name);
