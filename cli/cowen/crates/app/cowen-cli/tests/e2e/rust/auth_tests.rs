@@ -33,11 +33,25 @@ async fn handle_generate_token(
     Json(body): Json<serde_json::Value>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     let mut s = state.lock().await;
-    s.last_generate_token_body = Some(body);
+    s.last_generate_token_body = Some(body.clone());
 
     // Verify headers
     if headers.get("appKey").is_none() || headers.get("appSecret").is_none() {
         return (StatusCode::UNAUTHORIZED, Json(json!({"code": "50001", "message": "appKey/appSecret missing"})));
+    }
+
+    // 🚀 E2E Enhancement: Strictly validate appTicket presence in JSON body to mirror real platform behavior
+    if body.get("appTicket").is_none() {
+        return (StatusCode::BAD_REQUEST, Json(json!({
+            "result": false,
+            "error": {
+                "code": "2002",
+                "msg": "Required request parameter 'appTicket' for method parameter type String is not present",
+                "hint": null
+            },
+            "value": null,
+            "traceId": "mock-trace-id"
+        })));
     }
 
     (StatusCode::OK, Json(json!({

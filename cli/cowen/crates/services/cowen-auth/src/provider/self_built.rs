@@ -75,12 +75,44 @@ impl SelfBuiltProvider {
                 }
             }
 
+            let app_ticket = match self.pool.as_vault().get_app_ticket(cfg.app_key.trim()).await {
+                Ok(t) => t.value,
+                Err(_) => {
+                    match self.pool.as_vault().get_secret(profile, "app_ticket").await {
+                        Ok(v) => v,
+                        Err(_) => {
+                            if retry_count < 3 {
+                                tracing::warn!(target: "sys", profile = %profile, "Missing appTicket. Triggering push... (Attempt {}/3)", retry_count + 1);
+                                let _ = self.trigger_push_internal(profile, cfg, true).await;
+                                tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 35s)...");
+                                let mut waited = 0;
+                                while waited < 35 {
+                                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                    if self.pool.as_vault().get_app_ticket(cfg.app_key.trim()).await.is_ok() {
+                                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                        break;
+                                    }
+                                    waited += 1;
+                                }
+                                retry_count += 1;
+                                continue;
+                            } else {
+                                return Err(CowenError::Auth("Missing appTicket. The platform has not pushed an AppTicket yet. Please ensure daemon is running.".to_string()));
+                            }
+                        }
+                    }
+                }
+            };
+
             // 1. Build Request
             let app_cfg = cowen_config::ConfigManager::load_app_config_sync(&cowen_common::config::get_app_dir())?;
+            let path = obfs!("/v1/common/auth/selfBuiltApp/generateToken");
             let url = format!(
-                "{}{}",
+                "{}{}{}appTicket={}",
                 app_cfg.openapi_url.trim_end_matches('/'),
-                obfs!("/v1/common/auth/selfBuiltApp/generateToken")
+                path,
+                if path.contains('?') { "&" } else { "?" },
+                urlencoding::encode(&app_ticket)
             );
             let mut headers = HeaderMap::new();
             headers.insert(
@@ -107,8 +139,15 @@ impl SelfBuiltProvider {
                     serde_json::Value::String(cfg.certificate.clone()),
                 );
             }
+            // 🚀 E2E FIX: Ensure appTicket is also passed in the body so strict validation passes
+            if !app_ticket.is_empty() {
+                body_map.insert(
+                    "appTicket".to_string(),
+                    serde_json::Value::String(app_ticket.clone()),
+                );
+            }
 
-
+            tracing::info!(target: "sys", profile = %profile, "URL for generateToken: {}", url);
 
             // 2. Execute
             let resp = self
