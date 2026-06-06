@@ -105,9 +105,15 @@ impl DaemonClient {
         }
         let app_dir = crate::config::get_app_dir();
         let log_dir = app_dir.join("logs");
-        if !log_dir.exists() { let _ = std::fs::create_dir_all(&log_dir); }
-        let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))?;
-        let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))?;
+        if !log_dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(&log_dir) {
+                bail!("Failed to create daemon logs directory at {}: {}", log_dir.display(), e);
+            }
+        }
+        let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stdout.log"))
+            .with_context(|| format!("Failed to open daemon stdout log at {}", log_dir.join("daemon.stdout.log").display()))?;
+        let stderr_file = std::fs::OpenOptions::new().create(true).append(true).open(log_dir.join("daemon.stderr.log"))
+            .with_context(|| format!("Failed to open daemon stderr log at {}", log_dir.join("daemon.stderr.log").display()))?;
         let _child = std::process::Command::new(&daemon_path)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::from(stdout_file))
