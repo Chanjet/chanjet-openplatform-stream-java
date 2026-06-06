@@ -35,7 +35,15 @@ pub async fn status(
             println!("Build Time:    {}", cowen_common::BUILD_TIME);
             println!();
 
-            println!("📦 Storage: Mode: daemon-managed \x1b[32m(OK)\x1b[0m");
+            let mut store_mode = "unknown".to_string();
+            if let Ok(DaemonResponse::StoreStatusData { json: store_json }) = ipc.store_status().await {
+                if let Ok(store_val) = serde_json::from_str::<Value>(&store_json) {
+                    if let Some(s) = store_val.get("store").and_then(|v| v.as_str()) {
+                        store_mode = s.to_string();
+                    }
+                }
+            }
+            println!("📦 Storage: Mode: {} \x1b[32m(OK)\x1b[0m", store_mode);
             println!();
 
             if results.is_empty() {

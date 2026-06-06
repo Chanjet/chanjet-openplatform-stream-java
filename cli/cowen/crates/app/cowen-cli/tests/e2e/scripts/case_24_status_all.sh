@@ -67,6 +67,13 @@ else
     fail_suite "Error reporting failed"
 fi
 
+# Verify storage mode reporting
+if echo "$OUT" | grep -q "Storage: Mode: innerdb"; then
+    echo -e "   ${GREEN}✓${NC} Storage mode 'innerdb' correctly reported"
+else
+    fail_suite "Storage mode 'innerdb' not reported in status"
+fi
+
 
 # Mandatory Sanitization Check
 CONFIG_OUT=$("$COWEN_BIN" config --profile healthy 2>&1)

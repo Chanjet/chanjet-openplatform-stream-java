@@ -106,6 +106,13 @@ else
     fail_suite "Node 2 could not see 'main' profile"
 fi
 
+# Verify storage mode reporting
+if echo "$PROFILES" | grep -q "Storage: Mode: mysql"; then
+    echo -e "   ✓ Storage mode 'mysql' correctly reported"
+else
+    fail_suite "Storage mode 'mysql' not reported in status"
+fi
+
 # 3. Verify Token Synchronization
 echo -e "${BOLD}3. Verify Token Synchronization${NC}"
 

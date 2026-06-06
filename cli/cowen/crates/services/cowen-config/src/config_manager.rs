@@ -892,6 +892,14 @@ impl ConfigManager {
             key: "system:manifest".to_string() 
         });
 
+        let current_profile = self.get_default_profile();
+        if current_profile == profile {
+            // Find another available profile, or fallback to default
+            let profiles = self.list_profiles().await.unwrap_or_default();
+            let next_profile = profiles.into_iter().find(|p| p != profile).unwrap_or_else(|| "default".to_string());
+            let _ = self.set_default_profile(&next_profile);
+        }
+
         Ok(())
     }
 }
