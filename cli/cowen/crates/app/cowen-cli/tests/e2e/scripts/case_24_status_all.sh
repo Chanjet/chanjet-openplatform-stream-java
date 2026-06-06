@@ -48,6 +48,9 @@ storage:
   store: unknown_store
 EOF
 
+# Profile 4: Empty name (should be ignored)
+touch "$COWEN_HOME/.yaml"
+
 # 2. Run status --all
 echo -e "${BOLD}2. Run 'status --all' and Check Output${NC}"
 OUT=$("$COWEN_BIN" status --all)
@@ -72,6 +75,13 @@ if echo "$OUT" | grep -q "Storage: Mode: innerdb"; then
     echo -e "   ${GREEN}✓${NC} Storage mode 'innerdb' correctly reported"
 else
     fail_suite "Storage mode 'innerdb' not reported in status"
+fi
+
+# Verify empty profile is ignored
+if echo "$OUT" | grep -q "Profile: ''" || echo "$OUT" | grep -q "Profile: \"\""; then
+    fail_suite "Empty profile was incorrectly detected and displayed"
+else
+    echo -e "   ${GREEN}✓${NC} Empty profile correctly ignored"
 fi
 
 
