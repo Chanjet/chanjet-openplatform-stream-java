@@ -323,31 +323,34 @@ package-macos-aarch64: clean macos-aarch64
 impl-package-macos:
 	@echo "📦 Building Component Packages for $(ARCH)..."
 	mkdir -p pkg_core_root/usr/local/bin pkg_core_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-$(ARCH)/release
-	mkdir -p pkg_plugin_root/usr/local/share/cowen/staging
+	mkdir -p pkg_plugin_ai_root/usr/local/share/cowen/staging
+	mkdir -p pkg_plugin_mcp_root/usr/local/share/cowen/staging
 	cp $(OUTPUT_DIR)/macos-$(ARCH)/$(BINARY) pkg_core_root/usr/local/bin/$(BINARY)
 	cp $(OUTPUT_DIR)/macos-$(ARCH)/cowen-daemon pkg_core_root/usr/local/bin/cowen-daemon
 	cp dist_assets/macos/cowen-uninstall pkg_core_root/usr/local/bin/cowen-uninstall
 	cp CHANGELOG.md pkg_core_root/usr/local/share/doc/cowen/
 	cp -r dist_assets/usage pkg_core_root/usr/local/share/doc/cowen/usage
-	cp target/release/libcowen_search_embedding pkg_plugin_root/usr/local/share/cowen/staging/ || true
-	if [ -f "pkg_plugin_root/usr/local/share/cowen/staging/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_plugin_root/usr/local/share/cowen/staging/ || exit 1; fi
-	cp target/release/cowen-mcp-plugin pkg_plugin_root/usr/local/share/cowen/staging/ || true
-	if [ -f "pkg_plugin_root/usr/local/share/cowen/staging/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle pkg_plugin_root/usr/local/share/cowen/staging/ || exit 1; fi
+	cp target/release/libcowen_search_embedding pkg_plugin_ai_root/usr/local/share/cowen/staging/ || true
+	if [ -f "pkg_plugin_ai_root/usr/local/share/cowen/staging/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_plugin_ai_root/usr/local/share/cowen/staging/ || exit 1; fi
+	cp target/release/cowen-mcp-plugin pkg_plugin_mcp_root/usr/local/share/cowen/staging/ || true
+	if [ -f "pkg_plugin_mcp_root/usr/local/share/cowen/staging/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle pkg_plugin_mcp_root/usr/local/share/cowen/staging/ || exit 1; fi
 	@chmod +x dist_assets/macos/scripts_core/postinstall
 	@chmod +x dist_assets/macos/scripts_plugin/postinstall
 	pkgbuild --identifier com.chanjet.$(BINARY).core.$(ARCH) --version $(VERSION) --root pkg_core_root --install-location / --scripts dist_assets/macos/scripts_core $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg
-	pkgbuild --identifier com.chanjet.$(BINARY).plugin.$(ARCH) --version $(VERSION) --root pkg_plugin_root --install-location / --scripts dist_assets/macos/scripts_plugin $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).plugin.ai.$(ARCH) --version $(VERSION) --root pkg_plugin_ai_root --install-location / --scripts dist_assets/macos/scripts_plugin $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin-ai.pkg
+	pkgbuild --identifier com.chanjet.$(BINARY).plugin.mcp.$(ARCH) --version $(VERSION) --root pkg_plugin_mcp_root --install-location / --scripts dist_assets/macos/scripts_plugin $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin-mcp.pkg
 	@echo "🧩 Synthesizing Distribution UI..."
 	cd $(OUTPUT_DIR)/macos-$(ARCH)/release && \
-	productbuild --synthesize --package cowen-core.pkg --package cowen-plugin.pkg Distribution.xml && \
+	productbuild --synthesize --package cowen-core.pkg --package cowen-plugin-ai.pkg --package cowen-plugin-mcp.pkg Distribution.xml && \
 	sed -i '' 's/customize="never"/customize="always"/' Distribution.xml && \
-	perl -0777 -pi -e 's#<choices-outline>.*?</choices-outline>#<choices-outline>\\n        <line choice="com.chanjet.$(BINARY).core.$(ARCH)"/>\\n        <line choice="com.chanjet.$(BINARY).plugin.$(ARCH)"/>\\n    </choices-outline>#s' Distribution.xml && \
+	perl -0777 -pi -e 's#<choices-outline>.*?</choices-outline>#<choices-outline>\\n        <line choice="com.chanjet.$(BINARY).core.$(ARCH)"/>\\n        <line choice="com.chanjet.$(BINARY).plugins_group">\\n            <line choice="com.chanjet.$(BINARY).plugin.ai.$(ARCH)"/>\\n            <line choice="com.chanjet.$(BINARY).plugin.mcp.$(ARCH)"/>\\n        </line>\\n    </choices-outline>#s' Distribution.xml && \
 	perl -pi -e 's#<choice id="default"/>##g' Distribution.xml && \
-	sed -i '' 's/<choice id="com.chanjet.$(BINARY).core.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).core.$(ARCH)" title="Cowen Core CLI" description="The core Cowen CLI and daemon." visible="true" enabled="false" selected="true">/' Distribution.xml && \
-	sed -i '' 's/<choice id="com.chanjet.$(BINARY).plugin.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).plugin.$(ARCH)" title="Cowen Plugins" description="Installs the bundled plugins (AI Embedding, MCP Plugin)." visible="true" selected="true">/' Distribution.xml && \
+	sed -i '' 's/<choice id="com.chanjet.$(BINARY).core.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).plugins_group" title="Cowen Plugins" description="Optional plugins for Cowen." visible="true" selected="true"\/>\n    <choice id="com.chanjet.$(BINARY).core.$(ARCH)" title="Cowen Core CLI" description="The core Cowen CLI and daemon." visible="true" enabled="false" selected="true">/' Distribution.xml && \
+	sed -i '' 's/<choice id="com.chanjet.$(BINARY).plugin.ai.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).plugin.ai.$(ARCH)" title="Cowen AI Plugin" description="Installs the AI Embedding and Search plugin." visible="true" selected="true">/' Distribution.xml && \
+	sed -i '' 's/<choice id="com.chanjet.$(BINARY).plugin.mcp.$(ARCH)".*>/<choice id="com.chanjet.$(BINARY).plugin.mcp.$(ARCH)" title="Cowen MCP Plugin" description="Installs the Model Context Protocol (MCP) plugin." visible="true" selected="true">/' Distribution.xml && \
 	productbuild --distribution Distribution.xml --package-path . $(BINARY)-v$(VERSION)-macos-$(ARCH).pkg
-	rm -rf pkg_core_root pkg_plugin_root
-	rm -f $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/Distribution.xml
+	rm -rf pkg_core_root pkg_plugin_ai_root pkg_plugin_mcp_root
+	rm -f $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin-ai.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin-mcp.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/Distribution.xml
 	cp dist_assets/macos/cowen-uninstall $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-uninstall
 	@$(call MD5,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)
 	@$(call SHA1,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)

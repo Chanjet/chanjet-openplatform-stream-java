@@ -197,10 +197,11 @@ pub async fn ensure_daemon_running(
     }
 
     let port_path = crate::get_ipc_port_path();
-    if !port_path.exists() {
+    let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path);
+    if ipc_client.ping().await.is_err() {
         eprintln!("⚠️  Daemon not running, triggering auto-recovery...");
     }
-    if let Err(e) = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await {
+    if let Err(e) = ipc_client.ensure_daemon().await {
         eprintln!("❌ ensure_daemon failed: {}", e);
     }
     

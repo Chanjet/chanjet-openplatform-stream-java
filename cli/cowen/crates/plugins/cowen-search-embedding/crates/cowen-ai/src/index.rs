@@ -1,7 +1,7 @@
 
 use serde::{Serialize, Deserialize};
 use std::fs;
-use std::path::PathBuf;
+
 
 /// A vectorized API document
 #[derive(Debug, Serialize, Deserialize, Clone)]

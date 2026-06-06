@@ -121,12 +121,11 @@ pub async fn start(
 
 pub async fn stop(profile: &str, all: bool) -> Result<()> {
     let port_path = crate::get_ipc_port_path();
-    if !port_path.exists() {
+    let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path);
+    if ipc_client.ping().await.is_err() {
         eprintln!("✅ No running daemon found.");
         return Ok(());
     }
-
-    let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path);
     if all {
         match ipc_client.stop_all().await {
             Ok(cowen_common::grpc::client::DaemonResponse::Success { message }) => eprintln!("✅ {}", message),

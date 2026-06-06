@@ -22,8 +22,7 @@ if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
     kill -9 "$PID" 2>/dev/null || true
     rm -f "$COWEN_HOME/master_daemon.pid" || true
 fi
-rm -f "$COWEN_HOME/ipc.port" || true
-rm -f "$COWEN_HOME/ipc.token" || true
+rm -f "$COWEN_HOME/cowen-ipc.sock" || true
 sleep 1
 
 echo "  [Test A] Pre-flight Check & Dynamic Port Recovery"
@@ -56,7 +55,7 @@ if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
     kill -9 "$PID" 2>/dev/null || true
     rm -f "$COWEN_HOME/master_daemon.pid" || true
 fi
-rm -f "$COWEN_HOME/ipc.port" || true
+rm -f "$COWEN_HOME/cowen-ipc.sock" || true
 sleep 1
 
 echo "  [Test B] Synchronous Crash Feedback"

@@ -22,14 +22,14 @@ pub struct CowenDaemonController {
 }
 
 impl CowenDaemonController {
-    pub fn new(service: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, cfg_mgr: ConfigManager) -> Self {
+    pub fn new(service: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, ipc_port: u16) -> Self {
         Self { 
             service, 
             vault: vault.clone(), 
             cfg_mgr: cfg_mgr.clone(),
             search_orchestrator: crate::orchestrators::SearchOrchestrator::new(),
             api_orchestrator: crate::orchestrators::ApiOrchestrator::new(vault.clone(), cfg_mgr.clone()),
-            system_orchestrator: crate::orchestrators::SystemOrchestrator::new(vault.clone(), cfg_mgr.clone()),
+            system_orchestrator: crate::orchestrators::SystemOrchestrator::new(vault.clone(), cfg_mgr.clone(), ipc_port),
             dlq_orchestrator: crate::orchestrators::DlqOrchestrator::new(vault, cfg_mgr),
         }
     }

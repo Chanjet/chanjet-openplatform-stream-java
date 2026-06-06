@@ -317,16 +317,48 @@ impl IpcBinder for WinIpcBinder {
         Ok(listener)
     }
     
-    async fn load_ipc_token(&self, token_file: &Path) -> anyhow::Result<String> {
-        let content = std::fs::read_to_string(token_file)?;
-        Ok(content.trim().to_string())
+    async fn serve_handshake(&self, app_dir: &Path, payload: String, mut stop_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> {
+        use tokio::net::windows::named_pipe::ServerOptions;
+        let pipe_name = format!(r"\\.\pipe\cowen_ipc_{}", app_dir.to_string_lossy().replace("\\", "_").replace(":", "_"));
+        
+        loop {
+            let mut server = match ServerOptions::new().first_pipe_instance(false).create(&pipe_name) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("Failed to create named pipe: {}", e);
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    continue;
+                }
+            };
+
+            tokio::select! {
+                _ = stop_rx.recv() => {
+                    break;
+                }
+                connect_res = server.connect() => {
+                    if connect_res.is_ok() {
+                        let payload_clone = payload.clone();
+                        tokio::spawn(async move {
+                            use tokio::io::AsyncWriteExt;
+                            let _ = server.write_all(payload_clone.as_bytes()).await;
+                            let _ = server.flush().await;
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
     }
     
-    async fn save_ipc_token(&self, token_file: &Path, token: &str) -> anyhow::Result<()> {
-        let temp_file = token_file.with_extension("tmp");
-        std::fs::write(&temp_file, token)?;
-        std::fs::rename(temp_file, token_file)?;
-        Ok(())
+    async fn fetch_handshake(&self, app_dir: &Path) -> anyhow::Result<String> {
+        use tokio::net::windows::named_pipe::ClientOptions;
+        let pipe_name = format!(r"\\.\pipe\cowen_ipc_{}", app_dir.to_string_lossy().replace("\\", "_").replace(":", "_"));
+        
+        let mut client = ClientOptions::new().open(&pipe_name)?;
+        use tokio::io::AsyncReadExt;
+        let mut buf = String::new();
+        client.read_to_string(&mut buf).await?;
+        Ok(buf)
     }
 }
 
@@ -372,33 +404,4 @@ pub mod fs {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use cowen_infra::sys::IpcBinder;
-    use std::sync::Arc;
-
-    #[tokio::test]
-    async fn test_save_ipc_token_atomic() {
-        let dir = tempfile::tempdir().unwrap();
-        let token_file = dir.path().join("test_ipc_win.token");
-        let binder = Arc::new(WinIpcBinder::new());
-        
-        let mut handles = vec![];
-        for i in 0..50 {
-            let b = binder.clone();
-            let tf = token_file.clone();
-            handles.push(tokio::spawn(async move {
-                let token = format!("token_{}", i);
-                b.save_ipc_token(&tf, &token).await.unwrap();
-                let read_back = b.load_ipc_token(&tf).await.unwrap();
-                assert!(!read_back.is_empty());
-            }));
-        }
-
-        for h in handles {
-            h.await.unwrap();
-        }
-        
-        let tmp_file = token_file.with_extension("tmp");
-        assert!(!tmp_file.exists(), "Temporary file should be atomically renamed and not left behind");
-    }
 }

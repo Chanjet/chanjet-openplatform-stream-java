@@ -139,9 +139,13 @@ impl DaemonClient {
     }
 
     pub async fn connect_to_daemon(&self) -> Result<InterceptedClient> {
-        if !self.port_path.exists() { bail!("Port file missing"); }
-        let port_str = std::fs::read_to_string(&self.port_path)?;
-        let port: u16 = port_str.trim().parse()?;
+        let app_dir = self.port_path.parent().unwrap_or_else(|| Path::new(""));
+        let handshake_json = cowen_sys::get_ipc_binder().fetch_handshake(app_dir).await.context("Failed to fetch IPC handshake")?;
+        
+        let parsed: serde_json::Value = serde_json::from_str(&handshake_json).context("Invalid handshake payload")?;
+        let port = parsed["port"].as_u64().context("Missing port in handshake")? as u16;
+        let fetched_token = parsed["token"].as_str().unwrap_or_default().to_string();
+
         let endpoint = format!("http://127.0.0.1:{}", port);
         let channel = tonic::transport::Endpoint::new(endpoint)?
             .timeout(Duration::from_secs(30))
@@ -152,8 +156,7 @@ impl DaemonClient {
         let token = if let Ok(t) = std::env::var("COWEN_CLI_TOKEN").or_else(|_| std::env::var("COWEN_PLUGIN_IPC_TOKEN")) {
             t
         } else {
-            let token_path = self.port_path.with_file_name("ipc.token");
-            std::fs::read_to_string(&token_path).unwrap_or_default()
+            fetched_token
         };
 
         let interceptor = AuthInterceptor { token: token.trim().to_string() };

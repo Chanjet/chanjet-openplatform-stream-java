@@ -20,11 +20,12 @@ use cowen_common::grpc::proto::{
 pub struct SystemOrchestrator {
     vault: Arc<dyn Vault>,
     cfg_mgr: ConfigManager,
+    ipc_port: u16,
 }
 
 impl SystemOrchestrator {
-    pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager) -> Self {
-        Self { vault, cfg_mgr }
+    pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, ipc_port: u16) -> Self {
+        Self { vault, cfg_mgr, ipc_port }
     }
 
     pub async fn doctor(&self, req: DoctorRequest) -> Result<Response<DoctorResponse>, Status> {
@@ -280,9 +281,7 @@ impl SystemOrchestrator {
         let bridge_token = cowen_common::jwt::sign_jwt(&plugin_claims, &jwt_secret_vec)
             .map_err(|e| Status::internal(format!("Failed to sign token: {}", e)))?;
 
-        let port_path = cowen_common::config::get_app_dir().join("ipc.port");
-        let port_str = std::fs::read_to_string(&port_path)
-            .unwrap_or_else(|_| "0".to_string());
+        let port_str = self.ipc_port.to_string();
             
         let profile = first_msg.envs.get("COWEN_PROFILE").cloned().unwrap_or_else(|| "default".to_string());
 

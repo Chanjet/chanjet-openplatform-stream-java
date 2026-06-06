@@ -1,8 +1,6 @@
 use std::path::Path;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Sender;
-use std::os::unix::fs::OpenOptionsExt;
-use std::io::Write;
 
 pub struct UnixProcessManager {
     stop_tx: std::sync::Mutex<Option<Sender<()>>>,
@@ -90,6 +88,14 @@ impl UnixIpcBinder {
     pub fn new() -> Self {
         Self
     }
+    
+    fn get_sock_path(app_dir: &Path) -> std::path::PathBuf {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(app_dir.to_string_lossy().as_bytes());
+        let hash: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+        std::path::PathBuf::from(format!("/tmp/cowen_ipc_{}.sock", &hash[0..16]))
+    }
 }
 
 #[async_trait::async_trait]
@@ -99,22 +105,46 @@ impl cowen_infra::sys::IpcBinder for UnixIpcBinder {
         Ok(listener)
     }
     
-    async fn load_ipc_token(&self, token_file: &Path) -> anyhow::Result<String> {
-        let content = std::fs::read_to_string(token_file)?;
-        Ok(content.trim().to_string())
+    async fn serve_handshake(&self, app_dir: &Path, payload: String, mut stop_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> {
+        let sock_path = Self::get_sock_path(app_dir);
+        if sock_path.exists() {
+            let _ = std::fs::remove_file(&sock_path);
+        }
+        let listener = tokio::net::UnixListener::bind(&sock_path)?;
+        
+        // Ensure 0600 permissions
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&sock_path)?.permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&sock_path, perms)?;
+        
+        loop {
+            tokio::select! {
+                _ = stop_rx.recv() => {
+                    let _ = std::fs::remove_file(&sock_path);
+                    break;
+                }
+                accept_res = listener.accept() => {
+                    if let Ok((mut stream, _)) = accept_res {
+                        let payload_clone = payload.clone();
+                        tokio::spawn(async move {
+                            use tokio::io::AsyncWriteExt;
+                            let _ = stream.write_all(payload_clone.as_bytes()).await;
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
     }
     
-    async fn save_ipc_token(&self, token_file: &Path, token: &str) -> anyhow::Result<()> {
-        let temp_file = token_file.with_extension("tmp");
-        {
-            let mut opts = std::fs::OpenOptions::new();
-            opts.write(true).create(true).truncate(true).mode(0o600);
-            let mut f = opts.open(&temp_file)?;
-            f.write_all(token.as_bytes())?;
-            f.sync_all()?;
-        }
-        std::fs::rename(temp_file, token_file)?;
-        Ok(())
+    async fn fetch_handshake(&self, app_dir: &Path) -> anyhow::Result<String> {
+        let sock_path = Self::get_sock_path(app_dir);
+        let mut stream = tokio::net::UnixStream::connect(&sock_path).await?;
+        use tokio::io::AsyncReadExt;
+        let mut buf = String::new();
+        stream.read_to_string(&mut buf).await?;
+        Ok(buf)
     }
 }
 
@@ -196,33 +226,4 @@ pub mod fs {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use cowen_infra::sys::IpcBinder;
-    use std::sync::Arc;
-
-    #[tokio::test]
-    async fn test_save_ipc_token_atomic() {
-        let dir = tempfile::tempdir().unwrap();
-        let token_file = dir.path().join("test_ipc.token");
-        let binder = Arc::new(UnixIpcBinder::new());
-        
-        let mut handles = vec![];
-        for i in 0..50 {
-            let b = binder.clone();
-            let tf = token_file.clone();
-            handles.push(tokio::spawn(async move {
-                let token = format!("token_{}", i);
-                b.save_ipc_token(&tf, &token).await.unwrap();
-                let read_back = b.load_ipc_token(&tf).await.unwrap();
-                assert!(!read_back.is_empty());
-            }));
-        }
-
-        for h in handles {
-            h.await.unwrap();
-        }
-        
-        let tmp_file = token_file.with_extension("tmp");
-        assert!(!tmp_file.exists(), "Temporary file should be atomically renamed and not left behind");
-    }
 }

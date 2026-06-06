@@ -97,7 +97,8 @@ async fn test_daemon_version_sync_restart() {
         stderr_recover.contains("Daemon not running, triggering auto-recovery") ||
         stderr_recover.contains("Startup command sent to daemon") ||
         stdout_recover.contains("started successfully") ||
-        stderr_recover.contains("started successfully"),
+        stderr_recover.contains("started successfully") ||
+        stderr_recover.contains("Starting daemon..."),
         "Recovery failed. Stdout: {}, Stderr: {}", stdout_recover, stderr_recover
     );
 

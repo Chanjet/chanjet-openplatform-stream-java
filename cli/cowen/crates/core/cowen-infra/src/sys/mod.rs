@@ -34,10 +34,10 @@ pub mod traits {
     pub trait IpcBinder: Send + Sync {
         /// 动态绑定本地 TCP 监听服务，自适应防冲突分配
         async fn bind_ipc_listener(&self, addr: &str) -> anyhow::Result<TcpListener>;
-        /// 读取仅对当前运行用户具有 0600 读写权限的随机鉴权 Token 字符串
-        async fn load_ipc_token(&self, token_file: &Path) -> anyhow::Result<String>;
-        /// 保存仅对当前运行用户具有 0600 读写权限的随机鉴权 Token 字符串
-        async fn save_ipc_token(&self, token_file: &Path, token: &str) -> anyhow::Result<()>;
+        /// (Out-of-Band Bootstrapping) 服务端暴露一个 UDS/Named Pipe 并向连接的客户端下发包含 Port 和 Token 的 JSON
+        async fn serve_handshake(&self, app_dir: &Path, payload: String, stop_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()>;
+        /// (Out-of-Band Bootstrapping) 客户端连接 UDS/Named Pipe 获取服务端的 JSON 连接凭证
+        async fn fetch_handshake(&self, app_dir: &Path) -> anyhow::Result<String>;
     }
 
     #[async_trait::async_trait]

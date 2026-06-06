@@ -867,7 +867,6 @@ dependencies = [
  "config",
  "cowen-common",
  "cowen-config",
- "cowen-daemon",
  "cowen-store",
  "directories",
  "futures-util",

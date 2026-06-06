@@ -1,10 +1,8 @@
 #!/bin/bash
-# Cowen AI Plugin Post-installation script
+# Cowen Plugin Post-installation script
 
-# Path where the binary is installed by pkgbuild (base on --install-location /)
 BINARY_PATH="/usr/local/bin/cowen"
-STAGING_FILE="/usr/local/share/cowen/staging/libcowen_search_embedding"
-STAGING_BUNDLE="/usr/local/share/cowen/staging/libcowen_search_embedding.bundle"
+STAGING_DIR="/usr/local/share/cowen/staging"
 
 # 1. 准确获取当前图形界面的真实登录用户（绕过 root 环境）
 # macOS Installer app runs as root, but we want to install the plugin for the user who invoked it.
@@ -21,33 +19,38 @@ fi
 REAL_HOME=$(eval echo ~$CURRENT_USER)
 PLUGIN_DIR="$REAL_HOME/.cowen/plugins"
 
-echo "📟 Installing AI plugin for user: $CURRENT_USER (Home: $REAL_HOME)"
+echo "📟 Installing plugins for user: $CURRENT_USER (Home: $REAL_HOME)"
 
 # 2. 为该用户创建目录
 mkdir -p "$PLUGIN_DIR"
 
-# 3. 把中转区的文件移动到用户的真实目录下
-if [ -f "$STAGING_FILE" ]; then
-    mv "$STAGING_FILE" "$PLUGIN_DIR/"
-fi
-if [ -f "$STAGING_BUNDLE" ]; then
-    mv "$STAGING_BUNDLE" "$PLUGIN_DIR/"
-fi
-
-# 4. 关键：把文件的所有权交还给真实用户
-chown -R "$CURRENT_USER" "$PLUGIN_DIR"
-
-# 5. 动态修改该用户的配置，启用插件 (利用 cowen 自身的功能)
-if [ -x "$BINARY_PATH" ]; then
-    # Wait for daemon to stabilize if it was just installed
-    sleep 1
-    echo "⚙️  Enabling plugin within cowen CLI..."
-    sudo -u "$CURRENT_USER" "$BINARY_PATH" plugins enable libcowen_search_embedding > /dev/null 2>&1 || true
-else
-    echo "⚠️  Cowen core binary not found at $BINARY_PATH, skip enabling plugin."
+# 3. 动态将 staging 目录下的所有插件移动到用户的真实目录下
+if [ -d "$STAGING_DIR" ]; then
+    for file in "$STAGING_DIR"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            echo "📦 Moving plugin $filename to $PLUGIN_DIR/"
+            mv "$file" "$PLUGIN_DIR/"
+            
+            # 4. 把文件的所有权交还给真实用户
+            chown -R "$CURRENT_USER" "$PLUGIN_DIR/$filename"
+            
+            # 5. 动态修改该用户的配置，启用插件 (利用 cowen 自身的功能)
+            if [[ "$filename" != *.bundle ]]; then
+                if [ -x "$BINARY_PATH" ]; then
+                    # Wait for daemon to stabilize if it was just installed
+                    sleep 1
+                    echo "⚙️  Enabling plugin $filename within cowen CLI..."
+                    sudo -u "$CURRENT_USER" "$BINARY_PATH" plugins enable "$filename" > /dev/null 2>&1 || true
+                else
+                    echo "⚠️  Cowen core binary not found at $BINARY_PATH, skip enabling plugin $filename."
+                fi
+            fi
+        fi
+    done
 fi
 
 # 6. 清理公共中转区
-rm -rf /usr/local/share/cowen/staging/
+rm -rf "$STAGING_DIR"
 
 exit 0

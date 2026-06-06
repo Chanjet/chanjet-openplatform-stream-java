@@ -70,18 +70,18 @@ impl SysFingerprint for MockWindowsSys {
     }
 }
 
-#[async_trait::async_trait]
-impl IpcBinder for MockWindowsSys {
-    async fn bind_ipc_listener(&self, _addr: &str) -> anyhow::Result<TcpListener> {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
-        Ok(listener)
+    #[async_trait::async_trait]
+    impl IpcBinder for MockWindowsSys {
+        async fn bind_ipc_listener(&self, _addr: &str) -> anyhow::Result<TcpListener> {
+            let listener = TcpListener::bind("127.0.0.1:0").await?;
+            Ok(listener)
+        }
+        
+        async fn serve_handshake(&self, _app_dir: &Path, _payload: String, _stop_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> {
+            Ok(())
+        }
+        
+        async fn fetch_handshake(&self, _app_dir: &Path) -> anyhow::Result<String> {
+            Ok(r#"{"port":1234,"token":"mock-windows-ipc-token-secret"}"#.to_string())
+        }
     }
-    
-    async fn load_ipc_token(&self, _token_file: &Path) -> anyhow::Result<String> {
-        Ok("mock-windows-ipc-token-secret".to_string())
-    }
-    
-    async fn save_ipc_token(&self, _token_file: &Path, _token: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-}

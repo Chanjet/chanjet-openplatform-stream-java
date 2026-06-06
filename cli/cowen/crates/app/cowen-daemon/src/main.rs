@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     result
 }
 
-async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start_all: bool) -> Result<()> {
+async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_start_all: bool) -> Result<()> {
     // Initialize Rustls Crypto Provider (Mandatory for Rustls 0.23+)
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -86,9 +86,6 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let ipc_port = listener.local_addr()?.port();
-    
-    let target_ipc_port_file = ipc_port_file.unwrap_or_else(|| cowen_common::config::get_app_dir().join("ipc.port"));
-    let target_ipc_token_file = target_ipc_port_file.with_file_name("ipc.token");
     
     // Generate ephemeral JWT secret
     let jwt_secret = cowen_common::jwt::generate_ephemeral_secret();
@@ -153,9 +150,15 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     info!("Starting cowen-daemon...");
     info!("Listening on TCP IPC port: {}", ipc_port);
     
-    // Write IPC port early so CLI clients can connect (they will block until the accept loop starts)
-    let _ = cowen_sys::get_ipc_binder().save_ipc_token(&target_ipc_token_file, &ipc_token).await;
-    cowen_common::utils::secure_write(&target_ipc_port_file, ipc_port.to_string())?;
+    // Serve the handshake payload over UDS/Named Pipe
+    let handshake_payload = format!(r#"{{"port":{}, "token":"{}"}}"#, ipc_port, ipc_token);
+    let app_dir_clone = app_dir.clone();
+    let (hs_stop_tx, hs_stop_rx) = tokio::sync::mpsc::channel(1);
+    tokio::spawn(async move {
+        if let Err(e) = cowen_sys::get_ipc_binder().serve_handshake(&app_dir_clone, handshake_payload, hs_stop_rx).await {
+            tracing::error!("Failed to serve IPC handshake: {}", e);
+        }
+    });
     
     let daemon_svc: Arc<dyn DaemonService> = Arc::new(ServerDaemonService::new(cfg_mgr.clone()));
 
@@ -234,7 +237,7 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     }
 
 
-    let controller = crate::controller::CowenDaemonController::new(daemon_svc.clone(), vault.clone(), cfg_mgr.clone());
+    let controller = crate::controller::CowenDaemonController::new(daemon_svc.clone(), vault.clone(), cfg_mgr.clone(), ipc_port);
     
     let secret_clone = jwt_secret.clone();
     let auth_interceptor = move |mut req: tonic::Request<()>| -> std::result::Result<tonic::Request<()>, tonic::Status> {
@@ -276,10 +279,11 @@ async fn run_main(pid_file: &PathBuf, ipc_port_file: Option<PathBuf>, auto_start
     use cowen_common::daemon::DaemonService;
     let _ = daemon_svc.stop_all().await;
     
-    // Clean up PID file and UDS socket
+    // Stop handshake server
+    let _ = hs_stop_tx.send(()).await;
+    
+    // Clean up PID file
     let _ = std::fs::remove_file(pid_file);
-    let _ = std::fs::remove_file(&target_ipc_port_file);
-    let _ = std::fs::remove_file(&target_ipc_token_file);
     info!("cowen-daemon shutdown complete.");
     
     Ok(())
