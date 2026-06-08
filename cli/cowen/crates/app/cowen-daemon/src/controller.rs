@@ -428,3 +428,98 @@ impl CowenDaemonService for CowenDaemonController {
         self.system_orchestrator.tunnel_plugin(request.into_inner()).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cowen_common::jwt::{IpcClaims, IpcRole};
+    use tonic::Request;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn make_req(role: IpcRole, sub: &str, scopes: Vec<&str>) -> Request<()> {
+        let mut req = Request::new(());
+        let claims = IpcClaims::new(sub.to_string(), role, scopes.into_iter().map(|s| s.to_string()).collect(), 3600);
+        req.extensions_mut().insert(claims);
+        req
+    }
+
+    #[test]
+    fn test_rbac_not_plugin_is_allowed() {
+        let req = make_req(IpcRole::Admin, "sys", vec![]);
+        assert!(check_rbac(&req, Some("profile_a"), &["domain:read"], &["domain:write"]).is_ok());
+    }
+
+    #[test]
+    fn test_rbac_target_profile_match() {
+        let req = make_req(IpcRole::Plugin, "plugin_a", vec![]);
+        // Match
+        assert!(check_rbac(&req, Some("plugin_a"), &[], &[]).is_ok());
+        // Mismatch
+        let err = check_rbac(&req, Some("plugin_b"), &[], &[]).unwrap_err();
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[test]
+    fn test_rbac_default_deny_when_no_scopes_requested() {
+        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:read"]);
+        // If neither profile nor scopes are requested, it should deny
+        let err = check_rbac(&req, None, &[], &[]).unwrap_err();
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    #[test]
+    fn test_rbac_wildcard_permission() {
+        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["*"]);
+        // Wildcard allows everything
+        assert!(check_rbac(&req, None, &["domain:read", "domain:write"], &["domain:execute"]).is_ok());
+    }
+
+    #[test]
+    fn test_rbac_all_scopes_and_logic() {
+        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:read", "domain:write"]);
+        
+        // Has all required
+        assert!(check_rbac(&req, None, &["domain:read", "domain:write"], &[]).is_ok());
+        
+        // Missing one required
+        let err = check_rbac(&req, None, &["domain:read", "domain:execute"], &[]).unwrap_err();
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+        assert!(err.message().contains("lacks required permissions"));
+    }
+
+    #[test]
+    fn test_rbac_any_scopes_or_logic() {
+        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:execute"]);
+        
+        // Has at least one
+        assert!(check_rbac(&req, None, &[], &["domain:read", "domain:execute"]).is_ok());
+        
+        // Has none of them
+        let err = check_rbac(&req, None, &[], &["domain:read", "domain:write"]).unwrap_err();
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+        assert!(err.message().contains("lacks any of the permissions"));
+    }
+
+    #[test]
+    fn test_rbac_mixed_logic() {
+        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:read", "domain:execute"]);
+        
+        // Must have "read", AND (must have "write" OR "execute")
+        assert!(check_rbac(&req, None, &["domain:read"], &["domain:write", "domain:execute"]).is_ok());
+
+        // Must have "write" (fails), AND (must have "execute")
+        let err = check_rbac(&req, None, &["domain:write"], &["domain:execute"]).unwrap_err();
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+    
+    #[test]
+    fn test_rbac_target_profile_and_scopes() {
+        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:read"]);
+        // Profile matches, but scope is missing
+        let err = check_rbac(&req, Some("plugin_a"), &["domain:write"], &[]).unwrap_err();
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+
+        // Profile matches, and scope matches
+        assert!(check_rbac(&req, Some("plugin_a"), &["domain:read"], &[]).is_ok());
+    }
+}
