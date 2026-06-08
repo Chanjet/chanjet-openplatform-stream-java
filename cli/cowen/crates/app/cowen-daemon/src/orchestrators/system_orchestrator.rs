@@ -294,7 +294,8 @@ impl SystemOrchestrator {
             }
         }
 
-        if let Some(m) = manifest_val {
+        let mut allowed_commands: std::collections::HashSet<String> = std::collections::HashSet::new();
+        if let Some(m) = &manifest_val {
             if let Some(perms) = m.get("requested_permissions").and_then(|p| p.as_object()) {
                 for (k, v) in perms {
                     if v.as_bool().unwrap_or(false) {
@@ -308,6 +309,29 @@ impl SystemOrchestrator {
                     }
                 }
             }
+
+            if let Some(contributes) = m.get("contributes").and_then(|c| c.as_object()) {
+                if let Some(cmds) = contributes.get("cli_commands").and_then(|c| c.as_array()) {
+                    for cmd in cmds {
+                        if let Some(name) = cmd.get("name").and_then(|n| n.as_str()) {
+                            allowed_commands.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        let requested_cmd = if first_msg.args.is_empty() || first_msg.args[0].starts_with('-') {
+            "".to_string()
+        } else {
+            first_msg.args[0].clone()
+        };
+
+        if !allowed_commands.contains(&requested_cmd) {
+            return Err(Status::permission_denied(format!(
+                "Command execution denied: '{}' is not declared in plugin.json contributes.cli_commands",
+                if requested_cmd.is_empty() { "<root>" } else { &requested_cmd }
+            )));
         }
         
         let jwt_secret_vec = cowen_common::jwt::get_global_daemon_secret().cloned().unwrap_or_default();
