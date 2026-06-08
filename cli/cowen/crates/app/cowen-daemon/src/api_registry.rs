@@ -4,7 +4,7 @@ use cowen_common::vault::Vault;
 use cowen_config::ConfigManager;
 use cowen_common::grpc::proto::api_registry_service_server::ApiRegistryService;
 use cowen_common::grpc::proto::{ApiListRequest, ApiListResponse, ApiSpecRequest, ApiSpecResponse, CallApiRequest, CallApiResponse};
-use crate::controller::check_rbac;
+use cowen_macros::{rbac, rbac_controller};
 use cowen_auth::client::Client;
 
 pub struct ApiRegistryController {
@@ -25,15 +25,16 @@ impl ApiRegistryController {
     }
 }
 
+#[rbac_controller(domain = "native.api.registry")]
 #[tonic::async_trait]
 impl ApiRegistryService for ApiRegistryController {
+    #[rbac(action = "execute")]
     async fn call_api(&self, request: Request<CallApiRequest>) -> Result<Response<CallApiResponse>, Status> {
-        check_rbac(&request, None, Some("native.api.registry:execute"))?;
         self.api_orchestrator.call_api(request.into_inner()).await
     }
 
+    #[rbac(action = "search")]
     async fn api_list(&self, request: Request<ApiListRequest>) -> Result<Response<ApiListResponse>, Status> {
-        check_rbac(&request, None, Some("native.api.registry:search"))?;
         let req = request.into_inner();
         let config = match self.cfg_mgr.load(&req.profile).await {
             Ok(c) => c,
@@ -72,8 +73,8 @@ impl ApiRegistryService for ApiRegistryController {
         }
     }
 
+    #[rbac(action = "read")]
     async fn api_spec(&self, request: Request<ApiSpecRequest>) -> Result<Response<ApiSpecResponse>, Status> {
-        check_rbac(&request, None, Some("native.api.registry:read"))?;
         self.api_orchestrator.api_spec(request.into_inner()).await
     }
 }

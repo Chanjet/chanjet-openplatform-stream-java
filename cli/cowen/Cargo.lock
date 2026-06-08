@@ -961,6 +961,7 @@ dependencies = [
  "cowen-config",
  "cowen-doctor",
  "cowen-infra",
+ "cowen-macros",
  "cowen-monitor",
  "cowen-search",
  "cowen-server",
@@ -1018,6 +1019,15 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "cowen-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

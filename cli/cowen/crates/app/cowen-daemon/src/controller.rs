@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
+use cowen_macros::rbac;
 
 use cowen_common::grpc::proto;
 use proto::cowen_daemon_service_server::CowenDaemonService;
@@ -61,8 +62,8 @@ impl CowenDaemonService for CowenDaemonController {
         Ok(Response::new(PingResponse { message: "pong".to_string() }))
     }
 
+    #[rbac]
     async fn start_worker(&self, request: Request<StartWorkerRequest>) -> Result<Response<StartWorkerResponse>, Status> {
-        check_rbac(&request, None, None)?;
         let req = request.into_inner();
         info!("StartWorker requested for {}", req.profile);
         
@@ -84,8 +85,9 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac]
     async fn start_all_workers(&self, request: Request<StartAllWorkersRequest>) -> Result<Response<StartAllWorkersResponse>, Status> {
-        check_rbac(&request, None, None)?;
+        let _ = &request;
         info!("StartAllWorkers requested");
         match self.service.start_all().await {
             Ok(_) => Ok(Response::new(StartAllWorkersResponse { success: true, message: "All workers started".to_string() })),
@@ -93,8 +95,8 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac]
     async fn stop_worker(&self, request: Request<StopWorkerRequest>) -> Result<Response<StopWorkerResponse>, Status> {
-        check_rbac(&request, None, None)?;
         let req = request.into_inner();
         info!("StopWorker requested for {}", req.profile);
         match self.service.stop_daemon(&req.profile).await {
@@ -103,8 +105,9 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac]
     async fn stop_all_workers(&self, request: Request<StopAllWorkersRequest>) -> Result<Response<StopAllWorkersResponse>, Status> {
-        check_rbac(&request, None, None)?;
+        let _ = &request;
         info!("StopAllWorkers requested");
         match self.service.stop_all().await {
             Ok(_) => Ok(Response::new(StopAllWorkersResponse { success: true, message: "All workers stopped".to_string() })),
@@ -112,8 +115,8 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac]
     async fn reload_worker(&self, request: Request<ReloadWorkerRequest>) -> Result<Response<ReloadWorkerResponse>, Status> {
-        check_rbac(&request, None, None)?;
         let req = request.into_inner();
         info!("ReloadWorker requested for {}", req.profile);
         match self.service.reload_daemon(&req.profile).await {
@@ -126,8 +129,8 @@ impl CowenDaemonService for CowenDaemonController {
         Ok(Response::new(GetStatusResponse { statuses: std::collections::HashMap::new() }))
     }
 
+    #[rbac]
     async fn init_profile(&self, request: Request<InitProfileRequest>) -> Result<Response<InitProfileResponse>, Status> {
-        check_rbac(&request, None, None)?;
         let req = request.into_inner();
         info!("InitProfile requested for {}", req.profile);
         let _is_new = !self.cfg_mgr.exists(&req.profile).await;
@@ -269,8 +272,8 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac]
     async fn clear_token(&self, request: Request<ClearTokenRequest>) -> Result<Response<ClearTokenResponse>, Status> {
-        check_rbac(&request, None, None)?;
         let req = request.into_inner();
         let config = match self.cfg_mgr.load(&req.profile).await {
             Ok(c) => c,
@@ -294,8 +297,8 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac]
     async fn set_global_config(&self, request: Request<SetGlobalConfigRequest>) -> Result<Response<SetGlobalConfigResponse>, Status> {
-        check_rbac(&request, None, None)?;
         let req = request.into_inner();
         let value = req.value.trim();
         
@@ -305,8 +308,8 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac(profile = "request.get_ref().profile.as_str()")]
     async fn get_config(&self, request: Request<GetConfigRequest>) -> Result<Response<GetConfigResponse>, Status> {
-        check_rbac(&request, Some(&request.get_ref().profile), None)?;
         let req = request.into_inner();
         match self.cfg_mgr.get_value(&req.profile, &req.key).await {
             Ok(v) => {
@@ -320,8 +323,8 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac(profile = "request.get_ref().profile.as_str()")]
     async fn list_config(&self, request: Request<ListConfigRequest>) -> Result<Response<ListConfigResponse>, Status> {
-        check_rbac(&request, Some(&request.get_ref().profile), None)?;
         let req = request.into_inner();
         if req.all {
             match self.cfg_mgr.list_all_values().await {
@@ -336,8 +339,8 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac(profile = "request.get_ref().profile.as_str()")]
     async fn set_config(&self, request: Request<SetConfigRequest>) -> Result<Response<SetConfigResponse>, Status> {
-        check_rbac(&request, Some(&request.get_ref().profile), None)?;
         let req = request.into_inner();
         let value = req.value.trim();
         
@@ -355,13 +358,13 @@ impl CowenDaemonService for CowenDaemonController {
         self.system_orchestrator.system_status(request.into_inner()).await
     }
 
+    #[rbac]
     async fn system_reset(&self, request: Request<SystemResetRequest>) -> Result<Response<SystemResetResponse>, Status> {
-        check_rbac(&request, None, None)?;
         self.system_orchestrator.system_reset(request.into_inner()).await
     }
 
+    #[rbac]
     async fn rename_profile(&self, request: Request<RenameProfileRequest>) -> Result<Response<RenameProfileResponse>, Status> {
-        check_rbac(&request, None, None)?;
         let req = request.into_inner();
         let old_name = req.old_name;
         let new_name = req.new_name;
@@ -383,13 +386,13 @@ impl CowenDaemonService for CowenDaemonController {
         self.dlq_orchestrator.dlq_view(request.into_inner()).await
     }
 
+    #[rbac]
     async fn dlq_retry(&self, request: Request<DlqRetryRequest>) -> Result<Response<DlqRetryResponse>, Status> {
-        check_rbac(&request, None, None)?;
         self.dlq_orchestrator.dlq_retry(request.into_inner()).await
     }
 
+    #[rbac]
     async fn dlq_purge(&self, request: Request<DlqPurgeRequest>) -> Result<Response<DlqPurgeResponse>, Status> {
-        check_rbac(&request, None, None)?;
         self.dlq_orchestrator.dlq_purge(request.into_inner()).await
     }
 
@@ -407,11 +410,11 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
+    #[rbac]
     async fn tunnel_plugin(
         &self,
         request: Request<tonic::Streaming<TunnelPluginRequest>>,
     ) -> Result<Response<Self::TunnelPluginStream>, Status> {
-        check_rbac(&request, None, None)?;
         self.system_orchestrator.tunnel_plugin(request.into_inner()).await
     }
 }
