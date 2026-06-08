@@ -32,21 +32,31 @@ impl CowenDaemonController {
     }
 }
 
-pub(crate) fn check_rbac<T>(req: &Request<T>, target_profile: Option<&str>, required_scope: Option<&str>) -> Result<(), Status> {
+pub(crate) fn check_rbac<T>(req: &Request<T>, target_profile: Option<&str>, all_scopes: &[&str], any_scopes: &[&str]) -> Result<(), Status> {
     if let Some(claims) = req.extensions().get::<cowen_common::jwt::IpcClaims>() {
         if claims.role == cowen_common::jwt::IpcRole::Plugin {
             if let Some(p) = target_profile {
                 if p != claims.sub {
                     return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' is not authorized to access profile '{}'", claims.sub, p)));
                 }
-            } else if required_scope.is_none() {
+            } else if all_scopes.is_empty() && any_scopes.is_empty() {
                 // If there's no target profile AND no specific scope requested, we reject by default for plugins.
                 return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' is not authorized for this action", claims.sub)));
             }
             
-            if let Some(scope) = required_scope {
-                if !claims.scopes.contains(&"*".to_string()) && !claims.scopes.contains(&scope.to_string()) {
-                    return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' lacks permission '{}'", claims.sub, scope)));
+            if !claims.scopes.contains(&"*".to_string()) {
+                if !all_scopes.is_empty() {
+                    let missing: Vec<&str> = all_scopes.iter().filter(|&s| !claims.scopes.contains(&s.to_string())).copied().collect();
+                    if !missing.is_empty() {
+                        return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' lacks required permissions {:?}", claims.sub, missing)));
+                    }
+                }
+                
+                if !any_scopes.is_empty() {
+                    let has_any = any_scopes.iter().any(|&s| claims.scopes.contains(&s.to_string()));
+                    if !has_any {
+                        return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' lacks any of the permissions {:?}", claims.sub, any_scopes)));
+                    }
                 }
             }
         }

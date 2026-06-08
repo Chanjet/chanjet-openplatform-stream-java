@@ -4,16 +4,22 @@ use syn::{parse_macro_input, ItemFn, ItemImpl, LitStr, Token, Attribute};
 use syn::parse::{Parse, ParseStream};
 
 struct RbacArgs {
-    scope: Option<String>,
+    scopes: Vec<String>,
+    any_scopes: Vec<String>,
     profile: Option<String>,
-    action: Option<String>,
+    actions: Vec<String>,
+    any_actions: Vec<String>,
 }
 
 impl Parse for RbacArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut scope = None;
-        let mut profile = None;
-        let mut action = None;
+        let mut args = RbacArgs {
+            scopes: Vec::new(),
+            any_scopes: Vec::new(),
+            profile: None,
+            actions: Vec::new(),
+            any_actions: Vec::new(),
+        };
 
         while !input.is_empty() {
             let ident: syn::Ident = input.parse()?;
@@ -21,13 +27,17 @@ impl Parse for RbacArgs {
             let lit: LitStr = input.parse()?;
             
             if ident == "scope" {
-                scope = Some(lit.value());
+                args.scopes.push(lit.value());
+            } else if ident == "any_scope" {
+                args.any_scopes.push(lit.value());
             } else if ident == "profile" {
-                profile = Some(lit.value());
+                args.profile = Some(lit.value());
             } else if ident == "action" {
-                action = Some(lit.value());
+                args.actions.push(lit.value());
+            } else if ident == "any_action" {
+                args.any_actions.push(lit.value());
             } else {
-                return Err(syn::Error::new(ident.span(), "Unknown attribute argument. Supported: scope, profile, action"));
+                return Err(syn::Error::new(ident.span(), "Unknown attribute argument. Supported: scope, any_scope, profile, action, any_action"));
             }
 
             if !input.is_empty() {
@@ -35,7 +45,7 @@ impl Parse for RbacArgs {
             }
         }
 
-        Ok(RbacArgs { scope, profile, action })
+        Ok(args)
     }
 }
 
@@ -74,11 +84,19 @@ pub fn rbac_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
                     if let Ok(rbac_args) = syn::parse2::<RbacArgs>(attr_tokens) {
                         let mut new_args = proc_macro2::TokenStream::new();
                         
-                        if let Some(action) = rbac_args.action {
+                        for action in rbac_args.actions {
                             let scope = format!("{}:{}", domain, action);
                             new_args.extend(quote! { scope = #scope, });
-                        } else if let Some(scope) = rbac_args.scope {
+                        }
+                        for action in rbac_args.any_actions {
+                            let scope = format!("{}:{}", domain, action);
+                            new_args.extend(quote! { any_scope = #scope, });
+                        }
+                        for scope in rbac_args.scopes {
                             new_args.extend(quote! { scope = #scope, });
+                        }
+                        for scope in rbac_args.any_scopes {
+                            new_args.extend(quote! { any_scope = #scope, });
                         }
                         
                         if let Some(profile) = rbac_args.profile {
@@ -107,11 +125,11 @@ pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as RbacArgs);
     let mut input_fn = parse_macro_input!(item as ItemFn);
 
-    let scope_expr = if let Some(s) = args.scope {
-        quote! { Some(#s) }
-    } else {
-        quote! { None }
-    };
+    let scopes_iter = args.scopes.iter();
+    let all_scopes_expr = quote! { &[ #(#scopes_iter),* ] };
+
+    let any_scopes_iter = args.any_scopes.iter();
+    let any_scopes_expr = quote! { &[ #(#any_scopes_iter),* ] };
 
     let profile_expr = if let Some(p) = args.profile {
         let expr: syn::Expr = match syn::parse_str(&p) {
@@ -129,7 +147,7 @@ pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
     // We return a Box::pin future directly if the check fails.
     let new_block = quote! {
         {
-            if let Err(e) = crate::controller::check_rbac(&request, #profile_expr, #scope_expr) {
+            if let Err(e) = crate::controller::check_rbac(&request, #profile_expr, #all_scopes_expr, #any_scopes_expr) {
                 return Box::pin(async move { Err(e) });
             }
             #original_block
