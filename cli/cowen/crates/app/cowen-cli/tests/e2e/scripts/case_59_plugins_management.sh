@@ -49,7 +49,7 @@ else
 fi
 
 OUTPUT=$("$COWEN_BIN" plugins list --profile main)
-if ! echo "$OUTPUT" | grep "$PLUGIN_ID" | grep -q "SearchProvider"; then
+if ! echo "$OUTPUT" | grep "$PLUGIN_ID" | grep -q "Provider:SearchEmbedding"; then
     echo "❌ Failed to list plugin info. Output:"
     echo "$OUTPUT"
     exit 1

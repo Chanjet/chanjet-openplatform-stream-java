@@ -102,11 +102,16 @@ impl SearchProviderFactory {
             let bundle_path = plugins_dir.join(p).with_extension("bundle");
             if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path) {
                 if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
-                    if let Some(capabilities) = bundle.get("manifest").and_then(|m| m.get("capabilities")).and_then(|c| c.as_array()) {
-                        let has_search = capabilities.iter().any(|c| c.as_str() == Some("SearchProvider"));
-                        if has_search {
-                            search_plugin_name = Some(p.clone());
-                            break;
+                    if let Some(contributes) = bundle.get("manifest").and_then(|m| m.get("contributes")).and_then(|c| c.as_object()) {
+                        if let Some(providers) = contributes.get("providers").and_then(|p| p.as_array()) {
+                            let has_search = providers.iter().any(|p| {
+                                p.get("type").and_then(|t| t.as_str()) == Some("SearchEmbedding")
+                                    || p.get("type").and_then(|t| t.as_str()) == Some("SearchProvider")
+                            });
+                            if has_search {
+                                search_plugin_name = Some(p.clone());
+                                break;
+                            }
                         }
                     }
                 }

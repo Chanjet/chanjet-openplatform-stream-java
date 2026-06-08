@@ -3,6 +3,7 @@
 #![allow(unused_imports)]
 
 mod controller;
+mod api_registry;
 mod openapi_parser;
 pub mod orchestrators;
 
@@ -250,6 +251,7 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
 
 
     let controller = crate::controller::CowenDaemonController::new(daemon_svc.clone(), vault.clone(), cfg_mgr.clone(), ipc_port);
+    let api_registry_controller = crate::api_registry::ApiRegistryController::new(vault.clone(), cfg_mgr.clone());
     
     let secret_clone = jwt_secret.clone();
     let auth_interceptor = move |mut req: tonic::Request<()>| -> std::result::Result<tonic::Request<()>, tonic::Status> {
@@ -268,13 +270,15 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
         }
     };
 
-    let service_with_interceptor = cowen_common::grpc::proto::cowen_daemon_service_server::CowenDaemonServiceServer::with_interceptor(controller, auth_interceptor);
+    let service_with_interceptor = cowen_common::grpc::proto::cowen_daemon_service_server::CowenDaemonServiceServer::with_interceptor(controller, auth_interceptor.clone());
+    let api_registry_with_interceptor = cowen_common::grpc::proto::api_registry_service_server::ApiRegistryServiceServer::with_interceptor(api_registry_controller, auth_interceptor);
 
     let mut stop_rx_tonic = stop_rx;
     let monitor_tx = monitor_shutdown_tx;
 
     let server_future = tonic::transport::Server::builder()
         .add_service(service_with_interceptor)
+        .add_service(api_registry_with_interceptor)
         .serve_with_incoming_shutdown(tokio_stream::wrappers::TcpListenerStream::new(listener), async move {
             let _ = stop_rx_tonic.recv().await;
             info!("Shutdown signal received, initiating graceful shutdown...");

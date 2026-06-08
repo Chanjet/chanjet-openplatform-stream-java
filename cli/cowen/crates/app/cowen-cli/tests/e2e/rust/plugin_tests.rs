@@ -158,9 +158,10 @@ fn test_mcp_plugin_run_no_args() {
     let target_name = if cfg!(target_os = "windows") { "cowen-mcp-plugin.exe" } else { "cowen-mcp-plugin" };
     fs::copy(&plugin_src, plugins_dir.join(target_name)).unwrap();
     
-    // Create plugin.json with core.rpc.stdio capability
+    // Create plugin.json with stdio transport
     fs::write(plugins_dir.join("cowen-mcp-plugin.json"), json!({
-        "required_capabilities": { "core.rpc.stdio": "v1" }
+        "transport": "stdio",
+        "required_capabilities": { "native.api.registry": "v1" }
     }).to_string()).unwrap();
 
     let mut cmd = Command::cargo_bin("cowen").unwrap();
@@ -170,7 +171,7 @@ fn test_mcp_plugin_run_no_args() {
 
     cmd.assert()
        .success()
-       .stdout(predicate::str::contains("The following installed plugins implement 'core.rpc.stdio' (MCP servers):"))
+       .stdout(predicate::str::contains("The following installed plugins implement 'stdio' transport (MCP servers):"))
        .stdout(predicate::str::contains("cowen-mcp-plugin"));
 }
 
@@ -194,7 +195,8 @@ fn test_mcp_plugin_run_config() {
     fs::copy(&plugin_src, plugins_dir.join(target_name)).unwrap();
     
     fs::write(plugins_dir.join("cowen-mcp-plugin.json"), json!({
-        "required_capabilities": { "core.rpc.stdio": "v1" }
+        "transport": "stdio",
+        "required_capabilities": { "native.api.registry": "v1" }
     }).to_string()).unwrap();
 
     // Mock an active profile so the run command doesn't fail trying to load one
@@ -247,7 +249,7 @@ fn test_mcp_plugin_run_non_mcp_error() {
 
     cmd.assert()
        .failure()
-       .stderr(predicate::str::contains("does not declare 'core.rpc.stdio' capability"));
+       .stderr(predicate::str::contains("does not declare 'stdio' transport"));
 }
 
 #[test]

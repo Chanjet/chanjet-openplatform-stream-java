@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use cowen_common::config::get_app_dir;
 use std::fs;
+use std::io::{self, Write};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::wrappers::ReceiverStream;
 use cowen_common::grpc::client::DaemonClient;
@@ -23,8 +24,8 @@ pub async fn list() -> Result<()> {
     }
 
     println!("🔍 Scanning plugins directory: {:?}", plugins_dir);
-    println!("{:<30} | {:<10} | {:<10} | DESCRIPTION", "NAME", "CAPABILITY", "ENABLED");
-    println!("{:-<30}-+-{:-<10}-+-{:-<10}-+-{:-<40}", "", "", "", "");
+    println!("{:<30} | {:<20} | {:<10} | DESCRIPTION", "NAME", "CONTRIBUTES", "ENABLED");
+    println!("{:-<30}-+-{:-<20}-+-{:-<10}-+-{:-<40}", "", "", "", "");
 
     if !plugins_dir.exists() {
         println!("(No plugins directory found)");
@@ -54,16 +55,61 @@ pub async fn list() -> Result<()> {
                 if bundle_path.exists() {
                     if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path) {
                         if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
-                            if let Some(capabilities) = bundle.get("manifest").and_then(|m| m.get("capabilities")).and_then(|c| c.as_array()) {
-                                let caps: Vec<String> = capabilities.iter().filter_map(|c| c.as_str().map(|s| s.to_string())).collect();
-                                if !caps.is_empty() {
-                                    display_trait = caps.join(", ");
+                            if let Some(m) = bundle.get("manifest") {
+                                if let Some(req_caps) = m.get("required_capabilities").and_then(|c| c.as_object()) {
+                                    let caps: Vec<String> = req_caps.keys().map(|k| k.to_string()).collect();
+                                    if !caps.is_empty() {
+                                        display_trait = format!("Req: {}", caps.join(", "));
+                                    }
                                 }
-                            }
-                            if let Some(version) = bundle.get("manifest").and_then(|m| m.get("version")).and_then(|v| v.as_str()) {
-                                display_desc = format!("v{} (Signed)", version);
-                            } else {
-                                display_desc = "Signed bundle".to_string();
+                                if let Some(transport) = m.get("transport").and_then(|t| t.as_str()) {
+                                    if display_trait.starts_with("unknown") {
+                                        display_trait = format!("Transport: {}", transport);
+                                    }
+                                }
+
+                                if let Some(contrib) = m.get("contributes").and_then(|c| c.as_object()) {
+                                    let mut parts = vec![];
+                                    if let Some(cmds) = contrib.get("cli_commands").and_then(|a| a.as_array()) {
+                                        if !cmds.is_empty() {
+                                            parts.push(format!("{} cmds", cmds.len()));
+                                        }
+                                    }
+                                    if let Some(provs) = contrib.get("providers").and_then(|a| a.as_array()) {
+                                        for p in provs {
+                                            if let Some(t) = p.get("type").and_then(|v| v.as_str()) {
+                                                parts.push(format!("Provider:{}", t));
+                                            }
+                                        }
+                                    }
+                                    if !parts.is_empty() {
+                                        display_trait = parts.join(", ");
+                                    }
+                                }
+
+                                if let Some(version) = m.get("version").and_then(|v| v.as_str()) {
+                                    display_desc = format!("v{} (Signed)", version);
+                                } else {
+                                    display_desc = "Signed bundle".to_string();
+                                }
+
+                                let mut scopes = vec![];
+                                if let Some(perms) = m.get("requested_permissions").and_then(|p| p.as_object()) {
+                                    for (k, v) in perms {
+                                        if v.as_bool().unwrap_or(false) {
+                                            scopes.push(k.clone());
+                                        }
+                                    }
+                                } else if let Some(privs) = m.get("required_privileges").and_then(|p| p.as_array()) {
+                                    for p in privs {
+                                        if let Some(s) = p.as_str() {
+                                            scopes.push(s.to_string());
+                                        }
+                                    }
+                                }
+                                if !scopes.is_empty() {
+                                    display_desc = format!("{} | Priv: {}", display_desc, scopes.join(","));
+                                }
                             }
                         }
                     }
@@ -73,13 +119,13 @@ pub async fn list() -> Result<()> {
                 let is_enabled = enabled_plugins.contains(&name.to_string());
                 let enabled_str = if is_enabled { "\x1b[32mYes\x1b[0m" } else { "\x1b[31mNo\x1b[0m" };
 
-                println!("{:<30} | {:<10} | {:<23} | {}", name, display_trait, enabled_str, display_desc);
+                println!("{:<30} | {:<20} | {:<23} | {}", name, display_trait, enabled_str, display_desc);
             }
         }
     }
 
     if found_any {
-        println!("\n💡 CAPABILITY indicates the plugin's capability (e.g., SearchProvider for semantic search).");
+        println!("\n💡 CONTRIBUTES indicates what the plugin extends (e.g., Provider:SearchEmbedding, 2 cmds).");
     } else {
         println!("(No executable plugins found)");
     }
@@ -161,6 +207,50 @@ pub async fn install(path: &String) -> Result<()> {
         std::fs::create_dir_all(&plugins_dir)?;
     }
     
+    let bundle_source_path = source_path.with_extension("bundle");
+    
+    let mut required_privs = vec![];
+    if bundle_source_path.exists() {
+        if let Ok(bundle_str) = std::fs::read_to_string(&bundle_source_path) {
+            if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
+                if let Some(m) = bundle.get("manifest") {
+                    if let Some(perms) = m.get("requested_permissions").and_then(|p| p.as_object()) {
+                        for (k, v) in perms {
+                            if v.as_bool().unwrap_or(false) {
+                                required_privs.push(k.clone());
+                            }
+                        }
+                    } else if let Some(privs) = m.get("required_privileges").and_then(|p| p.as_array()) {
+                        for p in privs {
+                            if let Some(s) = p.as_str() {
+                                required_privs.push(s.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    if !required_privs.is_empty() {
+        println!("⚠️  WARNING: This plugin requests the following sensitive permissions:");
+        for p in &required_privs {
+            println!("  - \x1b[31m{}\x1b[0m", p);
+        }
+        use std::io::IsTerminal;
+        if io::stdin().is_terminal() {
+            print!("Do you want to grant these permissions and install? (y/N): ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            if input.trim().to_lowercase() != "y" {
+                return Err(anyhow::anyhow!("Installation aborted by user."));
+            }
+        } else {
+            println!("(Non-interactive mode: auto-accepting permissions)");
+        }
+    }
+
     let target_path = plugins_dir.join(file_name);
     std::fs::copy(source_path, &target_path)?;
     
@@ -171,7 +261,6 @@ pub async fn install(path: &String) -> Result<()> {
         fs::set_permissions(&target_path, perms)?;
     }
 
-    let bundle_source_path = source_path.with_extension("bundle");
     if bundle_source_path.exists() && bundle_source_path.is_file() {
         let bundle_file_name = bundle_source_path.file_name().unwrap();
         let bundle_target_path = plugins_dir.join(bundle_file_name);
@@ -200,17 +289,13 @@ pub async fn run(profile: &str, name_opt: &Option<String>, args: &[String]) -> R
         return Err(anyhow::anyhow!("❌ Plugins directory not found at {:?}", plugins_dir));
     }
     
-    // Helper closure to read plugin capabilities from .bundle
-    let get_plugin_capabilities = |path: &std::path::Path| -> Vec<String> {
-        let mut caps = Vec::new();
+    let get_plugin_transport = |path: &std::path::Path| -> Option<String> {
         if let Ok(content) = std::fs::read_to_string(path.with_extension("bundle")) {
             if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(bundle_caps) = bundle.get("manifest").and_then(|m| m.get("capabilities")).and_then(|c| c.as_array()) {
-                    caps.extend(bundle_caps.iter().filter_map(|v| v.as_str().map(|s| s.to_string())));
-                }
+                return bundle.get("manifest").and_then(|m| m.get("transport")).and_then(|c| c.as_str()).map(|s| s.to_string());
             }
         }
-        caps
+        None
     };
 
     if let Some(name) = name_opt {
@@ -224,9 +309,9 @@ pub async fn run(profile: &str, name_opt: &Option<String>, args: &[String]) -> R
             return Err(anyhow::anyhow!("❌ Plugin executable '{}' not found at {:?}", name, expected_path));
         }
 
-        let capabilities = get_plugin_capabilities(&expected_path);
-        if !capabilities.contains(&"core.rpc.stdio".to_string()) {
-            return Err(anyhow::anyhow!("❌ Permission Denied: Plugin '{}' does not declare 'core.rpc.stdio' capability in its metadata. Only MCP plugins can be directly run.", name));
+        let transport = get_plugin_transport(&expected_path);
+        if transport.as_deref() != Some("stdio") {
+            return Err(anyhow::anyhow!("❌ Permission Denied: Plugin '{}' does not declare 'stdio' transport in its metadata. Only MCP plugins can be directly run.", name));
         }
 
         let port_path = crate::get_ipc_port_path();
@@ -289,18 +374,18 @@ pub async fn run(profile: &str, name_opt: &Option<String>, args: &[String]) -> R
         }
         
     } else {
-        println!("The following installed plugins implement 'core.rpc.stdio' (MCP servers):\n");
-        println!("{:<30} | {}", "NAME", "CAPABILITIES");
+        println!("The following installed plugins implement 'stdio' transport (MCP servers):\n");
+        println!("{:<30} | {}", "NAME", "TRANSPORT");
         println!("{:-<30}-+-{:-<30}", "", "");
         
         for entry in std::fs::read_dir(&plugins_dir)? {
             if let Ok(entry) = entry {
                 let path = entry.path();
                 if path.is_file() && path.extension().is_none() {
-                    let capabilities = get_plugin_capabilities(&path);
-                    if capabilities.contains(&"core.rpc.stdio".to_string()) {
+                    let transport = get_plugin_transport(&path);
+                    if transport.as_deref() == Some("stdio") {
                         let name = path.file_name().unwrap_or_default().to_string_lossy();
-                        println!("{:<30} | {}", name, capabilities.join(", "));
+                        println!("{:<30} | stdio", name);
                     }
                 }
             }

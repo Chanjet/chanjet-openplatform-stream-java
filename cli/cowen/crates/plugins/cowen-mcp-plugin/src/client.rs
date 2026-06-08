@@ -1,9 +1,9 @@
 pub mod proto {
-    tonic::include_proto!("cowen.daemon.v1");
+    tonic::include_proto!("cowen.daemon.api_registry.v1");
 }
-use proto::cowen_daemon_service_client::CowenDaemonServiceClient;
+use proto::api_registry_service_client::ApiRegistryServiceClient;
 
-pub async fn get_grpc_client() -> Result<CowenDaemonServiceClient<tonic::transport::Channel>, String> {
+pub async fn get_grpc_client() -> Result<ApiRegistryServiceClient<tonic::transport::Channel>, String> {
     let port_str = match std::env::var("COWEN_IPC_PORT") {
         Ok(p) => p,
         Err(_) => {
@@ -19,7 +19,7 @@ pub async fn get_grpc_client() -> Result<CowenDaemonServiceClient<tonic::transpo
         }
     };
     let endpoint = format!("http://127.0.0.1:{}", port_str);
-    CowenDaemonServiceClient::connect(endpoint)
+    ApiRegistryServiceClient::connect(endpoint)
         .await
         .map_err(|e| {
             #[cfg(not(test))]

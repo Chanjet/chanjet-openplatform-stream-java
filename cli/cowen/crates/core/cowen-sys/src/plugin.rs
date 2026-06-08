@@ -49,17 +49,19 @@ impl PluginLoader {
 
                 if stem.contains("search") || stem.contains("embedding") {
                     capabilities.push("SearchProvider".to_string());
-                    required_privileges.push("LocalCacheAccess".to_string());
-                    required_privileges.push("ModelAssetFetch".to_string());
-                    required_privileges.push("ComputeHeavy".to_string());
+                    required_privileges.push("sys.fs:cache_access".to_string());
+                    required_privileges.push("sys.network:fetch_asset".to_string());
+                    required_privileges.push("sys.cpu:compute_heavy".to_string());
                 }
 
                 cowen_infra::pki::PluginManifest {
                     name: stem,
                     version: "dev".to_string(),
                     binary_hash: String::new(),
+                    transport: Some("stdio".to_string()),
                     capabilities,
                     required_privileges,
+                    contributes: None,
                 }
             }
         } else {
@@ -93,12 +95,19 @@ impl PluginLoader {
             return false;
         }
 
-        // 1. Direct match on capabilities
+        // 1. Check legacy capabilities
         if self.manifest.capabilities.iter().any(|p| p == trait_name) {
             return true;
         }
 
-        // 2. Name signature fallback for search plugins (robust backward compatibility)
+        // 2. Check contributes.providers
+        if let Some(contributes) = &self.manifest.contributes {
+            if contributes.providers.iter().any(|p| p.provider_type == trait_name || (trait_name == "SearchProvider" && p.provider_type == "SearchEmbedding")) {
+                return true;
+            }
+        }
+
+        // 3. Name signature fallback for legacy plugins without contributes
         if trait_name == "SearchProvider" && (self.manifest.name.contains("search") || self.manifest.name.contains("embedding")) {
             return true;
         }
@@ -115,7 +124,7 @@ impl PluginLoader {
             return true;
         }
         // Standard privilege auto-grant for SearchProvider in dev/legacy modes
-        if privilege == "LocalCacheAccess" || privilege == "ModelAssetFetch" || privilege == "ComputeHeavy" {
+        if privilege == "sys.fs:cache_access" || privilege == "sys.network:fetch_asset" || privilege == "sys.cpu:compute_heavy" {
             if self.supports_trait("SearchProvider") {
                 return true;
             }
@@ -349,8 +358,10 @@ mod tests {
             name: "test-plugin".to_string(),
             version: "1.0.0".to_string(),
             binary_hash: String::new(),
+            transport: Some("stdio".to_string()),
             capabilities: vec!["all".to_string()],
             required_privileges: vec![],
+            contributes: None,
         };
 
         let loader = PluginLoader {
@@ -366,8 +377,10 @@ mod tests {
             name: "test-plugin".to_string(),
             version: "1.0.0".to_string(),
             binary_hash: String::new(),
+            transport: Some("stdio".to_string()),
             capabilities: vec!["SearchProvider".to_string()],
             required_privileges: vec![],
+            contributes: None,
         };
 
         let loader_valid = PluginLoader {
@@ -384,8 +397,10 @@ mod tests {
             name: "cowen_search_embedding".to_string(),
             version: "0.4.0".to_string(),
             binary_hash: String::new(),
+            transport: None,
             capabilities: vec!["SearchProvider".to_string()],
-            required_privileges: vec!["LocalCacheAccess".to_string(), "ModelAssetFetch".to_string()],
+            required_privileges: vec!["sys.fs:cache_access".to_string(), "sys.network:fetch_asset".to_string()],
+            contributes: None,
         };
 
         let loader = PluginLoader {
@@ -396,8 +411,8 @@ mod tests {
         assert!(loader.verify_identity("SearchProvider"));
         assert!(!loader.verify_identity("AuthProvider"));
 
-        assert!(loader.enforce_privilege("LocalCacheAccess"));
-        assert!(loader.enforce_privilege("ModelAssetFetch"));
-        assert!(!loader.enforce_privilege("SomeRandomPrivilege"));
+        assert!(loader.enforce_privilege("sys.fs:cache_access"));
+        assert!(loader.enforce_privilege("sys.network:fetch_asset"));
+        assert!(!loader.enforce_privilege("sys.db:write_access"));
     }
 }

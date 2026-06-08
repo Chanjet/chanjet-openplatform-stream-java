@@ -51,10 +51,12 @@ enum Commands {
         dev_cert: PathBuf,
         #[arg(long, help = "Output path for the signature bundle JSON")]
         out_bundle: PathBuf,
+        #[arg(long, help = "Path to the plugin.json manifest. If provided, capabilities, privileges, transport and contributes are read from it.")]
+        manifest_file: Option<PathBuf>,
         #[arg(long, help = "Capabilities/Interfaces provided by the plugin", value_delimiter = ',')]
-        capabilities: Vec<String>,
+        capabilities: Option<Vec<String>>,
         #[arg(long, help = "Sensitive privileges consumed by the plugin", value_delimiter = ',')]
-        required_privileges: Vec<String>,
+        required_privileges: Option<Vec<String>>,
     },
 }
 
@@ -116,7 +118,7 @@ fn main() -> Result<()> {
             println!("✅ Developer certificate issued: {:?}", out_cert);
             println!("✅ Developer private key generated: {:?}", out_dev_key);
         }
-        Commands::SignPlugin { dylib, name, version, dev_key, dev_cert, out_bundle, capabilities, required_privileges } => {
+        Commands::SignPlugin { dylib, name, version, dev_key, dev_cert, out_bundle, manifest_file, capabilities, required_privileges } => {
             let dev_bytes = std::fs::read(&dev_key).context("Failed to read dev key")?;
             let dev_pair = Ed25519KeyPair::from_pkcs8(&dev_bytes).map_err(|_| anyhow::anyhow!("Invalid dev pk8 key"))?;
 
@@ -134,12 +136,48 @@ fn main() -> Result<()> {
             ctx.update(&dylib_bytes);
             let hash = hex::encode(ctx.finish().as_ref());
 
+            let mut final_caps = capabilities.unwrap_or_default();
+            let mut final_privs = required_privileges.unwrap_or_default();
+            let mut final_transport = None;
+            let mut final_contributes = None;
+
+            if let Some(mf) = manifest_file {
+                let content = std::fs::read_to_string(&mf).context("Failed to read plugin.json")?;
+                let parsed: serde_json::Value = serde_json::from_str(&content).context("Failed to parse plugin.json")?;
+                
+                if let Some(req_caps) = parsed.get("required_capabilities").and_then(|v| v.as_object()) {
+                    for k in req_caps.keys() {
+                        if !final_caps.contains(k) {
+                            final_caps.push(k.clone());
+                        }
+                    }
+                }
+                
+                if let Some(req_perms) = parsed.get("requested_permissions").and_then(|v| v.as_object()) {
+                    for k in req_perms.keys() {
+                        if !final_privs.contains(k) {
+                            final_privs.push(k.clone());
+                        }
+                    }
+                }
+
+                if let Some(t) = parsed.get("transport").and_then(|v| v.as_str()) {
+                    final_transport = Some(t.to_string());
+                }
+
+                if let Some(c) = parsed.get("contributes") {
+                    final_contributes = serde_json::from_value(c.clone()).ok();
+                }
+            }
+
             let manifest = PluginManifest {
                 name,
                 version,
                 binary_hash: hash,
-                capabilities,
-                required_privileges,
+                transport: final_transport,
+                capabilities: final_caps,
+                required_privileges: final_privs,
+                contributes: final_contributes,
             };
 
             let manifest_str = serde_json::to_string(&manifest)?;

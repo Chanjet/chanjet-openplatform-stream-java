@@ -20,15 +20,41 @@ pub struct DeveloperCert {
     pub signature_hex: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct PluginContributes {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub providers: Vec<ProviderInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cli_commands: Vec<CliCommandInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProviderInfo {
+    #[serde(rename = "type")]
+    pub provider_type: String,
+    pub version: String,
+    pub description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CliCommandInfo {
+    pub name: String,
+    pub description: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PluginManifest {
     pub name: String,
     pub version: String,
     pub binary_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub capabilities: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required_privileges: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contributes: Option<PluginContributes>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -160,8 +186,10 @@ mod tests {
             name: "fake".to_string(),
             version: "1.0".to_string(),
             binary_hash: hash_hex,
+            transport: None,
             capabilities: vec!["SearchProvider".to_string()],
             required_privileges: vec![],
+            contributes: None,
         };
         let manifest_str = serde_json::to_string(&manifest).unwrap();
         let manifest_sig = dev_pair.sign(manifest_str.as_bytes());
@@ -208,8 +236,10 @@ mod tests {
             name: "fake".to_string(),
             version: "1.0".to_string(),
             binary_hash: "wrong_hash".to_string(),
+            transport: None,
             capabilities: vec!["SearchProvider".to_string()],
             required_privileges: vec![],
+            contributes: None,
         };
         let manifest_str = serde_json::to_string(&manifest).unwrap();
         let manifest_sig = dev_pair.sign(manifest_str.as_bytes());

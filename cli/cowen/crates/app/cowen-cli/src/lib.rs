@@ -277,7 +277,7 @@ pub enum PluginsCommands {
     },
     /// 运行插件并将指定参数透传给插件进程 (核心插件可以通过 run 命令进行调度)
     Run {
-        /// 插件名称，若不提供则列出所有支持 core.rpc.stdio 的插件
+        /// 插件名称，若不提供则列出所有支持 stdio transport 的插件
         name: Option<String>,
         /// 透传给插件的参数列表
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]

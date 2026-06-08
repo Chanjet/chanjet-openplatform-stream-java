@@ -117,8 +117,7 @@ if [ -f "$PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
         --dev-key dist_assets/keys/official_dev.pk8 \
         --dev-cert dist_assets/keys/official_dev_cert.json \
         --out-bundle "$BUILD_DIR/libcowen_search_embedding.bundle" \
-        --capabilities SearchProvider \
-        --required-privileges LocalCacheAccess,ModelAssetFetch,ComputeHeavy
+        --manifest-file crates/plugins/cowen-search-embedding/plugin.json
     echo "✅ Plugin signed and bundle generated: \"$BUILD_DIR/libcowen_search_embedding.bundle\""
 fi
 
@@ -130,8 +129,7 @@ if [ -f "$MCP_PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
         --dev-key dist_assets/keys/official_dev.pk8 \
         --dev-cert dist_assets/keys/official_dev_cert.json \
         --out-bundle "$BUILD_DIR/cowen-mcp-plugin.bundle" \
-        --capabilities core.rpc.stdio \
-        --required-privileges LocalCacheAccess
+        --manifest-file crates/plugins/cowen-mcp-plugin/plugin.json
     echo "✅ Plugin signed and bundle generated: \"$BUILD_DIR/cowen-mcp-plugin.bundle\""
 fi
 

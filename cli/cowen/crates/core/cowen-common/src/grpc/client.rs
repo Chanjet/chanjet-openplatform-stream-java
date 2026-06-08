@@ -18,7 +18,7 @@ pub struct ApiResponseDto {
     pub headers: HashMap<String, String>,
     pub body: String,
 }
-use crate::grpc::proto::{self as grpc_proto, cowen_daemon_service_client::CowenDaemonServiceClient};
+use crate::grpc::proto::{self as grpc_proto, cowen_daemon_service_client::CowenDaemonServiceClient, api_registry_service_client::ApiRegistryServiceClient};
 use tokio::time::Duration;
 use tonic::transport::Channel;
 
@@ -43,6 +43,7 @@ impl Interceptor for AuthInterceptor {
 }
 
 pub type InterceptedClient = CowenDaemonServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>;
+pub type InterceptedApiRegistryClient = ApiRegistryServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>;
 
 #[derive(Debug)]
 pub enum DaemonResponse {
@@ -176,6 +177,32 @@ impl DaemonClient {
         self.ensure_daemon().await
     }
 
+    async fn build_api_registry_client(&self) -> Result<InterceptedApiRegistryClient> {
+        self.ensure_daemon().await?;
+        let app_dir = self.port_path.parent().unwrap_or_else(|| Path::new(""));
+        let handshake_json = cowen_sys::get_ipc_binder().fetch_handshake(app_dir).await.context("Failed to fetch IPC handshake")?;
+        
+        let parsed: serde_json::Value = serde_json::from_str(&handshake_json).context("Invalid handshake payload")?;
+        let port = parsed["port"].as_u64().context("Missing port in handshake")? as u16;
+        let fetched_token = parsed["token"].as_str().unwrap_or_default().to_string();
+
+        let endpoint = format!("http://127.0.0.1:{}", port);
+        let channel = tonic::transport::Endpoint::new(endpoint)?
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(5))
+            .connect()
+            .await?;
+            
+        let token = if let Ok(t) = std::env::var("COWEN_CLI_TOKEN").or_else(|_| std::env::var("COWEN_PLUGIN_IPC_TOKEN")) {
+            t
+        } else {
+            fetched_token
+        };
+
+        let interceptor = AuthInterceptor { token: token.trim().to_string() };
+        Ok(ApiRegistryServiceClient::with_interceptor(channel, interceptor))
+    }
+
     pub async fn init_profile(&self, profile: &str, app_key: Option<&str>, app_secret: Option<&str>, certificate: Option<&str>, encrypt_key: Option<&str>, webhook_target: Option<&str>, openapi_url: Option<&str>, stream_url: Option<&str>, app_mode: Option<&str>, proxy_port: Option<u32>) -> Result<DaemonResponse> {
         let mut client = self.build_client().await?;
         let res = client.init_profile(tonic::Request::new(grpc_proto::InitProfileRequest { profile: profile.to_string(), app_key: app_key.map(|s| s.to_string()), app_secret: app_secret.map(|s| s.to_string()), certificate: certificate.map(|s| s.to_string()), encrypt_key: encrypt_key.map(|s| s.to_string()), webhook_target: webhook_target.map(|s| s.to_string()), openapi_url: openapi_url.map(|s| s.to_string()), stream_url: stream_url.map(|s| s.to_string()), app_mode: app_mode.map(|s| s.to_string()), proxy_port })).await?.into_inner();
@@ -289,13 +316,13 @@ impl DaemonClient {
     }
 
     pub async fn api_list(&self, profile: &str, search: Option<&str>, page: u32, page_size: u32, refresh: bool) -> Result<DaemonResponse> {
-        let mut client = self.build_client().await?;
+        let mut client = self.build_api_registry_client().await?;
         let res = client.api_list(tonic::Request::new(grpc_proto::ApiListRequest { profile: profile.to_string(), search: search.map(|s| s.to_string()), page, page_size, refresh })).await?.into_inner();
         if res.json.is_empty() && res.error_message.is_some() { Ok(DaemonResponse::Error { code: 500, message: res.error_message.unwrap() }) } else { Ok(DaemonResponse::ApiListData { total: res.total as usize, json: res.json, plugin_used: res.plugin_used }) }
     }
 
     pub async fn api_spec(&self, profile: &str, method: &str, path: &str) -> Result<DaemonResponse> {
-        let mut client = self.build_client().await?;
+        let mut client = self.build_api_registry_client().await?;
         let res = client.api_spec(tonic::Request::new(grpc_proto::ApiSpecRequest { profile: profile.to_string(), method: method.to_string(), path: path.to_string() })).await?.into_inner();
         if res.json.is_empty() && res.error_message.is_some() { Ok(DaemonResponse::Error { code: 500, message: res.error_message.unwrap() }) } else { Ok(DaemonResponse::ApiSpecData { json: res.json }) }
     }
@@ -343,7 +370,7 @@ impl DaemonClient {
     }
 
     pub async fn call_api(&self, profile: &str, method: &str, path: &str, body: Option<&str>, force: bool) -> Result<DaemonResponse> {
-        let mut client = self.build_client().await?;
+        let mut client = self.build_api_registry_client().await?;
         let res = client.call_api(tonic::Request::new(grpc_proto::CallApiRequest { profile: profile.to_string(), method: method.to_string(), path: path.to_string(), data: body.map(|s| s.to_string()), force })).await?.into_inner();
         if res.status >= 400 && res.error_message.is_some() { Ok(DaemonResponse::Error { code: res.status as i32, message: res.error_message.unwrap() }) } else { Ok(DaemonResponse::ApiResponse(ApiResponseDto { status: res.status as u16, headers: res.headers, body: res.body })) }
     }

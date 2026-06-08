@@ -53,4 +53,5 @@ fn main() {
     println!("cargo:rustc-env=BUILTIN_CLIENT_ID={}", builtin_client_id);
     
     tonic_build::compile_protos("../../../proto/daemon.proto").expect("Failed to compile daemon.proto");
+    tonic_build::compile_protos("../../../proto/api_registry.proto").expect("Failed to compile api_registry.proto");
 }
