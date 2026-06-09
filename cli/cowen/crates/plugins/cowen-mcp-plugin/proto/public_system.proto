@@ -1,0 +1,18 @@
+syntax = "proto3";
+package cowen.daemon.v1;
+
+service PublicSystemService {
+    rpc PluginHandshake (PluginHandshakeRequest) returns (PluginHandshakeResponse);
+}
+
+message PluginHandshakeRequest {
+    string plugin_name = 1;
+    string plugin_version = 2;
+    map<string, string> required_capabilities = 3;
+}
+
+message PluginHandshakeResponse {
+    bool success = 1;
+    string message = 2;
+    map<string, string> supported_capabilities = 3;
+}

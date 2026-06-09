@@ -25,7 +25,7 @@ use crate::grpc::proto::{self as grpc_proto,
     native_dlq_service_client::NativeDlqServiceClient,
     native_system_service_client::NativeSystemServiceClient,
     native_worker_service_client::NativeWorkerServiceClient,
-    public_system_service_client::PublicSystemServiceClient,
+
     api_registry_service_client::ApiRegistryServiceClient
 };
 use tokio::time::Duration;
@@ -211,10 +211,7 @@ impl DaemonClient {
         let (channel, interceptor) = self.ensure_daemon().await?;
         Ok(NativeWorkerServiceClient::with_interceptor(channel, interceptor))
     }
-    async fn build_public_system_client(&self) -> Result<PublicSystemServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>> {
-        let (channel, interceptor) = self.ensure_daemon().await?;
-        Ok(PublicSystemServiceClient::with_interceptor(channel, interceptor))
-    }
+
 
 
     pub async fn init_profile(&self, profile: &str, app_key: Option<&str>, app_secret: Option<&str>, certificate: Option<&str>, encrypt_key: Option<&str>, webhook_target: Option<&str>, openapi_url: Option<&str>, stream_url: Option<&str>, app_mode: Option<&str>, proxy_port: Option<u32>) -> Result<DaemonResponse> {
