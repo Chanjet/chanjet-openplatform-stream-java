@@ -59,11 +59,11 @@ pub trait NativeApiRegistryCapability: Send + Sync {
 pub struct DefaultApiRegistry {
     vault: Arc<dyn Vault>,
     cfg_mgr: ConfigManager,
-    native_search: Arc<dyn crate::native_search::NativeSearchCapability>,
+    native_search: Arc<dyn crate::internal::native_search::NativeSearchCapability>,
 }
 
 impl DefaultApiRegistry {
-    pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, native_search: Arc<dyn crate::native_search::NativeSearchCapability>) -> Self {
+    pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, native_search: Arc<dyn crate::internal::native_search::NativeSearchCapability>) -> Self {
         Self { vault, cfg_mgr, native_search }
     }
 }
@@ -212,7 +212,7 @@ impl NativeApiRegistryCapability for DefaultApiRegistry {
         let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
         match auth_cli.get_openapi_spec(&req.profile, &config, req.refresh).await {
             Ok(spec) => {
-                let mut ops = crate::openapi_parser::OpenApiParser::parse_operations(&spec);
+                let mut ops = crate::internal::openapi_parser::OpenApiParser::parse_operations(&spec);
                 
                 let (filtered_ops, used_plugin_name) = self.native_search.search_if_needed(
                     &req.profile, 
