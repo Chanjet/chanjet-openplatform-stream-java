@@ -48,14 +48,12 @@ pub struct DomainSystemResetResponse {
 pub struct DomainPluginHandshakeRequest {
     pub plugin_name: String,
     pub plugin_version: String,
-    pub protocol_version: String,
     pub required_capabilities: std::collections::HashMap<String, String>,
 }
 
 pub struct DomainPluginHandshakeResponse {
     pub accepted: bool,
     pub server_version: String,
-    pub protocol_version: String,
     pub error_message: Option<String>,
     pub supported_capabilities: std::collections::HashMap<String, String>,
 }
@@ -525,26 +523,14 @@ impl NativeSystemCapability for DefaultSystem {
             return Ok(DomainPluginHandshakeResponse {
                 accepted: false,
                 server_version: env!("CARGO_PKG_VERSION").to_string(),
-                protocol_version: "1.0".to_string(),
                 error_message: Some(msgs.join("; ")),
                 supported_capabilities: supported,
             });
         }
         
-        if req.protocol_version != "1.0" {
-            return Ok(DomainPluginHandshakeResponse {
-                accepted: false,
-                server_version: env!("CARGO_PKG_VERSION").to_string(),
-                protocol_version: "1.0".to_string(),
-                error_message: Some("Unsupported protocol version".to_string()),
-                supported_capabilities: supported,
-            });
-        }
-
         Ok(DomainPluginHandshakeResponse {
             accepted: true,
             server_version: env!("CARGO_PKG_VERSION").to_string(),
-            protocol_version: "1.0".to_string(),
             error_message: None,
             supported_capabilities: supported,
         })

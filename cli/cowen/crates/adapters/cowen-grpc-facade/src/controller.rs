@@ -274,7 +274,6 @@ impl CowenDaemonService for CowenDaemonController {
         let domain_req = cowen_capabilities::native_system::DomainPluginHandshakeRequest {
             plugin_name: inner.plugin_name,
             plugin_version: inner.plugin_version.clone(),
-            protocol_version: "1.0".to_string(), // GRPC doesn't have protocol_version, assume 1.0
             required_capabilities: inner.required_capabilities,
         };
         match self.capabilities.native_system.plugin_handshake(claims.as_ref(), domain_req).await {
