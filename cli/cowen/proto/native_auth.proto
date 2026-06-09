@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cowen.daemon.v1;
+package cowen.daemon.native.auth.v1;
 
 service NativeAuthService {
     rpc InitProfile (InitProfileRequest) returns (InitProfileResponse);

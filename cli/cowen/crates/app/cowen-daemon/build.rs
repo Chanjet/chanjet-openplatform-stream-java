@@ -12,6 +12,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ],
             &["../../../proto"],
         )?;
-    tonic_build::compile_protos("../../../proto/api_registry.proto")?;
+    tonic_build::compile_protos("../../../proto/native_api_registry.proto")?;
     Ok(())
 }

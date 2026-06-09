@@ -95,9 +95,15 @@ done
 # 3. Simulate Platform Webhook to Node 2
 echo -e "${BOLD}3. Simulate Platform Webhook to Node 2${NC}"
 TICKET_VAL="mock_ticket_$(date +%s)"
-curl -s -X POST -H "Content-Type: application/json" \
-     -d "{\"type\":\"APP_TICKET\", \"app_ticket\":\"$TICKET_VAL\"}" \
-     "http://127.0.0.1:$PROXY_PORT_2/webhook" > /dev/null
+for i in {1..5}; do
+    if curl -s -X POST -H "Content-Type: application/json" \
+         -d "{\"type\":\"APP_TICKET\", \"app_ticket\":\"$TICKET_VAL\"}" \
+         "http://127.0.0.1:$PROXY_PORT_2/webhook" > /dev/null; then
+        break
+    fi
+    echo -e "   [WAIT] Retrying webhook to Node 2 Proxy..."
+    sleep 1
+done
 
 echo -e "   ✓ Sent APP_TICKET to Node 2 Proxy"
 sleep 5

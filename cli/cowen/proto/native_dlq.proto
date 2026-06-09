@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cowen.daemon.v1;
+package cowen.daemon.native.dlq.v1;
 
 service NativeDlqService {
     rpc DlqList (DlqListRequest) returns (DlqListResponse);

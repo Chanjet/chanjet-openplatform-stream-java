@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cowen.daemon.api_registry.v1;
+package cowen.daemon.native.api_registry.v1;
 
 service ApiRegistryService {
     rpc ApiList (ApiListRequest) returns (ApiListResponse);

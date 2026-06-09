@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cowen.daemon.v1;
+package cowen.daemon.native.audit.v1;
 
 service NativeAuditService {
     rpc TailAudit (TailAuditRequest) returns (TailAuditResponse);

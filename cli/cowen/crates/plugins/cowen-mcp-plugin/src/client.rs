@@ -1,9 +1,9 @@
 pub mod proto {
-    tonic::include_proto!("cowen.daemon.api_registry.v1");
+    tonic::include_proto!("cowen.daemon.native.api_registry.v1");
 }
 
 pub mod daemon_proto {
-    tonic::include_proto!("cowen.daemon.v1");
+    tonic::include_proto!("cowen.daemon.public.system.v1");
 }
 
 use proto::api_registry_service_client::ApiRegistryServiceClient;

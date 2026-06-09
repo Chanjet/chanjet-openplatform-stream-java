@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cowen.daemon.v1;
+package cowen.daemon.native.config.v1;
 
 service NativeConfigService {
     rpc GetGlobalConfig (GetGlobalConfigRequest) returns (GetGlobalConfigResponse);

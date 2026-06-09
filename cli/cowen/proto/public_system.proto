@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cowen.daemon.v1;
+package cowen.daemon.public.system.v1;
 
 service PublicSystemService {
     rpc PluginHandshake (PluginHandshakeRequest) returns (PluginHandshakeResponse);

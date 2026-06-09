@@ -1,5 +1,5 @@
 syntax = "proto3";
-package cowen.daemon.v1;
+package cowen.daemon.native.system.v1;
 
 service NativeSystemService {
     rpc StoreStatus (StoreStatusRequest) returns (StoreStatusResponse);

@@ -65,5 +65,5 @@ fn main() {
             &["../../../proto"],
         )
         .expect("Failed to compile native protos");
-    tonic_build::compile_protos("../../../proto/api_registry.proto").expect("Failed to compile api_registry.proto");
+    tonic_build::compile_protos("../../../proto/native_api_registry.proto").expect("Failed to compile native_api_registry.proto");
 }
