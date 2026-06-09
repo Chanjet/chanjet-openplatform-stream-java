@@ -1,0 +1,64 @@
+syntax = "proto3";
+package cowen.daemon.v1;
+
+service NativeConfigService {
+    rpc GetGlobalConfig (GetGlobalConfigRequest) returns (GetGlobalConfigResponse);
+    rpc SetGlobalConfig (SetGlobalConfigRequest) returns (SetGlobalConfigResponse);
+    rpc GetConfig (GetConfigRequest) returns (GetConfigResponse);
+    rpc ListConfig (ListConfigRequest) returns (ListConfigResponse);
+    rpc SetConfig (SetConfigRequest) returns (SetConfigResponse);
+    rpc RenameProfile (RenameProfileRequest) returns (RenameProfileResponse);
+}
+
+message GetGlobalConfigRequest {}
+message GetGlobalConfigResponse {
+    string config_json = 1;
+    optional string error_message = 2;
+}
+
+message SetGlobalConfigRequest {
+    string key = 1;
+    string value = 2;
+}
+message SetGlobalConfigResponse {
+    bool success = 1;
+    optional string error_message = 2;
+}
+
+message GetConfigRequest {
+    string profile = 1;
+    string key = 2;
+}
+message GetConfigResponse {
+    string config_json = 1;
+    optional string error_message = 2;
+}
+
+message ListConfigRequest {
+    string profile = 1;
+    string format = 2;
+    bool all = 3;
+}
+message ListConfigResponse {
+    string config_json = 1;
+    optional string error_message = 2;
+}
+
+message SetConfigRequest {
+    string profile = 1;
+    string key = 2;
+    string value = 3;
+}
+message SetConfigResponse {
+    bool success = 1;
+    optional string error_message = 2;
+}
+
+message RenameProfileRequest {
+    string old_name = 1;
+    string new_name = 2;
+}
+message RenameProfileResponse {
+    bool success = 1;
+    string message = 2;
+}

@@ -51,7 +51,19 @@ fn main() {
     println!("cargo:rustc-env=DEF_STREAM_URL={}", stream_url);
     println!("cargo:rustc-env=DEF_MARKET_URL={}", market_url);
     println!("cargo:rustc-env=BUILTIN_CLIENT_ID={}", builtin_client_id);
-    
-    tonic_build::compile_protos("../../../proto/daemon.proto").expect("Failed to compile daemon.proto");
+    tonic_build::configure()
+        .compile_protos(
+            &[
+                "../../../proto/native_audit.proto",
+                "../../../proto/native_auth.proto",
+                "../../../proto/native_config.proto",
+                "../../../proto/native_dlq.proto",
+                "../../../proto/native_system.proto",
+                "../../../proto/native_worker.proto",
+                "../../../proto/public_system.proto",
+            ],
+            &["../../../proto"],
+        )
+        .expect("Failed to compile native protos");
     tonic_build::compile_protos("../../../proto/api_registry.proto").expect("Failed to compile api_registry.proto");
 }

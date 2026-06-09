@@ -1,0 +1,65 @@
+syntax = "proto3";
+package cowen.daemon.v1;
+
+service NativeAuthService {
+    rpc InitProfile (InitProfileRequest) returns (InitProfileResponse);
+    rpc GetAuthUrl (GetAuthUrlRequest) returns (GetAuthUrlResponse);
+    rpc WaitForAuth (WaitForAuthRequest) returns (WaitForAuthResponse);
+    rpc GetToken (GetTokenRequest) returns (GetTokenResponse);
+    rpc ClearToken (ClearTokenRequest) returns (ClearTokenResponse);
+}
+
+message InitProfileRequest {
+    string profile = 1;
+    optional string app_key = 2;
+    optional string app_secret = 3;
+    optional string certificate = 4;
+    optional string encrypt_key = 5;
+    optional string webhook_target = 6;
+    optional string openapi_url = 7;
+    optional string stream_url = 8;
+    optional string app_mode = 9;
+    optional uint32 proxy_port = 10;
+}
+message InitProfileResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetAuthUrlRequest {
+    string profile = 1;
+    bool force = 2;
+}
+message GetAuthUrlResponse {
+    bool success = 1;
+    string url = 2;
+    string state = 3;
+    optional string error_message = 4;
+}
+
+message WaitForAuthRequest {
+    string profile = 1;
+    string state = 2;
+}
+message WaitForAuthResponse {
+    bool success = 1;
+    string token = 2;
+    optional string error_message = 3;
+}
+
+message GetTokenRequest {
+    string profile = 1;
+    bool refresh = 2;
+}
+message GetTokenResponse {
+    string token_json = 1;
+    optional string error_message = 2;
+}
+
+message ClearTokenRequest {
+    string profile = 1;
+}
+message ClearTokenResponse {
+    bool success = 1;
+    string message = 2;
+}

@@ -1,0 +1,47 @@
+syntax = "proto3";
+package cowen.daemon.v1;
+
+service NativeDlqService {
+    rpc DlqList (DlqListRequest) returns (DlqListResponse);
+    rpc DlqView (DlqViewRequest) returns (DlqViewResponse);
+    rpc DlqRetry (DlqRetryRequest) returns (DlqRetryResponse);
+    rpc DlqPurge (DlqPurgeRequest) returns (DlqPurgeResponse);
+}
+
+message DlqListRequest {
+    string profile = 1;
+    uint32 page = 2;
+    uint32 page_size = 3;
+}
+message DlqListResponse {
+    string json = 1;
+    optional string error_message = 2;
+}
+
+message DlqViewRequest {
+    string profile = 1;
+    string id = 2;
+}
+message DlqViewResponse {
+    string json = 1;
+    optional string error_message = 2;
+}
+
+message DlqRetryRequest {
+    string profile = 1;
+    string id = 2;
+}
+message DlqRetryResponse {
+    bool success = 1;
+    string message = 2;
+    optional string error_message = 3;
+}
+
+message DlqPurgeRequest {
+    string profile = 1;
+}
+message DlqPurgeResponse {
+    bool success = 1;
+    string message = 2;
+    optional string error_message = 3;
+}

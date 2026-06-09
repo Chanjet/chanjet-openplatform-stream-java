@@ -1,0 +1,16 @@
+syntax = "proto3";
+package cowen.daemon.v1;
+
+service NativeAuditService {
+    rpc TailAudit (TailAuditRequest) returns (TailAuditResponse);
+}
+
+message TailAuditRequest {
+    string profile = 1;
+    uint32 lines = 2;
+}
+
+message TailAuditResponse {
+    string content = 1;
+    optional string error_message = 2;
+}

@@ -1,0 +1,84 @@
+syntax = "proto3";
+package cowen.daemon.v1;
+
+service NativeWorkerService {
+    rpc Ping (PingRequest) returns (PingResponse);
+    rpc StartWorker (StartWorkerRequest) returns (StartWorkerResponse);
+    rpc StartAllWorkers (StartAllWorkersRequest) returns (StartAllWorkersResponse);
+    rpc StopWorker (StopWorkerRequest) returns (StopWorkerResponse);
+    rpc StopAllWorkers (StopAllWorkersRequest) returns (StopAllWorkersResponse);
+    rpc ReloadWorker (ReloadWorkerRequest) returns (ReloadWorkerResponse);
+    rpc GetStatus (GetStatusRequest) returns (GetStatusResponse);
+}
+
+enum WorkerState {
+    WORKER_STATE_UNSPECIFIED = 0;
+    WORKER_STATE_CREATED = 1;
+    WORKER_STATE_STARTING = 2;
+    WORKER_STATE_RUNNING = 3;
+    WORKER_STATE_BACKOFF = 4;
+    WORKER_STATE_FAILED = 5;
+    WORKER_STATE_DRAINING = 6;
+    WORKER_STATE_STOPPED = 7;
+}
+
+message WorkerBackoffDetails {
+    uint32 retry_count = 1;
+    string last_error = 2;
+    uint64 next_retry_in_secs = 3;
+}
+
+message WorkerStateInfo {
+    WorkerState state = 1;
+    WorkerBackoffDetails backoff = 2;
+    string failure_reason = 3;
+}
+
+message PingRequest {}
+message PingResponse {
+    string message = 1; // "pong"
+}
+
+message StartWorkerRequest {
+    string profile = 1;
+    string config_json = 2; 
+}
+message StartWorkerResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message StartAllWorkersRequest {}
+message StartAllWorkersResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message StopWorkerRequest {
+    string profile = 1;
+}
+message StopWorkerResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message StopAllWorkersRequest {}
+message StopAllWorkersResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message ReloadWorkerRequest {
+    string profile = 1;
+}
+message ReloadWorkerResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message GetStatusRequest {
+    optional string profile = 1;
+}
+message GetStatusResponse {
+    map<string, WorkerStateInfo> statuses = 1;
+}

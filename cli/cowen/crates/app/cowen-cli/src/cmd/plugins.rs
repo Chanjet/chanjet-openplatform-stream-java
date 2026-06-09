@@ -316,7 +316,8 @@ pub async fn run(profile: &str, name_opt: &Option<String>, args: &[String]) -> R
 
         let port_path = crate::get_ipc_port_path();
         let daemon_client = DaemonClient::new(&port_path);
-        let mut client = daemon_client.ensure_daemon().await?;
+        let (channel, interceptor) = daemon_client.ensure_daemon().await?;
+        let mut client = cowen_common::grpc::proto::native_system_service_client::NativeSystemServiceClient::with_interceptor(channel, interceptor);
 
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         

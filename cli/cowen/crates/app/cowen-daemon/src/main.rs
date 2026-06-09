@@ -251,7 +251,14 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
     let _manifest = cowen_server::daemon::facade_manifest::FacadeManifest::get_global_manifest();
     info!("Capability Facade Manifest aligned successfully");
 
-    let controller = cowen_grpc_facade::controller::CowenDaemonController::new(daemon_svc.clone(), vault.clone(), cfg_mgr.clone(), caps.clone());
+    let native_audit_ctrl = cowen_grpc_facade::native_audit::NativeAuditController { capabilities: caps.clone() };
+    let native_auth_ctrl = cowen_grpc_facade::native_auth::NativeAuthController { capabilities: caps.clone() };
+    let native_config_ctrl = cowen_grpc_facade::native_config::NativeConfigController { capabilities: caps.clone() };
+    let native_dlq_ctrl = cowen_grpc_facade::native_dlq::NativeDlqController { capabilities: caps.clone() };
+    let native_system_ctrl = cowen_grpc_facade::native_system::NativeSystemController { capabilities: caps.clone() };
+    let native_worker_ctrl = cowen_grpc_facade::native_worker::NativeWorkerController { capabilities: caps.clone() };
+    let public_system_ctrl = cowen_grpc_facade::public_system::PublicSystemController { capabilities: caps.clone() };
+    
     let api_registry_controller = cowen_grpc_facade::api_registry::ApiRegistryController::new(caps.clone());
     
     let secret_clone = jwt_secret.clone();
@@ -271,15 +278,28 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
         }
     };
 
-    let service_with_interceptor = cowen_common::grpc::proto::cowen_daemon_service_server::CowenDaemonServiceServer::with_interceptor(controller, auth_interceptor.clone());
-    let api_registry_with_interceptor = cowen_common::grpc::proto::api_registry_service_server::ApiRegistryServiceServer::with_interceptor(api_registry_controller, auth_interceptor);
+    let native_audit_svc = cowen_common::grpc::proto::native_audit_service_server::NativeAuditServiceServer::with_interceptor(native_audit_ctrl, auth_interceptor.clone());
+    let native_auth_svc = cowen_common::grpc::proto::native_auth_service_server::NativeAuthServiceServer::with_interceptor(native_auth_ctrl, auth_interceptor.clone());
+    let native_config_svc = cowen_common::grpc::proto::native_config_service_server::NativeConfigServiceServer::with_interceptor(native_config_ctrl, auth_interceptor.clone());
+    let native_dlq_svc = cowen_common::grpc::proto::native_dlq_service_server::NativeDlqServiceServer::with_interceptor(native_dlq_ctrl, auth_interceptor.clone());
+    let native_system_svc = cowen_common::grpc::proto::native_system_service_server::NativeSystemServiceServer::with_interceptor(native_system_ctrl, auth_interceptor.clone());
+    let native_worker_svc = cowen_common::grpc::proto::native_worker_service_server::NativeWorkerServiceServer::with_interceptor(native_worker_ctrl, auth_interceptor.clone());
+    let public_system_svc = cowen_common::grpc::proto::public_system_service_server::PublicSystemServiceServer::with_interceptor(public_system_ctrl, auth_interceptor.clone());
+
+    let api_registry_svc = cowen_common::grpc::proto::api_registry_service_server::ApiRegistryServiceServer::with_interceptor(api_registry_controller, auth_interceptor);
 
     let mut stop_rx_tonic = stop_rx;
     let monitor_tx = monitor_shutdown_tx;
 
     let server_future = tonic::transport::Server::builder()
-        .add_service(service_with_interceptor)
-        .add_service(api_registry_with_interceptor)
+        .add_service(native_audit_svc)
+        .add_service(native_auth_svc)
+        .add_service(native_config_svc)
+        .add_service(native_dlq_svc)
+        .add_service(native_system_svc)
+        .add_service(native_worker_svc)
+        .add_service(public_system_svc)
+        .add_service(api_registry_svc)
         .serve_with_incoming_shutdown(tokio_stream::wrappers::TcpListenerStream::new(listener), async move {
             let _ = stop_rx_tonic.recv().await;
             info!("Shutdown signal received, initiating graceful shutdown...");
