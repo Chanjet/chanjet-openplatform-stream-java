@@ -1,11 +1,11 @@
 use crate::{CapabilityContext, HostCapabilityProvider};
 use extism::Function;
 
-pub struct SysHttpProvider;
+pub struct NativeAuthProvider;
 
-impl HostCapabilityProvider for SysHttpProvider {
+impl HostCapabilityProvider for NativeAuthProvider {
     fn domain(&self) -> &'static str {
-        "sys.http"
+        "native.auth"
     }
 
     fn create_functions(
@@ -49,7 +49,7 @@ impl HostCapabilityProvider for SysHttpProvider {
                                 }
                             }
                         }
-                        caps_inner.sys_http.get_resolved_token(&prof, &cfg, &reqwest_headers).await
+                        caps_inner.native_auth.get_resolved_token(None, &prof, &cfg, &reqwest_headers).await
                     })
                 });
 
@@ -89,7 +89,7 @@ impl HostCapabilityProvider for SysHttpProvider {
 
                 let keys = tokio::task::block_in_place(move || {
                     tokio::runtime::Handle::current().block_on(async {
-                        caps_inner.sys_http.get_required_auth_keys(&prof, &cfg, &path, &method).await
+                        caps_inner.native_auth.get_required_auth_keys(None, &prof, &cfg, &path, &method).await
                     })
                 }).unwrap_or_default();
 

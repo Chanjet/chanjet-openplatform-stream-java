@@ -6,9 +6,10 @@ pub use capabilities::protected::native_api_registry;
 pub use internal::native_search;
 pub use capabilities::protected::native_system;
 pub use capabilities::protected::native_dlq;
-pub use capabilities::protected::native_daemon;
-pub use capabilities::protected::sys_http;
-pub use capabilities::protected::sys_vault;
+pub use capabilities::protected::native_worker;
+pub use capabilities::protected::native_auth;
+pub use capabilities::protected::native_config;
+pub use capabilities::protected::native_audit;
 pub use capabilities::public::public_system;
 
 // Expose rbac for the macro to resolve `crate::rbac`
@@ -21,13 +22,14 @@ use cowen_config::ConfigManager;
 use cowen_common::daemon::DaemonService;
 
 pub struct CapabilityRegistry {
-    pub sys_vault: Arc<dyn capabilities::protected::sys_vault::SysVaultCapability>,
-    pub sys_http: Arc<dyn capabilities::protected::sys_http::SysHttpCapability>,
     pub native_api_registry: Arc<dyn capabilities::protected::native_api_registry::NativeApiRegistryCapability>,
     pub native_system: Arc<dyn capabilities::protected::native_system::NativeSystemCapability<TunnelPluginStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<cowen_common::grpc::proto::TunnelPluginResponse, cowen_common::CowenError>> + Send + 'static>>>>,
     pub native_dlq: Arc<dyn capabilities::protected::native_dlq::NativeDlqCapability>,
     pub native_search: Arc<dyn internal::native_search::NativeSearchCapability>,
-    pub native_daemon: Arc<dyn capabilities::protected::native_daemon::NativeDaemonCapability>,
+    pub native_worker: Arc<dyn capabilities::protected::native_worker::NativeWorkerCapability>,
+    pub native_auth: Arc<dyn capabilities::protected::native_auth::NativeAuthCapability>,
+    pub native_config: Arc<dyn capabilities::protected::native_config::NativeConfigCapability>,
+    pub native_audit: Arc<dyn capabilities::protected::native_audit::NativeAuditCapability>,
     pub public_system: Arc<dyn capabilities::public::public_system::PublicSystemCapability>,
 }
 
@@ -41,9 +43,10 @@ impl CapabilityRegistry {
             native_system: Arc::new(capabilities::protected::native_system::DefaultSystem::new(vault.clone(), cfg_mgr.clone(), ipc_port)),
             native_dlq: native_dlq.clone(),
             native_search: native_search.clone(),
-            sys_vault: Arc::new(capabilities::protected::sys_vault::DefaultSysVault::new(vault.clone(), cfg_mgr.clone())),
-            sys_http: Arc::new(capabilities::protected::sys_http::DefaultSysHttp::new(vault.clone())),
-            native_daemon: Arc::new(capabilities::protected::native_daemon::DefaultDaemonCapability::new(service, vault.clone(), cfg_mgr.clone())),
+            native_worker: Arc::new(capabilities::protected::native_worker::DefaultWorkerCapability::new(service.clone(), vault.clone(), cfg_mgr.clone())),
+            native_auth: Arc::new(capabilities::protected::native_auth::DefaultAuthCapability::new(service.clone(), vault.clone(), cfg_mgr.clone())),
+            native_config: Arc::new(capabilities::protected::native_config::DefaultConfigCapability::new(service.clone(), vault.clone(), cfg_mgr.clone())),
+            native_audit: Arc::new(capabilities::protected::native_audit::DefaultAuditCapability::new(service.clone(), vault.clone(), cfg_mgr.clone())),
             public_system: Arc::new(capabilities::public::public_system::DefaultPublicSystem::new(supported_capabilities)),
         }
     }

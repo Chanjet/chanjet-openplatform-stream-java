@@ -78,7 +78,7 @@ impl DefaultSystem {
 impl NativeSystemCapability for DefaultSystem {
     type TunnelPluginStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<cowen_common::grpc::proto::TunnelPluginResponse, CowenError>> + Send + 'static>>;
 
-    #[rbac]
+    #[rbac(profile = "req.profile.as_str()", action = "read")]
     async fn doctor(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainDoctorRequest) -> Result<DomainDoctorResponse, CowenError> {
         let profile = req.profile;
         let config = match self.cfg_mgr.load(&profile).await {
@@ -106,14 +106,14 @@ impl NativeSystemCapability for DefaultSystem {
         Ok(DomainDoctorResponse { report, error_message: None })
     }
 
-    #[rbac]
+    #[rbac(action = "read")]
     async fn store_status(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, _req: DomainStoreStatusRequest) -> Result<DomainStoreStatusResponse, CowenError> {
         let app_config: cowen_common::config::AppConfig = self.cfg_mgr.load_app_config().await.unwrap_or_default();
         let json = serde_json::to_string(&app_config.storage).unwrap_or_else(|_| "{}".to_string());
         Ok(DomainStoreStatusResponse { json, error_message: None })
     }
 
-    #[rbac]
+    #[rbac(profile = "req.profile.as_str()", action = "read")]
     async fn system_status(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainSystemStatusRequest) -> Result<DomainSystemStatusResponse, CowenError> {
         let mut results = Vec::new();
         let mut list = self.cfg_mgr.list_profiles().await.unwrap_or_default();
@@ -235,7 +235,7 @@ impl NativeSystemCapability for DefaultSystem {
         Ok(DomainSystemStatusResponse { json, error_message: None })
     }
 
-    #[rbac]
+    #[rbac(profile = "req.profile.as_deref().unwrap_or(\"\")", action = "execute")]
     async fn system_reset(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainSystemResetRequest) -> Result<DomainSystemResetResponse, CowenError> {
         let profile = req.profile.filter(|p| !p.trim().is_empty());
         let dry_run = req.dry_run;
@@ -305,7 +305,7 @@ impl NativeSystemCapability for DefaultSystem {
         }
     }
 
-    #[rbac]
+    #[rbac(action = "execute")]
     async fn tunnel_plugin(
         &self,
         _claims: Option<&cowen_common::jwt::IpcClaims>,

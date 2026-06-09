@@ -72,8 +72,18 @@ pub fn get_policy(domain: &str, action: &str) -> (Vec<&'static str>, Vec<&'stati
         ("native.api.registry", "execute") => (vec!["native.api.registry:execute"], vec![]),
         ("native.api.registry", "search") => (vec!["native.api.registry:search"], vec![]),
         ("native.api.registry", "read") => (vec!["native.api.registry:read"], vec![]),
-        ("sys.vault", "read") => (vec!["sys.vault:read"], vec![]),
-        ("sys.http", "filter") => (vec![], vec!["sys.http:filter", "sys.vault:read"]), // either
+        ("native.auth", "filter") => (vec![], vec!["native.auth:filter", "native.config:read"]),
+        ("native.dlq", "read") => (vec!["native.dlq:read"], vec![]),
+        ("native.dlq", "execute") => (vec!["native.dlq:execute"], vec![]),
+        ("native.system", "read") => (vec!["native.system:read"], vec![]),
+        ("native.system", "execute") => (vec!["native.system:execute"], vec![]),
+        ("native.worker", "read") => (vec!["native.worker:read"], vec![]),
+        ("native.worker", "execute") => (vec!["native.worker:execute"], vec![]),
+        ("native.auth", "read") => (vec!["native.auth:read"], vec![]),
+        ("native.auth", "execute") => (vec!["native.auth:execute"], vec![]),
+        ("native.config", "read") => (vec!["native.config:read"], vec![]),
+        ("native.config", "write") => (vec!["native.config:write"], vec![]),
+        ("native.audit", "read") => (vec!["native.audit:read"], vec![]),
         _ => (vec![], vec![]),
     }
 }

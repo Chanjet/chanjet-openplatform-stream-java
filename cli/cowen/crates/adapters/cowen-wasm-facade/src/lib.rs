@@ -3,8 +3,8 @@ use std::sync::Arc;
 use extism::Function;
 use cowen_common::config::Config;
 
-pub mod sys_vault;
-pub mod sys_http;
+pub mod native_config;
+pub mod native_auth;
 
 pub struct CapabilityContext {
     pub profile: String,
@@ -48,8 +48,8 @@ pub fn registry_supported_versions() -> std::collections::HashMap<&'static str, 
     let mut map = std::collections::HashMap::new();
     let providers: Vec<Box<dyn HostCapabilityProvider>> = vec![
         Box::new(SysBaseProvider),
-        Box::new(sys_vault::SysVaultProvider),
-        Box::new(sys_http::SysHttpProvider),
+        Box::new(native_config::NativeConfigProvider),
+        Box::new(native_auth::NativeAuthProvider),
     ];
     for p in providers {
         map.insert(p.domain(), p.supported_versions());

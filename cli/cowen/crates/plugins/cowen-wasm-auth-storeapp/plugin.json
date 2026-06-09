@@ -4,12 +4,12 @@
   "version": "0.1.0",
   "transport": "wasm_extism",
   "requested_permissions": {
-    "sys.vault:read": true,
-    "sys.http:filter": true
+    "native.config:read": true,
+    "native.auth:filter": true
   },
   "required_capabilities": {
-    "sys.vault": "1.0.0",
-    "sys.http": "1.0.0"
+    "native.config": "1.0.0",
+    "native.auth": "1.0.0"
   },
   "contributes": {
     "wasm_interceptors": [

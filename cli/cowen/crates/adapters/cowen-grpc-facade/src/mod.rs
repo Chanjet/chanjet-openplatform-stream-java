@@ -11,8 +11,8 @@ pub fn registry_supported_versions() -> std::collections::HashMap<&'static str, 
     map.insert("native.search", vec!["1.0.0"]);
     
     // System capabilities mapped via gRPC endpoints
-    map.insert("sys.vault", vec!["1.0.0"]);
-    map.insert("sys.http", vec!["1.0.0"]);
+    map.insert("native.config", vec!["1.0.0"]);
+    map.insert("native.auth", vec!["1.0.0"]);
     map.insert("sys.base", vec!["1.0.0"]);
     
     map

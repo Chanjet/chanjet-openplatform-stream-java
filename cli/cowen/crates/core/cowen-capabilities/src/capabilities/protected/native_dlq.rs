@@ -69,7 +69,7 @@ impl DefaultDlq {
 #[tonic::async_trait]
 impl NativeDlqCapability for DefaultDlq {
 
-    #[rbac]
+    #[rbac(profile = "req.profile.as_str()", action = "read")]
     async fn dlq_list(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainDlqListRequest) -> Result<DomainDlqListResponse, CowenError> {
         match self.vault.list_dlq(&req.profile, req.page_size as usize).await {
             Ok(msgs) => Ok(DomainDlqListResponse { json: serde_json::to_string(&msgs).unwrap_or_default(), error_message: None }),
@@ -77,7 +77,7 @@ impl NativeDlqCapability for DefaultDlq {
         }
     }
 
-    #[rbac]
+    #[rbac(profile = "req.profile.as_str()", action = "read")]
     async fn dlq_view(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainDlqViewRequest) -> Result<DomainDlqViewResponse, CowenError> {
         let id_i64 = match req.id.parse::<i64>() {
             Ok(i) => i,
@@ -90,7 +90,7 @@ impl NativeDlqCapability for DefaultDlq {
         }
     }
 
-    #[rbac]
+    #[rbac(profile = "req.profile.as_str()", action = "execute")]
     async fn dlq_retry(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainDlqRetryRequest) -> Result<DomainDlqRetryResponse, CowenError> {
         let config = match self.cfg_mgr.load(&req.profile).await {
             Ok(c) => c,
@@ -112,7 +112,7 @@ impl NativeDlqCapability for DefaultDlq {
         }
     }
 
-    #[rbac]
+    #[rbac(profile = "req.profile.as_str()", action = "execute")]
     async fn dlq_purge(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainDlqPurgeRequest) -> Result<DomainDlqPurgeResponse, CowenError> {
         match self.vault.list_all_dlq(&req.profile).await {
             Ok(msgs) => {

@@ -1,11 +1,11 @@
 use crate::{CapabilityContext, HostCapabilityProvider};
 use extism::Function;
 
-pub struct SysVaultProvider;
+pub struct NativeConfigProvider;
 
-impl HostCapabilityProvider for SysVaultProvider {
+impl HostCapabilityProvider for NativeConfigProvider {
     fn domain(&self) -> &'static str {
-        "sys.vault"
+        "native.config"
     }
 
     fn create_functions(
@@ -34,7 +34,7 @@ impl HostCapabilityProvider for SysVaultProvider {
                 let caps_inner = caps.clone();
                 let result = tokio::task::block_in_place(move || {
                     tokio::runtime::Handle::current()
-                        .block_on(async { caps_inner.sys_vault.get_app_ticket(&app_key).await })
+                        .block_on(async { caps_inner.native_config.get_app_ticket(None, &app_key).await })
                 });
 
                 let out_str = match result {
@@ -60,7 +60,7 @@ impl HostCapabilityProvider for SysVaultProvider {
                 let profile_inner = profile.clone();
                 let secret = tokio::task::block_in_place(move || {
                     tokio::runtime::Handle::current()
-                        .block_on(async { caps_inner.sys_vault.get_app_secret(&profile_inner).await })
+                        .block_on(async { caps_inner.native_config.get_app_secret(None, &profile_inner).await })
                 }).unwrap_or_default();
 
                 let mem = plugin.memory_new(secret.as_bytes())?;

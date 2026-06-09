@@ -29,7 +29,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn start_worker(&self, request: Request<StartWorkerRequest>) -> Result<Response<StartWorkerResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.start_worker(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_worker.start_worker(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -37,7 +37,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn start_all_workers(&self, request: Request<StartAllWorkersRequest>) -> Result<Response<StartAllWorkersResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.start_all_workers(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_worker.start_all_workers(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -45,7 +45,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn stop_worker(&self, request: Request<StopWorkerRequest>) -> Result<Response<StopWorkerResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.stop_worker(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_worker.stop_worker(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -53,7 +53,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn stop_all_workers(&self, request: Request<StopAllWorkersRequest>) -> Result<Response<StopAllWorkersResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.stop_all_workers(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_worker.stop_all_workers(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -61,7 +61,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn reload_worker(&self, request: Request<ReloadWorkerRequest>) -> Result<Response<ReloadWorkerResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.reload_worker(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_worker.reload_worker(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -69,7 +69,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn get_status(&self, request: Request<GetStatusRequest>) -> Result<Response<GetStatusResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.get_status(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_worker.get_status(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -77,7 +77,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn init_profile(&self, request: Request<InitProfileRequest>) -> Result<Response<InitProfileResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.init_profile(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_auth.init_profile(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -85,7 +85,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn get_auth_url(&self, request: Request<GetAuthUrlRequest>) -> Result<Response<GetAuthUrlResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.get_auth_url(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_auth.get_auth_url(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -93,7 +93,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn wait_for_auth(&self, request: Request<WaitForAuthRequest>) -> Result<Response<WaitForAuthResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.wait_for_auth(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_auth.wait_for_auth(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -101,7 +101,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn get_token(&self, request: Request<GetTokenRequest>) -> Result<Response<GetTokenResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.get_token(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_auth.get_token(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -109,7 +109,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn clear_token(&self, request: Request<ClearTokenRequest>) -> Result<Response<ClearTokenResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.clear_token(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_auth.clear_token(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -117,7 +117,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn get_global_config(&self, request: Request<GetGlobalConfigRequest>) -> Result<Response<GetGlobalConfigResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.get_global_config(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_config.get_global_config(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -125,7 +125,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn set_global_config(&self, request: Request<SetGlobalConfigRequest>) -> Result<Response<SetGlobalConfigResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.set_global_config(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_config.set_global_config(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -133,7 +133,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn get_config(&self, request: Request<GetConfigRequest>) -> Result<Response<GetConfigResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.get_config(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_config.get_config(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -141,7 +141,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn list_config(&self, request: Request<ListConfigRequest>) -> Result<Response<ListConfigResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.list_config(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_config.list_config(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -149,7 +149,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn set_config(&self, request: Request<SetConfigRequest>) -> Result<Response<SetConfigResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.set_config(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_config.set_config(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -186,7 +186,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn rename_profile(&self, request: Request<RenameProfileRequest>) -> Result<Response<RenameProfileResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.rename_profile(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_config.rename_profile(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -244,7 +244,7 @@ impl CowenDaemonService for CowenDaemonController {
 
     async fn tail_audit(&self, request: Request<TailAuditRequest>) -> Result<Response<TailAuditResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_daemon.tail_audit(claims.as_ref(), request.into_inner()).await {
+        match self.capabilities.native_audit.tail_audit(claims.as_ref(), request.into_inner()).await {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => Err(Status::internal(e.to_string())),
         }

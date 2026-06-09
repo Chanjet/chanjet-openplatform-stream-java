@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use cowen_wasm_facade::{CapabilityContext, HostCapabilityProvider, SysBaseProvider, sys_vault::SysVaultProvider, sys_http::SysHttpProvider};
+use cowen_wasm_facade::{CapabilityContext, HostCapabilityProvider, SysBaseProvider, native_config::NativeConfigProvider, native_auth::NativeAuthProvider};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WasmPluginManifest {
@@ -244,8 +244,8 @@ impl WasmPipelineManager {
         // Initialize Providers Registry
         let providers: Vec<Box<dyn HostCapabilityProvider>> = vec![
             Box::new(SysBaseProvider),
-            Box::new(SysVaultProvider),
-            Box::new(SysHttpProvider),
+            Box::new(NativeConfigProvider),
+            Box::new(NativeAuthProvider),
         ];
 
         // We run all providers. Each provider checks if the required permissions/domains
@@ -623,7 +623,7 @@ mod tests {
             .load_single_wasm_for_test(
                 "cowen-wasm-auth-selfbuilt",
                 &wasm_bytes,
-                &["sys.vault:read".to_string()],
+                &["native.config:read".to_string()],
             )
             .unwrap();
 
