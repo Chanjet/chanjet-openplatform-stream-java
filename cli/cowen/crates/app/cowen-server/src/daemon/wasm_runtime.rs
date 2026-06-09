@@ -604,7 +604,7 @@ mod tests {
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
 
         let config_manager = cowen_config::ConfigManager::new_with_dir(temp_dir.clone()).unwrap();
-        let caps = std::sync::Arc::new(cowen_capabilities::CapabilityRegistry::new(vault.clone(), config_manager, 0, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
+        let caps = std::sync::Arc::new(cowen_capabilities::CapabilityRegistry::new(std::sync::Arc::new(cowen_common::daemon::DummyDaemonService), vault.clone(), config_manager, 0, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
         let manager = WasmPipelineManager::new("test_profile".to_string(), config, caps);
 
         let wasm_path =
