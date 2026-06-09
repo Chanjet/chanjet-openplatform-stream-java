@@ -11,7 +11,6 @@ service CowenDaemonService {
     rpc ReloadWorker (ReloadWorkerRequest) returns (ReloadWorkerResponse);
     rpc GetStatus (GetStatusRequest) returns (GetStatusResponse);
     rpc InitProfile (InitProfileRequest) returns (InitProfileResponse);
-    rpc CallApi (CallApiRequest) returns (CallApiResponse);
     rpc GetAuthUrl (GetAuthUrlRequest) returns (GetAuthUrlResponse);
     rpc WaitForAuth (WaitForAuthRequest) returns (WaitForAuthResponse);
     rpc GetToken (GetTokenRequest) returns (GetTokenResponse);
@@ -31,8 +30,8 @@ service CowenDaemonService {
     rpc DlqRetry (DlqRetryRequest) returns (DlqRetryResponse);
     rpc DlqPurge (DlqPurgeRequest) returns (DlqPurgeResponse);
     rpc TailAudit (TailAuditRequest) returns (TailAuditResponse);
-    rpc ApiList (ApiListRequest) returns (ApiListResponse);
-    rpc ApiSpec (ApiSpecRequest) returns (ApiSpecResponse);
+    rpc TunnelPlugin (stream TunnelPluginRequest) returns (stream TunnelPluginResponse);
+    rpc PluginHandshake (PluginHandshakeRequest) returns (PluginHandshakeResponse);
 }
 
 enum WorkerState {
@@ -124,19 +123,7 @@ message InitProfileResponse {
     string message = 2;
 }
 
-message CallApiRequest {
-    string profile = 1;
-    string method = 2;
-    string path = 3;
-    optional string data = 4;
-    bool force = 5;
-}
-message CallApiResponse {
-    uint32 status = 1;
-    map<string, string> headers = 2;
-    string body = 3;
-    optional string error_message = 4;
-}
+
 
 message GetAuthUrlRequest {
     string profile = 1;
@@ -308,26 +295,31 @@ message TailAuditResponse {
     optional string error_message = 2;
 }
 
-message ApiListRequest {
-    string profile = 1;
-    optional string search = 2;
-    uint32 page = 3;
-    uint32 page_size = 4;
-    bool refresh = 5;
-}
-message ApiListResponse {
-    uint32 total = 1;
-    string json = 2;
-    optional string plugin_used = 3;
-    optional string error_message = 4;
+
+
+message TunnelPluginRequest {
+    // The first message MUST contain the plugin_name. Subsequent messages contain stdio_payload.
+    optional string plugin_name = 1;
+    optional bytes stdin_payload = 2;
+    repeated string args = 3;
+    map<string, string> envs = 4;
 }
 
-message ApiSpecRequest {
-    string profile = 1;
-    string method = 2;
-    string path = 3;
+message TunnelPluginResponse {
+    optional bytes stdout_payload = 1;
+    optional bytes stderr_payload = 2;
+    optional string error_message = 3;
 }
-message ApiSpecResponse {
-    string json = 1;
-    optional string error_message = 2;
+
+message PluginHandshakeRequest {
+    string plugin_name = 1;
+    string plugin_version = 2;
+    map<string, string> required_capabilities = 3;
 }
+
+message PluginHandshakeResponse {
+    bool success = 1;
+    string message = 2;
+    map<string, string> supported_capabilities = 3;
+}
+

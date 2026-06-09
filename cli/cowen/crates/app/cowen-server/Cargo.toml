@@ -22,9 +22,13 @@ connector-sdk = { path = "../../../../../sdk/rust" }
 cowen-common = { path = "../../core/cowen-common", features = ["reqwest"] }
 cowen-infra = { path = "../../core/cowen-infra" }
 cowen-sys = { path = "../../core/cowen-sys" }
+cowen-macros = { path = "../../core/cowen-macros" }
 cowen-config = { path = "../../services/cowen-config" }
 cowen-auth = { path = "../../services/cowen-auth" }
 cowen-store = { path = "../../services/cowen-store" }
+cowen-monitor = { path = "../../services/cowen-monitor" }
+cowen-search = { path = "../../services/cowen-search" }
+cowen-doctor = { path = "../../services/cowen-doctor" }
 prometheus = "0.13"
 arc-swap = "1.9.1"
 
@@ -32,8 +36,11 @@ scopeguard = "1.2"
 rand = "0.8"
 futures = "0.3.32"
 tokio-util = { version = "0.7.18", features = ["full", "rt"] }
+tokio-stream = "0.1"
 extism = "1.30.0"
 notify = "6.1.1"
+tonic = "0.12"
+semver = "1.0.28"
 
 [build-dependencies]
 chrono = "0.4"

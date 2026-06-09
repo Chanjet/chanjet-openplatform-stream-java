@@ -7,6 +7,10 @@
     "sys.vault:read": true,
     "sys.http:filter": true
   },
+  "required_capabilities": {
+    "sys.vault": "1.0.0",
+    "sys.http": "1.0.0"
+  },
   "contributes": {
     "wasm_interceptors": [
       {

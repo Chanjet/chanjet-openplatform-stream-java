@@ -7,6 +7,7 @@ struct RbacArgs {
     scopes: Vec<String>,
     any_scopes: Vec<String>,
     profile: Option<String>,
+    domain: Option<String>,
     actions: Vec<String>,
     any_actions: Vec<String>,
 }
@@ -17,6 +18,7 @@ impl Parse for RbacArgs {
             scopes: Vec::new(),
             any_scopes: Vec::new(),
             profile: None,
+            domain: None,
             actions: Vec::new(),
             any_actions: Vec::new(),
         };
@@ -32,12 +34,14 @@ impl Parse for RbacArgs {
                 args.any_scopes.push(lit.value());
             } else if ident == "profile" {
                 args.profile = Some(lit.value());
+            } else if ident == "domain" {
+                args.domain = Some(lit.value());
             } else if ident == "action" {
                 args.actions.push(lit.value());
             } else if ident == "any_action" {
                 args.any_actions.push(lit.value());
             } else {
-                return Err(syn::Error::new(ident.span(), "Unknown attribute argument. Supported: scope, any_scope, profile, action, any_action"));
+                return Err(syn::Error::new(ident.span(), "Unknown attribute argument. Supported: scope, any_scope, profile, domain, action, any_action"));
             }
 
             if !input.is_empty() {
@@ -67,7 +71,7 @@ impl Parse for DomainArgs {
 
 /// A procedural macro for controller implementations to specify a common RBAC domain.
 /// It preprocesses all `#[rbac(action = "...")]` attributes on methods and rewrites
-/// them into `#[rbac(scope = "domain:action")]`.
+/// them to include the domain: `#[rbac(domain = "...", action = "...")]`.
 #[proc_macro_attribute]
 pub fn rbac_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
     let domain_args = parse_macro_input!(attr as DomainArgs);
@@ -78,19 +82,19 @@ pub fn rbac_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
         if let syn::ImplItem::Fn(method) = impl_item {
             for attr in &mut method.attrs {
                 if attr.path().is_ident("rbac") {
-                    // Extract tokens from the attribute to parse
                     let attr_tokens = attr.meta.require_list().map(|l| l.tokens.clone()).unwrap_or_default();
                     
                     if let Ok(rbac_args) = syn::parse2::<RbacArgs>(attr_tokens) {
                         let mut new_args = proc_macro2::TokenStream::new();
                         
+                        // Inject domain
+                        new_args.extend(quote! { domain = #domain, });
+                        
                         for action in rbac_args.actions {
-                            let scope = format!("{}:{}", domain, action);
-                            new_args.extend(quote! { scope = #scope, });
+                            new_args.extend(quote! { action = #action, });
                         }
                         for action in rbac_args.any_actions {
-                            let scope = format!("{}:{}", domain, action);
-                            new_args.extend(quote! { any_scope = #scope, });
+                            new_args.extend(quote! { any_action = #action, });
                         }
                         for scope in rbac_args.scopes {
                             new_args.extend(quote! { scope = #scope, });
@@ -116,20 +120,12 @@ pub fn rbac_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// A procedural macro to enforce RBAC permissions on a gRPC controller method.
 ///
-/// Note: Since this is used within `#[tonic::async_trait]`, the target function 
-/// is actually transformed into a synchronous function returning `Pin<Box<dyn Future>>`.
-/// Therefore, we inject the RBAC check as a synchronous step that returns an error future
-/// immediately if the check fails.
+/// If `domain` and `action` are provided, it delegates the policy lookup dynamically
+/// to `crate::capabilities::rbac::get_policy(domain, action)`.
 #[proc_macro_attribute]
 pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as RbacArgs);
     let mut input_fn = parse_macro_input!(item as ItemFn);
-
-    let scopes_iter = args.scopes.iter();
-    let all_scopes_expr = quote! { &[ #(#scopes_iter),* ] };
-
-    let any_scopes_iter = args.any_scopes.iter();
-    let any_scopes_expr = quote! { &[ #(#any_scopes_iter),* ] };
 
     let profile_expr = if let Some(p) = args.profile {
         let expr: syn::Expr = match syn::parse_str(&p) {
@@ -141,15 +137,102 @@ pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote! { None }
     };
 
+    let mut claims_ident = None;
+    for arg in &input_fn.sig.inputs {
+        if let syn::FnArg::Typed(pat_type) = arg {
+            if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
+                if pat_ident.ident == "claims" || pat_ident.ident == "_claims" {
+                    claims_ident = Some(pat_ident.ident.clone());
+                }
+            }
+        }
+    }
+
+    let is_tonic_result = match &input_fn.sig.output {
+        syn::ReturnType::Type(_, ty) => {
+            let ty_str = quote!(#ty).to_string().replace(" ", "");
+            ty_str.contains(",Status>") || ty_str.contains(",tonic::Status>") || ty_str.contains("tonic::Response<") || ty_str.contains("Response<")
+        },
+        _ => false,
+    };
+
+    let claims_expr = if let Some(ident) = &claims_ident {
+        quote! { #ident }
+    } else {
+        quote! { claims }
+    };
+
+    let check_block = if let Some(domain) = args.domain {
+        let mut actions_exprs = Vec::new();
+        for action in args.actions {
+            actions_exprs.push(quote! { crate::capabilities::rbac::get_policy(#domain, #action) });
+        }
+        for any_action in args.any_actions {
+            actions_exprs.push(quote! { crate::capabilities::rbac::get_policy(#domain, #any_action) });
+        }
+        
+        let scopes_iter = args.scopes.iter();
+        let any_scopes_iter = args.any_scopes.iter();
+        
+        let err_return = if is_tonic_result {
+            quote! { return Box::pin(async move { Err(tonic::Status::permission_denied(e)) }); }
+        } else {
+            quote! { return Box::pin(async move { Err(cowen_common::CowenError::Auth(e).into()) }); }
+        };
+
+        quote! {
+            let mut all_scopes_dyn: Vec<&str> = Vec::new();
+            let mut any_scopes_dyn: Vec<&str> = Vec::new();
+            #(
+                let (all, any) = #actions_exprs;
+                all_scopes_dyn.extend(all);
+                any_scopes_dyn.extend(any);
+            )*
+            
+            let static_scopes: &[&str] = &[ #(#scopes_iter),* ];
+            all_scopes_dyn.extend(static_scopes);
+            
+            let static_any_scopes: &[&str] = &[ #(#any_scopes_iter),* ];
+            any_scopes_dyn.extend(static_any_scopes);
+            
+            let claims_opt = #claims_expr;
+            if let Err(e) = crate::capabilities::rbac::verify_permission(claims_opt, #profile_expr, &all_scopes_dyn, &any_scopes_dyn) {
+                #err_return
+            }
+        }
+    } else {
+        let scopes_iter = args.scopes.iter();
+        let all_scopes_expr = quote! { &[ #(#scopes_iter),* ] };
+
+        let any_scopes_iter = args.any_scopes.iter();
+        let any_scopes_expr = quote! { &[ #(#any_scopes_iter),* ] };
+        
+        let err_return = if is_tonic_result {
+            quote! { return Box::pin(async move { Err(tonic::Status::permission_denied(e)) }); }
+        } else {
+            quote! { return Box::pin(async move { Err(cowen_common::CowenError::Auth(e).into()) }); }
+        };
+
+        quote! {
+            let claims_opt = #claims_expr;
+            if let Err(e) = crate::capabilities::rbac::verify_permission(claims_opt, #profile_expr, #all_scopes_expr, #any_scopes_expr) {
+                #err_return
+            }
+        }
+    };
+
     let original_block = &input_fn.block;
 
-    // We inject the check_rbac call at the beginning of the block.
-    // We return a Box::pin future directly if the check fails.
+    let claims_let = if claims_ident.is_some() {
+        quote! {}
+    } else {
+        quote! { let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>(); }
+    };
+
     let new_block = quote! {
         {
-            if let Err(e) = crate::controller::check_rbac(&request, #profile_expr, #all_scopes_expr, #any_scopes_expr) {
-                return Box::pin(async move { Err(e) });
-            }
+            #claims_let
+            #check_block
             #original_block
         }
     };

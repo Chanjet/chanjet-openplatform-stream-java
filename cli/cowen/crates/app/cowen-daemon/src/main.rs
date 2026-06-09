@@ -2,10 +2,6 @@
 
 #![allow(unused_imports)]
 
-mod controller;
-mod api_registry;
-mod openapi_parser;
-pub mod orchestrators;
 
 use anyhow::Result;
 use clap::Parser;
@@ -249,9 +245,14 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
         });
     }
 
+    let caps = Arc::new(cowen_server::capabilities::CapabilityRegistry::new(vault.clone(), cfg_mgr.clone(), ipc_port));
+    
+    // Validate Capability Facade Alignment on boot (Fail-fast if Wasm and gRPC facades diverge)
+    let _manifest = cowen_server::daemon::facade_manifest::FacadeManifest::get_global_manifest();
+    info!("Capability Facade Manifest aligned successfully");
 
-    let controller = crate::controller::CowenDaemonController::new(daemon_svc.clone(), vault.clone(), cfg_mgr.clone(), ipc_port);
-    let api_registry_controller = crate::api_registry::ApiRegistryController::new(vault.clone(), cfg_mgr.clone());
+    let controller = cowen_server::daemon::grpc_capabilities::controller::CowenDaemonController::new(daemon_svc.clone(), vault.clone(), cfg_mgr.clone(), caps.clone());
+    let api_registry_controller = cowen_server::daemon::grpc_capabilities::api_registry::ApiRegistryController::new(caps.clone());
     
     let secret_clone = jwt_secret.clone();
     let auth_interceptor = move |mut req: tonic::Request<()>| -> std::result::Result<tonic::Request<()>, tonic::Status> {

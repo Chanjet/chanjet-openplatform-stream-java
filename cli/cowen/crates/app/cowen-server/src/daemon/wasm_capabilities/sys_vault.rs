@@ -4,7 +4,7 @@ use extism::Function;
 pub struct SysVaultProvider;
 
 impl HostCapabilityProvider for SysVaultProvider {
-    fn domain(&self) -> &str {
+    fn domain(&self) -> &'static str {
         "sys.vault"
     }
 
@@ -14,67 +14,61 @@ impl HostCapabilityProvider for SysVaultProvider {
         permissions: &[String],
         context: &CapabilityContext,
     ) -> anyhow::Result<Vec<Function>> {
-        let mut funcs = vec![];
+        self.check_version(version)?;
 
-        if version != "v1" && version != "v1.0" {
-            tracing::warn!("Unsupported sys.vault version: {}. Falling back to v1.", version);
-        }
+        let mut builder = crate::daemon::wasm_capabilities::WasmHostFunctionBuilder::new(self.domain(), permissions);
 
-        if permissions.contains(&"sys.vault:read".to_string()) {
-            let vault_clone = context.vault.clone();
-            let get_app_ticket_fn = extism::Function::new(
-                "host_vault_get_app_ticket",
-                [extism::ValType::I64],
-                [extism::ValType::I64],
-                extism::UserData::new(()),
-                move |plugin: &mut extism::CurrentPlugin,
-                      inputs: &[extism::Val],
-                      outputs: &mut [extism::Val],
-                      _user_data: extism::UserData<()>|
-                      -> Result<(), extism::Error> {
-                    let handle = plugin
-                        .memory_from_val(&inputs[0])
-                        .ok_or_else(|| extism::Error::msg("Invalid memory handle"))?;
-                    let app_key_str = plugin.memory_str(handle)?;
-                    let app_key = app_key_str.to_string();
+        let caps = context.capabilities.clone();
+        builder.register(
+            "read",
+            "host_vault_get_app_ticket",
+            [extism::ValType::I64],
+            [extism::ValType::I64],
+            move |plugin: &mut extism::CurrentPlugin, inputs, outputs, _| {
+                let handle = plugin
+                    .memory_from_val(&inputs[0])
+                    .ok_or_else(|| extism::Error::msg("Invalid memory handle"))?;
+                let app_key_str = plugin.memory_str(handle)?;
+                let app_key = app_key_str.to_string();
 
-                    let vault_inner = vault_clone.clone();
-                    let result = tokio::task::block_in_place(move || {
-                        tokio::runtime::Handle::current()
-                            .block_on(async { vault_inner.get_app_ticket(&app_key).await })
-                    });
+                let caps_inner = caps.clone();
+                let result = tokio::task::block_in_place(move || {
+                    tokio::runtime::Handle::current()
+                        .block_on(async { caps_inner.sys_vault.get_app_ticket(&app_key).await })
+                });
 
-                    let out_str = match result {
-                        Ok(ticket) => serde_json::to_string(&ticket).unwrap_or_default(),
-                        Err(_) => "".to_string(),
-                    };
+                let out_str = match result {
+                    Ok(Some(ticket)) => serde_json::to_string(&ticket).unwrap_or_default(),
+                    _ => "".to_string(),
+                };
 
-                    let mem = plugin.memory_new(out_str.as_bytes())?;
-                    outputs[0] = extism::Val::I64(mem.offset() as i64);
-                    Ok(())
-                },
-            );
-            funcs.push(get_app_ticket_fn);
+                let mem = plugin.memory_new(out_str.as_bytes())?;
+                outputs[0] = extism::Val::I64(mem.offset() as i64);
+                Ok(())
+            },
+        );
 
-            let config_clone_for_secret = context.config.clone();
-            let get_app_secret_fn = extism::Function::new(
-                "host_get_app_secret",
-                [],
-                [extism::ValType::I64],
-                extism::UserData::new(()),
-                move |plugin: &mut extism::CurrentPlugin,
-                      _inputs: &[extism::Val],
-                      outputs: &mut [extism::Val],
-                      _user_data: extism::UserData<()>|
-                      -> Result<(), extism::Error> {
-                    let mem = plugin.memory_new(config_clone_for_secret.app_secret.as_bytes())?;
-                    outputs[0] = extism::Val::I64(mem.offset() as i64);
-                    Ok(())
-                },
-            );
-            funcs.push(get_app_secret_fn);
-        }
+        let caps_for_secret = context.capabilities.clone();
+        let profile = context.profile.clone();
+        builder.register(
+            "read",
+            "host_get_app_secret",
+            [],
+            [extism::ValType::I64],
+            move |plugin: &mut extism::CurrentPlugin, _inputs, outputs, _| {
+                let caps_inner = caps_for_secret.clone();
+                let profile_inner = profile.clone();
+                let secret = tokio::task::block_in_place(move || {
+                    tokio::runtime::Handle::current()
+                        .block_on(async { caps_inner.sys_vault.get_app_secret(&profile_inner).await })
+                }).unwrap_or_default();
 
-        Ok(funcs)
+                let mem = plugin.memory_new(secret.as_bytes())?;
+                outputs[0] = extism::Val::I64(mem.offset() as i64);
+                Ok(())
+            },
+        );
+
+        Ok(builder.build())
     }
 }

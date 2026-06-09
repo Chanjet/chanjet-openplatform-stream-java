@@ -29,6 +29,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&config_json)?);
         }
         Some(Commands::Server) => {
+            // Step 1: Handshake with Daemon
+            if let Ok(mut daemon_client) = client::get_daemon_grpc_client().await {
+                let mut req = client::daemon_proto::PluginHandshakeRequest {
+                    plugin_name: "cowen-mcp-plugin".to_string(),
+                    plugin_version: "1.0.0".to_string(),
+                    required_capabilities: std::collections::HashMap::new(),
+                };
+                req.required_capabilities.insert("native.api.registry".to_string(), "1.0.0".to_string());
+                
+                let grpc_req = client::inject_auth(req);
+                match daemon_client.plugin_handshake(grpc_req).await {
+                    Ok(resp) => {
+                        let inner = resp.into_inner();
+                        if !inner.success {
+                            eprintln!("Plugin Handshake Failed: {}", inner.message);
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Daemon Handshake RPC failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                eprintln!("Could not initialize Daemon gRPC client for handshake.");
+                std::process::exit(1);
+            }
+
             let app_state = AppState::new(cli.profile);
 
             let mut reader = BufReader::new(tokio::io::stdin());

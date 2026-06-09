@@ -1,45 +1,110 @@
 use std::sync::Arc;
 use cowen_config::ConfigManager;
 use cowen_common::vault::Vault;
-use tonic::{Response, Status};
+use cowen_macros::{rbac, rbac_controller};
 
-use tokio::process::Command;
-use std::process::Stdio;
-use tokio_stream::wrappers::ReceiverStream;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_stream::StreamExt;
-use cowen_common::grpc::proto::{TunnelPluginRequest, TunnelPluginResponse};
+use cowen_common::CowenError;
 
-use cowen_common::grpc::proto::{
-    DoctorRequest, DoctorResponse,
-    StoreStatusRequest, StoreStatusResponse,
-    SystemStatusRequest, SystemStatusResponse,
-    SystemResetRequest, SystemResetResponse,
-};
+// Domain DTOs
+pub struct DomainDoctorRequest {
+    pub profile: String,
+}
 
-pub struct SystemOrchestrator {
+pub struct DomainDoctorResponse {
+    pub report: String,
+    pub error_message: Option<String>,
+}
+
+pub struct DomainStoreStatusRequest {
+}
+
+pub struct DomainStoreStatusResponse {
+    pub json: String,
+    pub error_message: Option<String>,
+}
+
+pub struct DomainSystemStatusRequest {
+    pub profile: String,
+    pub all: bool,
+}
+
+pub struct DomainSystemStatusResponse {
+    pub json: String,
+    pub error_message: Option<String>,
+}
+
+pub struct DomainSystemResetRequest {
+    pub profile: Option<String>,
+    pub dry_run: bool,
+}
+
+pub struct DomainSystemResetResponse {
+    pub success: bool,
+    pub message: String,
+    pub error_message: Option<String>,
+}
+
+pub struct DomainPluginHandshakeRequest {
+    pub plugin_name: String,
+    pub plugin_version: String,
+    pub protocol_version: String,
+    pub required_capabilities: std::collections::HashMap<String, String>,
+}
+
+pub struct DomainPluginHandshakeResponse {
+    pub accepted: bool,
+    pub server_version: String,
+    pub protocol_version: String,
+    pub error_message: Option<String>,
+    pub supported_capabilities: std::collections::HashMap<String, String>,
+}
+
+#[tonic::async_trait]
+pub trait NativeSystemCapability: Send + Sync {
+    type TunnelPluginStream: tokio_stream::Stream<Item = Result<cowen_common::grpc::proto::TunnelPluginResponse, CowenError>> + Send + 'static;
+    async fn tunnel_plugin(
+        &self,
+        claims: Option<&cowen_common::jwt::IpcClaims>,
+        stream: tonic::Streaming<cowen_common::grpc::proto::TunnelPluginRequest>,
+    ) -> Result<Self::TunnelPluginStream, CowenError>;
+    async fn doctor(&self, claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainDoctorRequest) -> Result<DomainDoctorResponse, CowenError>;
+    async fn store_status(&self, claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainStoreStatusRequest) -> Result<DomainStoreStatusResponse, CowenError>;
+    async fn system_status(&self, claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainSystemStatusRequest) -> Result<DomainSystemStatusResponse, CowenError>;
+    async fn system_reset(&self, claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainSystemResetRequest) -> Result<DomainSystemResetResponse, CowenError>;
+    async fn plugin_handshake(&self, claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainPluginHandshakeRequest) -> Result<DomainPluginHandshakeResponse, CowenError>;
+}
+
+pub struct DefaultSystem {
     vault: Arc<dyn Vault>,
     cfg_mgr: ConfigManager,
     ipc_port: u16,
 }
 
-impl SystemOrchestrator {
+impl DefaultSystem {
     pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, ipc_port: u16) -> Self {
         Self { vault, cfg_mgr, ipc_port }
     }
+}
 
-    pub async fn doctor(&self, req: DoctorRequest) -> Result<Response<DoctorResponse>, Status> {
-        let config = match self.cfg_mgr.load(&req.profile).await {
+#[rbac_controller(domain = "native.system")]
+#[tonic::async_trait]
+impl NativeSystemCapability for DefaultSystem {
+    type TunnelPluginStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<cowen_common::grpc::proto::TunnelPluginResponse, CowenError>> + Send + 'static>>;
+
+    #[rbac]
+    async fn doctor(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainDoctorRequest) -> Result<DomainDoctorResponse, CowenError> {
+        let profile = req.profile;
+        let config = match self.cfg_mgr.load(&profile).await {
             Ok(c) => c,
-            Err(e) => return Err(Status::not_found(format!("Profile not found: {}", e)))
+            Err(e) => return Err(CowenError::NotFound(format!("Profile not found: {}", e)))
         };
-        let ctx = cowen_doctor::DoctorContext { profile: req.profile.clone(), config, verbose: false, fix: false, vault: self.vault.clone(), cfg_mgr: self.cfg_mgr.clone() };
-        let results = match cowen_doctor::run_all_diagnostics(&ctx).await {
+        let ctx = cowen_doctor::DoctorContext { profile: profile.clone(), config, verbose: false, fix: false, vault: self.vault.clone(), cfg_mgr: self.cfg_mgr.clone() };
+        let diag_results = match cowen_doctor::run_all_diagnostics(&ctx).await {
             Ok(r) => r,
-            Err(e) => return Err(Status::internal(e.to_string()))
+            Err(e) => return Err(CowenError::Internal(e.to_string()))
         };
         let mut report = String::new();
-        for (i, res) in results.iter().enumerate() {
+        for (i, res) in diag_results.iter().enumerate() {
             let (status_str, details) = match &res.status {
                 cowen_doctor::DiagnosticStatus::Ok => ("OK", None),
                 cowen_doctor::DiagnosticStatus::Warning(msg) => ("WARN", Some(msg)),
@@ -51,16 +116,18 @@ impl SystemOrchestrator {
                 report.push_str(&format!("   Details: {}\n", msg));
             }
         }
-        Ok(Response::new(DoctorResponse { report, error_message: None }))
+        Ok(DomainDoctorResponse { report, error_message: None })
     }
 
-    pub async fn store_status(&self, _req: StoreStatusRequest) -> Result<Response<StoreStatusResponse>, Status> {
+    #[rbac]
+    async fn store_status(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, _req: DomainStoreStatusRequest) -> Result<DomainStoreStatusResponse, CowenError> {
         let app_config: cowen_common::config::AppConfig = self.cfg_mgr.load_app_config().await.unwrap_or_default();
         let json = serde_json::to_string(&app_config.storage).unwrap_or_else(|_| "{}".to_string());
-        Ok(Response::new(StoreStatusResponse { json, error_message: None }))
+        Ok(DomainStoreStatusResponse { json, error_message: None })
     }
 
-    pub async fn system_status(&self, req: SystemStatusRequest) -> Result<Response<SystemStatusResponse>, Status> {
+    #[rbac]
+    async fn system_status(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainSystemStatusRequest) -> Result<DomainSystemStatusResponse, CowenError> {
         let mut results = Vec::new();
         let mut list = self.cfg_mgr.list_profiles().await.unwrap_or_default();
         if !list.contains(&"default".to_string()) {
@@ -101,7 +168,6 @@ impl SystemOrchestrator {
                     vault: self.vault.clone(),
                 };
                 
-                // Add Configuration Status Entry
                 let mode_str = format!("{:?}", config.app_mode).to_lowercase();
                 let mut details = vec![];
                 details.push(format!("Build ID:   {}", cowen_common::BUILD_ID));
@@ -166,7 +232,6 @@ impl SystemOrchestrator {
                     }
                 }
 
-                
                 if let Ok(mut diag_entries) = auth_cli.get_diagnostics(&ctx).await {
                     entries.append(&mut diag_entries);
                 }
@@ -180,11 +245,12 @@ impl SystemOrchestrator {
         }
         
         let json = serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string());
-        Ok(Response::new(SystemStatusResponse { json, error_message: None }))
+        Ok(DomainSystemStatusResponse { json, error_message: None })
     }
 
-    pub async fn system_reset(&self, req: SystemResetRequest) -> Result<Response<SystemResetResponse>, Status> {
-        let profile = req.profile;
+    #[rbac]
+    async fn system_reset(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainSystemResetRequest) -> Result<DomainSystemResetResponse, CowenError> {
+        let profile = req.profile.filter(|p| !p.trim().is_empty());
         let dry_run = req.dry_run;
 
         if dry_run {
@@ -210,7 +276,7 @@ impl SystemOrchestrator {
                     }
                 }
             }
-            Ok(Response::new(SystemResetResponse { success: true, message: out }))
+            Ok(DomainSystemResetResponse { success: true, message: out, error_message: None })
         } else {
             let app_dir = cowen_common::config::get_app_dir();
             let config_task = cowen_config::reset::ConfigResetTask::new(app_dir.clone(), profile.clone());
@@ -245,26 +311,27 @@ impl SystemOrchestrator {
             }
             
             if errors.is_empty() {
-                Ok(Response::new(SystemResetResponse { success: true, message: "System reset successful".to_string() }))
+                Ok(DomainSystemResetResponse { success: true, message: "System reset successful".to_string(), error_message: None })
             } else {
-                Ok(Response::new(SystemResetResponse { success: false, message: format!("Errors occurred: {}", errors.join(", ")) }))
+                Ok(DomainSystemResetResponse { success: false, message: format!("Errors occurred: {}", errors.join(", ")), error_message: Some(errors.join(", ")) })
             }
         }
     }
 
-    pub async fn tunnel_plugin(
+    #[rbac]
+    async fn tunnel_plugin(
         &self,
-        request: tonic::Streaming<TunnelPluginRequest>,
-    ) -> Result<Response<std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<TunnelPluginResponse, Status>> + Send + 'static>>>, Status> {
-        let mut stream = request;
+        _claims: Option<&cowen_common::jwt::IpcClaims>,
+        mut stream: tonic::Streaming<cowen_common::grpc::proto::TunnelPluginRequest>,
+    ) -> Result<Self::TunnelPluginStream, CowenError> {
         
         let first_msg = match stream.message().await {
             Ok(Some(msg)) => msg,
-            Ok(None) => return Err(Status::invalid_argument("Empty stream")),
-            Err(e) => return Err(Status::internal(format!("Stream error: {}", e))),
+            Ok(None) => return Err(CowenError::Validation("Empty stream".to_string())),
+            Err(e) => return Err(CowenError::Internal(format!("Stream error: {}", e))),
         };
 
-        let plugin_name = first_msg.plugin_name.ok_or_else(|| Status::invalid_argument("First message must contain plugin_name"))?;
+        let plugin_name = first_msg.plugin_name.ok_or_else(|| CowenError::Validation("First message must contain plugin_name".to_string()))?;
         
         let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
         let expected_path = if cfg!(target_os = "windows") {
@@ -274,11 +341,11 @@ impl SystemOrchestrator {
         };
 
         if !expected_path.exists() {
-            return Err(Status::not_found(format!("Plugin {} not found at {:?}", plugin_name, expected_path)));
+            return Err(CowenError::NotFound(format!("Plugin {} not found at {:?}", plugin_name, expected_path)));
         }
 
         let manifest = cowen_common::plugin::PluginManifest::load(&plugin_name)
-            .map_err(|e| Status::internal(format!("Failed to load plugin manifest: {}", e)))?;
+            .map_err(|e| CowenError::Internal(format!("Failed to load plugin manifest: {}", e)))?;
         
         let scopes = manifest.requested_permissions;
         let allowed_commands = manifest.allowed_commands;
@@ -290,7 +357,7 @@ impl SystemOrchestrator {
         };
 
         if !allowed_commands.contains(&requested_cmd) {
-            return Err(Status::permission_denied(format!(
+            return Err(CowenError::Auth(format!(
                 "Command execution denied: '{}' is not declared in plugin.json contributes.cli_commands",
                 if requested_cmd.is_empty() { "<root>" } else { &requested_cmd }
             )));
@@ -304,13 +371,13 @@ impl SystemOrchestrator {
             86400
         );
         let bridge_token = cowen_common::jwt::sign_jwt(&plugin_claims, &jwt_secret_vec)
-            .map_err(|e| Status::internal(format!("Failed to sign token: {}", e)))?;
+            .map_err(|e| CowenError::Internal(format!("Failed to sign token: {}", e)))?;
 
         let port_str = self.ipc_port.to_string();
             
         let profile = first_msg.envs.get("COWEN_PROFILE").cloned().unwrap_or_else(|| "default".to_string());
 
-        let mut cmd = Command::new(&expected_path);
+        let mut cmd = tokio::process::Command::new(&expected_path);
         cmd.args(first_msg.args);
         
         for (k, v) in first_msg.envs {
@@ -322,13 +389,13 @@ impl SystemOrchestrator {
         cmd.env("COWEN_IPC_PORT", port_str);
         cmd.env("COWEN_BRIDGE_TOKEN", bridge_token);
         
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
+        cmd.stdin(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
-            Err(e) => return Err(Status::internal(format!("Failed to spawn plugin: {}", e))),
+            Err(e) => return Err(CowenError::Internal(format!("Failed to spawn plugin: {}", e))),
         };
 
         let mut stdin = child.stdin.take().unwrap();
@@ -338,18 +405,19 @@ impl SystemOrchestrator {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
 
         // STDIN task
+        let mut stream = stream; // Shadow to make it move-able
         tokio::spawn(async move {
             if let Some(payload) = first_msg.stdin_payload {
                 if !payload.is_empty() {
-                    let _ = stdin.write_all(&payload).await;
-                    let _ = stdin.flush().await;
+                    let _ = tokio::io::AsyncWriteExt::write_all(&mut stdin, &payload).await;
+                    let _ = tokio::io::AsyncWriteExt::flush(&mut stdin).await;
                 }
             }
             while let Ok(Some(msg)) = stream.message().await {
                 if let Some(payload) = msg.stdin_payload {
                     if payload.is_empty() { break; }
-                    if stdin.write_all(&payload).await.is_err() { break; }
-                    if stdin.flush().await.is_err() { break; }
+                    if tokio::io::AsyncWriteExt::write_all(&mut stdin, &payload).await.is_err() { break; }
+                    if tokio::io::AsyncWriteExt::flush(&mut stdin).await.is_err() { break; }
                 }
             }
         });
@@ -359,17 +427,17 @@ impl SystemOrchestrator {
         tokio::spawn(async move {
             let mut buf = vec![0u8; 8192];
             loop {
-                match stdout.read(&mut buf).await {
+                match tokio::io::AsyncReadExt::read(&mut stdout, &mut buf).await {
                     Ok(0) => break,
                     Ok(n) => {
-                        if tx_out.send(Ok(TunnelPluginResponse {
+                        if tx_out.send(Ok(cowen_common::grpc::proto::TunnelPluginResponse {
                             stdout_payload: Some(buf[..n].to_vec()),
                             stderr_payload: None,
                             error_message: None,
                         })).await.is_err() { break; }
                     }
                     Err(e) => {
-                        let _ = tx_out.send(Err(Status::internal(e.to_string()))).await;
+                        let _ = tx_out.send(Err(CowenError::Internal(e.to_string()))).await;
                         break;
                     }
                 }
@@ -381,17 +449,17 @@ impl SystemOrchestrator {
         tokio::spawn(async move {
             let mut buf = vec![0u8; 8192];
             loop {
-                match stderr.read(&mut buf).await {
+                match tokio::io::AsyncReadExt::read(&mut stderr, &mut buf).await {
                     Ok(0) => break,
                     Ok(n) => {
-                        if tx_err.send(Ok(TunnelPluginResponse {
+                        if tx_err.send(Ok(cowen_common::grpc::proto::TunnelPluginResponse {
                             stdout_payload: None,
                             stderr_payload: Some(buf[..n].to_vec()),
                             error_message: None,
                         })).await.is_err() { break; }
                     }
                     Err(e) => {
-                        let _ = tx_err.send(Err(Status::internal(e.to_string()))).await;
+                        let _ = tx_err.send(Err(CowenError::Internal(e.to_string()))).await;
                         break;
                     }
                 }
@@ -403,7 +471,91 @@ impl SystemOrchestrator {
             let _ = child.wait().await;
         });
 
-        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
+        Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx)))
+    }
+
+    async fn plugin_handshake(
+        &self,
+        _claims: Option<&cowen_common::jwt::IpcClaims>,
+        req: DomainPluginHandshakeRequest,
+    ) -> Result<DomainPluginHandshakeResponse, CowenError> {
+        
+        let mut supported = std::collections::HashMap::new();
+        let grpc_caps = crate::daemon::grpc_capabilities::registry_supported_versions();
+        for (k, v) in grpc_caps {
+            supported.insert(k.to_string(), v.join(","));
+        }
+        let wasm_caps = crate::daemon::wasm_capabilities::registry_supported_versions();
+        for (k, v) in wasm_caps {
+            let version_str = v.join(",");
+            supported.entry(k.to_string())
+                .and_modify(|existing| existing.push_str(&format!(",{}", version_str)))
+                .or_insert(version_str);
+        }
+
+        let mut missing = vec![];
+        let mut incompatible = vec![];
+        for (cap, req_ver) in &req.required_capabilities {
+            if let Some(supported_vers) = supported.get(cap) {
+                let req_parsed = match semver::VersionReq::parse(req_ver) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        incompatible.push(format!("{} (invalid version format: {})", cap, req_ver));
+                        continue;
+                    }
+                };
+                
+                let mut matched = false;
+                for sup in supported_vers.split(',') {
+                    if let Ok(ver) = semver::Version::parse(sup) {
+                        if req_parsed.matches(&ver) {
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if !matched {
+                    incompatible.push(format!("{} (requested: {}, supported: {})", cap, req_ver, supported_vers));
+                }
+            } else {
+                missing.push(cap.clone());
+            }
+        }
+
+        if !missing.is_empty() || !incompatible.is_empty() {
+            let mut msgs = vec![];
+            if !missing.is_empty() {
+                msgs.push(format!("Missing capabilities: {:?}", missing));
+            }
+            if !incompatible.is_empty() {
+                msgs.push(format!("Incompatible versions: {:?}", incompatible));
+            }
+            return Ok(DomainPluginHandshakeResponse {
+                accepted: false,
+                server_version: env!("CARGO_PKG_VERSION").to_string(),
+                protocol_version: "1.0".to_string(),
+                error_message: Some(msgs.join("; ")),
+                supported_capabilities: supported,
+            });
+        }
+        
+        if req.protocol_version != "1.0" {
+            return Ok(DomainPluginHandshakeResponse {
+                accepted: false,
+                server_version: env!("CARGO_PKG_VERSION").to_string(),
+                protocol_version: "1.0".to_string(),
+                error_message: Some("Unsupported protocol version".to_string()),
+                supported_capabilities: supported,
+            });
+        }
+
+        Ok(DomainPluginHandshakeResponse {
+            accepted: true,
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            protocol_version: "1.0".to_string(),
+            error_message: None,
+            supported_capabilities: supported,
+        })
     }
 }
-

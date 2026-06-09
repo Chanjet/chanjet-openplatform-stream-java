@@ -2,18 +2,31 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
-pub struct SearchOrchestrator {
+#[tonic::async_trait]
+pub trait NativeSearchCapability: Send + Sync {
+    async fn search_if_needed(
+        &self,
+        profile: &str,
+        ops: Vec<serde_json::Value>,
+        query_opt: &Option<String>,
+    ) -> (Vec<serde_json::Value>, Option<String>);
+}
+
+pub struct DefaultSearch {
     search_cache: Arc<RwLock<HashMap<String, (u64, u64, Arc<cowen_search::loader::FallbackProvider>)>>>,
 }
 
-impl SearchOrchestrator {
+impl DefaultSearch {
     pub fn new() -> Self {
         Self {
             search_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
+}
 
-    pub async fn search_if_needed(
+#[tonic::async_trait]
+impl NativeSearchCapability for DefaultSearch {
+    async fn search_if_needed(
         &self,
         profile: &str,
         ops: Vec<serde_json::Value>,
@@ -87,7 +100,9 @@ impl SearchOrchestrator {
 
         (new_ops, used_plugin_name)
     }
+}
 
+impl DefaultSearch {
     fn hash_docs(docs: &[cowen_search::SearchDocument]) -> u64 {
         use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;

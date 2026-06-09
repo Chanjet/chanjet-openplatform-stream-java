@@ -31,25 +31,25 @@ pub struct WasmPipelineManager {
     plugin_manifests: ArcSwap<HashMap<String, cowen_common::plugin::PluginManifest>>,
     lazy_system_plugins: ArcSwap<HashMap<String, std::path::PathBuf>>,
     routes: ArcSwap<Vec<RoutePolicy>>,
-    vault: Arc<dyn cowen_common::vault::Vault>,
     profile: String,
     config: cowen_common::config::Config,
+    capabilities: Arc<crate::capabilities::CapabilityRegistry>,
 }
 
 impl WasmPipelineManager {
     pub fn new(
-        vault: Arc<dyn cowen_common::vault::Vault>,
         profile: String,
         config: cowen_common::config::Config,
+        capabilities: Arc<crate::capabilities::CapabilityRegistry>,
     ) -> Self {
         Self {
             plugins: ArcSwap::from_pointee(HashMap::new()),
             plugin_manifests: ArcSwap::from_pointee(HashMap::new()),
             lazy_system_plugins: ArcSwap::from_pointee(HashMap::new()),
             routes: ArcSwap::from_pointee(Vec::new()),
-            vault,
             profile,
             config,
+            capabilities,
         }
     }
 
@@ -75,6 +75,12 @@ impl WasmPipelineManager {
                     allowed_commands: std::collections::HashSet::new(),
                     wasm_interceptors: vec![],
                 });
+
+            if !plugin_manifest.required_capabilities.is_empty() {
+                crate::daemon::facade_manifest::FacadeManifest::check_plugin_compatibility(&plugin_manifest.required_capabilities).map_err(|e| {
+                    anyhow::anyhow!("Plugin {} capability check failed: {}", plugin_info.name, e)
+                })?;
+            }
 
             let host_functions = self.create_host_functions(&plugin_manifest.requested_permissions, &plugin_manifest.required_capabilities);
             let plugin = Plugin::new(&manifest, host_functions, true)?;
@@ -137,6 +143,13 @@ impl WasmPipelineManager {
                                     allowed_commands: std::collections::HashSet::new(),
                                     wasm_interceptors: vec![],
                                 });
+
+                        if !plugin_manifest.required_capabilities.is_empty() {
+                            if let Err(e) = crate::daemon::facade_manifest::FacadeManifest::check_plugin_compatibility(&plugin_manifest.required_capabilities) {
+                                tracing::error!("Local plugin {} failed capability check: {}", name, e);
+                                continue;
+                            }
+                        }
 
                         lazy_plugins.insert(name.clone(), path.clone());
                         loaded_manifests.insert(name.clone(), plugin_manifest);
@@ -223,9 +236,9 @@ impl WasmPipelineManager {
         let mut funcs = vec![];
         
         let context = CapabilityContext {
-            vault: self.vault.clone(),
             profile: self.profile.clone(),
             config: self.config.clone(),
+            capabilities: self.capabilities.clone(),
         };
 
         // Initialize Providers Registry
@@ -239,15 +252,29 @@ impl WasmPipelineManager {
         // match what it provides, and looks up the version from `required_capabilities`.
         for provider in providers {
             let domain = provider.domain();
-            // Default to "v1" if the capability version is not explicitly declared
-            let version = required_capabilities.get(domain).map(|s| s.as_str()).unwrap_or("v1");
             
-            match provider.create_functions(version, scopes, &context) {
+            let req_version = required_capabilities.get(domain).map(|s| s.as_str());
+
+            // If it's sys.base, we always provide it using the highest supported version for compatibility if not explicitly requested
+            let version_to_use = if let Some(v) = req_version {
+                v
+            } else if domain == "sys.base" {
+                // Default to the first supported version
+                provider.supported_versions().first().copied().unwrap_or("1.0.0")
+            } else {
+                // Capability not explicitly requested, do not mount its host functions
+                continue;
+            };
+            
+            match provider.create_functions(version_to_use, scopes, &context) {
                 Ok(mut provider_funcs) => {
                     funcs.append(&mut provider_funcs);
                 }
                 Err(e) => {
+                    // Fail hard if we fail to mount requested host functions due to version mismatch or other error
                     tracing::error!("Failed to create host functions for {}: {}", domain, e);
+                    // Depending on policy, we might want to panic or return empty. For now we just skip but log error.
+                    // Returning here would require changing `create_host_functions` to return Result.
                 }
             }
         }
@@ -576,7 +603,9 @@ mod tests {
         config.app_key = "my-test-app".to_string();
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
 
-        let manager = WasmPipelineManager::new(vault.clone(), "test_profile".to_string(), config);
+        let config_manager = cowen_config::ConfigManager::new_with_dir(temp_dir.clone()).unwrap();
+        let caps = std::sync::Arc::new(crate::capabilities::CapabilityRegistry::new(vault.clone(), config_manager, 0));
+        let manager = WasmPipelineManager::new("test_profile".to_string(), config, caps);
 
         let wasm_path =
             "../../../target/wasm32-unknown-unknown/debug/cowen_wasm_auth_selfbuilt.wasm";

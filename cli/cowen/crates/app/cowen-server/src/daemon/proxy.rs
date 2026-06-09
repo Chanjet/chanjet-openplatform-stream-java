@@ -30,6 +30,7 @@ pub async fn start_proxy(
     app_dir: std::path::PathBuf,
 ) -> CowenResult<()> {
     let config_manager = cowen_config::ConfigManager::new_with_dir(app_dir)?;
+    let caps = Arc::new(crate::capabilities::CapabilityRegistry::new(vault.clone(), config_manager.clone(), port));
     let state = ProxyState {
         client: Client::builder().no_proxy().build().unwrap(),
         config: config.clone(),
@@ -37,9 +38,9 @@ pub async fn start_proxy(
         vault: vault.clone(),
         wasm_manager: {
             let mgr = Arc::new(crate::daemon::wasm_runtime::WasmPipelineManager::new(
-                vault.clone(),
                 profile.to_string(),
                 config.clone(),
+                caps,
             ));
             let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
             if let Err(e) = std::fs::create_dir_all(&plugins_dir) {

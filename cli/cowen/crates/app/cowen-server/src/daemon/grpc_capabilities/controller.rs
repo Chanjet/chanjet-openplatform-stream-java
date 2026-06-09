@@ -10,59 +10,26 @@ use cowen_common::daemon::DaemonService;
 use cowen_common::vault::Vault;
 use cowen_config::ConfigManager;
 use cowen_auth::client::Client;
-use tracing::{info, error};
+use tracing::info;
 
 pub struct CowenDaemonController {
     service: Arc<dyn DaemonService>,
     vault: Arc<dyn Vault>,
     cfg_mgr: ConfigManager,
-    system_orchestrator: crate::orchestrators::SystemOrchestrator,
-    dlq_orchestrator: crate::orchestrators::DlqOrchestrator,
+    capabilities: Arc<crate::capabilities::CapabilityRegistry>,
 }
 
 impl CowenDaemonController {
-    pub fn new(service: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, ipc_port: u16) -> Self {
+    pub fn new(service: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, capabilities: Arc<crate::capabilities::CapabilityRegistry>) -> Self {
         Self { 
             service, 
-            vault: vault.clone(), 
-            cfg_mgr: cfg_mgr.clone(),
-            system_orchestrator: crate::orchestrators::SystemOrchestrator::new(vault.clone(), cfg_mgr.clone(), ipc_port),
-            dlq_orchestrator: crate::orchestrators::DlqOrchestrator::new(vault, cfg_mgr),
+            vault,
+            cfg_mgr,
+            capabilities,
         }
     }
 }
 
-pub(crate) fn check_rbac<T>(req: &Request<T>, target_profile: Option<&str>, all_scopes: &[&str], any_scopes: &[&str]) -> Result<(), Status> {
-    if let Some(claims) = req.extensions().get::<cowen_common::jwt::IpcClaims>() {
-        if claims.role == cowen_common::jwt::IpcRole::Plugin {
-            if let Some(p) = target_profile {
-                if p != claims.sub {
-                    return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' is not authorized to access profile '{}'", claims.sub, p)));
-                }
-            } else if all_scopes.is_empty() && any_scopes.is_empty() {
-                // If there's no target profile AND no specific scope requested, we reject by default for plugins.
-                return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' is not authorized for this action", claims.sub)));
-            }
-            
-            if !claims.scopes.contains(&"*".to_string()) {
-                if !all_scopes.is_empty() {
-                    let missing: Vec<&str> = all_scopes.iter().filter(|&s| !claims.scopes.contains(&s.to_string())).copied().collect();
-                    if !missing.is_empty() {
-                        return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' lacks required permissions {:?}", claims.sub, missing)));
-                    }
-                }
-                
-                if !any_scopes.is_empty() {
-                    let has_any = any_scopes.iter().any(|&s| claims.scopes.contains(&s.to_string()));
-                    if !has_any {
-                        return Err(Status::permission_denied(format!("Forbidden: Plugin '{}' lacks any of the permissions {:?}", claims.sub, any_scopes)));
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
 
 #[tonic::async_trait]
 impl CowenDaemonService for CowenDaemonController {
@@ -297,7 +264,18 @@ impl CowenDaemonService for CowenDaemonController {
     }
 
     async fn doctor(&self, request: Request<DoctorRequest>) -> Result<Response<DoctorResponse>, Status> {
-        self.system_orchestrator.doctor(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let inner = request.into_inner();
+        let domain_req = crate::capabilities::native_system::DomainDoctorRequest {
+            profile: inner.profile,
+        };
+        match self.capabilities.native_system.doctor(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(DoctorResponse {
+                report: resp.report,
+                error_message: resp.error_message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 
     async fn get_global_config(&self, _request: Request<GetGlobalConfigRequest>) -> Result<Response<GetGlobalConfigResponse>, Status> {
@@ -361,16 +339,48 @@ impl CowenDaemonService for CowenDaemonController {
     }
 
     async fn store_status(&self, request: Request<StoreStatusRequest>) -> Result<Response<StoreStatusResponse>, Status> {
-        self.system_orchestrator.store_status(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let _inner = request.into_inner();
+        let domain_req = crate::capabilities::native_system::DomainStoreStatusRequest {};
+        match self.capabilities.native_system.store_status(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(StoreStatusResponse {
+                json: resp.json,
+                error_message: resp.error_message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 
     async fn system_status(&self, request: Request<SystemStatusRequest>) -> Result<Response<SystemStatusResponse>, Status> {
-        self.system_orchestrator.system_status(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let inner = request.into_inner();
+        let domain_req = crate::capabilities::native_system::DomainSystemStatusRequest {
+            profile: inner.profile,
+            all: inner.all,
+        };
+        match self.capabilities.native_system.system_status(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(SystemStatusResponse {
+                json: resp.json,
+                error_message: resp.error_message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 
-    #[rbac]
     async fn system_reset(&self, request: Request<SystemResetRequest>) -> Result<Response<SystemResetResponse>, Status> {
-        self.system_orchestrator.system_reset(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let inner = request.into_inner();
+        let domain_req = crate::capabilities::native_system::DomainSystemResetRequest {
+            profile: inner.profile.filter(|p| !p.trim().is_empty()),
+            dry_run: inner.dry_run,
+        };
+        match self.capabilities.native_system.system_reset(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(SystemResetResponse {
+                success: resp.success,
+                message: resp.message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 
     #[rbac]
@@ -389,21 +399,68 @@ impl CowenDaemonService for CowenDaemonController {
     }
 
     async fn dlq_list(&self, request: Request<DlqListRequest>) -> Result<Response<DlqListResponse>, Status> {
-        self.dlq_orchestrator.dlq_list(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let inner = request.into_inner();
+        let domain_req = crate::capabilities::native_dlq::DomainDlqListRequest {
+            profile: inner.profile,
+            page_size: inner.page_size,
+        };
+        match self.capabilities.native_dlq.dlq_list(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(DlqListResponse {
+                json: resp.json,
+                error_message: resp.error_message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 
     async fn dlq_view(&self, request: Request<DlqViewRequest>) -> Result<Response<DlqViewResponse>, Status> {
-        self.dlq_orchestrator.dlq_view(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let inner = request.into_inner();
+        let domain_req = crate::capabilities::native_dlq::DomainDlqViewRequest {
+            profile: inner.profile,
+            id: inner.id,
+        };
+        match self.capabilities.native_dlq.dlq_view(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(DlqViewResponse {
+                json: resp.json,
+                error_message: resp.error_message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 
-    #[rbac]
     async fn dlq_retry(&self, request: Request<DlqRetryRequest>) -> Result<Response<DlqRetryResponse>, Status> {
-        self.dlq_orchestrator.dlq_retry(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let inner = request.into_inner();
+        let domain_req = crate::capabilities::native_dlq::DomainDlqRetryRequest {
+            profile: inner.profile,
+            id: inner.id,
+        };
+        match self.capabilities.native_dlq.dlq_retry(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(DlqRetryResponse {
+                success: resp.success,
+                message: resp.message,
+                error_message: resp.error_message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 
-    #[rbac]
     async fn dlq_purge(&self, request: Request<DlqPurgeRequest>) -> Result<Response<DlqPurgeResponse>, Status> {
-        self.dlq_orchestrator.dlq_purge(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let inner = request.into_inner();
+        let domain_req = crate::capabilities::native_dlq::DomainDlqPurgeRequest {
+            profile: inner.profile,
+        };
+        match self.capabilities.native_dlq.dlq_purge(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(DlqPurgeResponse {
+                success: resp.success,
+                message: resp.message,
+                error_message: resp.error_message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 
     async fn tail_audit(&self, request: Request<TailAuditRequest>) -> Result<Response<TailAuditResponse>, Status> {
@@ -420,106 +477,46 @@ impl CowenDaemonService for CowenDaemonController {
         }
     }
 
-    #[rbac]
     async fn tunnel_plugin(
         &self,
         request: Request<tonic::Streaming<TunnelPluginRequest>>,
     ) -> Result<Response<Self::TunnelPluginStream>, Status> {
-        self.system_orchestrator.tunnel_plugin(request.into_inner()).await
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        match self.capabilities.native_system.tunnel_plugin(claims.as_ref(), request.into_inner()).await {
+            Ok(stream) => {
+                use tokio_stream::StreamExt;
+                let mapped = stream.map(|res| res.map_err(|e| Status::internal(e.to_string())));
+                Ok(Response::new(Box::pin(mapped) as Self::TunnelPluginStream))
+            },
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
+    }
+
+    async fn plugin_handshake(
+        &self,
+        request: Request<PluginHandshakeRequest>,
+    ) -> Result<Response<PluginHandshakeResponse>, Status> {
+        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
+        let inner = request.into_inner();
+        let domain_req = crate::capabilities::native_system::DomainPluginHandshakeRequest {
+            plugin_name: inner.plugin_name,
+            plugin_version: inner.plugin_version,
+            required_capabilities: inner.required_capabilities,
+            protocol_version: "1.0".to_string(), // For simplicity, we hardcode here or add to proto later
+        };
+        match self.capabilities.native_system.plugin_handshake(claims.as_ref(), domain_req).await {
+            Ok(resp) => Ok(Response::new(PluginHandshakeResponse {
+                success: resp.accepted,
+                message: if resp.accepted {
+                    format!("Handshake successful. Daemon supports {} capabilities.", resp.supported_capabilities.len())
+                } else {
+                    resp.error_message.clone().unwrap_or_default()
+                },
+                supported_capabilities: resp.supported_capabilities,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cowen_common::jwt::{IpcClaims, IpcRole};
-    use tonic::Request;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn make_req(role: IpcRole, sub: &str, scopes: Vec<&str>) -> Request<()> {
-        let mut req = Request::new(());
-        let claims = IpcClaims::new(sub.to_string(), role, scopes.into_iter().map(|s| s.to_string()).collect(), 3600);
-        req.extensions_mut().insert(claims);
-        req
-    }
-
-    #[test]
-    fn test_rbac_not_plugin_is_allowed() {
-        let req = make_req(IpcRole::Admin, "sys", vec![]);
-        assert!(check_rbac(&req, Some("profile_a"), &["domain:read"], &["domain:write"]).is_ok());
-    }
-
-    #[test]
-    fn test_rbac_target_profile_match() {
-        let req = make_req(IpcRole::Plugin, "plugin_a", vec![]);
-        // Match
-        assert!(check_rbac(&req, Some("plugin_a"), &[], &[]).is_ok());
-        // Mismatch
-        let err = check_rbac(&req, Some("plugin_b"), &[], &[]).unwrap_err();
-        assert_eq!(err.code(), tonic::Code::PermissionDenied);
-    }
-
-    #[test]
-    fn test_rbac_default_deny_when_no_scopes_requested() {
-        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:read"]);
-        // If neither profile nor scopes are requested, it should deny
-        let err = check_rbac(&req, None, &[], &[]).unwrap_err();
-        assert_eq!(err.code(), tonic::Code::PermissionDenied);
-    }
-
-    #[test]
-    fn test_rbac_wildcard_permission() {
-        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["*"]);
-        // Wildcard allows everything
-        assert!(check_rbac(&req, None, &["domain:read", "domain:write"], &["domain:execute"]).is_ok());
-    }
-
-    #[test]
-    fn test_rbac_all_scopes_and_logic() {
-        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:read", "domain:write"]);
-        
-        // Has all required
-        assert!(check_rbac(&req, None, &["domain:read", "domain:write"], &[]).is_ok());
-        
-        // Missing one required
-        let err = check_rbac(&req, None, &["domain:read", "domain:execute"], &[]).unwrap_err();
-        assert_eq!(err.code(), tonic::Code::PermissionDenied);
-        assert!(err.message().contains("lacks required permissions"));
-    }
-
-    #[test]
-    fn test_rbac_any_scopes_or_logic() {
-        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:execute"]);
-        
-        // Has at least one
-        assert!(check_rbac(&req, None, &[], &["domain:read", "domain:execute"]).is_ok());
-        
-        // Has none of them
-        let err = check_rbac(&req, None, &[], &["domain:read", "domain:write"]).unwrap_err();
-        assert_eq!(err.code(), tonic::Code::PermissionDenied);
-        assert!(err.message().contains("lacks any of the permissions"));
-    }
-
-    #[test]
-    fn test_rbac_mixed_logic() {
-        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:read", "domain:execute"]);
-        
-        // Must have "read", AND (must have "write" OR "execute")
-        assert!(check_rbac(&req, None, &["domain:read"], &["domain:write", "domain:execute"]).is_ok());
-
-        // Must have "write" (fails), AND (must have "execute")
-        let err = check_rbac(&req, None, &["domain:write"], &["domain:execute"]).unwrap_err();
-        assert_eq!(err.code(), tonic::Code::PermissionDenied);
-    }
-    
-    #[test]
-    fn test_rbac_target_profile_and_scopes() {
-        let req = make_req(IpcRole::Plugin, "plugin_a", vec!["domain:read"]);
-        // Profile matches, but scope is missing
-        let err = check_rbac(&req, Some("plugin_a"), &["domain:write"], &[]).unwrap_err();
-        assert_eq!(err.code(), tonic::Code::PermissionDenied);
-
-        // Profile matches, and scope matches
-        assert!(check_rbac(&req, Some("plugin_a"), &["domain:read"], &[]).is_ok());
-    }
-}
