@@ -1374,15 +1374,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cowen-wasm-auth-custom"
-version = "0.1.0"
-dependencies = [
- "extism-pdk",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cowen-wasm-auth-selfbuilt"
 version = "0.1.0"
 dependencies = [
