@@ -4,12 +4,12 @@ use axum::{
     routing::any,
     Router,
 };
+use cowen_common::config::Config;
+use cowen_common::vault::Vault;
+use cowen_common::{CowenError, CowenResult};
 use reqwest::Client;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use cowen_common::config::Config;
-use cowen_common::vault::Vault;
-use cowen_common::{CowenResult, CowenError};
 
 #[derive(Clone)]
 pub struct ProxyState {
@@ -34,8 +34,22 @@ pub async fn start_proxy(
         client: Client::builder().no_proxy().build().unwrap(),
         config: config.clone(),
         profile: profile.to_string(),
-        vault,
-        wasm_manager: Some(Arc::new(crate::daemon::wasm_runtime::WasmPipelineManager::new())),
+        vault: vault.clone(),
+        wasm_manager: {
+            let mgr = Arc::new(crate::daemon::wasm_runtime::WasmPipelineManager::new(
+                vault.clone(),
+                profile.to_string(),
+                config.clone(),
+            ));
+            let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
+            if let Err(e) = std::fs::create_dir_all(&plugins_dir) {
+                tracing::warn!("Failed to create plugins directory: {}", e);
+            }
+            if let Err(e) = mgr.clone().start_watch(plugins_dir) {
+                tracing::error!("Failed to start Wasm plugin watcher: {}", e);
+            }
+            Some(mgr)
+        },
         config_manager,
     };
 
@@ -46,53 +60,68 @@ pub async fn start_proxy(
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     cowen_infra::validate_loopback_addr(&addr).map_err(cowen_common::CowenError::Security)?;
-    
+
     // Retry logic for binding to handle port release delay during reloads
     let mut retry_count = 0;
     let listener = loop {
         let socket = match addr {
-            SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4().map_err(|e| CowenError::Store(format!("Failed to create socket: {}", e)))?,
-            SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6().map_err(|e| CowenError::Store(format!("Failed to create socket: {}", e)))?,
+            SocketAddr::V4(_) => tokio::net::TcpSocket::new_v4()
+                .map_err(|e| CowenError::Store(format!("Failed to create socket: {}", e)))?,
+            SocketAddr::V6(_) => tokio::net::TcpSocket::new_v6()
+                .map_err(|e| CowenError::Store(format!("Failed to create socket: {}", e)))?,
         };
         let _ = cowen_sys::configure_socket_reuse(&socket);
 
         match socket.bind(addr) {
-            Ok(_) => {
-                match socket.listen(1024) {
-                    Ok(l) => break l,
-                    Err(e) => return Err(CowenError::Store(format!("Failed to listen on proxy port {}: {}", port, e))),
+            Ok(_) => match socket.listen(1024) {
+                Ok(l) => break l,
+                Err(e) => {
+                    return Err(CowenError::Store(format!(
+                        "Failed to listen on proxy port {}: {}",
+                        port, e
+                    )))
                 }
-            }
+            },
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && retry_count < 10 => {
                 tracing::warn!(target: "sys", "Proxy port {} in use, retrying in 500ms... ({} / 10)", port, retry_count + 1);
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 retry_count += 1;
             }
-            Err(e) => return Err(CowenError::Store(format!("Failed to bind to proxy port {}: {}", port, e))),
+            Err(e) => {
+                return Err(CowenError::Store(format!(
+                    "Failed to bind to proxy port {}: {}",
+                    port, e
+                )))
+            }
         }
     };
-    
-    let local_addr = listener.local_addr().map_err(|e| CowenError::Store(format!("Failed to get local addr: {}", e)))?;
+
+    let local_addr = listener
+        .local_addr()
+        .map_err(|e| CowenError::Store(format!("Failed to get local addr: {}", e)))?;
     let actual_port = local_addr.port();
     tracing::info!(target: "sys", "Local Proxy Server listening on http://{}", local_addr);
-    
+
     if let Some(tx) = port_tx {
         let _ = tx.send(actual_port);
     }
-    
+
     axum::serve(listener, app).await.map_err(CowenError::from)?;
     Ok(())
 }
 
-async fn handle_proxy(
-    State(state): State<ProxyState>,
-    req: Request,
-) -> axum::response::Response {
-    cowen_common::events::event_bus().publish(cowen_common::events::GlobalEvent::ProxyRequestReceived);
+async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::response::Response {
+    cowen_common::events::event_bus()
+        .publish(cowen_common::events::GlobalEvent::ProxyRequestReceived);
     let method_str = req.method().as_str().to_uppercase();
 
-    let origin_header = req.headers().get("origin").and_then(|v| v.to_str().ok()).unwrap_or("");
-    let allow_origin = if origin_header.contains("localhost") || origin_header.contains("127.0.0.1") {
+    let origin_header = req
+        .headers()
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let allow_origin = if origin_header.contains("localhost") || origin_header.contains("127.0.0.1")
+    {
         origin_header.to_string()
     } else {
         "http://127.0.0.1".to_string()
@@ -103,7 +132,10 @@ async fn handle_proxy(
         return axum::response::Response::builder()
             .status(axum::http::StatusCode::NO_CONTENT)
             .header("Access-Control-Allow-Origin", &allow_origin)
-            .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+            .header(
+                "Access-Control-Allow-Methods",
+                "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+            )
             .header("Access-Control-Allow-Headers", "*")
             .header("Access-Control-Max-Age", "86400")
             .body(axum::body::Body::empty())
@@ -112,7 +144,7 @@ async fn handle_proxy(
 
     // 0. Extract Parts
     let (parts, body) = req.into_parts();
-    
+
     // Helper for CORS-enabled error responses
     let allow_origin_clone = allow_origin.clone();
     let cors_error = |status: axum::http::StatusCode, msg: String| {
@@ -129,26 +161,24 @@ async fn handle_proxy(
     };
 
     let base_url = app_cfg.openapi_url.trim_end_matches('/');
-    let req_path_and_query = parts.uri.path_and_query().map(|x| x.as_str()).unwrap_or("/");
-    let target_url = format!("{}{}", base_url, if req_path_and_query.starts_with('/') { req_path_and_query.to_string() } else { format!("/{}", req_path_and_query) });
-    
+    let req_path_and_query = parts
+        .uri
+        .path_and_query()
+        .map(|x| x.as_str())
+        .unwrap_or("/");
+    let target_url = format!(
+        "{}{}",
+        base_url,
+        if req_path_and_query.starts_with('/') {
+            req_path_and_query.to_string()
+        } else {
+            format!("/{}", req_path_and_query)
+        }
+    );
+
     tracing::info!(target: "audit", profile = %state.profile, "Proxying {} request to: {}", parts.method, target_url);
 
     let req_path = parts.uri.path().to_string();
-
-    // Wasm Custom Auth Filter Hook (Phase 3)
-    if let Some(wasm_mgr) = &state.wasm_manager {
-        match wasm_mgr.authenticate(parts.method.as_str(), &req_path, &[]) {
-            Ok(allowed) => {
-                if !allowed {
-                    return cors_error(axum::http::StatusCode::UNAUTHORIZED, "Blocked by custom Wasm Auth Policy".to_string());
-                }
-            }
-            Err(e) => {
-                tracing::error!(target: "sys", "Wasm Auth Policy execution failed: {}", e);
-            }
-        }
-    }
 
     // 1. Resolve Auth directly reusing the shared Vault O(1)
     let auth_cli = cowen_auth::create_auth_client_with_vault(state.vault.clone());
@@ -156,44 +186,71 @@ async fn handle_proxy(
     // 1.1. Read body early
     let bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(b) => b,
-        Err(e) => return cors_error(axum::http::StatusCode::BAD_REQUEST, format!("Failed to read body: {}", e)),
+        Err(e) => {
+            return cors_error(
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("Failed to read body: {}", e),
+            )
+        }
     };
 
-    // Wasm Body Filter Hook (Phase 3)
-    let bytes_vec = bytes.to_vec();
-    let filtered_bytes = if let Some(wasm_mgr) = &state.wasm_manager {
-        wasm_mgr.filter_body(bytes_vec)
-    } else {
-        bytes_vec
-    };
-    let bytes = axum::body::Bytes::from(filtered_bytes);
+    let bytes = axum::body::Bytes::from(bytes);
 
     let provider = auth_cli.provider(&state.config.app_mode);
 
-    // Convert axum headers to reqwest headers
-    let mut headers = reqwest::header::HeaderMap::new();
+    // Convert axum headers to std::collections::HashMap for Wasm
+    let mut wasm_headers = std::collections::HashMap::new();
     for (k, v) in parts.headers.iter() {
-        if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_str().as_bytes()) {
+        if let Ok(val) = v.to_str() {
+            wasm_headers.insert(k.as_str().to_string(), val.to_string());
+        }
+    }
+
+    // 🚀 Execute Wasm Header Filter
+    let mut modified_bytes = bytes.to_vec();
+    if let Some(wasm_mgr) = &state.wasm_manager {
+        wasm_headers = wasm_mgr.filter_headers(
+            &req_path,
+            &method_str,
+            !modified_bytes.is_empty(),
+            wasm_headers,
+        );
+        modified_bytes = wasm_mgr.filter_request_body(&req_path, &method_str, modified_bytes);
+    }
+    let bytes = axum::body::Bytes::from(modified_bytes);
+
+    // Convert wasm headers back to reqwest headers
+    let mut headers = reqwest::header::HeaderMap::new();
+    for (k, v) in wasm_headers {
+        if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_bytes()) {
             if let Ok(val) = reqwest::header::HeaderValue::from_bytes(v.as_bytes()) {
                 headers.insert(name, val);
             }
         }
     }
 
-    // 🚀 Intelligent Header Stripping: Some upstream servers (e.g. Tomcat 9) strictly reject
-    // GET/HEAD/DELETE requests with a Content-Type if there's no actual body payload.
-    if bytes.is_empty() && (parts.method == axum::http::Method::GET || parts.method == axum::http::Method::HEAD || parts.method == axum::http::Method::DELETE) {
-        headers.remove(reqwest::header::CONTENT_TYPE);
-    }
-
     // 1.2. Pre-flight Interceptor
     let fallback_spec = serde_json::Value::Null;
-    let intercept_result = match provider.intercept_request(&state.profile, &state.config, &req_path, &method_str, headers, &bytes, &fallback_spec).await {
+    let intercept_result = match provider
+        .intercept_request(
+            &state.profile,
+            &state.config,
+            &req_path,
+            &method_str,
+            headers,
+            &bytes,
+            &fallback_spec,
+        )
+        .await
+    {
         Ok(res) => res,
         Err(e) => {
             let masked_err = cowen_common::utils::mask_sensitive_json(&e.to_string());
             tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, error = %masked_err, "Proxy pre-flight intercept failed");
-            return cors_error(axum::http::StatusCode::UNAUTHORIZED, format!("Pre-flight error: {}", masked_err));
+            return cors_error(
+                axum::http::StatusCode::UNAUTHORIZED,
+                format!("Pre-flight error: {}", masked_err),
+            );
         }
     };
 
@@ -214,10 +271,13 @@ async fn handle_proxy(
         }
     };
 
-    let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET);
+    let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes())
+        .unwrap_or(reqwest::Method::GET);
 
     // 2. Forward
-    let fwd_req = state.client.request(method, target_url)
+    let fwd_req = state
+        .client
+        .request(method, target_url)
         .headers(reqwest_headers)
         .body(reqwest::Body::from(bytes));
 
@@ -228,7 +288,7 @@ async fn handle_proxy(
         Ok(r) => {
             let status = r.status().as_u16();
             let mut builder = axum::response::Response::builder().status(status);
-            
+
             let mut response_headers = reqwest::header::HeaderMap::new();
             for (k, v) in r.headers() {
                 if let Ok(name) = axum::http::HeaderName::from_bytes(k.as_str().as_bytes()) {
@@ -239,24 +299,49 @@ async fn handle_proxy(
                 }
             }
             let out_headers = r.headers().clone();
-            let out_bytes = r.bytes().await.unwrap_or_default();
-            
+            let mut out_bytes = r.bytes().await.unwrap_or_default().to_vec();
+
+            if let Some(wasm_mgr) = &state.wasm_manager {
+                out_bytes =
+                    wasm_mgr.filter_response_body(&req_path, &method_str, status, out_bytes);
+            }
+
+            let out_bytes = axum::body::Bytes::from(out_bytes);
+
             // Execute Post-flight Interceptor
-            if let Err(e) = provider.intercept_response(&state.profile, &state.config, &req_path, &method_str, status, &out_headers, &out_bytes).await {
+            if let Err(e) = provider
+                .intercept_response(
+                    &state.profile,
+                    &state.config,
+                    &req_path,
+                    &method_str,
+                    status,
+                    &out_headers,
+                    &out_bytes,
+                )
+                .await
+            {
                 tracing::warn!(target: "audit", profile = %state.profile, error = %e, "Proxy post-flight intercept failed (non-fatal)");
             }
-            
+
             tracing::info!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, status = %status, "Request successfully proxied");
 
             builder
-                .body(axum::body::Body::from(out_bytes)).unwrap_or_else(|_| (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to construct response"
-            ).into_response())
+                .body(axum::body::Body::from(out_bytes))
+                .unwrap_or_else(|_| {
+                    (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to construct response",
+                    )
+                        .into_response()
+                })
         }
         Err(e) => {
             tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, error = %e, "Proxy upstream request failed");
-            cors_error(axum::http::StatusCode::BAD_GATEWAY, format!("Proxy upstream error: {}", e))
+            cors_error(
+                axum::http::StatusCode::BAD_GATEWAY,
+                format!("Proxy upstream error: {}", e),
+            )
         }
     }
 }
@@ -269,13 +354,16 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_proxy_concurrency_no_deadlock() {
         // 1. Setup mock upstream server
-        let mock_app = Router::new().route("/hello", any(|| async {
-            axum::response::Response::builder()
-                .status(axum::http::StatusCode::OK)
-                .header("Content-Type", "application/json")
-                .body(axum::body::Body::from(r#"{"status":"ok"}"#))
-                .unwrap()
-        }));
+        let mock_app = Router::new().route(
+            "/hello",
+            any(|| async {
+                axum::response::Response::builder()
+                    .status(axum::http::StatusCode::OK)
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(r#"{"status":"ok"}"#))
+                    .unwrap()
+            }),
+        );
         let mock_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mock_addr = mock_listener.local_addr().unwrap();
         let mock_server_handle = tokio::spawn(async move {
@@ -283,29 +371,47 @@ mod tests {
         });
 
         // 2. Setup temp directory for local Vault using UUID to avoid dependency on tempfile
-        let temp_dir = std::env::temp_dir().join(format!("cowen_proxy_test_{}", uuid::Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cowen_proxy_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let app_cfg = AppConfig::default();
-        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint").await.unwrap();
+        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint")
+            .await
+            .unwrap();
 
         // Seed some configs
-        vault.set_config("test_profile", "app_key", "test_key").await.unwrap();
-        vault.set_secret("test_profile", "app_secret", "test_secret").await.unwrap();
-        vault.save_app_access_token("test_key", cowen_common::models::Token {
-            value: "mock_at_sb_12345".to_string(),
-            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-            created_at: chrono::Utc::now(),
-        }).await.unwrap();
+        vault
+            .set_config("test_profile", "app_key", "test_key")
+            .await
+            .unwrap();
+        vault
+            .set_secret("test_profile", "app_secret", "test_secret")
+            .await
+            .unwrap();
+        vault
+            .save_app_access_token(
+                "test_key",
+                cowen_common::models::Token {
+                    value: "mock_at_sb_12345".to_string(),
+                    expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+                    created_at: chrono::Utc::now(),
+                },
+            )
+            .await
+            .unwrap();
 
         // 3. Start proxy
         let mut config = Config::default_with_profile("test_profile");
         config.app_key = "test_key".to_string();
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
-        
-        let app_yaml_content = format!("openapi_url: http://{}\nstream_url: http://{}\n", mock_addr, mock_addr);
+
+        let app_yaml_content = format!(
+            "openapi_url: http://{}\nstream_url: http://{}\n",
+            mock_addr, mock_addr
+        );
         std::fs::write(temp_dir.join("app.yaml"), app_yaml_content).unwrap();
-        
+
         config.webhook_target = "http://localhost:8080".to_string();
 
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -314,7 +420,16 @@ mod tests {
         let p_temp_dir = temp_dir.clone();
 
         let proxy_task = tokio::spawn(async move {
-            start_proxy("test_profile", &p_config, p_vault, 0, Some(port_tx), p_temp_dir).await.unwrap();
+            start_proxy(
+                "test_profile",
+                &p_config,
+                p_vault,
+                0,
+                Some(port_tx),
+                p_temp_dir,
+            )
+            .await
+            .unwrap();
         });
 
         let proxy_port = port_rx.await.unwrap();
@@ -348,36 +463,44 @@ mod tests {
     async fn test_proxy_intelligent_header_stripping() {
         // 1. Setup mock upstream server
         let mock_app = Router::new()
-            .route("/test-get", axum::routing::get(|req: Request| async move {
-                // For GET, the Content-Type should be stripped
-                let has_content_type = req.headers().contains_key("Content-Type");
-                if has_content_type {
-                    axum::response::Response::builder()
-                        .status(axum::http::StatusCode::BAD_REQUEST)
-                        .body(axum::body::Body::from("Should not have Content-Type"))
-                        .unwrap()
-                } else {
-                    axum::response::Response::builder()
-                        .status(axum::http::StatusCode::OK)
-                        .body(axum::body::Body::from("GET OK"))
-                        .unwrap()
-                }
-            }))
-            .route("/test-post", axum::routing::post(|req: Request| async move {
-                // For POST, the Content-Type should be preserved
-                let has_content_type = req.headers().contains_key("Content-Type");
-                if !has_content_type {
-                    axum::response::Response::builder()
-                        .status(axum::http::StatusCode::BAD_REQUEST)
-                        .body(axum::body::Body::from("Missing Content-Type"))
-                        .unwrap()
-                } else {
-                    axum::response::Response::builder()
-                        .status(axum::http::StatusCode::OK)
-                        .body(axum::body::Body::from("POST OK"))
-                        .unwrap()
-                }
-            }));
+            .route(
+                "/test-get",
+                axum::routing::get(|req: Request| async move {
+                    // For GET with no body, core proxy should NO LONGER strip Content-Type by itself.
+                    let has_content_type = req.headers().contains_key("Content-Type");
+                    if has_content_type {
+                        axum::response::Response::builder()
+                            .status(axum::http::StatusCode::OK)
+                            .body(axum::body::Body::from("GET OK"))
+                            .unwrap()
+                    } else {
+                        axum::response::Response::builder()
+                            .status(axum::http::StatusCode::BAD_REQUEST)
+                            .body(axum::body::Body::from(
+                                "Content-Type missing! Core stripped it!",
+                            ))
+                            .unwrap()
+                    }
+                }),
+            )
+            .route(
+                "/test-post",
+                axum::routing::post(|req: Request| async move {
+                    // For POST, the Content-Type should be preserved
+                    let has_content_type = req.headers().contains_key("Content-Type");
+                    if !has_content_type {
+                        axum::response::Response::builder()
+                            .status(axum::http::StatusCode::BAD_REQUEST)
+                            .body(axum::body::Body::from("Missing Content-Type"))
+                            .unwrap()
+                    } else {
+                        axum::response::Response::builder()
+                            .status(axum::http::StatusCode::OK)
+                            .body(axum::body::Body::from("POST OK"))
+                            .unwrap()
+                    }
+                }),
+            );
 
         let mock_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mock_addr = mock_listener.local_addr().unwrap();
@@ -386,29 +509,47 @@ mod tests {
         });
 
         // 2. Setup temp directory for local Vault using UUID
-        let temp_dir = std::env::temp_dir().join(format!("cowen_proxy_test_headers_{}", uuid::Uuid::new_v4()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("cowen_proxy_test_headers_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let app_cfg = AppConfig::default();
-        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint").await.unwrap();
+        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint")
+            .await
+            .unwrap();
 
         // Seed some configs
-        vault.set_config("test_profile", "app_key", "test_key").await.unwrap();
-        vault.set_secret("test_profile", "app_secret", "test_secret").await.unwrap();
-        vault.save_app_access_token("test_key", cowen_common::models::Token {
-            value: "mock_at_sb_12345".to_string(),
-            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-            created_at: chrono::Utc::now(),
-        }).await.unwrap();
+        vault
+            .set_config("test_profile", "app_key", "test_key")
+            .await
+            .unwrap();
+        vault
+            .set_secret("test_profile", "app_secret", "test_secret")
+            .await
+            .unwrap();
+        vault
+            .save_app_access_token(
+                "test_key",
+                cowen_common::models::Token {
+                    value: "mock_at_sb_12345".to_string(),
+                    expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+                    created_at: chrono::Utc::now(),
+                },
+            )
+            .await
+            .unwrap();
 
         // 3. Start proxy
         let mut config = Config::default_with_profile("test_profile");
         config.app_key = "test_key".to_string();
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
-        
-        let app_yaml_content = format!("openapi_url: http://{}\nstream_url: http://{}\n", mock_addr, mock_addr);
+
+        let app_yaml_content = format!(
+            "openapi_url: http://{}\nstream_url: http://{}\n",
+            mock_addr, mock_addr
+        );
         std::fs::write(temp_dir.join("app.yaml"), app_yaml_content).unwrap();
-        
+
         config.webhook_target = "http://localhost:8080".to_string();
 
         let (port_tx, port_rx) = tokio::sync::oneshot::channel();
@@ -417,7 +558,16 @@ mod tests {
         let p_temp_dir = temp_dir.clone();
 
         let proxy_task = tokio::spawn(async move {
-            start_proxy("test_profile", &p_config, p_vault, 0, Some(port_tx), p_temp_dir).await.unwrap();
+            start_proxy(
+                "test_profile",
+                &p_config,
+                p_vault,
+                0,
+                Some(port_tx),
+                p_temp_dir,
+            )
+            .await
+            .unwrap();
         });
 
         let proxy_port = port_rx.await.unwrap();
@@ -425,20 +575,26 @@ mod tests {
 
         // 4. Test GET request WITH Content-Type but NO Body
         let get_url = format!("http://127.0.0.1:{}/test-get", proxy_port);
-        let resp_get = client.get(&get_url)
+        let resp_get = client
+            .get(&get_url)
             .header("Content-Type", "application/json")
-            .send().await.unwrap();
-        
+            .send()
+            .await
+            .unwrap();
+
         assert_eq!(resp_get.status(), axum::http::StatusCode::OK);
         let text_get = resp_get.text().await.unwrap();
         assert_eq!(text_get, "GET OK"); // Means upstream confirmed Content-Type was stripped
 
         // 5. Test POST request WITH Content-Type AND Body
         let post_url = format!("http://127.0.0.1:{}/test-post", proxy_port);
-        let resp_post = client.post(&post_url)
+        let resp_post = client
+            .post(&post_url)
             .header("Content-Type", "application/json")
             .body(r#"{"data":"test"}"#)
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
 
         assert_eq!(resp_post.status(), axum::http::StatusCode::OK);
         let text_post = resp_post.text().await.unwrap();

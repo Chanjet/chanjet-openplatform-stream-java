@@ -1,17 +1,19 @@
-use cowen_common::config::Config;
 use anyhow::Result;
+use chrono::Utc;
 use cowen_auth::client::Client;
 use cowen_auth::VaultTokenPool;
+use cowen_common::config::Config;
 use cowen_common::vault::Vault;
 use std::sync::Arc;
-use chrono::Utc;
 use tokio::time::{sleep, Duration};
 
-
-pub fn calculate_next_check_delay(expires_at: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chrono::Utc>) -> Duration {
+pub fn calculate_next_check_delay(
+    expires_at: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Duration {
     use rand::Rng;
     let remaining = expires_at.signed_duration_since(now).num_seconds();
-    
+
     // Default to 30s if already expired or something is wrong
     if remaining <= 0 {
         return Duration::from_secs(30);
@@ -19,10 +21,14 @@ pub fn calculate_next_check_delay(expires_at: chrono::DateTime<chrono::Utc>, now
 
     // Goal: Check at 80% of remaining lifetime
     let mut delay = (remaining as f64 * 0.8) as i64;
-    
+
     // Clamp to [30, 3600]
-    if delay < 30 { delay = 30; }
-    if delay > 3600 { delay = 3600; }
+    if delay < 30 {
+        delay = 30;
+    }
+    if delay > 3600 {
+        delay = 3600;
+    }
 
     // Add jitter: ±60s (but don't go below 10s)
     let jitter = rand::thread_rng().gen_range(-60..60);
@@ -42,7 +48,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>) -> Resul
     loop {
         tracing::info!(target: "sys", "Running token health check...");
         let next_delay; // Default
-        
+
         match auth.get_app_access_token(profile, config).await {
             Ok(token) => {
                 let now = Utc::now();
@@ -56,13 +62,15 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>) -> Resul
                         Ok(_) => {
                             tracing::info!(target: "sys", "Proactive token refresh successful");
                             let _ = vault.delete_config(profile, "last_refresh_error").await;
-                            // After success, re-fetch or assume a long life. 
+                            // After success, re-fetch or assume a long life.
                             // Simplest: check again in 10 mins or calculate based on common life.
                             next_delay = Duration::from_secs(600);
                         }
                         Err(e) => {
                             tracing::error!(target: "sys", error = %e, "Proactive token refresh failed");
-                            let _ = vault.set_config(profile, "last_refresh_error", &e.to_string()).await;
+                            let _ = vault
+                                .set_config(profile, "last_refresh_error", &e.to_string())
+                                .await;
                             next_delay = Duration::from_secs(60); // Retry faster on error
                         }
                     }
@@ -76,7 +84,7 @@ pub async fn run(profile: &str, config: &Config, vault: Arc<dyn Vault>) -> Resul
                 next_delay = Duration::from_secs(300); // Check again in 5 mins
             }
         }
-        
+
         tracing::info!(target: "sys", "Token renewer sleeping for {:?}...", next_delay);
         sleep(next_delay).await;
     }

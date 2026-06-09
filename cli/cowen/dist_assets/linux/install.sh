@@ -43,6 +43,12 @@ echo "📟 Setting up autostart service..."
 killall cowen-daemon > /dev/null 2>&1 || true
 "$INSTALL_DIR/$BINARY" daemon service install > /dev/null 2>&1 || true
 
+if [ -d "system_plugins" ]; then
+    echo "📦 Installing system plugins..."
+    mkdir -p "$HOME/.cowen/system_plugins"
+    cp -r system_plugins/* "$HOME/.cowen/system_plugins/"
+fi
+
 # 6. Install and enable AI search plugin
 PLUGIN_DIR="$HOME/.cowen/plugins"
 if [ -d "lib" ] && ls lib/libcowen_search_embedding >/dev/null 2>&1; then

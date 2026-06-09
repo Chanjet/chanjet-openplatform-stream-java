@@ -26,13 +26,14 @@ cowen-config = { path = "../../services/cowen-config" }
 cowen-auth = { path = "../../services/cowen-auth" }
 cowen-store = { path = "../../services/cowen-store" }
 prometheus = "0.13"
-wasmtime = "22.0.0"
 arc-swap = "1.9.1"
 
 scopeguard = "1.2"
 rand = "0.8"
 futures = "0.3.32"
 tokio-util = { version = "0.7.18", features = ["full", "rt"] }
+extism = "1.30.0"
+notify = "6.1.1"
 
 [build-dependencies]
 chrono = "0.4"

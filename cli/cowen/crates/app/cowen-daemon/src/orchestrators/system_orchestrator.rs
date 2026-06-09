@@ -277,49 +277,11 @@ impl SystemOrchestrator {
             return Err(Status::not_found(format!("Plugin {} not found at {:?}", plugin_name, expected_path)));
         }
 
-        let bundle_path = expected_path.with_extension("bundle");
-        let json_path = plugins_dir.join(format!("{}.json", plugin_name));
-        let mut scopes = vec![];
+        let manifest = cowen_common::plugin::PluginManifest::load(&plugin_name)
+            .map_err(|e| Status::internal(format!("Failed to load plugin manifest: {}", e)))?;
         
-        let mut manifest_val: Option<serde_json::Value> = None;
-        if bundle_path.exists() {
-            if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path) {
-                if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
-                    manifest_val = bundle.get("manifest").cloned();
-                }
-            }
-        } else if json_path.exists() {
-            if let Ok(json_str) = std::fs::read_to_string(&json_path) {
-                manifest_val = serde_json::from_str::<serde_json::Value>(&json_str).ok();
-            }
-        }
-
-        let mut allowed_commands: std::collections::HashSet<String> = std::collections::HashSet::new();
-        if let Some(m) = &manifest_val {
-            if let Some(perms) = m.get("requested_permissions").and_then(|p| p.as_object()) {
-                for (k, v) in perms {
-                    if v.as_bool().unwrap_or(false) {
-                        scopes.push(k.clone());
-                    }
-                }
-            } else if let Some(privs) = m.get("required_privileges").and_then(|p| p.as_array()) {
-                for p in privs {
-                    if let Some(s) = p.as_str() {
-                        scopes.push(s.to_string());
-                    }
-                }
-            }
-
-            if let Some(contributes) = m.get("contributes").and_then(|c| c.as_object()) {
-                if let Some(cmds) = contributes.get("cli_commands").and_then(|c| c.as_array()) {
-                    for cmd in cmds {
-                        if let Some(name) = cmd.get("name").and_then(|n| n.as_str()) {
-                            allowed_commands.insert(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
+        let scopes = manifest.requested_permissions;
+        let allowed_commands = manifest.allowed_commands;
 
         let requested_cmd = if first_msg.args.is_empty() || first_msg.args[0].starts_with('-') {
             "".to_string()

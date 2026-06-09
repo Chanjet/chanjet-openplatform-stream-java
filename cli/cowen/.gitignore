@@ -27,3 +27,4 @@ sqlite*
 *.rdb
 *.profraw
 target/llvm-cov-data/
+*.wasm

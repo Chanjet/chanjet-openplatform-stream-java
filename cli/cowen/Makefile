@@ -314,15 +314,33 @@ windows-plugin-x86:
 	powershell -NoProfile -Command "cargo run --release -p cowen-signer -- sign-plugin --dylib target/i686-pc-windows-msvc/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle --manifest-file crates/plugins/cowen-search-embedding/plugin.json"
 	powershell -NoProfile -Command "Copy-Item -Path target/i686-pc-windows-msvc/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll -Force"
 	powershell -NoProfile -Command "Copy-Item -Path target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.bundle -Force"
+
+# --- System Plugins ---
+
+build-system-plugins:
+	@echo "🛠️ Building builtin Wasm system plugins (Release)..."
+	rustup target add wasm32-wasip1 || true
+	cargo build --release -p cowen-wasm-auth-selfbuilt -p cowen-wasm-auth-storeapp -p cowen-wasm-auth-custom --target wasm32-wasip1
+
+dev-setup: build-system-plugins
+	@echo "🛠️ Copying system plugins for local development..."
+	mkdir -p ~/.cowen/system_plugins
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm ~/.cowen/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json ~/.cowen/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm ~/.cowen/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json ~/.cowen/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm ~/.cowen/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-custom/plugin.json ~/.cowen/system_plugins/cowen-wasm-auth-custom.json || true
+	@echo "✅ System plugins ready in ~/.cowen/system_plugins/"
 # --- 打包目标 ---
 
 package-macos-aarch64: clean macos-aarch64
 	@echo "📦 Packaging macOS Apple Silicon (Component Based)..."
 	@$(MAKE) impl-package-macos ARCH=aarch64
 
-impl-package-macos:
+impl-package-macos: build-system-plugins
 	@echo "📦 Building Component Packages for $(ARCH)..."
-	mkdir -p pkg_core_root/usr/local/bin pkg_core_root/usr/local/share/doc/cowen $(OUTPUT_DIR)/macos-$(ARCH)/release
+	mkdir -p pkg_core_root/usr/local/bin pkg_core_root/usr/local/share/doc/cowen pkg_core_root/usr/local/share/cowen/system_plugins $(OUTPUT_DIR)/macos-$(ARCH)/release
 	mkdir -p pkg_plugin_ai_root/usr/local/share/cowen/staging
 	mkdir -p pkg_plugin_mcp_root/usr/local/share/cowen/staging
 	cp $(OUTPUT_DIR)/macos-$(ARCH)/$(BINARY) pkg_core_root/usr/local/bin/$(BINARY)
@@ -330,6 +348,12 @@ impl-package-macos:
 	cp dist_assets/macos/cowen-uninstall pkg_core_root/usr/local/bin/cowen-uninstall
 	cp CHANGELOG.md pkg_core_root/usr/local/share/doc/cowen/
 	cp -r dist_assets/usage pkg_core_root/usr/local/share/doc/cowen/usage
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm pkg_core_root/usr/local/share/cowen/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json pkg_core_root/usr/local/share/cowen/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm pkg_core_root/usr/local/share/cowen/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json pkg_core_root/usr/local/share/cowen/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm pkg_core_root/usr/local/share/cowen/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-custom/plugin.json pkg_core_root/usr/local/share/cowen/system_plugins/cowen-wasm-auth-custom.json || true
 	cp target/release/libcowen_search_embedding pkg_plugin_ai_root/usr/local/share/cowen/staging/ || true
 	if [ -f "pkg_plugin_ai_root/usr/local/share/cowen/staging/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_plugin_ai_root/usr/local/share/cowen/staging/ || exit 1; fi
 	cp target/release/cowen-mcp-plugin pkg_plugin_mcp_root/usr/local/share/cowen/staging/ || true
@@ -374,7 +398,14 @@ package-linux-aarch64: clean linux-aarch64
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-aarch64/
 	cp -r dist_assets/usage $(OUTPUT_DIR)/linux-aarch64/
-	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY) cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root_aarch64 lib
+	mkdir -p pkg_root_aarch64/system_plugins
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm pkg_root_aarch64/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json pkg_root_aarch64/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm pkg_root_aarch64/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json pkg_root_aarch64/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm pkg_root_aarch64/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-custom/plugin.json pkg_root_aarch64/system_plugins/cowen-wasm-auth-custom.json || true
+	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY) cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root_aarch64 lib system_plugins
 	rm -rf pkg_root_aarch64
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
@@ -428,6 +459,13 @@ package-windows-x86_64-cross: windows-x86_64-cross
 		cp target/x86_64-pc-windows-msvc/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/ || true; \
 	fi
 	@echo "🗜️ Zipping Windows package..."
+	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-custom/plugin.json $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/cowen-wasm-auth-custom.json || true
 	cd $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86_64.zip .
 	rm -rf $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-cross/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip)
@@ -469,6 +507,13 @@ package-windows-x86-cross: windows-x86-cross
 		cp target/i686-pc-windows-msvc/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
 	fi
 	@echo "🗜️ Zipping Windows package..."
+	mkdir -p $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-custom/plugin.json $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/cowen-wasm-auth-custom.json || true
 	cd $(OUTPUT_DIR)/windows-x86/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86.zip .
 	rm -rf $(OUTPUT_DIR)/windows-x86/tmp_pkg
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip)
@@ -486,7 +531,14 @@ impl-package-linux-x86_64:
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-x86_64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-x86_64/
 	cp -r dist_assets/usage $(OUTPUT_DIR)/linux-x86_64/
-	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY) cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root lib
+	mkdir -p pkg_root/system_plugins
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm pkg_root/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json pkg_root/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm pkg_root/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json pkg_root/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm pkg_root/system_plugins/ || true
+	cp crates/plugins/cowen-wasm-auth-custom/plugin.json pkg_root/system_plugins/cowen-wasm-auth-custom.json || true
+	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY) cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root lib system_plugins
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)

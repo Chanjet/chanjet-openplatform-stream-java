@@ -44,7 +44,7 @@ impl ShutdownGate {
             self.zero_notify.notified().await;
         }
     }
-    
+
     /// Returns the current number of active tasks.
     /// Useful for logging and monitoring during shutdown.
     pub fn active_count(&self) -> usize {

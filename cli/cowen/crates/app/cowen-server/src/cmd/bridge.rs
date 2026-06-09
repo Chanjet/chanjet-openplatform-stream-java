@@ -1,14 +1,14 @@
-use cowen_common::config::Config;
-use anyhow::{Result, Context};
-use std::sync::Arc;
+use anyhow::{Context, Result};
+use chrono::Utc;
 use cowen_auth::client::Client;
 use cowen_auth::VaultTokenPool;
+use cowen_common::config::Config;
 use cowen_common::vault::Vault;
-use chrono::Utc;
+use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 
-use tokio_util::sync::CancellationToken;
 use crate::utils::shutdown::ShutdownGate;
+use tokio_util::sync::CancellationToken;
 
 fn should_enable_webhooks(config: &Config, auth: &dyn Client) -> bool {
     !config.webhook_target.is_empty() && auth.supports_webhooks(config)
@@ -17,21 +17,28 @@ fn should_enable_webhooks(config: &Config, auth: &dyn Client) -> bool {
 /// 自建模式专用流桥执行器
 /// 负责处理 WebSocket 长连接、API 反向代理以及消息转发
 pub async fn run(
-    profile: &str, 
-    config: &Config, 
-    vault: Arc<dyn Vault>, 
-    proxy_port: u16, 
-    enable_proxy: bool, 
+    profile: &str,
+    config: &Config,
+    vault: Arc<dyn Vault>,
+    proxy_port: u16,
+    enable_proxy: bool,
     _is_distributed: bool,
     cancel_token: CancellationToken,
     shutdown_gate: ShutdownGate,
 ) -> Result<()> {
-    let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+    let app_cfg = cowen_config::ConfigManager::new()?
+        .load_app_config()
+        .await?;
     let opts = build_client_options(profile, config, &app_cfg).await;
     let client = connector_sdk::GatewayClient::new(opts);
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
     let auth = cowen_auth::create_auth_client(pool.clone());
-    let forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), &app_cfg, vault.clone())?);
+    let forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(
+        profile,
+        config.clone(),
+        &app_cfg,
+        vault.clone(),
+    )?);
 
     let enable_webhook_forwarding = should_enable_webhooks(config, &auth);
     let requires_stream = auth.supports_webhooks(config);
@@ -68,8 +75,13 @@ pub async fn run(
             tokio::spawn(async move {
                 let _guard = gate_guard;
                 let auth = cowen_auth::create_auth_client(t_pool_inner);
-                let event = cowen_auth::provider::PlatformEvent::TempAuthCode { code: temp_code, state };
-                let _ = auth.handle_platform_event(&t_profile_inner, &t_config_inner, event).await;
+                let event = cowen_auth::provider::PlatformEvent::TempAuthCode {
+                    code: temp_code,
+                    state,
+                };
+                let _ = auth
+                    .handle_platform_event(&t_profile_inner, &t_config_inner, event)
+                    .await;
             });
             true
         });
@@ -87,7 +99,13 @@ pub async fn run(
             tokio::spawn(async move {
                 let _guard = gate_guard;
                 let auth = cowen_auth::create_auth_client(pk_pool_inner);
-                let _ = auth.handle_platform_event(&pk_profile_inner, &pk_config_inner, cowen_auth::provider::PlatformEvent::AppTicket(ticket_val)).await;
+                let _ = auth
+                    .handle_platform_event(
+                        &pk_profile_inner,
+                        &pk_config_inner,
+                        cowen_auth::provider::PlatformEvent::AppTicket(ticket_val),
+                    )
+                    .await;
             });
             true
         });
@@ -95,13 +113,22 @@ pub async fn run(
 
     let status_file = cowen_common::config::get_app_dir().join(format!("{}_status.json", profile));
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
-    
+
     let p_profile = profile.to_string();
     let p_config = config.clone();
     let p_vault = vault.clone();
     let proxy_fut = async move {
         if enable_proxy {
-            if let Err(e) = crate::daemon::proxy::start_proxy(&p_profile, &p_config, p_vault, proxy_port, Some(port_tx), cowen_common::config::get_app_dir()).await {
+            if let Err(e) = crate::daemon::proxy::start_proxy(
+                &p_profile,
+                &p_config,
+                p_vault,
+                proxy_port,
+                Some(port_tx),
+                cowen_common::config::get_app_dir(),
+            )
+            .await
+            {
                 return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
             }
         }
@@ -115,34 +142,43 @@ pub async fn run(
     let status_file_for_stream = status_file.clone();
     let stream_fut = async move {
         if requires_stream {
-            client_for_stream.start_with_callback(move |state| {
-                if state == connector_sdk::ConnectionState::Connected {
-                    stream_notify.notify_waiters();
-                }
-                
-                let (state_str, error_msg) = match state {
-                    connector_sdk::ConnectionState::Connected => ("Connected", None),
-                    connector_sdk::ConnectionState::Connecting => ("Connecting", None),
-                    connector_sdk::ConnectionState::Disconnected => ("Disconnected", None),
-                    connector_sdk::ConnectionState::DisconnectedWithError(err) => ("Disconnected", Some(err)),
-                };
-                
-                let mut json = if let Ok(content) = std::fs::read_to_string(&status_file_for_stream) {
-                    serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
-                } else {
-                    serde_json::json!({})
-                };
-                
-                json["state"] = serde_json::json!(state_str);
-                if let Some(err) = error_msg {
-                    json["error"] = serde_json::json!(err);
-                } else if let Some(obj) = json.as_object_mut() {
-                    obj.remove("error");
-                }
-                json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
-                let _ = std::fs::write(&status_file_for_stream, serde_json::to_string(&json).unwrap_or_default());
-                
-            }).await.map_err(|e| anyhow::anyhow!("{:?}", e)).context("Stream client crashed during connection")
+            client_for_stream
+                .start_with_callback(move |state| {
+                    if state == connector_sdk::ConnectionState::Connected {
+                        stream_notify.notify_waiters();
+                    }
+
+                    let (state_str, error_msg) = match state {
+                        connector_sdk::ConnectionState::Connected => ("Connected", None),
+                        connector_sdk::ConnectionState::Connecting => ("Connecting", None),
+                        connector_sdk::ConnectionState::Disconnected => ("Disconnected", None),
+                        connector_sdk::ConnectionState::DisconnectedWithError(err) => {
+                            ("Disconnected", Some(err))
+                        }
+                    };
+
+                    let mut json =
+                        if let Ok(content) = std::fs::read_to_string(&status_file_for_stream) {
+                            serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+                        } else {
+                            serde_json::json!({})
+                        };
+
+                    json["state"] = serde_json::json!(state_str);
+                    if let Some(err) = error_msg {
+                        json["error"] = serde_json::json!(err);
+                    } else if let Some(obj) = json.as_object_mut() {
+                        obj.remove("error");
+                    }
+                    json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+                    let _ = std::fs::write(
+                        &status_file_for_stream,
+                        serde_json::to_string(&json).unwrap_or_default(),
+                    );
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("{:?}", e))
+                .context("Stream client crashed during connection")
         } else {
             std::future::pending::<Result<()>>().await
         }
@@ -164,12 +200,22 @@ pub async fn run(
                 next_delay = Duration::from_secs(60);
             } else {
                 if let Ok(token) = auth.get_app_access_token(&m_profile, &m_config).await {
-                    next_delay = crate::cmd::renewer::calculate_next_check_delay(token.expires_at, Utc::now());
+                    next_delay = crate::cmd::renewer::calculate_next_check_delay(
+                        token.expires_at,
+                        Utc::now(),
+                    );
                 }
                 if m_config.app_mode != cowen_common::models::AuthMode::Oauth2 {
-                    match auth.get_token(&m_profile, &m_config, &reqwest::header::HeaderMap::new()).await {
-                        Ok(t) => tracing::info!(target: "sys", profile = %m_profile, token = %t.value, "Bridge synced token successfully"),
-                        Err(e) => tracing::warn!(target: "sys", profile = %m_profile, error = %e, "Bridge token sync failed"),
+                    match auth
+                        .get_token(&m_profile, &m_config, &reqwest::header::HeaderMap::new())
+                        .await
+                    {
+                        Ok(t) => {
+                            tracing::info!(target: "sys", profile = %m_profile, token = %t.value, "Bridge synced token successfully")
+                        }
+                        Err(e) => {
+                            tracing::warn!(target: "sys", profile = %m_profile, error = %e, "Bridge token sync failed")
+                        }
                     }
                 }
             }
@@ -187,18 +233,21 @@ pub async fn run(
             } else {
                 serde_json::json!({})
             };
-            
+
             if !requires_stream_for_port {
                 json["state"] = serde_json::json!("Active");
             } else if json.get("state").is_none() {
                 json["state"] = serde_json::json!("Connecting");
             }
-            
+
             json["client_id"] = serde_json::json!(client_ptr_clone.client_id());
             json["proxy_port"] = serde_json::json!(p);
             json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
-            
-            let _ = std::fs::write(&status_file_for_port, serde_json::to_string(&json).unwrap_or_default());
+
+            let _ = std::fs::write(
+                &status_file_for_port,
+                serde_json::to_string(&json).unwrap_or_default(),
+            );
         }
     });
 
@@ -231,7 +280,7 @@ pub async fn run(
         _ = maintenance_fut => Ok(()),
         _ = cancel_token.cancelled() => {
             tracing::info!(target: "sys", profile = %profile, "Shutdown signal received, initiating graceful shutdown sequence.");
-            
+
             // Phase 1: Stop accepting new streams/events
             if requires_stream {
                 tracing::info!(target: "sys", profile = %profile, "Stopping stream client...");
@@ -242,12 +291,12 @@ pub async fn run(
             let active_count = shutdown_gate.active_count();
             if active_count > 0 {
                 tracing::info!(target: "sys", profile = %profile, tasks = active_count, "Waiting for active tasks to complete (up to 10s)...");
-                
+
                 let drain_timeout = tokio::time::timeout(
-                    Duration::from_secs(10), 
+                    Duration::from_secs(10),
                     shutdown_gate.wait_for_zero()
                 );
-                
+
                 match drain_timeout.await {
                     Ok(_) => tracing::info!(target: "sys", profile = %profile, "All active tasks completed gracefully."),
                     Err(_) => tracing::warn!(target: "sys", profile = %profile, "Timeout waiting for active tasks. Forcing shutdown."),
@@ -269,9 +318,13 @@ pub async fn run(
     }
 }
 
-pub async fn build_client_options(profile: &str, config: &Config, app_cfg: &cowen_common::config::AppConfig) -> connector_sdk::ClientOptions {
+pub async fn build_client_options(
+    profile: &str,
+    config: &Config,
+    app_cfg: &cowen_common::config::AppConfig,
+) -> connector_sdk::ClientOptions {
     let mut dlq_provider: Option<std::sync::Arc<dyn connector_sdk::dlq::DlqProvider>> = None;
-    
+
     let app_dir = cowen_common::config::get_app_dir();
     let dlq_db_path = app_dir.join(format!("{}_dlq.db", profile));
     match cowen_store::dlq_store::sqlite::SqliteDlqProvider::new(&dlq_db_path).await {
@@ -314,7 +367,7 @@ mod tests {
             stream_url: "https://stream-open.chanapp.chanjet.com".to_string(),
             ..Default::default()
         };
-        
+
         let opts = build_client_options("test", &config, &app_cfg).await;
         // 断言它应该取 stream_url
         assert_eq!(opts.gateway_url, "https://stream-open.chanapp.chanjet.com");
@@ -333,7 +386,6 @@ mod tests {
         assert_eq!(opts.encrypt_key, Some("1234567890123456".to_string()));
     }
 
-
     #[tokio::test]
     async fn test_should_enable_webhooks_for_different_modes() {
         let tmp = tempdir().unwrap();
@@ -345,25 +397,33 @@ mod tests {
         let mut config_oauth2 = Config::default_with_profile("p1");
         config_oauth2.app_mode = AuthMode::Oauth2;
         config_oauth2.webhook_target = "http://localhost:8080".to_string();
-        
+
         let supports = should_enable_webhooks(&config_oauth2, &auth);
-        assert!(!supports, "Oauth2 mode should not support webhooks even with target set");
+        assert!(
+            !supports,
+            "Oauth2 mode should not support webhooks even with target set"
+        );
 
         // 2. SelfBuilt mode with non-empty webhook target -> should be true
         let mut config_self = Config::default_with_profile("p1");
         config_self.app_mode = AuthMode::SelfBuilt;
         config_self.webhook_target = "http://localhost:8080".to_string();
-        
+
         let supports = should_enable_webhooks(&config_self, &auth);
-        assert!(supports, "SelfBuilt mode should support webhooks with target set");
+        assert!(
+            supports,
+            "SelfBuilt mode should support webhooks with target set"
+        );
 
         // 3. SelfBuilt mode with empty webhook target -> should be false
         let mut config_self_empty = Config::default_with_profile("p1");
         config_self_empty.app_mode = AuthMode::SelfBuilt;
         config_self_empty.webhook_target = "".to_string();
-        
+
         let supports = should_enable_webhooks(&config_self_empty, &auth);
-        assert!(!supports, "SelfBuilt mode should not support webhooks if target is empty");
+        assert!(
+            !supports,
+            "SelfBuilt mode should not support webhooks if target is empty"
+        );
     }
 }
-

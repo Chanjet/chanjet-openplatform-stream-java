@@ -1,20 +1,22 @@
-use tokio::time::Instant;
 use serde::Serialize;
-use tokio_util::sync::CancellationToken;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum WorkerStatus {
     Created,
     Starting,
     Running,
-    Backoff { 
-        retry_count: u32, 
+    Backoff {
+        retry_count: u32,
         #[serde(skip)]
         next_retry_at: Instant,
-        last_error: String 
+        last_error: String,
     },
-    Failed { reason: String },
+    Failed {
+        reason: String,
+    },
     Draining,
     Stopped,
 }
@@ -38,7 +40,10 @@ impl ProfileWorker {
 
     pub fn is_active(&self) -> bool {
         match self.status {
-            WorkerStatus::Starting | WorkerStatus::Running | WorkerStatus::Backoff { .. } | WorkerStatus::Draining => true,
+            WorkerStatus::Starting
+            | WorkerStatus::Running
+            | WorkerStatus::Backoff { .. }
+            | WorkerStatus::Draining => true,
             _ => false,
         }
     }

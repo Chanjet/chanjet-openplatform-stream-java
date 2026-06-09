@@ -1,9 +1,9 @@
+use crate::daemon::dlq::DlqStore;
+use cowen_common::{CowenError, CowenResult};
 use reqwest::{Client, Url};
 use serde_json::Value;
-use std::time::Duration;
-use crate::daemon::dlq::DlqStore;
 use std::sync::Arc;
-use cowen_common::{CowenResult, CowenError};
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Forwarder {
@@ -13,7 +13,12 @@ pub struct Forwarder {
 }
 
 impl Forwarder {
-    pub fn new(profile: &str, config: cowen_common::config::Config, app_cfg: &cowen_common::config::AppConfig, vault: Arc<dyn cowen_common::vault::Vault>) -> CowenResult<Self> {
+    pub fn new(
+        profile: &str,
+        config: cowen_common::config::Config,
+        app_cfg: &cowen_common::config::AppConfig,
+        vault: Arc<dyn cowen_common::vault::Vault>,
+    ) -> CowenResult<Self> {
         cowen_common::security::ssrf::validate_ssrf(
             &config.webhook_target,
             &app_cfg.security.level,
@@ -35,13 +40,15 @@ impl Forwarder {
     }
 
     pub async fn retry_message(&self, id: i64) -> CowenResult<()> {
-        let entry = self.dlq.get_by_id(id).await?
-            .ok_or_else(|| CowenError::Store(format!("Message with ID {} not found in DLQ", id)))?;
-        
+        let entry =
+            self.dlq.get_by_id(id).await?.ok_or_else(|| {
+                CowenError::Store(format!("Message with ID {} not found in DLQ", id))
+            })?;
+
         let event: Value = serde_json::from_str(&entry.payload)?;
-        
+
         self.forward(event).await?;
-        
+
         // On success, delete from DLQ using precise ID
         self.dlq.delete_by_id(id).await?;
         Ok(())
@@ -68,19 +75,37 @@ impl Forwarder {
             return Err(CowenError::Auth("Invalid webhook target".to_string()));
         }
 
-        let msg_id = event.get("msgId").or(event.get("id")).and_then(|v| v.as_str()).unwrap_or("unknown_id").to_string();
-        let msg_type = event.get("msg_type").or(event.get("msgType")).and_then(|v| v.as_str()).unwrap_or("UNKNOWN").to_string();
-        let headers = event.get("headers").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
+        let msg_id = event
+            .get("msgId")
+            .or(event.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown_id")
+            .to_string();
+        let msg_type = event
+            .get("msg_type")
+            .or(event.get("msgType"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("UNKNOWN")
+            .to_string();
+        let headers = event
+            .get("headers")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "{}".to_string());
         let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
 
         if msg_type == "ping" {
             tracing::debug!(target: "stream", msg_id = %msg_id, msg_type = %msg_type, target = %self.target_url, "Forwarding event to webhook");
         } else {
             tracing::info!(target: "stream", msg_id = %msg_id, msg_type = %msg_type, target = %self.target_url, "Forwarding event to webhook");
-            println!("➡️ Forwarding event [{}] to {}...", msg_type, self.target_url);
+            println!(
+                "➡️ Forwarding event [{}] to {}...",
+                msg_type, self.target_url
+            );
         }
 
-        let resp = self.client.post(&self.target_url)
+        let resp = self
+            .client
+            .post(&self.target_url)
             .header("Content-Type", "application/json")
             .body(payload.clone())
             .send()
@@ -100,14 +125,20 @@ impl Forwarder {
                 let err_msg = format!("HTTP error: {}", r.status());
                 tracing::error!(target: "stream", msg_id = %msg_id, status = %r.status(), "Forward failed, saving to DLQ");
                 println!("❌ Forward failed: {}", err_msg);
-                let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg).await;
+                let _ = self
+                    .dlq
+                    .save(&msg_id, &msg_type, &payload, &headers, &err_msg)
+                    .await;
                 Err(CowenError::Api(err_msg))
             }
             Err(e) => {
                 let err_msg = format!("Network error: {}", e);
                 tracing::error!(target: "stream", msg_id = %msg_id, error = %e, "Forward network failed, saving to DLQ");
                 println!("❌ Forward network failed: {}", err_msg);
-                let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg).await;
+                let _ = self
+                    .dlq
+                    .save(&msg_id, &msg_type, &payload, &headers, &err_msg)
+                    .await;
                 Err(CowenError::Network(e.to_string()))
             }
         }

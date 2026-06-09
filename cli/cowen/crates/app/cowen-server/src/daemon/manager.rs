@@ -1,14 +1,14 @@
+use crate::daemon::state::{ProfileWorker, WorkerStatus};
+use cowen_auth::client::Client;
+use cowen_common::config::Config;
+use cowen_common::events::{event_bus, GlobalEvent, TelemetryEvent};
+use cowen_common::{CowenError, CowenResult};
+use cowen_config::ConfigManager;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use cowen_common::{CowenResult, CowenError};
-use cowen_common::config::Config;
-use tracing::{info, error, warn};
-use cowen_config::ConfigManager;
-use crate::daemon::state::{ProfileWorker, WorkerStatus};
 use tokio::time::{Duration, Instant};
-use cowen_auth::client::Client;
-use cowen_common::events::{event_bus, GlobalEvent, TelemetryEvent};
+use tracing::{error, info, warn};
 
 pub struct WorkerManager {
     cfg_mgr: ConfigManager,
@@ -18,10 +18,7 @@ pub struct WorkerManager {
 impl WorkerManager {
     pub fn new(cfg_mgr: ConfigManager) -> Arc<Self> {
         let workers = Arc::new(Mutex::new(HashMap::new()));
-        let manager = Arc::new(Self {
-            cfg_mgr,
-            workers,
-        });
+        let manager = Arc::new(Self { cfg_mgr, workers });
 
         // Start Watchdog
         let manager_clone = manager.clone();
@@ -32,7 +29,14 @@ impl WorkerManager {
         manager
     }
 
-    async fn record_event(&self, profile: &str, event: &str, old: Option<&str>, new: Option<&str>, details: Option<&str>) {
+    async fn record_event(
+        &self,
+        profile: &str,
+        event: &str,
+        old: Option<&str>,
+        new: Option<&str>,
+        details: Option<&str>,
+    ) {
         event_bus().publish(GlobalEvent::Telemetry(TelemetryEvent {
             profile: profile.to_string(),
             event_type: event.to_string(),
@@ -49,7 +53,9 @@ impl WorkerManager {
     pub async fn start_worker(&self, profile: &str, config: Config) -> CowenResult<()> {
         let ready_rx = {
             let mut workers = self.workers.lock().await;
-            let worker = workers.entry(profile.to_string()).or_insert_with(|| ProfileWorker::new(profile));
+            let worker = workers
+                .entry(profile.to_string())
+                .or_insert_with(|| ProfileWorker::new(profile));
 
             if !worker.can_start() {
                 info!(target: "sys", profile = %profile, status = ?worker.status, "Worker already active or draining, skipping start");
@@ -66,7 +72,14 @@ impl WorkerManager {
                 if let Some(w) = workers.get_mut(profile) {
                     w.status = WorkerStatus::Running;
                 }
-                self.record_event(profile, "status_change", Some("Starting"), Some("Running"), None).await;
+                self.record_event(
+                    profile,
+                    "status_change",
+                    Some("Starting"),
+                    Some("Running"),
+                    None,
+                )
+                .await;
                 Ok(())
             }
             _ => {
@@ -76,10 +89,14 @@ impl WorkerManager {
         }
     }
 
-    fn spawn_worker_internal_raw(&self, worker: &mut ProfileWorker, config: Config) -> CowenResult<tokio::sync::oneshot::Receiver<()>> {
+    fn spawn_worker_internal_raw(
+        &self,
+        worker: &mut ProfileWorker,
+        config: Config,
+    ) -> CowenResult<tokio::sync::oneshot::Receiver<()>> {
         worker.status = WorkerStatus::Starting;
         worker.cancel_token = tokio_util::sync::CancellationToken::new();
-        
+
         let profile_name = worker.profile.clone();
         let cfg_mgr = self.cfg_mgr.clone();
         let cancel_token = worker.cancel_token.clone();
@@ -87,7 +104,8 @@ impl WorkerManager {
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
         let join_handle = tokio::spawn(async move {
-            let result = run_profile_worker(&profile_name, config, cfg_mgr, ready_tx, cancel_token).await;
+            let result =
+                run_profile_worker(&profile_name, config, cfg_mgr, ready_tx, cancel_token).await;
 
             let mut w_map = workers_clone.lock().await;
             if let Some(w) = w_map.get_mut(&profile_name) {
@@ -109,11 +127,13 @@ impl WorkerManager {
                             WorkerStatus::Backoff { retry_count, .. } => retry_count,
                             _ => 0,
                         };
-                        
+
                         let next_retry = current_retry + 1;
 
                         if next_retry > 5 {
-                            w.status = WorkerStatus::Failed { reason: format!("Circuit breaker triggered: {}", e) };
+                            w.status = WorkerStatus::Failed {
+                                reason: format!("Circuit breaker triggered: {}", e),
+                            };
                             event_bus().publish(GlobalEvent::Telemetry(TelemetryEvent {
                                 profile: profile_name.clone(),
                                 event_type: "circuit_break".to_string(),
@@ -128,11 +148,11 @@ impl WorkerManager {
                             let jitter = rand::thread_rng().gen_range(0.0..=0.2);
                             let delay_secs = base_delay * (0.9 + jitter);
                             let delay = Duration::from_secs_f64(delay_secs);
-                            
-                            w.status = WorkerStatus::Backoff { 
-                                retry_count: next_retry, 
+
+                            w.status = WorkerStatus::Backoff {
+                                retry_count: next_retry,
                                 next_retry_at: Instant::now() + delay,
-                                last_error: e.to_string()
+                                last_error: e.to_string(),
                             };
                             info!(target: "sys", profile = %profile_name, "Entering backoff state, will retry in {:?}", delay);
                             event_bus().publish(GlobalEvent::Telemetry(TelemetryEvent {
@@ -162,30 +182,38 @@ impl WorkerManager {
             }
             Ok(())
         } else {
-            Err(CowenError::api(format!("Worker for profile '{}' not found", profile)))
+            Err(CowenError::api(format!(
+                "Worker for profile '{}' not found",
+                profile
+            )))
         }
     }
 
     pub async fn reload_worker(&self, profile: &str) -> CowenResult<()> {
         let config = self.cfg_mgr.load(profile).await?;
         self.stop_worker(profile).await?;
-        
+
         for _ in 0..50 {
             tokio::time::sleep(Duration::from_millis(100)).await;
             let workers = self.workers.lock().await;
             if let Some(w) = workers.get(profile) {
-                if !w.is_active() { break; }
+                if !w.is_active() {
+                    break;
+                }
             } else {
                 break;
             }
         }
-        
+
         self.start_worker(profile, config).await
     }
 
     pub async fn list_workers(&self) -> HashMap<String, WorkerStatus> {
         let workers = self.workers.lock().await;
-        workers.iter().map(|(k, v)| (k.clone(), v.status.clone())).collect()
+        workers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.status.clone()))
+            .collect()
     }
 
     /// Wait for all workers to reach a non-active state (Stopped/Failed/Created),
@@ -262,9 +290,9 @@ impl WorkerManager {
 mod state_tests;
 
 async fn run_profile_worker(
-    profile: &str, 
-    mut config: Config, 
-    cfg_mgr: ConfigManager, 
+    profile: &str,
+    mut config: Config,
+    cfg_mgr: ConfigManager,
     ready_tx: tokio::sync::oneshot::Sender<()>,
     cancel_token: tokio_util::sync::CancellationToken,
 ) -> CowenResult<()> {
@@ -273,11 +301,20 @@ async fn run_profile_worker(
     let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();
     let vault = cowen_store::create_vault(&app_cfg, &app_dir, &fingerprint).await?;
 
-    let auth = cowen_auth::create_auth_client(Arc::new(cowen_auth::VaultTokenPool::new(vault.clone())));
-    let _ = auth.provider(&config.app_mode).hydrate_config(profile, &mut config, vault.clone()).await;
+    let auth =
+        cowen_auth::create_auth_client(Arc::new(cowen_auth::VaultTokenPool::new(vault.clone())));
+    let _ = auth
+        .provider(&config.app_mode)
+        .hydrate_config(profile, &mut config, vault.clone())
+        .await;
 
-    let _forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(profile, config.clone(), &app_cfg, vault.clone())?);
-    
+    let _forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(
+        profile,
+        config.clone(),
+        &app_cfg,
+        vault.clone(),
+    )?);
+
     let shutdown_gate = crate::utils::shutdown::ShutdownGate::new();
 
     // Signal readiness
@@ -295,13 +332,28 @@ async fn run_profile_worker(
     let sync_gate = shutdown_gate.clone();
     tokio::spawn(async move {
         let _guard = sync_gate.enter();
-        let _ = auth.get_token(&sync_profile, &sync_config, &reqwest::header::HeaderMap::new()).await;
+        let _ = auth
+            .get_token(
+                &sync_profile,
+                &sync_config,
+                &reqwest::header::HeaderMap::new(),
+            )
+            .await;
     });
 
     if let Err(e) = crate::cmd::bridge::run(
-        profile, &config, vault, config.proxy_port, config.proxy_enabled, cfg_mgr.is_distributed_storage(&app_cfg), cancel_token, shutdown_gate
-    ).await {
-         return Err(CowenError::Internal(format!("Bridge task failed: {:?}", e)));
+        profile,
+        &config,
+        vault,
+        config.proxy_port,
+        config.proxy_enabled,
+        cfg_mgr.is_distributed_storage(&app_cfg),
+        cancel_token,
+        shutdown_gate,
+    )
+    .await
+    {
+        return Err(CowenError::Internal(format!("Bridge task failed: {:?}", e)));
     }
 
     Ok(())

@@ -14,7 +14,9 @@ mod tests {
         worker.status = WorkerStatus::Stopped;
         assert!(worker.can_start());
 
-        worker.status = WorkerStatus::Failed { reason: "test".into() };
+        worker.status = WorkerStatus::Failed {
+            reason: "test".into(),
+        };
         assert!(worker.can_start());
 
         worker.status = WorkerStatus::Starting;
@@ -32,10 +34,10 @@ mod tests {
         worker.status = WorkerStatus::Running;
         assert!(worker.can_stop());
 
-        worker.status = WorkerStatus::Backoff { 
-            retry_count: 1, 
-            next_retry_at: Instant::now(), 
-            last_error: "".into() 
+        worker.status = WorkerStatus::Backoff {
+            retry_count: 1,
+            next_retry_at: Instant::now(),
+            last_error: "".into(),
         };
         assert!(worker.can_stop());
 

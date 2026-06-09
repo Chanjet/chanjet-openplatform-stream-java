@@ -1,0 +1,19 @@
+{
+  "id": "cowen-wasm-auth-storeapp",
+  "name": "Cowen Wasm Auth StoreApp",
+  "version": "0.1.0",
+  "transport": "wasm_extism",
+  "requested_permissions": {
+    "sys.vault:read": true,
+    "sys.http:filter": true
+  },
+  "contributes": {
+    "wasm_interceptors": [
+      {
+        "name": "auth_interceptor",
+        "app_modes": ["store-app"],
+        "priority": 100
+      }
+    ]
+  }
+}

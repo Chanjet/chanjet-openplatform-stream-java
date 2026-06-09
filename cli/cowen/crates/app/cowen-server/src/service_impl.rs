@@ -1,11 +1,10 @@
-use cowen_common::CowenResult;
 use async_trait::async_trait;
-use std::sync::Arc;
 use cowen_common::daemon::DaemonService;
+use cowen_common::CowenResult;
+use std::sync::Arc;
 
-
-use cowen_config::ConfigManager;
 use cowen_auth::client::Client;
+use cowen_config::ConfigManager;
 
 pub struct ServerDaemonService {
     worker_mgr: Arc<crate::daemon::manager::WorkerManager>,
@@ -17,7 +16,6 @@ impl ServerDaemonService {
             worker_mgr: crate::daemon::manager::WorkerManager::new(cfg_mgr),
         }
     }
-
 }
 
 #[async_trait]
@@ -26,7 +24,7 @@ impl DaemonService for ServerDaemonService {
         let config = self.worker_mgr.config_manager().load(profile).await?;
         self.worker_mgr.start_worker(profile, config).await
     }
-    
+
     async fn start_all(&self) -> CowenResult<()> {
         let cfg_mgr = self.worker_mgr.config_manager();
         let profiles = cfg_mgr.list_profiles().await.unwrap_or_default();
@@ -52,27 +50,45 @@ impl DaemonService for ServerDaemonService {
             let _ = self.worker_mgr.stop_worker(&profile).await;
         }
         // Wait for all workers to actually finish draining (up to 15s)
-        self.worker_mgr.wait_all_stopped(std::time::Duration::from_secs(15)).await;
+        self.worker_mgr
+            .wait_all_stopped(std::time::Duration::from_secs(15))
+            .await;
         Ok(())
     }
 
-    async fn finalize_auth(&self, profile: &str, code: &str, state: Option<&str>, session_id: &str) -> CowenResult<()> {
+    async fn finalize_auth(
+        &self,
+        profile: &str,
+        code: &str,
+        state: Option<&str>,
+        session_id: &str,
+    ) -> CowenResult<()> {
         let cfg_mgr = self.worker_mgr.config_manager();
         let config = cfg_mgr.load(profile).await?;
         let app_cfg = cfg_mgr.load_app_config().await?;
         let app_dir = cowen_common::config::get_app_dir();
-        
+
         let vault = cowen_store::create_vault(&app_cfg, &app_dir, &config.app_key).await?;
         let pool = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
-        
+
         // 1. Save the code to session manager (OAuth2 provider expects this)
         let auth_cli = cowen_auth::create_auth_client(pool.clone());
         let session_manager = cowen_auth::lifecycle::AuthSessionManager::new(pool.as_ref());
-        session_manager.save_code(profile, code, state.unwrap_or("")).await?;
+        session_manager
+            .save_code(profile, code, state.unwrap_or(""))
+            .await?;
 
         // 2. Perform the actual exchange
         // Passing session_id to perform_login triggers the finalization flow
-        auth_cli.perform_login(profile, &config, false, Some(session_id), Some(Arc::new(self.clone_service()))).await?;
+        auth_cli
+            .perform_login(
+                profile,
+                &config,
+                false,
+                Some(session_id),
+                Some(Arc::new(self.clone_service())),
+            )
+            .await?;
 
         // 3. Start the worker
         self.worker_mgr.start_worker(profile, config).await?;

@@ -1,7 +1,7 @@
-use cowen_common::CowenResult;
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use cowen_common::vault::Vault;
+use cowen_common::CowenResult;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -21,9 +21,9 @@ pub struct DlqStore {
 
 impl DlqStore {
     pub fn new(profile: &str, vault: Arc<dyn Vault>) -> CowenResult<Self> {
-        Ok(Self { 
-            vault, 
-            profile: profile.to_string() 
+        Ok(Self {
+            vault,
+            profile: profile.to_string(),
         })
     }
 
@@ -31,7 +31,14 @@ impl DlqStore {
         &self.vault
     }
 
-    pub async fn save(&self, msg_id: &str, msg_type: &str, payload: &str, _headers: &str, error: &str) -> CowenResult<()> {
+    pub async fn save(
+        &self,
+        msg_id: &str,
+        msg_type: &str,
+        payload: &str,
+        _headers: &str,
+        error: &str,
+    ) -> CowenResult<()> {
         let msg = cowen_common::models::DlqMessage {
             id: None,
             profile: self.profile.clone(),
@@ -46,39 +53,51 @@ impl DlqStore {
 
     pub async fn list(&self) -> CowenResult<Vec<DLQEntry>> {
         let msgs = self.vault.list_dlq(&self.profile, 50).await?;
-        Ok(msgs.into_iter().map(|m| DLQEntry {
-            id: m.id.unwrap_or(0),
-            topic: m.topic,
-            payload: m.payload,
-            retry_count: m.retry_count,
-            error: m.error,
-            created_at: m.created_at,
-        }).collect())
+        Ok(msgs
+            .into_iter()
+            .map(|m| DLQEntry {
+                id: m.id.unwrap_or(0),
+                topic: m.topic,
+                payload: m.payload,
+                retry_count: m.retry_count,
+                error: m.error,
+                created_at: m.created_at,
+            })
+            .collect())
     }
 
     pub async fn list_all(&self) -> CowenResult<Vec<DLQEntry>> {
         let msgs = self.vault.list_all_dlq(&self.profile).await?;
-        Ok(msgs.into_iter().map(|m| DLQEntry {
-            id: m.id.unwrap_or(0),
-            topic: m.topic,
-            payload: m.payload,
-            retry_count: m.retry_count,
-            error: m.error,
-            created_at: m.created_at,
-        }).collect())
+        Ok(msgs
+            .into_iter()
+            .map(|m| DLQEntry {
+                id: m.id.unwrap_or(0),
+                topic: m.topic,
+                payload: m.payload,
+                retry_count: m.retry_count,
+                error: m.error,
+                created_at: m.created_at,
+            })
+            .collect())
     }
 
     pub async fn list_paged(&self, page: usize, page_size: usize) -> CowenResult<Vec<DLQEntry>> {
         let offset = (page.max(1) - 1) * page_size;
-        let msgs = self.vault.list_dlq_paged(&self.profile, offset, page_size).await?;
-        Ok(msgs.into_iter().map(|m| DLQEntry {
-            id: m.id.unwrap_or(0),
-            topic: m.topic,
-            payload: m.payload,
-            retry_count: m.retry_count,
-            error: m.error,
-            created_at: m.created_at,
-        }).collect())
+        let msgs = self
+            .vault
+            .list_dlq_paged(&self.profile, offset, page_size)
+            .await?;
+        Ok(msgs
+            .into_iter()
+            .map(|m| DLQEntry {
+                id: m.id.unwrap_or(0),
+                topic: m.topic,
+                payload: m.payload,
+                retry_count: m.retry_count,
+                error: m.error,
+                created_at: m.created_at,
+            })
+            .collect())
     }
 
     pub async fn get_by_id(&self, id: i64) -> CowenResult<Option<DLQEntry>> {
