@@ -21,3 +21,14 @@ pub trait DaemonService: Send + Sync {
         Err(crate::CowenError::api("Auth finalization not supported by this daemon service"))
     }
 }
+
+pub struct DummyDaemonService;
+
+#[tonic::async_trait]
+impl DaemonService for DummyDaemonService {
+    async fn start_daemon(&self, _profile: &str) -> CowenResult<()> { Ok(()) }
+    async fn stop_daemon(&self, _profile: &str) -> CowenResult<()> { Ok(()) }
+    async fn reload_daemon(&self, _profile: &str) -> CowenResult<()> { Ok(()) }
+    async fn start_all(&self) -> CowenResult<()> { Ok(()) }
+    async fn stop_all(&self) -> CowenResult<()> { Ok(()) }
+}

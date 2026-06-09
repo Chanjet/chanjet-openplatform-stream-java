@@ -245,7 +245,7 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
         });
     }
 
-    let caps = Arc::new(cowen_capabilities::CapabilityRegistry::new(vault.clone(), cfg_mgr.clone(), ipc_port, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
+    let caps = Arc::new(cowen_capabilities::CapabilityRegistry::new(daemon_svc.clone(), vault.clone(), cfg_mgr.clone(), ipc_port, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
     
     // Validate Capability Facade Alignment on boot (Fail-fast if Wasm and gRPC facades diverge)
     let _manifest = cowen_server::daemon::facade_manifest::FacadeManifest::get_global_manifest();
