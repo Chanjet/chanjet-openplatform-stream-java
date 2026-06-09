@@ -947,6 +947,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "cowen-capabilities"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "cowen-auth",
+ "cowen-common",
+ "cowen-config",
+ "cowen-doctor",
+ "cowen-infra",
+ "cowen-macros",
+ "cowen-monitor",
+ "cowen-search",
+ "cowen-store",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "cowen-cli"
 version = "0.4.0"
 dependencies = [
@@ -1050,9 +1079,11 @@ dependencies = [
  "chrono",
  "clap",
  "cowen-auth",
+ "cowen-capabilities",
  "cowen-common",
  "cowen-config",
  "cowen-doctor",
+ "cowen-grpc-facade",
  "cowen-infra",
  "cowen-macros",
  "cowen-monitor",
@@ -1060,6 +1091,7 @@ dependencies = [
  "cowen-server",
  "cowen-store",
  "cowen-sys",
+ "cowen-wasm-facade",
  "directories",
  "futures",
  "prost 0.13.5",
@@ -1089,6 +1121,28 @@ dependencies = [
  "inventory",
  "reqwest 0.13.3",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "cowen-grpc-facade"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "cowen-auth",
+ "cowen-capabilities",
+ "cowen-common",
+ "cowen-config",
+ "cowen-macros",
+ "cowen-store",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tonic",
  "tracing",
 ]
 
@@ -1216,15 +1270,18 @@ dependencies = [
  "chrono",
  "connector-sdk",
  "cowen-auth",
+ "cowen-capabilities",
  "cowen-common",
  "cowen-config",
  "cowen-doctor",
+ "cowen-grpc-facade",
  "cowen-infra",
  "cowen-macros",
  "cowen-monitor",
  "cowen-search",
  "cowen-store",
  "cowen-sys",
+ "cowen-wasm-facade",
  "directories",
  "extism",
  "fs2",
@@ -1341,6 +1398,22 @@ dependencies = [
  "extism-pdk",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cowen-wasm-facade"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "cowen-capabilities",
+ "cowen-common",
+ "extism",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

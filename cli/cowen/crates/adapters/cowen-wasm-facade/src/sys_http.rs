@@ -1,4 +1,4 @@
-use crate::daemon::wasm_capabilities::{CapabilityContext, HostCapabilityProvider};
+use crate::{CapabilityContext, HostCapabilityProvider};
 use extism::Function;
 
 pub struct SysHttpProvider;
@@ -16,7 +16,7 @@ impl HostCapabilityProvider for SysHttpProvider {
     ) -> anyhow::Result<Vec<Function>> {
         self.check_version(version)?;
 
-        let mut builder = crate::daemon::wasm_capabilities::WasmHostFunctionBuilder::new(self.domain(), permissions);
+        let mut builder = crate::WasmHostFunctionBuilder::new(self.domain(), permissions);
 
         let caps = context.capabilities.clone();
         let profile_clone_for_token = context.profile.clone();

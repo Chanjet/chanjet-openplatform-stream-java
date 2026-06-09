@@ -7,7 +7,7 @@ members = [
     "crates/plugins/cowen-search-embedding/crates/*",
     "crates/app/*",
     "crates/tools/*"
-]
+, "crates/adapters/cowen-grpc-facade", "crates/adapters/cowen-wasm-facade"]
 
 [profile.release]
 strip = true

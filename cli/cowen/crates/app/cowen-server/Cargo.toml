@@ -42,6 +42,10 @@ notify = "6.1.1"
 tonic = "0.12"
 semver = "1.0.28"
 
+cowen-capabilities = { path = "../../core/cowen-capabilities" }
+cowen-grpc-facade = { path = "../../adapters/cowen-grpc-facade" }
+cowen-wasm-facade = { path = "../../adapters/cowen-wasm-facade" }
+
 [build-dependencies]
 chrono = "0.4"
 

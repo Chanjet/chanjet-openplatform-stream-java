@@ -121,7 +121,7 @@ pub fn rbac_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// A procedural macro to enforce RBAC permissions on a gRPC controller method.
 ///
 /// If `domain` and `action` are provided, it delegates the policy lookup dynamically
-/// to `crate::capabilities::rbac::get_policy(domain, action)`.
+/// to `crate::rbac::get_policy(domain, action)`.
 #[proc_macro_attribute]
 pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as RbacArgs);
@@ -165,10 +165,10 @@ pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
     let check_block = if let Some(domain) = args.domain {
         let mut actions_exprs = Vec::new();
         for action in args.actions {
-            actions_exprs.push(quote! { crate::capabilities::rbac::get_policy(#domain, #action) });
+            actions_exprs.push(quote! { crate::rbac::get_policy(#domain, #action) });
         }
         for any_action in args.any_actions {
-            actions_exprs.push(quote! { crate::capabilities::rbac::get_policy(#domain, #any_action) });
+            actions_exprs.push(quote! { crate::rbac::get_policy(#domain, #any_action) });
         }
         
         let scopes_iter = args.scopes.iter();
@@ -196,7 +196,7 @@ pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
             any_scopes_dyn.extend(static_any_scopes);
             
             let claims_opt = #claims_expr;
-            if let Err(e) = crate::capabilities::rbac::verify_permission(claims_opt, #profile_expr, &all_scopes_dyn, &any_scopes_dyn) {
+            if let Err(e) = crate::rbac::verify_permission(claims_opt, #profile_expr, &all_scopes_dyn, &any_scopes_dyn) {
                 #err_return
             }
         }
@@ -215,7 +215,7 @@ pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
 
         quote! {
             let claims_opt = #claims_expr;
-            if let Err(e) = crate::capabilities::rbac::verify_permission(claims_opt, #profile_expr, #all_scopes_expr, #any_scopes_expr) {
+            if let Err(e) = crate::rbac::verify_permission(claims_opt, #profile_expr, #all_scopes_expr, #any_scopes_expr) {
                 #err_return
             }
         }

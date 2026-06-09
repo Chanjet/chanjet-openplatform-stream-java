@@ -8,8 +8,8 @@ impl FacadeManifest {
     /// Validates the alignment between Wasm and gRPC capability versions at boot time.
     /// Panics if the contracts diverge, ensuring "Single Source of Truth" governance.
     pub fn get_global_manifest() -> HashMap<&'static str, Vec<&'static str>> {
-        let wasm_caps = crate::daemon::wasm_capabilities::registry_supported_versions();
-        let grpc_caps = crate::daemon::grpc_capabilities::registry_supported_versions();
+        let wasm_caps = cowen_wasm_facade::registry_supported_versions();
+        let grpc_caps = cowen_grpc_facade::registry_supported_versions();
 
         // Check if both doors declare the exact same capabilities and versions.
         if wasm_caps != grpc_caps {

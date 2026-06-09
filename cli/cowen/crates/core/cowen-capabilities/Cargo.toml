@@ -1,0 +1,30 @@
+[package]
+name = "cowen-capabilities"
+version = "0.4.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+tracing = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "socks"] }
+uuid = { version = "1.12", features = ["v4"] }
+tonic = "0.12"
+tokio-stream = "0.1"
+semver = "1.0.28"
+rand = "0.8"
+serde_yaml = "0.9"
+
+cowen-common = { path = "../cowen-common" }
+cowen-config = { path = "../../services/cowen-config" }
+cowen-auth = { path = "../../services/cowen-auth" }
+cowen-store = { path = "../../services/cowen-store" }
+cowen-search = { path = "../../services/cowen-search" }
+cowen-doctor = { path = "../../services/cowen-doctor" }
+cowen-monitor = { path = "../../services/cowen-monitor" }
+cowen-macros = { path = "../cowen-macros" }
+cowen-infra = { path = "../cowen-infra" }

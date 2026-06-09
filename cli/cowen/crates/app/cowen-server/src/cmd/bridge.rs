@@ -33,7 +33,7 @@ pub async fn run(
     let client = connector_sdk::GatewayClient::new(opts);
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
     let auth = cowen_auth::create_auth_client(pool.clone());
-    let forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(
+    let forwarder = Arc::new(cowen_capabilities::forwarder::Forwarder::new(
         profile,
         config.clone(),
         &app_cfg,

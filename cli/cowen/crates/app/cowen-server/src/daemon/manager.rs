@@ -308,7 +308,7 @@ async fn run_profile_worker(
         .hydrate_config(profile, &mut config, vault.clone())
         .await;
 
-    let _forwarder = Arc::new(crate::daemon::forwarder::Forwarder::new(
+    let _forwarder = Arc::new(cowen_capabilities::forwarder::Forwarder::new(
         profile,
         config.clone(),
         &app_cfg,

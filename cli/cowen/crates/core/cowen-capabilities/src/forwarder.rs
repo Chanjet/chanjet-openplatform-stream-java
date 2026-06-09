@@ -1,4 +1,4 @@
-use crate::daemon::dlq::DlqStore;
+use crate::dlq::DlqStore;
 use cowen_common::{CowenError, CowenResult};
 use reqwest::{Client, Url};
 use serde_json::Value;

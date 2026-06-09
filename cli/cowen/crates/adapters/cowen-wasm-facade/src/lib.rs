@@ -1,3 +1,4 @@
+
 use std::sync::Arc;
 use extism::Function;
 use cowen_common::config::Config;
@@ -8,7 +9,7 @@ pub mod sys_http;
 pub struct CapabilityContext {
     pub profile: String,
     pub config: Config,
-    pub capabilities: Arc<crate::capabilities::CapabilityRegistry>,
+    pub capabilities: Arc<cowen_capabilities::CapabilityRegistry>,
 }
 
 pub trait HostCapabilityProvider: Send + Sync {
@@ -141,7 +142,7 @@ impl<'a> WasmHostFunctionBuilder<'a> {
     {
         // For sys.base, we skip permission checks (or we could define it properly)
         // Actually, if we pass "" as action, has_policy_permission will allow it if empty policy
-        if crate::capabilities::rbac::has_policy_permission(self.permissions, self.domain, action) {
+        if cowen_capabilities::rbac::has_policy_permission(self.permissions, self.domain, action) {
             self.funcs.push(extism::Function::new(
                 name,
                 inputs,

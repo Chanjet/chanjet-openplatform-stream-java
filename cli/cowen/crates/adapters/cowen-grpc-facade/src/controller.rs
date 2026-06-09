@@ -16,11 +16,11 @@ pub struct CowenDaemonController {
     service: Arc<dyn DaemonService>,
     vault: Arc<dyn Vault>,
     cfg_mgr: ConfigManager,
-    capabilities: Arc<crate::capabilities::CapabilityRegistry>,
+    capabilities: Arc<cowen_capabilities::CapabilityRegistry>,
 }
 
 impl CowenDaemonController {
-    pub fn new(service: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, capabilities: Arc<crate::capabilities::CapabilityRegistry>) -> Self {
+    pub fn new(service: Arc<dyn DaemonService>, vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, capabilities: Arc<cowen_capabilities::CapabilityRegistry>) -> Self {
         Self { 
             service, 
             vault,
@@ -266,7 +266,7 @@ impl CowenDaemonService for CowenDaemonController {
     async fn doctor(&self, request: Request<DoctorRequest>) -> Result<Response<DoctorResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_system::DomainDoctorRequest {
+        let domain_req = cowen_capabilities::native_system::DomainDoctorRequest {
             profile: inner.profile,
         };
         match self.capabilities.native_system.doctor(claims.as_ref(), domain_req).await {
@@ -341,7 +341,7 @@ impl CowenDaemonService for CowenDaemonController {
     async fn store_status(&self, request: Request<StoreStatusRequest>) -> Result<Response<StoreStatusResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let _inner = request.into_inner();
-        let domain_req = crate::capabilities::native_system::DomainStoreStatusRequest {};
+        let domain_req = cowen_capabilities::native_system::DomainStoreStatusRequest {};
         match self.capabilities.native_system.store_status(claims.as_ref(), domain_req).await {
             Ok(resp) => Ok(Response::new(StoreStatusResponse {
                 json: resp.json,
@@ -354,7 +354,7 @@ impl CowenDaemonService for CowenDaemonController {
     async fn system_status(&self, request: Request<SystemStatusRequest>) -> Result<Response<SystemStatusResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_system::DomainSystemStatusRequest {
+        let domain_req = cowen_capabilities::native_system::DomainSystemStatusRequest {
             profile: inner.profile,
             all: inner.all,
         };
@@ -370,7 +370,7 @@ impl CowenDaemonService for CowenDaemonController {
     async fn system_reset(&self, request: Request<SystemResetRequest>) -> Result<Response<SystemResetResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_system::DomainSystemResetRequest {
+        let domain_req = cowen_capabilities::native_system::DomainSystemResetRequest {
             profile: inner.profile.filter(|p| !p.trim().is_empty()),
             dry_run: inner.dry_run,
         };
@@ -401,7 +401,7 @@ impl CowenDaemonService for CowenDaemonController {
     async fn dlq_list(&self, request: Request<DlqListRequest>) -> Result<Response<DlqListResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_dlq::DomainDlqListRequest {
+        let domain_req = cowen_capabilities::native_dlq::DomainDlqListRequest {
             profile: inner.profile,
             page_size: inner.page_size,
         };
@@ -417,7 +417,7 @@ impl CowenDaemonService for CowenDaemonController {
     async fn dlq_view(&self, request: Request<DlqViewRequest>) -> Result<Response<DlqViewResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_dlq::DomainDlqViewRequest {
+        let domain_req = cowen_capabilities::native_dlq::DomainDlqViewRequest {
             profile: inner.profile,
             id: inner.id,
         };
@@ -433,7 +433,7 @@ impl CowenDaemonService for CowenDaemonController {
     async fn dlq_retry(&self, request: Request<DlqRetryRequest>) -> Result<Response<DlqRetryResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_dlq::DomainDlqRetryRequest {
+        let domain_req = cowen_capabilities::native_dlq::DomainDlqRetryRequest {
             profile: inner.profile,
             id: inner.id,
         };
@@ -450,7 +450,7 @@ impl CowenDaemonService for CowenDaemonController {
     async fn dlq_purge(&self, request: Request<DlqPurgeRequest>) -> Result<Response<DlqPurgeResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_dlq::DomainDlqPurgeRequest {
+        let domain_req = cowen_capabilities::native_dlq::DomainDlqPurgeRequest {
             profile: inner.profile,
         };
         match self.capabilities.native_dlq.dlq_purge(claims.as_ref(), domain_req).await {
@@ -498,7 +498,7 @@ impl CowenDaemonService for CowenDaemonController {
     ) -> Result<Response<PluginHandshakeResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_system::DomainPluginHandshakeRequest {
+        let domain_req = cowen_capabilities::native_system::DomainPluginHandshakeRequest {
             plugin_name: inner.plugin_name,
             plugin_version: inner.plugin_version,
             required_capabilities: inner.required_capabilities,

@@ -101,7 +101,7 @@ impl NativeDlqCapability for DefaultDlq {
             Ok(i) => i,
             Err(_) => return Err(CowenError::Validation("Invalid DLQ ID format".to_string())),
         };
-        match crate::daemon::forwarder::Forwarder::new(&req.profile, config, &app_cfg, self.vault.clone()) {
+        match crate::forwarder::Forwarder::new(&req.profile, config, &app_cfg, self.vault.clone()) {
             Ok(forwarder) => {
                 match forwarder.retry_message(id_i64).await {
                     Ok(_) => Ok(DomainDlqRetryResponse { success: true, message: "Retried".to_string(), error_message: None }),

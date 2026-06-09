@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::daemon::wasm_capabilities::{CapabilityContext, HostCapabilityProvider, SysBaseProvider, sys_vault::SysVaultProvider, sys_http::SysHttpProvider};
+use cowen_wasm_facade::{CapabilityContext, HostCapabilityProvider, SysBaseProvider, sys_vault::SysVaultProvider, sys_http::SysHttpProvider};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WasmPluginManifest {
@@ -33,14 +33,14 @@ pub struct WasmPipelineManager {
     routes: ArcSwap<Vec<RoutePolicy>>,
     profile: String,
     config: cowen_common::config::Config,
-    capabilities: Arc<crate::capabilities::CapabilityRegistry>,
+    capabilities: Arc<cowen_capabilities::CapabilityRegistry>,
 }
 
 impl WasmPipelineManager {
     pub fn new(
         profile: String,
         config: cowen_common::config::Config,
-        capabilities: Arc<crate::capabilities::CapabilityRegistry>,
+        capabilities: Arc<cowen_capabilities::CapabilityRegistry>,
     ) -> Self {
         Self {
             plugins: ArcSwap::from_pointee(HashMap::new()),
@@ -604,7 +604,7 @@ mod tests {
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
 
         let config_manager = cowen_config::ConfigManager::new_with_dir(temp_dir.clone()).unwrap();
-        let caps = std::sync::Arc::new(crate::capabilities::CapabilityRegistry::new(vault.clone(), config_manager, 0));
+        let caps = std::sync::Arc::new(cowen_capabilities::CapabilityRegistry::new(vault.clone(), config_manager, 0, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
         let manager = WasmPipelineManager::new("test_profile".to_string(), config, caps);
 
         let wasm_path =

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::collections::HashMap;
 use cowen_config::ConfigManager;
 use cowen_common::vault::Vault;
 use cowen_macros::{rbac, rbac_controller};
@@ -78,11 +79,12 @@ pub struct DefaultSystem {
     vault: Arc<dyn Vault>,
     cfg_mgr: ConfigManager,
     ipc_port: u16,
+    supported_capabilities: HashMap<String, String>,
 }
 
 impl DefaultSystem {
-    pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, ipc_port: u16) -> Self {
-        Self { vault, cfg_mgr, ipc_port }
+    pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, ipc_port: u16, supported_capabilities: HashMap<String, String>) -> Self {
+        Self { vault, cfg_mgr, ipc_port, supported_capabilities }
     }
 }
 
@@ -480,18 +482,7 @@ impl NativeSystemCapability for DefaultSystem {
         req: DomainPluginHandshakeRequest,
     ) -> Result<DomainPluginHandshakeResponse, CowenError> {
         
-        let mut supported = std::collections::HashMap::new();
-        let grpc_caps = crate::daemon::grpc_capabilities::registry_supported_versions();
-        for (k, v) in grpc_caps {
-            supported.insert(k.to_string(), v.join(","));
-        }
-        let wasm_caps = crate::daemon::wasm_capabilities::registry_supported_versions();
-        for (k, v) in wasm_caps {
-            let version_str = v.join(",");
-            supported.entry(k.to_string())
-                .and_modify(|existing| existing.push_str(&format!(",{}", version_str)))
-                .or_insert(version_str);
-        }
+        let supported = self.supported_capabilities.clone();
 
         let mut missing = vec![];
         let mut incompatible = vec![];

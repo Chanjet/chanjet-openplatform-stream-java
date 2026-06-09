@@ -30,7 +30,7 @@ pub async fn start_proxy(
     app_dir: std::path::PathBuf,
 ) -> CowenResult<()> {
     let config_manager = cowen_config::ConfigManager::new_with_dir(app_dir)?;
-    let caps = Arc::new(crate::capabilities::CapabilityRegistry::new(vault.clone(), config_manager.clone(), port));
+    let caps = Arc::new(cowen_capabilities::CapabilityRegistry::new(vault.clone(), config_manager.clone(), port, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
     let state = ProxyState {
         client: Client::builder().no_proxy().build().unwrap(),
         config: config.clone(),

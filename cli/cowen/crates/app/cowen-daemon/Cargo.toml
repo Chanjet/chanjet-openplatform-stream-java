@@ -10,6 +10,9 @@ cowen-config = { path = "../../services/cowen-config" }
 cowen-monitor = { path = "../../services/cowen-monitor" }
 cowen-auth = { path = "../../services/cowen-auth" }
 cowen-store = { path = "../../services/cowen-store", features = ["all-stores"] }
+cowen-capabilities = { path = "../../core/cowen-capabilities" }
+cowen-grpc-facade = { path = "../../adapters/cowen-grpc-facade" }
+cowen-wasm-facade = { path = "../../adapters/cowen-wasm-facade" }
 cowen-infra = { path = "../../core/cowen-infra" }
 cowen-sys = { path = "../../core/cowen-sys" }
 cowen-search = { path = "../../services/cowen-search" }

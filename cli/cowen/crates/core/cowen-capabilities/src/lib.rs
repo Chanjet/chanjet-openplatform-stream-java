@@ -1,10 +1,22 @@
-pub mod native_api_registry;
-pub mod native_dlq;
-pub mod native_search;
-pub mod native_system;
+pub mod rbac;
 pub mod sys_http;
 pub mod sys_vault;
-pub mod rbac;
+pub mod native_search;
+pub mod native_api_registry;
+pub mod native_system;
+pub mod native_dlq;
+pub mod openapi_parser;
+pub mod forwarder;
+pub mod dlq;
+
+// Re-export core traits
+pub use native_api_registry::NativeApiRegistryCapability;
+pub use native_search::NativeSearchCapability;
+pub use native_system::NativeSystemCapability;
+pub use native_dlq::NativeDlqCapability;
+pub use sys_http::SysHttpCapability;
+pub use sys_vault::SysVaultCapability;
+
 
 use std::sync::Arc;
 use cowen_common::vault::Vault;
@@ -20,13 +32,13 @@ pub struct CapabilityRegistry {
 }
 
 impl CapabilityRegistry {
-    pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, ipc_port: u16) -> Self {
+    pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, ipc_port: u16, supported_capabilities: std::collections::HashMap<String, String>) -> Self {
         let native_search = Arc::new(native_search::DefaultSearch::new());
         let native_dlq = Arc::new(native_dlq::DefaultDlq::new(vault.clone(), cfg_mgr.clone()));
         
         Self {
             native_api_registry: Arc::new(native_api_registry::DefaultApiRegistry::new(vault.clone(), cfg_mgr.clone(), native_search.clone())),
-            native_system: Arc::new(native_system::DefaultSystem::new(vault.clone(), cfg_mgr.clone(), ipc_port)),
+            native_system: Arc::new(native_system::DefaultSystem::new(vault.clone(), cfg_mgr.clone(), ipc_port, supported_capabilities)),
             native_dlq: native_dlq.clone(),
             native_search: native_search.clone(),
             sys_vault: Arc::new(sys_vault::DefaultSysVault::new(vault.clone(), cfg_mgr.clone())),

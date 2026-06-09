@@ -4,11 +4,11 @@ use cowen_common::grpc::proto::api_registry_service_server::ApiRegistryService;
 use cowen_common::grpc::proto::{ApiListRequest, ApiListResponse, ApiSpecRequest, ApiSpecResponse, CallApiRequest, CallApiResponse};
 
 pub struct ApiRegistryController {
-    capabilities: Arc<crate::capabilities::CapabilityRegistry>,
+    capabilities: Arc<cowen_capabilities::CapabilityRegistry>,
 }
 
 impl ApiRegistryController {
-    pub fn new(capabilities: Arc<crate::capabilities::CapabilityRegistry>) -> Self {
+    pub fn new(capabilities: Arc<cowen_capabilities::CapabilityRegistry>) -> Self {
         Self {
             capabilities,
         }
@@ -20,7 +20,7 @@ impl ApiRegistryService for ApiRegistryController {
     async fn api_spec(&self, request: Request<ApiSpecRequest>) -> Result<Response<ApiSpecResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_api_registry::DomainApiSpecRequest {
+        let domain_req = cowen_capabilities::native_api_registry::DomainApiSpecRequest {
             profile: inner.profile,
             method: inner.method,
             path: inner.path,
@@ -37,7 +37,7 @@ impl ApiRegistryService for ApiRegistryController {
     async fn call_api(&self, request: Request<CallApiRequest>) -> Result<Response<CallApiResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_api_registry::DomainCallApiRequest {
+        let domain_req = cowen_capabilities::native_api_registry::DomainCallApiRequest {
             profile: inner.profile,
             method: inner.method,
             path: inner.path,
@@ -58,7 +58,7 @@ impl ApiRegistryService for ApiRegistryController {
     async fn api_list(&self, request: Request<ApiListRequest>) -> Result<Response<ApiListResponse>, Status> {
         let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
         let inner = request.into_inner();
-        let domain_req = crate::capabilities::native_api_registry::DomainApiListRequest {
+        let domain_req = cowen_capabilities::native_api_registry::DomainApiListRequest {
             profile: inner.profile,
             search: inner.search,
             page: inner.page,
