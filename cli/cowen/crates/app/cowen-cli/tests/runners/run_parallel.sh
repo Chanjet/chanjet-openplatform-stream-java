@@ -228,10 +228,26 @@ EOF
     [ -z "$elapsed_ms" ] && elapsed_ms="N/A"
     [ -z "$cpu_usage" ] && cpu_usage="0.00"
     
+    echo "1" >> "$RESULTS_DIR/completed_jobs.txt"
+    local completed=$(wc -l < "$RESULTS_DIR/completed_jobs.txt" | tr -d ' ' | awk '{print $1}')
+    local overall_elapsed=$(( $(date +%s) - PHASE_1_START_TIME ))
+    
+    local eta_str=""
+    if [ "$completed" -gt 0 ] && [ "$TOTAL_PARALLEL" -gt 0 ]; then
+        local remain=$(( TOTAL_PARALLEL - completed ))
+        local avg_ms=$(( overall_elapsed * 1000 / completed ))
+        local remain_s=$(( avg_ms * remain / 1000 ))
+        
+        local m=$(( remain_s / 60 ))
+        local s=$(( remain_s % 60 ))
+        local pct=$(( completed * 100 / TOTAL_PARALLEL ))
+        eta_str="[${pct}% | ETA: ${m}m ${s}s]"
+    fi
+    
     if [ $exit_code -eq 0 ]; then
-        echo -e "  [JOB $job_id] ${GREEN}✅ $(basename "$suite") PASSED${NC} (${elapsed_ms}s, CPU: ${cpu_usage}%)"
+        echo -e "  [JOB $job_id] ${GREEN}✅ $(basename "$suite") PASSED${NC} (${elapsed_ms}s, CPU: ${cpu_usage}%) ${eta_str}"
     else
-        echo -e "  [JOB $job_id] ${RED}❌ $(basename "$suite") FAILED${NC} (${elapsed_ms}s, CPU: ${cpu_usage}%)"
+        echo -e "  [JOB $job_id] ${RED}❌ $(basename "$suite") FAILED${NC} (${elapsed_ms}s, CPU: ${cpu_usage}%) ${eta_str}"
     fi
 
     # Bulletproof process teardown: kill all daemons belonging to this job's isolated workspace
@@ -244,7 +260,11 @@ EOF
 # --- Phase 1: Parallel ---
 started_count=0
 FAILED_COUNT=0
-TOTAL_PARALLEL=${#PARALLEL_SUITES[@]}
+export TOTAL_PARALLEL=${#PARALLEL_SUITES[@]}
+
+export PHASE_1_START_TIME=$(date +%s)
+rm -f "$RESULTS_DIR/completed_jobs.txt"
+touch "$RESULTS_DIR/completed_jobs.txt"
 
 if [ "$TOTAL_PARALLEL" -gt 0 ]; then
     echo -e "\n${BOLD}Phase 1: Running Parallel Suites ($TOTAL_PARALLEL)${NC}"
