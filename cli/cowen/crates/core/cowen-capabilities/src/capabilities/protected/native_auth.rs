@@ -1,9 +1,8 @@
 #![allow(dead_code, unused_imports, unused_variables)]
+// Auth specific capability
 use cowen_auth::client::Client;
 use cowen_common::daemon::DaemonService;
-use cowen_common::grpc::proto::*;
-use cowen_common::vault::Vault;
-use cowen_common::CowenError;
+use cowen_common::{grpc::proto::*, vault::Vault, CowenError};
 use cowen_config::ConfigManager;
 use cowen_macros::{rbac, rbac_controller};
 use std::sync::Arc;

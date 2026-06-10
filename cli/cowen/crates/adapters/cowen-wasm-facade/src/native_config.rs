@@ -10,15 +10,15 @@ impl HostCapabilityProvider for NativeConfigProvider {
 
     fn create_functions(
         &self,
-        version: &str,
-        permissions: &[String],
-        context: &CapabilityContext,
+        ver: &str,
+        perms: &[String],
+        ctx: &CapabilityContext,
     ) -> anyhow::Result<Vec<Function>> {
-        self.check_version(version)?;
+        self.check_version(ver)?;
 
-        let mut builder = crate::WasmHostFunctionBuilder::new(self.domain(), permissions);
+        let mut builder = crate::WasmHostFunctionBuilder::new(self.domain(), perms);
 
-        let caps = context.capabilities.clone();
+        let caps = ctx.capabilities.clone();
         builder.register(
             "read",
             "host_vault_get_app_ticket",
@@ -52,8 +52,8 @@ impl HostCapabilityProvider for NativeConfigProvider {
             },
         );
 
-        let caps_for_secret = context.capabilities.clone();
-        let profile = context.profile.clone();
+        let caps_for_secret = ctx.capabilities.clone();
+        let profile = ctx.profile.clone();
         builder.register(
             "read",
             "host_get_app_secret",

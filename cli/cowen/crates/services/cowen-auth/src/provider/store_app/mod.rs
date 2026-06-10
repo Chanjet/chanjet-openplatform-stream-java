@@ -289,7 +289,8 @@ impl AuthProvider for StoreAppProvider {
         let token = self.get_token(profile, config, &headers).await?;
 
         // 3. Decorate headers
-        let auth_headers = crate::RequestDecorator::get_auth_headers(
+        crate::provider::utils::decorate_proxy_headers(
+            &mut headers,
             spec,
             path,
             method,
@@ -297,14 +298,6 @@ impl AuthProvider for StoreAppProvider {
             &config.app_secret,
             &token.value,
         );
-
-        for (name, value) in auth_headers {
-            if let Ok(name) = reqwest::header::HeaderName::from_bytes(name.as_bytes()) {
-                if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
-                    headers.insert(name, val);
-                }
-            }
-        }
 
         Ok(crate::provider::ProxyRequestAction::Forward { headers })
     }
@@ -360,13 +353,20 @@ impl AuthProvider for StoreAppProvider {
 
     async fn initialize(
         &self,
-        profile: &str,
-        config: &mut Config,
-        vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
-        cfg_mgr: &cowen_config::ConfigManager,
-        params: crate::provider::InitParams,
-        daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
+        prof: &str,
+        cfg: &mut Config,
+        vt: std::sync::Arc<dyn cowen_common::vault::Vault>,
+        cm: &cowen_config::ConfigManager,
+        prms: crate::provider::InitParams,
+        ds: Option<std::sync::Arc<dyn DaemonService>>,
     ) -> CowenResult<()> {
+        let profile = prof;
+        let config = cfg;
+        let vault = vt;
+        let cfg_mgr = cm;
+        let params = prms;
+        let daemon_service = ds;
+
         let is_new = params.is_new;
         let auto_start = params.auto_start;
 
@@ -606,54 +606,29 @@ impl AuthProvider for StoreAppProvider {
         token: &Token,
         config: &Config,
     ) {
-        headers.insert(
-            "openToken",
-            token
-                .value
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
-        headers.insert(
-            "appKey",
-            config
-                .app_key
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
+        crate::provider::utils::insert_openapi_headers(headers, &token.value, &config.app_key);
     }
 
-    async fn on_logout(&self, profile: &str, config: &Config) -> CowenResult<()> {
-        let vault = self.pool.as_vault();
-        let _ = vault.delete_access_token(profile).await;
-        let _ = vault.delete_refresh_token(profile).await;
-
-        let _ = vault.delete_secret(profile, "oauth2_token_pair").await;
-        let _ = vault.delete_config(profile, "oauth2_token_pair").await;
-
-        let _ = vault.delete_config(profile, "oauth2_revoked").await;
-        let _ = vault.delete_config(profile, "last_refresh_error").await;
-
-        let app_key = config.app_key.trim();
-        if !app_key.is_empty() {
-            let _ = vault.delete_app_access_token(app_key).await;
-            let _ = vault.delete_app_ticket(app_key).await;
-        }
-        Ok(())
+    async fn on_logout(&self, prof: &str, cfg: &Config) -> CowenResult<()> {
+        crate::provider::utils::perform_logout_cleanup(&*self.pool.as_vault(), prof, &cfg.app_key)
+            .await
     }
 
     async fn should_auto_recover(
         &self,
-        profile: &str,
-        config: &Config,
-        has_pid: bool,
-        _pid_file_exists: bool,
-        is_distributed: bool,
+        prof: &str,
+        cfg: &Config,
+        has_p: bool,
+        _p_exists: bool,
+        is_dist: bool,
     ) -> bool {
-        if has_pid || config.app_key.trim().is_empty() {
+        let profile = prof;
+        let config = cfg;
+        if has_p || config.app_key.trim().is_empty() {
             return false;
         }
 
-        if is_distributed {
+        if is_dist {
             return false;
         }
 

@@ -359,15 +359,9 @@ pub(crate) async fn request_token(
     body: serde_json::Value,
     cfg: &Config,
 ) -> CowenResult<cowen_common::models::Token> {
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        "appKey",
-        cfg.app_key
-            .parse()
-            .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-    );
-
-    let resp = http_sender.post_form(url, headers, body).await?;
+    let resp =
+        crate::provider::utils::send_token_form_request(http_sender, url, body, &cfg.app_key)
+            .await?;
 
     if !resp.is_success() {
         let status = resp.status;
@@ -466,27 +460,15 @@ async fn handle_request_token_error(
             status
         )));
     }
-    if err_text.contains("4007") || err_text.contains("invalid_grant") {
-        let _ = pool
-            .as_vault()
-            .set_config(profile, "oauth2_revoked", "true")
-            .await;
-        return Err(CowenError::Auth(format!(
-            "令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})",
-            status
-        )));
-    }
-    if err_text.contains("4006") {
-        return Err(CowenError::Auth(format!(
-            "ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})",
-            status
-        )));
-    }
-    if err_text.contains("4001") {
-        return Err(CowenError::Auth(format!(
-            "授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})",
-            status
-        )));
+    if let Some(err) = crate::provider::utils::handle_common_token_errors(
+        &*pool.as_vault(),
+        profile,
+        err_text,
+        status,
+    )
+    .await
+    {
+        return err;
     }
 
     Err(CowenError::Auth(format!(

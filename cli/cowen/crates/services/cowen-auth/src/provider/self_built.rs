@@ -438,17 +438,13 @@ impl AuthProvider for SelfBuiltProvider {
         Ok(())
     }
 
-    async fn on_logout(&self, profile: &str, config: &Config) -> CowenResult<()> {
-        let vault = self.pool.as_vault();
-        let _ = vault.delete_access_token(profile).await;
-        let _ = vault.delete_refresh_token(profile).await;
-
-        let app_key = config.app_key.trim();
-        if !app_key.is_empty() {
-            let _ = vault.delete_app_access_token(app_key).await;
-            let _ = vault.delete_app_ticket(app_key).await;
-        }
-        Ok(())
+    async fn on_logout(&self, prof_name: &str, cfg: &Config) -> CowenResult<()> {
+        crate::provider::utils::perform_logout_cleanup(
+            &*self.pool.as_vault(),
+            prof_name,
+            &cfg.app_key,
+        )
+        .await
     }
 
     async fn get_token(
@@ -502,13 +498,19 @@ impl AuthProvider for SelfBuiltProvider {
 
     async fn initialize(
         &self,
-        profile: &str,
-        config: &mut Config,
-        vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
-        cfg_mgr: &cowen_config::ConfigManager,
-        params: crate::provider::InitParams,
-        daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
+        prof: &str,
+        cfg: &mut Config,
+        vt: std::sync::Arc<dyn cowen_common::vault::Vault>,
+        cm: &cowen_config::ConfigManager,
+        prms: crate::provider::InitParams,
+        ds: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
     ) -> CowenResult<()> {
+        let profile = prof;
+        let config = cfg;
+        let vault = vt;
+        let cfg_mgr = cm;
+        let params = prms;
+        let daemon_service = ds;
         let auto_start = params.auto_start;
 
         setup_self_built_credentials(config, params);

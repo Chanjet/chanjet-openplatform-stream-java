@@ -91,29 +91,10 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
             "inputSchema": tool_def.input_schema
         });
         if let Some(out_schema) = &tool_def.output_schema {
-            let is_object_schema = out_schema
-                .get("type")
-                .and_then(|t| t.as_str())
-                .map(|t| t == "object")
-                .unwrap_or(true);
-            if is_object_schema {
-                tool_json
-                    .as_object_mut()
-                    .unwrap()
-                    .insert("outputSchema".to_string(), out_schema.clone());
-            } else {
-                let wrapped = json!({
-                    "type": "object",
-                    "properties": {
-                        "value": out_schema.clone()
-                    },
-                    "required": ["value"]
-                });
-                tool_json
-                    .as_object_mut()
-                    .unwrap()
-                    .insert("outputSchema".to_string(), wrapped);
-            }
+            tool_json.as_object_mut().unwrap().insert(
+                "outputSchema".to_string(),
+                super::api::process_output_schema(out_schema),
+            );
         }
         tools.push(tool_json);
     }

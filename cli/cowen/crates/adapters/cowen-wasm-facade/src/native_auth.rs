@@ -120,16 +120,16 @@ impl HostCapabilityProvider for NativeAuthProvider {
 
     fn create_functions(
         &self,
-        version: &str,
-        permissions: &[String],
-        context: &CapabilityContext,
+        ver: &str,
+        perms: &[String],
+        ctx: &CapabilityContext,
     ) -> anyhow::Result<Vec<Function>> {
-        self.check_version(version)?;
+        self.check_version(ver)?;
 
-        let mut builder = crate::WasmHostFunctionBuilder::new(self.domain(), permissions);
+        let mut builder = crate::WasmHostFunctionBuilder::new(self.domain(), perms);
 
-        self.register_get_resolved_token(&mut builder, context);
-        self.register_get_required_auth_keys(&mut builder, context);
+        self.register_get_resolved_token(&mut builder, ctx);
+        self.register_get_required_auth_keys(&mut builder, ctx);
 
         Ok(builder.build())
     }

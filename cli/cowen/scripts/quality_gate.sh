@@ -49,35 +49,11 @@ if ! npx -y jscpd@latest crates/ --format rust --threshold 5 --reporters console
     exit 1
 fi
 
-# Run python script to enforce "No duplication > 5 lines in the same file"
-if ! python3 -c "
-import json, sys
-try:
-    with open('target/jscpd/jscpd-report.json') as f:
-        data = json.load(f)
-except Exception as e:
-    print('Failed to parse jscpd report:', e)
-    sys.exit(1)
-
-same_file_clones = []
-for clone in data.get('duplicates', []):
-    f1 = clone.get('firstFile', {}).get('name')
-    f2 = clone.get('secondFile', {}).get('name')
-    lines = clone.get('lines', 0)
-    if f1 == f2 and lines > 5:
-        same_file_clones.append(f'{f1} lines {clone[\"firstFile\"][\"start\"]}-{clone[\"firstFile\"][\"end\"]} and {clone[\"secondFile\"][\"start\"]}-{clone[\"secondFile\"][\"end\"]} ({lines} lines)')
-
-if same_file_clones:
-    print('❌ Code duplication check failed! Same-file duplication of >5 lines is not allowed.')
-    for c in same_file_clones:
-        print('  -', c)
-    sys.exit(1)
-else:
-    print('✅ No same-file duplications of >5 lines found.')
-"; then
+# Run python script to enforce code duplication quality gates
+if ! python3 scripts/check_duplication.py; then
     exit 1
 fi
-echo "✅ Code duplication check passed."
+echo "✅ Code duplication checks passed."
 
 
 # 5. Check Cyclomatic Complexity <= 15

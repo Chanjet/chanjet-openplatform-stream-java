@@ -125,15 +125,13 @@ impl OAuth2Provider {
         body: serde_json::Value,
         cfg: &Config,
     ) -> CowenResult<cowen_common::models::Token> {
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "appKey",
-            cfg.app_key
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
-
-        let resp = self.http_sender.post_form(url, headers, body).await?;
+        let resp = crate::provider::utils::send_token_form_request(
+            self.http_sender.as_ref(),
+            url,
+            body,
+            &cfg.app_key,
+        )
+        .await?;
 
         if !resp.is_success() {
             let status = resp.status;
@@ -160,28 +158,16 @@ impl OAuth2Provider {
                     status
                 )));
             }
-            if err_text.contains("4007") || err_text.contains("invalid_grant") {
-                let _ = self
-                    .pool
-                    .as_vault()
-                    .set_config(profile, "oauth2_revoked", "true")
-                    .await;
-                return Err(CowenError::Auth(format!(
-                    "令牌已失效（可能已被吊销），请执行 `owenc auth login` 重新授权。 (Error: {})",
-                    status
-                )));
-            }
-            if err_text.contains("4006") {
-                return Err(CowenError::Auth(format!(
-                    "ClientID 与令牌颁发者不一致，请检查配置。 (Error: {})",
-                    status
-                )));
-            }
-            if err_text.contains("4001") {
-                return Err(CowenError::Auth(format!(
-                    "授权校验失败 (PKCE)，请重新执行 `owenc init`。 (Error: {})",
-                    status
-                )));
+            if let Some(err) = crate::provider::utils::handle_common_token_errors(
+                &*self.pool.as_vault(),
+                profile,
+                &err_text,
+                reqwest::StatusCode::from_u16(status)
+                    .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR),
+            )
+            .await
+            {
+                return err;
             }
 
             return Err(CowenError::Auth(format!(
@@ -480,7 +466,8 @@ impl AuthProvider for OAuth2Provider {
     ) -> CowenResult<crate::provider::ProxyRequestAction> {
         let token = self.get_token(profile, config, &headers).await?;
 
-        let auth_headers = crate::RequestDecorator::get_auth_headers(
+        crate::provider::utils::decorate_proxy_headers(
+            &mut headers,
             spec,
             path,
             method,
@@ -488,14 +475,6 @@ impl AuthProvider for OAuth2Provider {
             &config.app_secret,
             &token.value,
         );
-
-        for (name, value) in auth_headers {
-            if let Ok(name) = reqwest::header::HeaderName::from_bytes(name.as_bytes()) {
-                if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
-                    headers.insert(name, val);
-                }
-            }
-        }
 
         Ok(crate::provider::ProxyRequestAction::Forward { headers })
     }
@@ -747,7 +726,7 @@ impl AuthProvider for OAuth2Provider {
         &self,
         ctx: &cowen_common::status::StatusContext<'_>,
     ) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
-        use cowen_common::status::{collect_daemon_status, StatusEntry, StatusLevel};
+        use cowen_common::status::{StatusEntry, StatusLevel};
         let mut results = Vec::new();
         let profile = &ctx.profile;
         let vault = ctx.vault.clone();
@@ -828,18 +807,17 @@ impl AuthProvider for OAuth2Provider {
         }
 
         // 2. Daemon Status
-        let daemon_info = cowen_common::status::get_active_daemon_info(profile);
-        let (display_name, efficiency_tip) = self.get_daemon_display_info(daemon_info.is_some());
-        results.push(
-            collect_daemon_status(
-                ctx,
-                &display_name,
-                &efficiency_tip,
-                self.supports_webhooks(),
-                daemon_info,
-            )
-            .await?,
+        let (display_name, tip) = self.get_daemon_display_info(
+            cowen_common::status::get_active_daemon_info(profile).is_some(),
         );
+        crate::provider::utils::push_daemon_diagnostic(
+            &mut results,
+            ctx,
+            &display_name,
+            &tip,
+            self.supports_webhooks(),
+        )
+        .await?;
 
         Ok(results)
     }
@@ -866,40 +844,16 @@ impl AuthProvider for OAuth2Provider {
                 url.push_str("?checkPermission=false");
             }
         }
-        headers.insert(
-            "openToken",
-            token
-                .value
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
-        headers.insert(
-            "appKey",
-            config
-                .app_key
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
+        crate::provider::utils::insert_openapi_headers(headers, &token.value, &config.app_key);
     }
 
     async fn on_logout(&self, profile: &str, config: &Config) -> CowenResult<()> {
-        let vault = self.pool.as_vault();
-        let _ = vault.delete_access_token(profile).await;
-        let _ = vault.delete_refresh_token(profile).await;
-
-        let app_key = config.app_key.trim();
-        if !app_key.is_empty() {
-            let _ = vault.delete_app_access_token(app_key).await;
-            let _ = vault.delete_app_ticket(app_key).await;
-        }
-
-        // Cleanup legacy keys if any
-        let _ = vault.delete_config(profile, "oauth2_token_pair").await;
-        let _ = vault.delete_secret(profile, "oauth2_token_pair").await;
-
-        let _ = vault.delete_config(profile, "oauth2_revoked").await;
-        let _ = vault.delete_config(profile, "last_refresh_error").await;
-        Ok(())
+        crate::provider::utils::perform_logout_cleanup(
+            &*self.pool.as_vault(),
+            profile,
+            &config.app_key,
+        )
+        .await
     }
 
     async fn should_auto_recover(

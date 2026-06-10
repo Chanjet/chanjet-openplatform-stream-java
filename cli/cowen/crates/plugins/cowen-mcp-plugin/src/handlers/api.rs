@@ -175,29 +175,10 @@ pub async fn handle_enable_api(
     });
 
     if let Some(out_schema) = &output_schema {
-        let is_object_schema = out_schema
-            .get("type")
-            .and_then(|t| t.as_str())
-            .map(|t| t == "object")
-            .unwrap_or(true);
-        if is_object_schema {
-            tool_json
-                .as_object_mut()
-                .unwrap()
-                .insert("outputSchema".to_string(), out_schema.clone());
-        } else {
-            let wrapped = json!({
-                "type": "object",
-                "properties": {
-                    "value": out_schema.clone()
-                },
-                "required": ["value"]
-            });
-            tool_json
-                .as_object_mut()
-                .unwrap()
-                .insert("outputSchema".to_string(), wrapped);
-        }
+        tool_json.as_object_mut().unwrap().insert(
+            "outputSchema".to_string(),
+            process_output_schema(out_schema),
+        );
     }
 
     let msg = format!(
@@ -242,5 +223,24 @@ pub async fn handle_disable_api(
                 "message": msg
             })),
         )
+    }
+}
+
+pub fn process_output_schema(out_schema: &serde_json::Value) -> serde_json::Value {
+    let is_object_schema = out_schema
+        .get("type")
+        .and_then(|t| t.as_str())
+        .map(|t| t == "object")
+        .unwrap_or(true);
+    if is_object_schema {
+        out_schema.clone()
+    } else {
+        json!({
+            "type": "object",
+            "properties": {
+                "value": out_schema.clone()
+            },
+            "required": ["value"]
+        })
     }
 }
