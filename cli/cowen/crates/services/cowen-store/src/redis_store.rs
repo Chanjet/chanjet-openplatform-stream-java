@@ -105,11 +105,8 @@ impl Store for RedisStore {
         self.raw_set(profile, &format!("sec:{}", key), value, None).await
     }
 
-    async fn delete_secret(&self, profile: &str, key: &str) -> CowenResult<()> {
-        let redis_key = self.key(profile, &format!("sec:{}", key));
-        let mut conn = self.conn.clone();
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_secret(&self, profile: &str, key: &str) -> CowenResult<()> {
+        self.raw_del(&self.key(profile, &format!("sec:{}", key))).await
     }
 
     async fn list_secrets(&self, profile: &str) -> CowenResult<Vec<String>> {
@@ -130,11 +127,8 @@ impl Store for RedisStore {
         self.raw_set(profile, "tok:access", &json, None).await
     }
 
-    async fn delete_access_token(&self, profile: &str) -> CowenResult<()> {
-        let redis_key = self.key(profile, "tok:access");
-        let mut conn = self.conn.clone();
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_access_token(&self, profile: &str) -> CowenResult<()> {
+        self.raw_del(&self.key(profile, "tok:access")).await
     }
 
     async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token> {
@@ -147,11 +141,8 @@ impl Store for RedisStore {
         self.raw_set(profile, "tok:refresh", &json, None).await
     }
 
-    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
-        let redis_key = self.key(profile, "tok:refresh");
-        let mut conn = self.conn.clone();
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
+        self.raw_del(&self.key(profile, "tok:refresh")).await
     }
 
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
@@ -177,11 +168,8 @@ impl Store for RedisStore {
         self.raw_set(&format!("app:{}", app_key), "tic:v1", &json, None).await
     }
 
-    async fn delete_app_ticket(&self, app_key: &str) -> CowenResult<()> {
-        let redis_key = self.key(&format!("app:{}", app_key), "tic:v1");
-        let mut conn = self.conn.clone();
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_app_ticket(&self, app_key: &str) -> CowenResult<()> {
+        self.raw_del(&self.key(&format!("app:{}", app_key), "tic:v1")).await
     }
 
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String> {
@@ -208,11 +196,8 @@ impl Store for RedisStore {
         self.raw_set(profile, &format!("tok_legacy:{}", key), value, Some(exp)).await
     }
 
-    async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()> {
-        let redis_key = self.key(profile, &format!("tok_legacy:{}", key));
-        let mut conn = self.conn.clone();
-        redis::cmd("DEL").arg(&redis_key).query_async::<()>(&mut conn).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()> {
+        self.raw_del(&self.key(profile, &format!("tok_legacy:{}", key))).await
     }
 
     async fn list_tokens(&self, profile: &str) -> CowenResult<Vec<String>> {

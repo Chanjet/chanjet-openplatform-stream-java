@@ -1,7 +1,7 @@
+use cowen_infra::sys::{IpcBinder, ProcessManager, SysFingerprint};
 use std::path::Path;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Sender;
-use cowen_infra::sys::{ProcessManager, IpcBinder, SysFingerprint};
 
 pub struct WinProcessManager {
     stop_tx: std::sync::Mutex<Option<Sender<()>>>,
@@ -31,36 +31,39 @@ impl ProcessManager for WinProcessManager {
     fn current_pid(&self) -> u32 {
         std::process::id()
     }
-    
+
     async fn is_process_alive(&self, pid: u32) -> bool {
-        use sysinfo::{System, Pid, ProcessesToUpdate};
+        use sysinfo::{Pid, ProcessesToUpdate, System};
         let mut s = System::new();
         let sys_pid = Pid::from_u32(pid);
         s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
         s.process(sys_pid).is_some()
     }
-    
+
     async fn kill_process(&self, pid: u32, _force: bool) -> anyhow::Result<()> {
         let _ = std::process::Command::new("taskkill")
             .args(&["/F", "/PID", &pid.to_string()])
             .status();
         Ok(())
     }
-    
+
     async fn daemonize(&self) -> anyhow::Result<()> {
         Ok(())
     }
-    
+
     fn set_stop_channel(&self, tx: Sender<()>) {
         #[cfg(windows)]
         let _ = WIN_STOP_TX.set(tx.clone());
-        
+
         if let Ok(mut guard) = self.stop_tx.lock() {
             *guard = Some(tx);
         }
     }
-    
-    async fn run_as_service(&self, f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>) -> anyhow::Result<()> {
+
+    async fn run_as_service(
+        &self,
+        f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>,
+    ) -> anyhow::Result<()> {
         #[cfg(windows)]
         {
             if let Some(cell) = RUN_CALLBACK.get() {
@@ -111,13 +114,15 @@ impl WinServiceManager {
 impl cowen_infra::sys::ServiceManager for WinServiceManager {
     async fn install(&self, bin_name: &str, bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
         let service_name = format!("{}Daemon", bin_name);
-        
+
         let check_output = std::process::Command::new("sc")
             .arg("query")
             .arg(&service_name)
             .output();
 
-        let exists = check_output.map(|out| out.status.success()).unwrap_or(false);
+        let exists = check_output
+            .map(|out| out.status.success())
+            .unwrap_or(false);
 
         if exists {
             let app_dir = cowen_infra::path::get_app_dir();
@@ -125,9 +130,16 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
                 .arg("config")
                 .arg(&service_name)
                 .arg("binPath=")
-                .arg(format!("\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"", bin_path, app_dir.to_string_lossy()))
+                .arg(format!(
+                    "\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"",
+                    bin_path,
+                    app_dir.to_string_lossy()
+                ))
                 .status();
-            println!("✅ Windows Service '{}' already exists. Configuration updated.", service_name);
+            println!(
+                "✅ Windows Service '{}' already exists. Configuration updated.",
+                service_name
+            );
             return Ok(());
         }
 
@@ -136,7 +148,11 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
             .arg("create")
             .arg(&service_name)
             .arg("binPath=")
-            .arg(format!("\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"", bin_path, app_dir.to_string_lossy()))
+            .arg(format!(
+                "\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"",
+                bin_path,
+                app_dir.to_string_lossy()
+            ))
             .arg("start=")
             .arg("auto")
             .status()?;
@@ -151,7 +167,10 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
 
     async fn uninstall(&self, bin_name: &str) -> anyhow::Result<()> {
         let service_name = format!("{}Daemon", bin_name);
-        let _ = std::process::Command::new("sc").arg("stop").arg(&service_name).status();
+        let _ = std::process::Command::new("sc")
+            .arg("stop")
+            .arg(&service_name)
+            .status();
         let status = std::process::Command::new("sc")
             .arg("delete")
             .arg(&service_name)
@@ -185,7 +204,12 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
             _ => (false, cowen_infra::sys::STATUS_NOT_REGISTERED),
         };
 
-        Ok(cowen_infra::sys::format_service_status("Windows", &service_name, is_exists, status_str))
+        Ok(cowen_infra::sys::format_service_status(
+            "Windows",
+            &service_name,
+            is_exists,
+            status_str,
+        ))
     }
 }
 
@@ -199,7 +223,11 @@ fn disable_std_handles_inheritance() {
 
         extern "system" {
             fn GetStdHandle(nStdHandle: i32) -> *mut std::ffi::c_void;
-            fn SetHandleInformation(hObject: *mut std::ffi::c_void, dwMask: u32, dwFlags: u32) -> i32;
+            fn SetHandleInformation(
+                hObject: *mut std::ffi::c_void,
+                dwMask: u32,
+                dwFlags: u32,
+            ) -> i32;
         }
 
         let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -215,7 +243,9 @@ fn disable_std_handles_inheritance() {
 }
 
 #[cfg(windows)]
-static RUN_CALLBACK: std::sync::OnceLock<std::sync::Mutex<Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>>> = std::sync::OnceLock::new();
+static RUN_CALLBACK: std::sync::OnceLock<
+    std::sync::Mutex<Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>>,
+> = std::sync::OnceLock::new();
 
 #[cfg(windows)]
 windows_service::define_windows_service!(ffi_service_main, my_service_main);
@@ -229,10 +259,10 @@ fn my_service_main(arguments: Vec<std::ffi::OsString>) {
 
 #[cfg(windows)]
 fn run_service(_arguments: Vec<std::ffi::OsString>) -> anyhow::Result<()> {
-    use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
+    use std::time::Duration;
     use windows_service::service::ServiceControl;
     use windows_service::service::{ServiceState, ServiceStatus, ServiceType};
-    use std::time::Duration;
+    use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
         match control_event {
@@ -246,7 +276,7 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> anyhow::Result<()> {
     };
 
     let status_handle = service_control_handler::register("CowenDaemon", event_handler)?;
-    
+
     status_handle.set_service_status(ServiceStatus {
         service_type: ServiceType::OWN_PROCESS,
         current_state: ServiceState::Running,
@@ -290,9 +320,11 @@ impl SysFingerprint for WinFingerprint {
     fn get_machine_id(&self) -> anyhow::Result<String> {
         #[cfg(windows)]
         {
-            use winreg::RegKey;
             use winreg::enums::HKEY_LOCAL_MACHINE;
-            if let Ok(hklm) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey("SOFTWARE\\Microsoft\\Cryptography") {
+            use winreg::RegKey;
+            if let Ok(hklm) =
+                RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey("SOFTWARE\\Microsoft\\Cryptography")
+            {
                 if let Ok(guid) = hklm.get_value::<String, _>("MachineGuid") {
                     return Ok(guid);
                 }
@@ -316,13 +348,27 @@ impl IpcBinder for WinIpcBinder {
         let listener = TcpListener::bind(addr).await?;
         Ok(listener)
     }
-    
-    async fn serve_handshake(&self, app_dir: &Path, payload: String, mut stop_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> {
+
+    async fn serve_handshake(
+        &self,
+        app_dir: &Path,
+        payload: String,
+        mut stop_rx: tokio::sync::mpsc::Receiver<()>,
+    ) -> anyhow::Result<()> {
         use tokio::net::windows::named_pipe::ServerOptions;
-        let pipe_name = format!(r"\\.\pipe\cowen_ipc_{}", app_dir.to_string_lossy().replace("\\", "_").replace(":", "_"));
-        
+        let pipe_name = format!(
+            r"\\.\pipe\cowen_ipc_{}",
+            app_dir
+                .to_string_lossy()
+                .replace("\\", "_")
+                .replace(":", "_")
+        );
+
         loop {
-            let mut server = match ServerOptions::new().first_pipe_instance(false).create(&pipe_name) {
+            let mut server = match ServerOptions::new()
+                .first_pipe_instance(false)
+                .create(&pipe_name)
+            {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::error!("Failed to create named pipe: {}", e);
@@ -349,11 +395,17 @@ impl IpcBinder for WinIpcBinder {
         }
         Ok(())
     }
-    
+
     async fn fetch_handshake(&self, app_dir: &Path) -> anyhow::Result<String> {
         use tokio::net::windows::named_pipe::ClientOptions;
-        let pipe_name = format!(r"\\.\pipe\cowen_ipc_{}", app_dir.to_string_lossy().replace("\\", "_").replace(":", "_"));
-        
+        let pipe_name = format!(
+            r"\\.\pipe\cowen_ipc_{}",
+            app_dir
+                .to_string_lossy()
+                .replace("\\", "_")
+                .replace(":", "_")
+        );
+
         let mut client = ClientOptions::new().open(&pipe_name)?;
         use tokio::io::AsyncReadExt;
         let mut buf = String::new();
@@ -371,7 +423,10 @@ pub fn set_process_name(name: &str) {
 pub mod fs {
     use std::path::Path;
 
-    pub fn secure_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> std::io::Result<()> {
+    pub fn secure_write<P: AsRef<Path>, C: AsRef<[u8]>>(
+        path: P,
+        contents: C,
+    ) -> std::io::Result<()> {
         std::fs::write(path, contents)
     }
 
@@ -403,5 +458,4 @@ pub mod fs {
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

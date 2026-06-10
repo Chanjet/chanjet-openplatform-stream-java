@@ -1,6 +1,6 @@
-use crate::protocol::{AppState, JsonRpcRequest, JsonRpcResponse};
-use super::api::{handle_api_list, handle_enable_api, handle_disable_api};
+use super::api::{handle_api_list, handle_disable_api, handle_enable_api};
 use super::dynamic::handle_dynamic_tool_call;
+use crate::protocol::{AppState, JsonRpcRequest, JsonRpcResponse};
 use serde_json::json;
 
 use crate::capabilities::McpFeature;
@@ -135,7 +135,10 @@ pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> Jso
     }
 }
 
-pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (JsonRpcResponse, bool) {
+pub async fn handle_tools_call(
+    req: JsonRpcRequest,
+    app_state: &AppState,
+) -> (JsonRpcResponse, bool) {
     let params = req.params.unwrap_or_default();
     let name = params["name"].as_str().unwrap_or("");
     let args = params["arguments"].as_object().cloned().unwrap_or_default();
@@ -176,7 +179,9 @@ pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (Js
             "cowen_api_list" | "cowen_enable_api" | "cowen_disable_api" => true,
             _ => {
                 let state = app_state.mcp_state.lock().await;
-                state.tools.get(name)
+                state
+                    .tools
+                    .get(name)
                     .and_then(|t| t.output_schema.as_ref())
                     .is_some()
             }
@@ -192,12 +197,10 @@ pub async fn handle_tools_call(req: JsonRpcRequest, app_state: &AppState) -> (Js
         structured_content = None;
     }
 
-    let mut content_items = vec![
-        json!({
-            "type": "text",
-            "text": final_text
-        })
-    ];
+    let mut content_items = vec![json!({
+        "type": "text",
+        "text": final_text
+    })];
 
     if let Some(err_msg) = schema_error {
         content_items.push(json!({

@@ -1,8 +1,8 @@
-use cowen_common::{CowenResult, CowenError, security};
+use cowen_common::models::StoreItem;
+use cowen_common::{security, CowenError, CowenResult};
 use serde::de::DeserializeOwned;
 use std::fs;
 use std::path::{Path, PathBuf};
-use cowen_common::models::StoreItem;
 
 pub struct FileStore {
     root_dir: PathBuf,
@@ -15,9 +15,9 @@ impl FileStore {
         if !root_dir.exists() {
             fs::create_dir_all(&root_dir).map_err(|e| CowenError::Store(e.to_string()))?;
         }
-        Ok(Self { 
-            root_dir, 
-            fingerprint: fingerprint.map(|s| s.to_string()) 
+        Ok(Self {
+            root_dir,
+            fingerprint: fingerprint.map(|s| s.to_string()),
         })
     }
 
@@ -32,11 +32,12 @@ impl FileStore {
     pub fn save<T: StoreItem>(&self, profile: &str, id: &str, item: &T) -> CowenResult<()> {
         let path = self.get_path(profile, T::key_prefix(), id, true);
         let temp_path = path.with_extension("tmp");
-        
+
         let json = serde_json::to_string(item).map_err(|e| CowenError::Store(e.to_string()))?;
         let data = if let Some(fp) = &self.fingerprint {
             let key = security::derive_key(fp);
-            security::encrypt(json.as_bytes(), &key).map_err(|e| CowenError::Store(e.to_string()))?
+            security::encrypt(json.as_bytes(), &key)
+                .map_err(|e| CowenError::Store(e.to_string()))?
         } else {
             json.into_bytes()
         };
@@ -54,7 +55,7 @@ impl FileStore {
     pub fn load<T: StoreItem + DeserializeOwned>(&self, profile: &str, id: &str) -> CowenResult<T> {
         let path = self.get_path(profile, T::key_prefix(), id, false);
         let content = fs::read(path).map_err(|e| CowenError::Store(e.to_string()))?;
-        
+
         let json_bytes = if let Some(fp) = &self.fingerprint {
             let key = security::derive_key(fp);
             security::decrypt(&content, &key).map_err(|e| CowenError::Store(e.to_string()))?
@@ -76,8 +77,10 @@ impl FileStore {
 
     pub fn list<T: StoreItem>(&self, profile: &str) -> CowenResult<Vec<String>> {
         let dir = self.root_dir.join(profile).join(T::key_prefix());
-        if !dir.exists() { return Ok(vec![]); }
-        
+        if !dir.exists() {
+            return Ok(vec![]);
+        }
+
         let mut ids = Vec::new();
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -89,7 +92,12 @@ impl FileStore {
         Ok(ids)
     }
 
-    pub fn list_all_paged<T: StoreItem + DeserializeOwned>(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<T>> {
+    pub fn list_all_paged<T: StoreItem + DeserializeOwned>(
+        &self,
+        profile: &str,
+        offset: usize,
+        limit: usize,
+    ) -> CowenResult<Vec<T>> {
         let ids = self.list::<T>(profile)?;
         let mut items = Vec::new();
         for id in ids.into_iter().skip(offset).take(limit) {

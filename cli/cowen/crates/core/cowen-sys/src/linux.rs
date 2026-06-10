@@ -1,4 +1,4 @@
-use crate::unix::{UnixProcessManager, UnixIpcBinder};
+use crate::unix::{UnixIpcBinder, UnixProcessManager};
 use cowen_infra::sys::SysFingerprint;
 
 pub type LinuxProcessManager = UnixProcessManager;
@@ -27,7 +27,7 @@ impl SysFingerprint for LinuxFingerprint {
                 return Ok(trimmed.to_string());
             }
         }
-        
+
         // Fallback to basic fingerprint
         cowen_infra::sys::derive_fallback_fingerprint("linux")
     }
@@ -46,15 +46,20 @@ fn get_linux_service_path(bin_name: &str) -> anyhow::Result<std::path::PathBuf> 
         .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
         .home_dir()
         .to_path_buf();
-    Ok(home.join(".config").join("systemd").join("user").join(format!("{}-daemon.service", bin_name)))
+    Ok(home
+        .join(".config")
+        .join("systemd")
+        .join("user")
+        .join(format!("{}-daemon.service", bin_name)))
 }
 
 #[async_trait::async_trait]
 impl cowen_infra::sys::ServiceManager for LinuxServiceManager {
     async fn install(&self, bin_name: &str, bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
         let service_path = get_linux_service_path(bin_name)?;
-        
-        let service_content = format!(r#"[Unit]
+
+        let service_content = format!(
+            r#"[Unit]
 Description={prefix}.{bin_name} Daemon Autostart
 After=network.target
 
@@ -65,10 +70,11 @@ Restart=always
 
 [Install]
 WantedBy=default.target
-"#, 
-        prefix = cowen_infra::sys::SERVICE_PREFIX,
-        bin_name = bin_name,
-        bin_path = bin_path);
+"#,
+            prefix = cowen_infra::sys::SERVICE_PREFIX,
+            bin_name = bin_name,
+            bin_path = bin_path
+        );
 
         if let Some(parent) = service_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -76,7 +82,10 @@ WantedBy=default.target
         std::fs::write(&service_path, service_content)?;
 
         // Reload and enable
-        let _ = std::process::Command::new("systemctl").arg("--user").arg("daemon-reload").status();
+        let _ = std::process::Command::new("systemctl")
+            .arg("--user")
+            .arg("daemon-reload")
+            .status();
         let status = std::process::Command::new("systemctl")
             .arg("--user")
             .arg("enable")
@@ -89,7 +98,10 @@ WantedBy=default.target
             println!("📍 Config: {:?}", service_path);
             Ok(())
         } else {
-            anyhow::bail!("Failed to enable systemd user service via systemctl. Config created at {:?}", service_path)
+            anyhow::bail!(
+                "Failed to enable systemd user service via systemctl. Config created at {:?}",
+                service_path
+            )
         }
     }
 
@@ -98,9 +110,17 @@ WantedBy=default.target
         let unit_name = format!("{}-daemon", bin_name);
 
         if service_path.exists() {
-            let _ = std::process::Command::new("systemctl").arg("--user").arg("disable").arg("--now").arg(&unit_name).status();
+            let _ = std::process::Command::new("systemctl")
+                .arg("--user")
+                .arg("disable")
+                .arg("--now")
+                .arg(&unit_name)
+                .status();
             std::fs::remove_file(&service_path)?;
-            let _ = std::process::Command::new("systemctl").arg("--user").arg("daemon-reload").status();
+            let _ = std::process::Command::new("systemctl")
+                .arg("--user")
+                .arg("daemon-reload")
+                .status();
             println!("✅ Successfully uninstalled systemd user service.");
         } else {
             println!("ℹ️  No service found to uninstall.");
@@ -132,7 +152,12 @@ WantedBy=default.target
             _ => cowen_infra::sys::STATUS_UNKNOWN,
         };
 
-        Ok(cowen_infra::sys::format_service_status("Linux", &unit_name, service_path.exists(), status_str))
+        Ok(cowen_infra::sys::format_service_status(
+            "Linux",
+            &unit_name,
+            service_path.exists(),
+            status_str,
+        ))
     }
 }
 

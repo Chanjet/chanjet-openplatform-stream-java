@@ -1,15 +1,19 @@
-use async_trait::async_trait;
 use anyhow::Result;
-use cowen_doctor::{DoctorContext, DiagnosticTask, DiagnosticResult, DiagnosticStatus, DiagnosticRegistration};
+use async_trait::async_trait;
+use cowen_doctor::{
+    DiagnosticRegistration, DiagnosticResult, DiagnosticStatus, DiagnosticTask, DoctorContext,
+};
 use std::time::Instant;
 
 pub struct StorageCheck;
 
-async fn create_store_for_diagnostics(ctx: &DoctorContext) -> Result<std::sync::Arc<dyn cowen_common::store::Store>> {
+async fn create_store_for_diagnostics(
+    ctx: &DoctorContext,
+) -> Result<std::sync::Arc<dyn cowen_common::store::Store>> {
     let app_cfg = ctx.cfg_mgr.load_app_config().await?;
     let app_dir = &ctx.cfg_mgr.app_dir;
     let fingerprint = cowen_common::security::get_machine_fingerprint()?;
-    
+
     let url = if app_cfg.storage.store == "local" {
         "local"
     } else {
@@ -21,18 +25,22 @@ async fn create_store_for_diagnostics(ctx: &DoctorContext) -> Result<std::sync::
 
 #[async_trait]
 impl DiagnosticTask for StorageCheck {
-    fn name(&self) -> &str { "存储后端与Schema" }
+    fn name(&self) -> &str {
+        "存储后端与Schema"
+    }
     async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
         let start = Instant::now();
         let store = match create_store_for_diagnostics(ctx).await {
             Ok(s) => s,
-            Err(e) => return Ok(DiagnosticResult {
-                name: self.name().to_string(),
-                status: DiagnosticStatus::Error(format!("无法加载存储后端: {}", e)),
-                duration_ms: start.elapsed().as_millis() as u64,
-            }),
+            Err(e) => {
+                return Ok(DiagnosticResult {
+                    name: self.name().to_string(),
+                    status: DiagnosticStatus::Error(format!("无法加载存储后端: {}", e)),
+                    duration_ms: start.elapsed().as_millis() as u64,
+                })
+            }
         };
-        
+
         let status = match store.list_dlq_paged(&ctx.profile, 0, 1).await {
             Ok(_) => DiagnosticStatus::Ok,
             Err(_) => {
@@ -63,7 +71,6 @@ mod tests {
     use cowen_common::config::Config;
     use cowen_config::ConfigManager;
 
-
     #[tokio::test]
     async fn test_storage_check_green() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -71,7 +78,9 @@ mod tests {
         cfg_mgr.app_dir = temp_dir.path().to_path_buf();
 
         let app_cfg = cowen_common::config::AppConfig::default();
-        let vault = crate::create_vault(&app_cfg, temp_dir.path(), "test_fingerprint").await.unwrap();
+        let vault = crate::create_vault(&app_cfg, temp_dir.path(), "test_fingerprint")
+            .await
+            .unwrap();
 
         let ctx = DoctorContext {
             profile: "test".to_string(),
@@ -84,7 +93,11 @@ mod tests {
 
         let checker = StorageCheck;
         let res = checker.run(&ctx).await.unwrap();
-        
-        assert!(matches!(res.status, DiagnosticStatus::Ok), "Expected DiagnosticStatus::Ok, got {:?}", res.status);
+
+        assert!(
+            matches!(res.status, DiagnosticStatus::Ok),
+            "Expected DiagnosticStatus::Ok, got {:?}",
+            res.status
+        );
     }
 }

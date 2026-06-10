@@ -1,5 +1,5 @@
-use cowen_cli::{Cli, run};
 use clap::Parser;
+use cowen_cli::{run, Cli};
 
 #[tokio::main]
 async fn main() {
@@ -8,14 +8,17 @@ async fn main() {
 
     // CAPTURE PANICS: Ensure background crashes are recorded
     std::panic::set_hook(Box::new(|info| {
-        let payload = info.payload().downcast_ref::<&str>().cloned()
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .cloned()
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("no message");
-            
+
         if payload.contains("Broken pipe") {
             return;
         }
-        
+
         tracing::error!(target: "sys", "FATAL PANIC: {}", payload);
     }));
 
@@ -23,7 +26,7 @@ async fn main() {
     let cli = Cli::parse();
     let format = cli.format.clone();
     let res = run(cli).await;
-    
+
     // Check results
     if let Err(e) = res {
         let err_msg = e.to_string();
@@ -32,7 +35,7 @@ async fn main() {
             std::process::exit(1);
         }
         tracing::error!(target: "sys", error = %err_msg, "CLI execution failed");
-        
+
         if format == "json" {
             let _ = cowen_common::utils::print_error_json(&err_msg);
         } else {

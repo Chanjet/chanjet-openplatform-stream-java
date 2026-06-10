@@ -1,4 +1,4 @@
-use crate::{CowenResult, CowenError};
+use crate::{CowenError, CowenResult};
 
 pub fn find_matching_spec_path(req_path: &str, spec: &serde_json::Value) -> Option<String> {
     if let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) {
@@ -28,7 +28,11 @@ pub fn find_matching_spec_path(req_path: &str, spec: &serde_json::Value) -> Opti
     None
 }
 
-pub fn get_operation(spec: &serde_json::Value, path: &str, method: &str) -> Option<serde_json::Value> {
+pub fn get_operation(
+    spec: &serde_json::Value,
+    path: &str,
+    method: &str,
+) -> Option<serde_json::Value> {
     if let Some(matched_path) = find_matching_spec_path(path, spec) {
         spec.get("paths")?
             .get(&matched_path)?
@@ -51,26 +55,41 @@ pub fn validate_request(
     data: &Option<String>,
 ) -> CowenResult<()> {
     let path_no_query = path_with_query.split('?').next().unwrap_or(path_with_query);
-    
+
     // 1. Find the operation in the spec
-    let matched_path = find_matching_spec_path(path_no_query, spec)
-        .ok_or_else(|| CowenError::Validation(format!("Path '{}' not found in OpenAPI spec", path_no_query)))?;
-    
-    let op = spec["paths"][&matched_path].get(method.to_lowercase())
-        .ok_or_else(|| CowenError::Validation(format!("Method '{}' not supported for path '{}'", method, matched_path)))?;
+    let matched_path = find_matching_spec_path(path_no_query, spec).ok_or_else(|| {
+        CowenError::Validation(format!(
+            "Path '{}' not found in OpenAPI spec",
+            path_no_query
+        ))
+    })?;
+
+    let op = spec["paths"][&matched_path]
+        .get(method.to_lowercase())
+        .ok_or_else(|| {
+            CowenError::Validation(format!(
+                "Method '{}' not supported for path '{}'",
+                method, matched_path
+            ))
+        })?;
 
     // 2. Validate Parameters (Query, Path, Header)
     if let Some(params) = op.get("parameters").and_then(|p| p.as_array()) {
-        let query_pairs: std::collections::HashMap<String, String> = if let Some(q_idx) = path_with_query.find('?') {
-            path_with_query[q_idx+1..].split('&')
-                .filter_map(|s| {
-                    let mut parts = s.splitn(2, '=');
-                    Some((parts.next()?.to_string(), parts.next().unwrap_or("").to_string()))
-                })
-                .collect()
-        } else {
-            std::collections::HashMap::new()
-        };
+        let query_pairs: std::collections::HashMap<String, String> =
+            if let Some(q_idx) = path_with_query.find('?') {
+                path_with_query[q_idx + 1..]
+                    .split('&')
+                    .filter_map(|s| {
+                        let mut parts = s.splitn(2, '=');
+                        Some((
+                            parts.next()?.to_string(),
+                            parts.next().unwrap_or("").to_string(),
+                        ))
+                    })
+                    .collect()
+            } else {
+                std::collections::HashMap::new()
+            };
 
         for param in params {
             let name = param["name"].as_str().unwrap_or("");
@@ -81,11 +100,13 @@ pub fn validate_request(
                 match location {
                     "query" => {
                         if !query_pairs.contains_key(name) {
-                            return Err(CowenError::Validation(format!("Missing required query parameter: '{}'", name)));
+                            return Err(CowenError::Validation(format!(
+                                "Missing required query parameter: '{}'",
+                                name
+                            )));
                         }
                     }
-                    "path" => {
-                    }
+                    "path" => {}
                     _ => {}
                 }
             }
@@ -96,7 +117,11 @@ pub fn validate_request(
     if let Some(body_def) = op.get("requestBody") {
         let body_required = body_def["required"].as_bool().unwrap_or(false);
         if body_required && data.is_none() {
-            return Err(CowenError::Validation(format!("Request body is required for {} {}", method.to_uppercase(), matched_path)));
+            return Err(CowenError::Validation(format!(
+                "Request body is required for {} {}",
+                method.to_uppercase(),
+                matched_path
+            )));
         }
     }
 

@@ -6,10 +6,9 @@ pub(crate) fn get_ipc_port_path() -> std::path::PathBuf {
 
 use clap::Parser;
 
-use cowen_common::utils::get_bin_name;
 use anyhow::Result;
+use cowen_common::utils::get_bin_name;
 use std::io::Write;
-
 
 pub trait Colorize {
     fn red(&self) -> String;
@@ -22,13 +21,27 @@ pub trait Colorize {
 }
 
 impl<T: std::fmt::Display> Colorize for T {
-    fn red(&self) -> String { format!("\x1b[31m{}\x1b[0m", self) }
-    fn green(&self) -> String { format!("\x1b[32m{}\x1b[0m", self) }
-    fn yellow(&self) -> String { format!("\x1b[33m{}\x1b[0m", self) }
-    fn cyan(&self) -> String { format!("\x1b[36m{}\x1b[0m", self) }
-    fn bold(&self) -> String { format!("\x1b[1m{}\x1b[0m", self) }
-    fn dimmed(&self) -> String { format!("\x1b[2m{}\x1b[0m", self) }
-    fn underline(&self) -> String { format!("\x1b[4m{}\x1b[0m", self) }
+    fn red(&self) -> String {
+        format!("\x1b[31m{}\x1b[0m", self)
+    }
+    fn green(&self) -> String {
+        format!("\x1b[32m{}\x1b[0m", self)
+    }
+    fn yellow(&self) -> String {
+        format!("\x1b[33m{}\x1b[0m", self)
+    }
+    fn cyan(&self) -> String {
+        format!("\x1b[36m{}\x1b[0m", self)
+    }
+    fn bold(&self) -> String {
+        format!("\x1b[1m{}\x1b[0m", self)
+    }
+    fn dimmed(&self) -> String {
+        format!("\x1b[2m{}\x1b[0m", self)
+    }
+    fn underline(&self) -> String {
+        format!("\x1b[4m{}\x1b[0m", self)
+    }
 }
 
 #[derive(Parser)]
@@ -39,13 +52,32 @@ impl<T: std::fmt::Display> Colorize for T {
     long_about = "畅捷通 (Chanjet) 开放平台官方全流程治理工具。\n\n本工具是连接企业本地业务系统与 畅捷通好业财、T+Cloud、好微、好会计 等云端核心产品的数字支点。它不仅是一个命令行界面，更是为 AI Agent 与自动化管道设计的 零信任安全网关 与 智能接口发现系统。\n\n核心能力 (Core Capabilities):\n- 🧠 意向发现 (api list --search): 内置极轻量 ONNX 神经网络推理引擎，支持通过自然语言实现 API 的语义搜索与精准锁定。\n- 🛡️ 安全编排 (init/auth): 自动化执行 AppTicket/AccessToken 握手解析，托管加密的安全凭据存储 (Vault)，自动注入签名安全头。\n- 🔄 实时流桥 (daemon): 基于 WebSocket 实现的高性能 Streaming Gateway 桥接器，支持在防火墙内安全接收云端消息推送并本地转发。\n- ⚡ 零代码代理 (Proxy): 自动在本地开启 HTTP 反向代理端口，自动注入身份凭据，支持 curl/Postman 直接调用。\n- 📊 健壮运维 (dlq/log): 完整的死信队列 (DLQ) 处理机制与多域结构化审计日志，确保每一笔交易与推送均可回溯与自动补试。\n\n🔒 隐私说明: 默认开启的遥测仅用于收集匿名崩溃报告与性能指标，不包含任何业务数据。可通过 --no-telemetry 或全局配置关闭。"
 )]
 pub struct Cli {
-    #[arg(short, long, global = true, env = "COWEN_PROFILE", help = "配置环境名称 (缺省则使用当前激活的 Profile)")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        env = "COWEN_PROFILE",
+        help = "配置环境名称 (缺省则使用当前激活的 Profile)"
+    )]
     pub profile: Option<String>,
 
-    #[arg(short = 'o', long, default_value = "text", global = true, env = "COWEN_FORMAT", help = "输出格式 (text, json, yaml)")]
+    #[arg(
+        short = 'o',
+        long,
+        default_value = "text",
+        global = true,
+        env = "COWEN_FORMAT",
+        help = "输出格式 (text, json, yaml)"
+    )]
     pub format: String,
 
-    #[arg(long, default_value = "error", global = true, env = "COWEN_LOG_LEVEL", help = "日志输出级别 (debug, info, warn, error)")]
+    #[arg(
+        long,
+        default_value = "error",
+        global = true,
+        env = "COWEN_LOG_LEVEL",
+        help = "日志输出级别 (debug, info, warn, error)"
+    )]
     pub log_level: String,
 
     #[arg(long, global = true, help = "禁用遥测数据上报")]
@@ -58,15 +90,30 @@ pub struct Cli {
 #[derive(clap::Subcommand)]
 pub enum Commands {
     /// 初始化应用配置与安全凭据
-    #[command(long_about = "初始化 CLI 的应用环境与安全凭据。这是治理工具的第一步。\nCLI 会引导您输入 AppKey, AppSecret 等核心参数，并将其加密存储在本地安全存储 (Vault) 中。\n\n支持基于 Profile 的多环境隔离 (default/inte/prod)。")]
+    #[command(
+        long_about = "初始化 CLI 的应用环境与安全凭据。这是治理工具的第一步。\nCLI 会引导您输入 AppKey, AppSecret 等核心参数，并将其加密存储在本地安全存储 (Vault) 中。\n\n支持基于 Profile 的多环境隔离 (default/inte/prod)。"
+    )]
     Init {
         #[arg(long, env = "COWEN_APP_KEY", help = "开放平台 AppKey")]
         app_key: Option<String>,
-        #[arg(long, env = "COWEN_APP_SECRET", help = "开放平台 AppSecret (将被安全加密存储)")]
+        #[arg(
+            long,
+            env = "COWEN_APP_SECRET",
+            help = "开放平台 AppSecret (将被安全加密存储)"
+        )]
         app_secret: Option<String>,
-        #[arg(short = 'c', long, env = "COWEN_CERTIFICATE", help = "自建应用证书 (Certificate)")]
+        #[arg(
+            short = 'c',
+            long,
+            env = "COWEN_CERTIFICATE",
+            help = "自建应用证书 (Certificate)"
+        )]
         certificate: Option<String>,
-        #[arg(long, env = "COWEN_ENCRYPT_KEY", help = "消息加解密密钥 (AES Encrypt Key)")]
+        #[arg(
+            long,
+            env = "COWEN_ENCRYPT_KEY",
+            help = "消息加解密密钥 (AES Encrypt Key)"
+        )]
         encrypt_key: Option<String>,
         #[arg(long, env = "COWEN_WEBHOOK_TARGET", help = "本地 Webhook 接收地址")]
         webhook_target: Option<String>,
@@ -74,13 +121,19 @@ pub enum Commands {
         openapi_url: Option<String>,
         #[arg(long, env = "COWEN_STREAM_URL", help = "Stream Gateway 基础 URL 覆盖")]
         stream_url: Option<String>,
-        #[arg(long, env = "COWEN_APP_MODE", help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用), store_app (商店应用)")]
+        #[arg(
+            long,
+            env = "COWEN_APP_MODE",
+            help = "应用模式: self_built (自建应用), oauth2 (OAuth2应用), store_app (商店应用)"
+        )]
         app_mode: Option<String>,
         #[arg(long, env = "COWEN_PROXY_PORT", help = "本地代理监听端口")]
         proxy_port: Option<u16>,
     },
     /// 调用开放平台 API 或管理接口规范
-    #[command(long_about = "调用开放平台 API 或管理接口规范。\n\n有两种使用方式:\n1. 直接发起 API 调用: cowen api GET /v1/user\n2. 使用子命令: cowen api list 或 cowen api spec\n\n提示: 除了命令行，你也可以通过本地代理端口 (Proxy) 发起包含自动鉴权的 API 调用！\n\n注意: METHOD 和 PATH 必须成对出现，如果遇到名为 list 的 API 路径，请写为 cowen api GET /list，以免与子命令 list 冲突。")]
+    #[command(
+        long_about = "调用开放平台 API 或管理接口规范。\n\n有两种使用方式:\n1. 直接发起 API 调用: cowen api GET /v1/user\n2. 使用子命令: cowen api list 或 cowen api spec\n\n提示: 除了命令行，你也可以通过本地代理端口 (Proxy) 发起包含自动鉴权的 API 调用！\n\n注意: METHOD 和 PATH 必须成对出现，如果遇到名为 list 的 API 路径，请写为 cowen api GET /list，以免与子命令 list 冲突。"
+    )]
     Api {
         #[arg(help = "HTTP Method (e.g. GET, POST)")]
         method: Option<String>,
@@ -175,7 +228,7 @@ pub enum Commands {
         /// 指定要诊断的 Profile (默认为 active profile)
         #[arg(short, long)]
         profile: Option<String>,
-        
+
         /// 开启详细诊断模式
         #[arg(short, long)]
         verbose: bool,
@@ -199,7 +252,12 @@ pub enum Commands {
     /// 获取当前 CLI 构建版本信息
     #[command(name = "version")]
     Version {
-        #[arg(short = 'o', long, default_value = "text", help = "输出格式 (text, json)")]
+        #[arg(
+            short = 'o',
+            long,
+            default_value = "text",
+            help = "输出格式 (text, json)"
+        )]
         format: String,
     },
 }
@@ -221,13 +279,17 @@ pub enum ConfigCommands {
         key: String,
     },
     /// 删除局部配置项 (自动重排索引)
-    #[command(long_about = "删除局部配置项。\n\n提示: 若删除 JSON 数组中的特定索引元素，工具会自动重排索引 (Index Reordering)。\n例如: cowen config unset search.plugins.1\n删除后，原本的 plugins[2] 会自动前移到 plugins[1]，保持数组连续性。")]
+    #[command(
+        long_about = "删除局部配置项。\n\n提示: 若删除 JSON 数组中的特定索引元素，工具会自动重排索引 (Index Reordering)。\n例如: cowen config unset search.plugins.1\n删除后，原本的 plugins[2] 会自动前移到 plugins[1]，保持数组连续性。"
+    )]
     Unset {
         #[arg(help = "要删除的配置项路径 (例如 search.plugins.0)")]
         key: String,
     },
     /// 列出当前生效的所有配置项目
-    #[command(long_about = "列出当前生效的所有配置项目。\n\nTips: 查看 'proxy_port' 可获取本地自动鉴权代理地址，实现 curl 无感调用。")]
+    #[command(
+        long_about = "列出当前生效的所有配置项目。\n\nTips: 查看 'proxy_port' 可获取本地自动鉴权代理地址，实现 curl 无感调用。"
+    )]
     List,
 }
 
@@ -301,14 +363,14 @@ pub enum StoreCommands {
     Set {
         /// 主存储引擎类型 (可选 sqlite / innerdb / mysql / postgres / redis / local)
         #[arg(
-            long, 
+            long,
             env = "COWEN_STORE_TYPE",
             long_help = "主存储数据库引擎类型。\n\n支持的取值:\n  - sqlite / innerdb: 本地高性能 SQLite 数据库文件\n  - mysql / postgres: 远程分布式关系数据库\n  - redis: 高并发 Key-Value 内存存储\n  - local: 遗留的扁平化文件本地配置存储"
         )]
         store: Option<String>,
         /// 数据库连接 URL 地址
         #[arg(
-            long, 
+            long,
             env = "COWEN_DB_URL",
             long_help = "选定主存储引擎所需的物理连接 URL 地址。\n\n格式示例:\n  - sqlite:data/cowen.db\n  - postgres://user:pass@localhost:5432/cowen\n  - mysql://user:pass@localhost:3306/cowen\n  - redis://localhost:6379"
         )]
@@ -323,10 +385,16 @@ pub enum StoreCommands {
     /// 检查当前配置的主存储后端与缓存连接性及健康状态
     Status,
     /// 在不同的底层存储后端之间安全地迁移已保存的配置与凭据状态
-    #[command(long_about = "在不同的底层存储后端之间安全地迁移已保存的配置与凭据状态。\n\n⚠️  警告: 数据迁移可能会覆盖目标数据库中的同名记录。请在执行前确保目标数据库为空或已备份。\n\n示例: \n  cowen store migrate --to sqlite:data/new.db --mode clone\n  cowen store migrate --to redis://localhost:6379/1")]
+    #[command(
+        long_about = "在不同的底层存储后端之间安全地迁移已保存的配置与凭据状态。\n\n⚠️  警告: 数据迁移可能会覆盖目标数据库中的同名记录。请在执行前确保目标数据库为空或已备份。\n\n示例: \n  cowen store migrate --to sqlite:data/new.db --mode clone\n  cowen store migrate --to redis://localhost:6379/1"
+    )]
     Migrate {
         /// 迁移的目标数据库连接 URL 地址
-        #[arg(long, value_name = "URL", long_help = "需要将当前数据迁移到的目标数据库连接 URL 地址。\n\n格式与 Set 命令一致，例如 sqlite:data/new.db")]
+        #[arg(
+            long,
+            value_name = "URL",
+            long_help = "需要将当前数据迁移到的目标数据库连接 URL 地址。\n\n格式与 Set 命令一致，例如 sqlite:data/new.db"
+        )]
         to: String,
         /// 数据迁移的交互工作模式
         #[arg(long, help = "Migration mode (copy, move)")]
@@ -345,7 +413,12 @@ pub enum ApiCommands {
         #[arg(long, default_value_t = 1, help = "要查看的页码")]
         page: usize,
         /// 每页显示的 API 记录数量
-        #[arg(short = 'n', long, default_value_t = 20, help = "每页显示的记录限制条数")]
+        #[arg(
+            short = 'n',
+            long,
+            default_value_t = 20,
+            help = "每页显示的记录限制条数"
+        )]
         page_size: usize,
         /// 强制从云端开放平台重新拉取同步最新的规约定义
         #[arg(short, long, help = "强制从云平台刷新同步最新规约")]
@@ -372,7 +445,9 @@ pub enum AuthCommands {
     /// 安全清除本地内存与 Vault 中的 Token 凭据并退出会话
     Logout,
     /// 触发与开放平台的换票及交互式 OAuth2 登录流 (支持 Headless / SSH 远程复制 URL 授权)
-    #[command(long_about = "触发与开放平台的换票及交互式 OAuth2 登录流。\n\n默认情况下，CLI 会尝试打开系统本地浏览器进行授权。如果处于无桌面/无头服务器环境 (Headless)，可以直接复制控制台打印的鉴权链接，并在您的本地浏览器中完成授权。\n\n【SSH 环境收尾说明】授权完成后浏览器会重定向到 localhost 并可能提示无法访问。您只需将地址栏中被重定向的 URL 完整复制，然后在当前无头服务器中执行 `curl \"<复制的URL>\"` 即可完成最终的换票收尾流程。也可以使用 --manual 参数禁用自动打开浏览器。")]
+    #[command(
+        long_about = "触发与开放平台的换票及交互式 OAuth2 登录流。\n\n默认情况下，CLI 会尝试打开系统本地浏览器进行授权。如果处于无桌面/无头服务器环境 (Headless)，可以直接复制控制台打印的鉴权链接，并在您的本地浏览器中完成授权。\n\n【SSH 环境收尾说明】授权完成后浏览器会重定向到 localhost 并可能提示无法访问。您只需将地址栏中被重定向的 URL 完整复制，然后在当前无头服务器中执行 `curl \"<复制的URL>\"` 即可完成最终的换票收尾流程。也可以使用 --manual 参数禁用自动打开浏览器。"
+    )]
     Login {
         /// 强制废弃本地 Token 并立即触发重新网络登录
         #[arg(short, long, help = "强制废弃缓存凭据并立即网络重登录")]
@@ -469,7 +544,12 @@ pub enum DlqCommands {
         #[arg(long, default_value = "1", help = "死信记录查看的分页页码")]
         page: usize,
         /// 每页显示的死信记录数限制
-        #[arg(short = 'n', long, default_value = "20", help = "每页显示的死信记录条数")]
+        #[arg(
+            short = 'n',
+            long,
+            default_value = "20",
+            help = "每页显示的死信记录条数"
+        )]
         page_size: usize,
     },
     /// 查看特定死信事件的详细请求体 (Payload) 和堆栈信息
@@ -496,13 +576,21 @@ pub enum LogCommands {
     /// 查看审计文件或实时跟踪多域日志流的控制台输出
     View {
         /// 需要查看的日志域 (可选 sys / audit / stream / dlq，缺省为 sys)
-        #[arg(default_value = "sys", help = "要查询的日志域。可用 'cowen log list' 命令获取")]
+        #[arg(
+            default_value = "sys",
+            help = "要查询的日志域。可用 'cowen log list' 命令获取"
+        )]
         domain: String,
         /// 挂起终端实时追踪并跟随时时产生的新日志流水
         #[arg(short, long, help = "挂起终端以 follow 模式实时追随日志流")]
         follow: bool,
         /// 默认在起始位置展示日志审计文件的尾部行数
-        #[arg(short = 'n', long, default_value_t = 10, help = "要在尾部默认读取的日志行数")]
+        #[arg(
+            short = 'n',
+            long,
+            default_value_t = 10,
+            help = "要在尾部默认读取的日志行数"
+        )]
         lines: usize,
     },
 }
@@ -512,7 +600,12 @@ pub enum AuditCommands {
     /// 实时追踪特定环境的关键业务操作与审计日志
     Tail {
         /// 默认在起始位置展示日志审计文件的尾部行数
-        #[arg(short = 'n', long, default_value_t = 10, help = "要在尾部默认读取的日志行数")]
+        #[arg(
+            short = 'n',
+            long,
+            default_value_t = 10,
+            help = "要在尾部默认读取的日志行数"
+        )]
         lines: usize,
     },
 }
@@ -536,7 +629,9 @@ async fn get_all_profiles(active_profile: &str) -> Vec<String> {
 
     let port_path = crate::get_ipc_port_path();
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
-    if let Ok(cowen_common::grpc::client::DaemonResponse::SystemStatusData { json }) = ipc.system_status(active_profile, true).await {
+    if let Ok(cowen_common::grpc::client::DaemonResponse::SystemStatusData { json }) =
+        ipc.system_status(active_profile, true).await
+    {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json) {
             if let Some(arr) = val.as_array() {
                 for item in arr {
@@ -547,7 +642,7 @@ async fn get_all_profiles(active_profile: &str) -> Vec<String> {
             }
         }
     }
-    
+
     let mut profiles: Vec<String> = profiles.into_iter().collect();
     profiles.sort();
     profiles
@@ -556,11 +651,14 @@ async fn get_all_profiles(active_profile: &str) -> Vec<String> {
 pub async fn run(cli: Cli) -> Result<()> {
     let _bin_name = get_bin_name();
 
-
-        let active_profile = cli.profile.clone().unwrap_or_else(|| {
+    let active_profile = cli.profile.clone().unwrap_or_else(|| {
         let home = std::env::var("COWEN_HOME").unwrap_or_else(|_| {
             if let Some(user_dirs) = directories::UserDirs::new() {
-                user_dirs.home_dir().join(".cowen").to_string_lossy().to_string()
+                user_dirs
+                    .home_dir()
+                    .join(".cowen")
+                    .to_string_lossy()
+                    .to_string()
             } else {
                 ".cowen".to_string()
             }
@@ -602,7 +700,12 @@ pub async fn run(cli: Cli) -> Result<()> {
 
     if let Commands::Store { action } = &cli.command {
         match action {
-            StoreCommands::Set { store, db_url, cache, cache_url } => {
+            StoreCommands::Set {
+                store,
+                db_url,
+                cache,
+                cache_url,
+            } => {
                 cmd::store::set(store, db_url, cache, cache_url).await?;
                 return Ok(());
             }
@@ -610,16 +713,21 @@ pub async fn run(cli: Cli) -> Result<()> {
                 cmd::store::status().await?;
                 return Ok(());
             }
-            _ => {} 
+            _ => {}
         }
     }
 
-    if let Commands::Store { action: StoreCommands::Migrate { to, mode } } = &cli.command {
+    if let Commands::Store {
+        action: StoreCommands::Migrate { to, mode },
+    } = &cli.command
+    {
         cmd::store::migrate(to, mode.clone()).await?;
         return Ok(());
     }
 
-    if std::env::var("COWEN_SKIP_COMPLETION_INSTALL").is_err() && cmd::completion::is_auto_install_needed() {
+    if std::env::var("COWEN_SKIP_COMPLETION_INSTALL").is_err()
+        && cmd::completion::is_auto_install_needed()
+    {
         let _ = cmd::completion::install_completion(None);
     }
 
@@ -628,31 +736,51 @@ pub async fn run(cli: Cli) -> Result<()> {
     // We only skip this during explicit stop, reset, or init operations.
     let skip_version_sync = match cmd_name {
         "reset" | "init" => true,
-        "daemon" => matches!(&cli.command, Commands::Daemon { action: DaemonCommands::Stop { .. } }),
+        "daemon" => matches!(
+            &cli.command,
+            Commands::Daemon {
+                action: DaemonCommands::Stop { .. }
+            }
+        ),
         _ => false,
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
-    
+
     if !skip_version_sync {
         cmd::system::enforce_daemon_version_sync(&active_profile).await?;
     }
 
     // 2. Auto-recovery: "确保必要的后台进程正在运行"
-    // We skip auto-recovery for lifecycle/management commands to avoid starting a daemon 
+    // We skip auto-recovery for lifecycle/management commands to avoid starting a daemon
     // that the user is explicitly trying to stop, reset or initialize.
     // However, diagnostic commands like 'status' SHOULD trigger recovery to maintain the "always-on" promise.
     let skip_recovery = match cmd_name {
         "daemon" | "reset" | "init" | "config" | "profile" | "dlq" | "log" | "audit" => true,
         "doctor" => !matches!(&cli.command, Commands::Doctor { fix: true, .. }),
-        "auth" => matches!(&cli.command, Commands::Auth { action: AuthCommands::Reset }),
+        "auth" => matches!(
+            &cli.command,
+            Commands::Auth {
+                action: AuthCommands::Reset
+            }
+        ),
         _ => false,
     } || std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok();
-    
+
     if !skip_recovery {
         cmd::system::ensure_daemon_running(&active_profile).await?;
     }
 
     match &cli.command {
-        Commands::Init { app_key, app_secret, certificate, encrypt_key, webhook_target, openapi_url, stream_url, app_mode, proxy_port } => {
+        Commands::Init {
+            app_key,
+            app_secret,
+            certificate,
+            encrypt_key,
+            webhook_target,
+            openapi_url,
+            stream_url,
+            app_mode,
+            proxy_port,
+        } => {
             let ctx = cmd::init::InitContext {
                 app_key: app_key.clone(),
                 app_secret: app_secret.clone(),
@@ -663,15 +791,34 @@ pub async fn run(cli: Cli) -> Result<()> {
                 stream_url: stream_url.clone(),
                 app_mode: app_mode.clone(),
                 proxy_port: *proxy_port,
-
             };
             cmd::init::execute(&active_profile, ctx).await?;
         }
-        Commands::Api { method, path, data, data_file, force, action } => {
+        Commands::Api {
+            method,
+            path,
+            data,
+            data_file,
+            force,
+            action,
+        } => {
             if let Some(act) = action {
                 match act {
-                    ApiCommands::List { search, page, page_size, refresh } => {
-                        cmd::api::list(&active_profile, search, *page, *page_size, &cli.format, *refresh).await?;
+                    ApiCommands::List {
+                        search,
+                        page,
+                        page_size,
+                        refresh,
+                    } => {
+                        cmd::api::list(
+                            &active_profile,
+                            search,
+                            *page,
+                            *page_size,
+                            &cli.format,
+                            *refresh,
+                        )
+                        .await?;
                     }
                     ApiCommands::Spec { method, path, raw } => {
                         cmd::api::spec(&active_profile, method, path, *raw).await?;
@@ -679,39 +826,59 @@ pub async fn run(cli: Cli) -> Result<()> {
                 }
             } else if let (Some(m), Some(p)) = (method, path) {
                 let port_path = crate::get_ipc_port_path();
-                let _stream = cowen_common::grpc::client::DaemonClient::new(&port_path).ensure_daemon().await?;
+                let _stream = cowen_common::grpc::client::DaemonClient::new(&port_path)
+                    .ensure_daemon()
+                    .await?;
                 let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path);
 
                 let body_data = if let Some(file_path) = data_file {
-                    Some(std::fs::read_to_string(file_path).map_err(|e| anyhow::anyhow!("Failed to read data file: {}", e))?)
+                    Some(
+                        std::fs::read_to_string(file_path)
+                            .map_err(|e| anyhow::anyhow!("Failed to read data file: {}", e))?,
+                    )
                 } else {
                     data.clone()
                 };
 
-                let res = daemon_client.call_api(&active_profile, m, p, body_data.as_deref(), *force).await?;
+                let res = daemon_client
+                    .call_api(&active_profile, m, p, body_data.as_deref(), *force)
+                    .await?;
                 match res {
                     cowen_common::grpc::client::DaemonResponse::ApiResponse(dto) => {
                         if cli.format == "json" || cli.format == "yaml" {
-                            let mut json_val: serde_json::Value = serde_json::from_str(&dto.body).unwrap_or(serde_json::Value::String(dto.body));
-                            if let Some(trace_id) = dto.headers.get("x-b3-traceid")
+                            let mut json_val: serde_json::Value = serde_json::from_str(&dto.body)
+                                .unwrap_or(serde_json::Value::String(dto.body));
+                            if let Some(trace_id) = dto
+                                .headers
+                                .get("x-b3-traceid")
                                 .or_else(|| dto.headers.get("x-msg-id"))
                                 .or_else(|| dto.headers.get("msgId"))
-                                .or_else(|| dto.headers.get("x-trace-id")) {
+                                .or_else(|| dto.headers.get("x-trace-id"))
+                            {
                                 if let serde_json::Value::Object(ref mut map) = json_val {
-                                    map.insert("_trace_id".to_string(), serde_json::Value::String(trace_id.to_string()));
+                                    map.insert(
+                                        "_trace_id".to_string(),
+                                        serde_json::Value::String(trace_id.to_string()),
+                                    );
                                 }
                             }
-                            cowen_common::utils::render(&json_val, &cli.format).map_err(|e| anyhow::anyhow!(e))?;
+                            cowen_common::utils::render(&json_val, &cli.format)
+                                .map_err(|e| anyhow::anyhow!(e))?;
                         } else {
                             println!("\n🚀 API Response (Status: {})", dto.status);
-                            if let Some(trace_id) = dto.headers.get("x-b3-traceid")
+                            if let Some(trace_id) = dto
+                                .headers
+                                .get("x-b3-traceid")
                                 .or_else(|| dto.headers.get("x-msg-id"))
                                 .or_else(|| dto.headers.get("msgId"))
-                                .or_else(|| dto.headers.get("x-trace-id")) {
+                                .or_else(|| dto.headers.get("x-trace-id"))
+                            {
                                 println!("\x1b[1;30mTrace ID: {}\x1b[0m", trace_id);
                             }
                             println!("--------------------------------------------------");
-                            if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&dto.body) {
+                            if let Ok(json_val) =
+                                serde_json::from_str::<serde_json::Value>(&dto.body)
+                            {
                                 println!("{}", serde_json::to_string_pretty(&json_val).unwrap());
                             } else {
                                 println!("{}", dto.body);
@@ -729,55 +896,85 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
         }
         Commands::Auth { action } => match action {
-            AuthCommands::Status => cmd::system::status(&active_profile, &cli.format, false).await?,
-            AuthCommands::Reset | AuthCommands::Logout => cmd::auth::logout(&active_profile).await?,
-            AuthCommands::Login { force, manual, finalize: _ } => {
+            AuthCommands::Status => {
+                cmd::system::status(&active_profile, &cli.format, false).await?
+            }
+            AuthCommands::Reset | AuthCommands::Logout => {
+                cmd::auth::logout(&active_profile).await?
+            }
+            AuthCommands::Login {
+                force,
+                manual,
+                finalize: _,
+            } => {
                 if *manual {
                     std::env::set_var("COWEN_SKIP_BROWSER", "true");
                 }
-                
+
                 cmd::auth::login(&active_profile, *force).await?;
-            },
-            AuthCommands::Token { refresh } => cmd::auth::token(&active_profile, &cli.format, *refresh).await?,
+            }
+            AuthCommands::Token { refresh } => {
+                cmd::auth::token(&active_profile, &cli.format, *refresh).await?
+            }
             AuthCommands::Reload => {
                 cmd::auth::token(&active_profile, "text", false).await?;
-                
+
                 // Signal running daemon to reload if active
                 if let Some(_info) = cowen_common::status::get_active_daemon_info(&active_profile) {
-
                     let _ = daemon_svc.reload_daemon(&active_profile).await;
                 } else {
                     let _ = daemon_svc.reload_daemon(&active_profile).await;
                 }
                 println!("✅ Token reloaded and synchronized from shared storage.");
             }
-        }
+        },
         Commands::Daemon { action } => match action {
-            DaemonCommands::Start { proxy_port, monitor_port, enable_proxy, no_proxy, foreground, all } => {
+            DaemonCommands::Start {
+                proxy_port,
+                monitor_port,
+                enable_proxy,
+                no_proxy,
+                foreground,
+                all,
+            } => {
                 let mut e_opt = None;
-                if *enable_proxy { e_opt = Some(true); }
-                else if *no_proxy { e_opt = Some(false); }
-                
+                if *enable_proxy {
+                    e_opt = Some(true);
+                } else if *no_proxy {
+                    e_opt = Some(false);
+                }
+
                 if let Some(m) = monitor_port {
-                    let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
-                    let _ = daemon_client.set_global_config("monitor_port", &m.to_string()).await;
+                    let daemon_client =
+                        cowen_common::grpc::client::DaemonClient::new(port_path.clone());
+                    let _ = daemon_client
+                        .set_global_config("monitor_port", &m.to_string())
+                        .await;
                 }
 
                 cmd::daemon::start(&active_profile, *proxy_port, e_opt, *foreground, *all).await?;
             }
             DaemonCommands::Stop { all } => cmd::daemon::stop(&active_profile, *all).await?,
-            DaemonCommands::Restart { proxy_port, enable_proxy, no_proxy, all } => {
+            DaemonCommands::Restart {
+                proxy_port,
+                enable_proxy,
+                no_proxy,
+                all,
+            } => {
                 let mut e_opt = None;
-                if *enable_proxy { e_opt = Some(true); }
-                else if *no_proxy { e_opt = Some(false); }
-                
+                if *enable_proxy {
+                    e_opt = Some(true);
+                } else if *no_proxy {
+                    e_opt = Some(false);
+                }
+
                 cmd::daemon::restart(&active_profile, *proxy_port, e_opt, *all).await?;
             }
             DaemonCommands::Reload { all } => {
                 if *all {
                     eprintln!("⚠️ Reload all is not supported in Dumb Client mode. Reloading current profile only.");
                 }
-                
+
                 let _ = daemon_svc.reload_daemon(&active_profile).await;
                 println!("✅ Daemon workers reloaded successfully.");
             }
@@ -785,35 +982,69 @@ pub async fn run(cli: Cli) -> Result<()> {
                 DaemonServiceCommands::Install => cmd::daemon::service_install().await?,
                 DaemonServiceCommands::Uninstall => cmd::daemon::service_uninstall().await?,
                 DaemonServiceCommands::Status => cmd::daemon::service_status().await?,
-            }
-        }
-        Commands::Doctor { profile, verbose, fix } => {
+            },
+        },
+        Commands::Doctor {
+            profile,
+            verbose,
+            fix,
+        } => {
             let target_prof = profile.as_deref().unwrap_or(&active_profile);
             cmd::doctor::execute(target_prof, *verbose, *fix).await?;
         }
         Commands::Events(args) => cmd::events::execute(args).await?,
         Commands::Status { all } => cmd::system::status(&active_profile, &cli.format, *all).await?,
-        Commands::System { action } => match action { SystemCommands::Status { all } => cmd::system::status(&active_profile, &cli.format, *all).await? },
+        Commands::System { action } => match action {
+            SystemCommands::Status { all } => {
+                cmd::system::status(&active_profile, &cli.format, *all).await?
+            }
+        },
         Commands::Plugins { action } => match action {
             PluginsCommands::List => cmd::plugins::list().await?,
             PluginsCommands::Enable { name } => cmd::plugins::enable(name).await?,
             PluginsCommands::Disable { name } => cmd::plugins::disable(name).await?,
             PluginsCommands::Install { path } => cmd::plugins::install(path).await?,
-            PluginsCommands::RefreshSignature { name } => cmd::plugins::refresh_signature(name).await?,
-            PluginsCommands::Run { name, args } => cmd::plugins::run(&active_profile, name, args).await?,
+            PluginsCommands::RefreshSignature { name } => {
+                cmd::plugins::refresh_signature(name).await?
+            }
+            PluginsCommands::Run { name, args } => {
+                cmd::plugins::run(&active_profile, name, args).await?
+            }
         },
         Commands::Config { action, all } => match action {
             Some(ConfigCommands::Set { key, value, global }) => {
-                let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
-                let is_global = *global || matches!(key.as_str(), "monitor_port" | "telemetry_enabled" | "log.level" | "log.rotation" | "log.max_size_mb" | "log.max_files" | "storage.store" | "storage.db_url" | "storage.cache" | "storage.cache_url" | "security.level" | "stream_url" | "openapi_url");
+                let daemon_client =
+                    cowen_common::grpc::client::DaemonClient::new(port_path.clone());
+                let is_global = *global
+                    || matches!(
+                        key.as_str(),
+                        "monitor_port"
+                            | "telemetry_enabled"
+                            | "log.level"
+                            | "log.rotation"
+                            | "log.max_size_mb"
+                            | "log.max_files"
+                            | "storage.store"
+                            | "storage.db_url"
+                            | "storage.cache"
+                            | "storage.cache_url"
+                            | "security.level"
+                            | "stream_url"
+                            | "openapi_url"
+                    );
                 let resp = if is_global {
                     daemon_client.set_global_config(&key, &value).await?
                 } else {
-                    daemon_client.set_config(&active_profile, &key, &value).await?
+                    daemon_client
+                        .set_config(&active_profile, &key, &value)
+                        .await?
                 };
                 match resp {
                     cowen_common::grpc::client::DaemonResponse::Success { .. } => {
-                        println!("✅ Successfully sent config update to Daemon: '{}' -> '{}'", key, value);
+                        println!(
+                            "✅ Successfully sent config update to Daemon: '{}' -> '{}'",
+                            key, value
+                        );
                     }
                     cowen_common::grpc::client::DaemonResponse::Error { message, .. } => {
                         eprintln!("⚠️ Failed to set config: {}", message);
@@ -826,7 +1057,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                 }
             }
             Some(ConfigCommands::Get { key }) => {
-                let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
+                let daemon_client =
+                    cowen_common::grpc::client::DaemonClient::new(port_path.clone());
                 match daemon_client.get_config(&active_profile, &key).await? {
                     cowen_common::grpc::client::DaemonResponse::ConfigData { config_json } => {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&config_json) {
@@ -850,16 +1082,25 @@ pub async fn run(cli: Cli) -> Result<()> {
                 }
             }
             Some(ConfigCommands::Unset { key }) => {
-                let daemon_client = cowen_common::grpc::client::DaemonClient::new(port_path.clone());
+                let daemon_client =
+                    cowen_common::grpc::client::DaemonClient::new(port_path.clone());
                 daemon_client.set_config(&active_profile, key, "").await?;
                 println!("✅ Successfully unset '{}'", key);
             }
             Some(ConfigCommands::List) => {
-                let list_format = if cli.format == "text" { "yaml" } else { &cli.format };
+                let list_format = if cli.format == "text" {
+                    "yaml"
+                } else {
+                    &cli.format
+                };
                 cmd::system::config(&active_profile, list_format, *all).await?;
             }
             None => {
-                let list_format = if cli.format == "text" { "yaml" } else { &cli.format };
+                let list_format = if cli.format == "text" {
+                    "yaml"
+                } else {
+                    &cli.format
+                };
                 cmd::system::config(&active_profile, list_format, *all).await?
             }
         },
@@ -871,10 +1112,16 @@ pub async fn run(cli: Cli) -> Result<()> {
             };
             cmd::system::reset(target_profile.as_deref(), *dry_run).await?
         }
-        Commands::Completion { shell, install, uninstall } => {
-            if *uninstall { cmd::completion::uninstall_completion()?; }
-            else if *install { cmd::completion::install_completion(*shell)?; }
-            else if let Some(s) = shell {
+        Commands::Completion {
+            shell,
+            install,
+            uninstall,
+        } => {
+            if *uninstall {
+                cmd::completion::uninstall_completion()?;
+            } else if *install {
+                cmd::completion::install_completion(*shell)?;
+            } else if let Some(s) = shell {
                 let mut buf = Vec::new();
                 cmd::completion::generate_completion(*s, &mut buf)?;
                 let _ = std::io::stdout().write_all(&buf);
@@ -892,34 +1139,52 @@ pub async fn run(cli: Cli) -> Result<()> {
             }
             ProfileCommands::Current => {
                 let default_path = cowen_common::config::get_app_dir().join("current_profile");
-                let p = std::fs::read_to_string(&default_path).unwrap_or_else(|_| "default".to_string());
+                let p = std::fs::read_to_string(&default_path)
+                    .unwrap_or_else(|_| "default".to_string());
                 println!("{}", p);
             }
             ProfileCommands::List => {
                 let profiles = get_all_profiles(&active_profile).await;
                 let default_path = cowen_common::config::get_app_dir().join("current_profile");
-                let current = std::fs::read_to_string(&default_path).unwrap_or_else(|_| "default".to_string());
-                if cli.format == "json" || cli.format == "yaml" { cowen_common::utils::render(&profiles, &cli.format).map_err(|e| anyhow::anyhow!(e))?; }
-                else {
+                let current = std::fs::read_to_string(&default_path)
+                    .unwrap_or_else(|_| "default".to_string());
+                if cli.format == "json" || cli.format == "yaml" {
+                    cowen_common::utils::render(&profiles, &cli.format)
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                } else {
                     println!("\n📂 Available Profiles:");
-                    for p in profiles { if p == current { println!("  * \x1b[32m{:<20}\x1b[0m (current)", p); } else { println!("    {:<20}", p); } }
+                    for p in profiles {
+                        if p == current {
+                            println!("  * \x1b[32m{:<20}\x1b[0m (current)", p);
+                        } else {
+                            println!("    {:<20}", p);
+                        }
+                    }
                 }
             }
-            ProfileCommands::Rename { old_name, new_name } => cmd::system::rename_profile(old_name, new_name).await?,
-        }
+            ProfileCommands::Rename { old_name, new_name } => {
+                cmd::system::rename_profile(old_name, new_name).await?
+            }
+        },
         Commands::Dlq { action } => match action {
             DlqCommands::View { id } => cmd::dlq::view(&active_profile, id.clone()).await?,
-            DlqCommands::List { page, page_size } => cmd::dlq::list(&active_profile, &cli.format, *page, *page_size).await?,
+            DlqCommands::List { page, page_size } => {
+                cmd::dlq::list(&active_profile, &cli.format, *page, *page_size).await?
+            }
             DlqCommands::Retry { id } => cmd::dlq::retry(&active_profile, id.clone()).await?,
             DlqCommands::Purge => cmd::dlq::purge(&active_profile).await?,
-        }
+        },
         Commands::Log { action } => match action {
             LogCommands::List => cmd::log::list(&active_profile).await?,
-            LogCommands::View { domain, follow, lines } => cmd::log::view(&active_profile, domain, *follow, *lines).await?,
-        }
+            LogCommands::View {
+                domain,
+                follow,
+                lines,
+            } => cmd::log::view(&active_profile, domain, *follow, *lines).await?,
+        },
         Commands::Audit { action } => match action {
             AuditCommands::Tail { lines } => cmd::audit::tail(&active_profile, *lines).await?,
-        }
+        },
         Commands::Store { .. } => unreachable!(),
         Commands::Version { .. } => unreachable!(),
     }

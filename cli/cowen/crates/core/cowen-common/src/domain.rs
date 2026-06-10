@@ -1,5 +1,5 @@
+use crate::models::{AuditEntry, AuthSession, DlqMessage, Item, Ticket, Token};
 use crate::CowenResult;
-use crate::models::{Ticket, Token, AuthSession, Item, AuditEntry, DlqMessage};
 
 use async_trait::async_trait;
 
@@ -42,12 +42,28 @@ pub trait PermanentCodeDomain: Send + Sync {
     /// 获取组织级永久授权码 (OPC)
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String>;
     /// 保存组织级永久授权码
-    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> CowenResult<()>;
+    async fn save_org_permanent_code(
+        &self,
+        app_key: &str,
+        org_id: &str,
+        code: &str,
+    ) -> CowenResult<()>;
 
     /// 获取用户级永久授权码 (UPC)
-    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> CowenResult<String>;
+    async fn get_user_permanent_code(
+        &self,
+        app_key: &str,
+        org_id: &str,
+        user_id: &str,
+    ) -> CowenResult<String>;
     /// 保存用户级永久授权码
-    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> CowenResult<()>;
+    async fn save_user_permanent_code(
+        &self,
+        app_key: &str,
+        org_id: &str,
+        user_id: &str,
+        code: &str,
+    ) -> CowenResult<()>;
 }
 
 #[async_trait]
@@ -83,7 +99,13 @@ pub trait ConfigDomain: Send + Sync {
     /// 设置配置
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<()>;
     /// 条件更新配置（CAS）
-    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> CowenResult<()>;
+    async fn set_config_conditional(
+        &self,
+        profile: &str,
+        key: &str,
+        value: &str,
+        expected_version: u64,
+    ) -> CowenResult<()>;
     /// 列出 Profile 下所有配置键
     async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>>;
     /// 删除配置
@@ -109,7 +131,12 @@ pub trait DlqDomain: Send + Sync {
     /// 新增：按 ID 获取单条死信
     async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>>;
     /// 新增：分页获取死信
-    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>>;
+    async fn list_dlq_paged(
+        &self,
+        profile: &str,
+        offset: usize,
+        limit: usize,
+    ) -> CowenResult<Vec<DlqMessage>>;
     /// 新增：按 ID 删除死信
     async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()>;
 }

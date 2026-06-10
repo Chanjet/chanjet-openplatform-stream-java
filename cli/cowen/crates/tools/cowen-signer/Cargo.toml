@@ -12,3 +12,4 @@ anyhow = "1.0"
 base64 = "0.22"
 hex = "0.4"
 cowen-infra = { path = "../../core/cowen-infra" }
+cowen-common = { path = "../../core/cowen-common" }

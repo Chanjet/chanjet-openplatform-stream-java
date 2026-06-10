@@ -1,4 +1,4 @@
-use cowen_ai::engine::{Engine, Document, cosine_similarity};
+use cowen_ai::engine::{cosine_similarity, Document, Engine};
 
 #[test]
 fn test_cosine_similarity() {

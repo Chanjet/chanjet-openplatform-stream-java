@@ -1,5 +1,22 @@
-use anyhow::Result;
 use crate::Colorize;
+use anyhow::Result;
+
+fn validate_store_type(s: &str) -> Result<()> {
+    if !["local", "innerdb", "sqlite", "mysql", "postgres", "mssql", "redis"].contains(&s) {
+        return Err(anyhow::anyhow!("Unsupported store type: {}. Supported: local, innerdb, sqlite, mysql, postgres, mssql, redis", s));
+    }
+    Ok(())
+}
+
+fn validate_cache_type(c: &str) -> Result<()> {
+    if !["none", "redis", "memory"].contains(&c) {
+        return Err(anyhow::anyhow!(
+            "Unsupported cache type: {}. Supported: none, redis, memory",
+            c
+        ));
+    }
+    Ok(())
+}
 
 pub async fn set(
     store: &Option<String>,
@@ -12,9 +29,7 @@ pub async fn set(
     let mut changed = false;
 
     if let Some(s) = store {
-        if s != "local" && s != "innerdb" && s != "sqlite" && s != "mysql" && s != "postgres" && s != "mssql" && s != "redis" {
-            return Err(anyhow::anyhow!("Unsupported store type: {}. Supported: local, innerdb, sqlite, mysql, postgres, mssql, redis", s));
-        }
+        validate_store_type(s)?;
         let _ = ipc.set_global_config("storage.store", s).await;
         changed = true;
     }
@@ -25,9 +40,7 @@ pub async fn set(
     }
 
     if let Some(c) = cache {
-        if c != "none" && c != "redis" && c != "memory" {
-            return Err(anyhow::anyhow!("Unsupported cache type: {}. Supported: none, redis, memory", c));
-        }
+        validate_cache_type(c)?;
         let _ = ipc.set_global_config("storage.cache", c).await;
         changed = true;
     }
@@ -51,8 +64,14 @@ pub async fn status() -> Result<()> {
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     let storage: cowen_common::config::StorageConfig = match ipc.store_status().await {
-        Ok(cowen_common::grpc::client::DaemonResponse::StoreStatusData { json }) => serde_json::from_str(&json).unwrap_or_default(),
-        _ => return Err(anyhow::anyhow!("Failed to retrieve storage status from daemon")),
+        Ok(cowen_common::grpc::client::DaemonResponse::StoreStatusData { json }) => {
+            serde_json::from_str(&json).unwrap_or_default()
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Failed to retrieve storage status from daemon"
+            ))
+        }
     };
 
     println!("\n{}", "Storage Configuration Status".bold().underline());
@@ -65,15 +84,14 @@ pub async fn status() -> Result<()> {
         println!("  URL:   {}", url);
     }
     println!();
-    
+
     println!("ℹ️ Storage connectivity is verified by daemon at runtime.");
 
     Ok(())
 }
 
-pub async fn migrate(
-    _to: &str,
-    _mode: String,
-) -> Result<()> {
-    Err(anyhow::anyhow!("Migration via CLI is deprecated. Please use daemon IPC or offline tools."))
+pub async fn migrate(_to: &str, _mode: String) -> Result<()> {
+    Err(anyhow::anyhow!(
+        "Migration via CLI is deprecated. Please use daemon IPC or offline tools."
+    ))
 }

@@ -33,8 +33,12 @@ impl HostCapabilityProvider for NativeConfigProvider {
 
                 let caps_inner = caps.clone();
                 let result = tokio::task::block_in_place(move || {
-                    tokio::runtime::Handle::current()
-                        .block_on(async { caps_inner.native_config.get_app_ticket(None, &app_key).await })
+                    tokio::runtime::Handle::current().block_on(async {
+                        caps_inner
+                            .native_config
+                            .get_app_ticket(None, &app_key)
+                            .await
+                    })
                 });
 
                 let out_str = match result {
@@ -59,9 +63,14 @@ impl HostCapabilityProvider for NativeConfigProvider {
                 let caps_inner = caps_for_secret.clone();
                 let profile_inner = profile.clone();
                 let secret = tokio::task::block_in_place(move || {
-                    tokio::runtime::Handle::current()
-                        .block_on(async { caps_inner.native_config.get_app_secret(None, &profile_inner).await })
-                }).unwrap_or_default();
+                    tokio::runtime::Handle::current().block_on(async {
+                        caps_inner
+                            .native_config
+                            .get_app_secret(None, &profile_inner)
+                            .await
+                    })
+                })
+                .unwrap_or_default();
 
                 let mem = plugin.memory_new(secret.as_bytes())?;
                 outputs[0] = extism::Val::I64(mem.offset() as i64);

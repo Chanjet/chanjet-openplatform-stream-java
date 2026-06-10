@@ -1,4 +1,4 @@
-use crate::unix::{UnixProcessManager, UnixIpcBinder};
+use crate::unix::{UnixIpcBinder, UnixProcessManager};
 use cowen_infra::sys::SysFingerprint;
 
 pub type MacProcessManager = UnixProcessManager;
@@ -32,7 +32,7 @@ impl SysFingerprint for MacFingerprint {
                 }
             }
         }
-        
+
         // Fallback to basic fingerprint if ioreg fails or doesn't have UUID
         cowen_infra::sys::derive_fallback_fingerprint("macos")
     }
@@ -51,7 +51,11 @@ fn get_macos_plist_path(bin_name: &str) -> anyhow::Result<std::path::PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
         .home_dir()
         .to_path_buf();
-    Ok(home.join("Library").join("LaunchAgents").join(format!("{}.{}.daemon.plist", cowen_infra::sys::SERVICE_PREFIX, bin_name)))
+    Ok(home.join("Library").join("LaunchAgents").join(format!(
+        "{}.{}.daemon.plist",
+        cowen_infra::sys::SERVICE_PREFIX,
+        bin_name
+    )))
 }
 
 #[async_trait::async_trait]
@@ -60,7 +64,8 @@ impl cowen_infra::sys::ServiceManager for MacServiceManager {
         let plist_path = get_macos_plist_path(bin_name)?;
         std::fs::create_dir_all(log_dir)?;
 
-        let plist_content = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+        let plist_content = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -80,11 +85,12 @@ impl cowen_infra::sys::ServiceManager for MacServiceManager {
     <key>StandardErrorPath</key>
     <string>{log_path}/service.error.log</string>
 </dict>
-</plist>"#, 
-        prefix = cowen_infra::sys::SERVICE_PREFIX,
-        bin_name = bin_name,
-        bin_path = bin_path,
-        log_path = log_dir);
+</plist>"#,
+            prefix = cowen_infra::sys::SERVICE_PREFIX,
+            bin_name = bin_name,
+            bin_path = bin_path,
+            log_path = log_dir
+        );
 
         if let Some(parent) = plist_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -108,7 +114,10 @@ impl cowen_infra::sys::ServiceManager for MacServiceManager {
             println!("📍 Config: {:?}", plist_path);
             Ok(())
         } else {
-            anyhow::bail!("Failed to load LaunchAgent via launchctl. Plist created at {:?}", plist_path)
+            anyhow::bail!(
+                "Failed to load LaunchAgent via launchctl. Plist created at {:?}",
+                plist_path
+            )
         }
     }
 
@@ -141,7 +150,12 @@ impl cowen_infra::sys::ServiceManager for MacServiceManager {
             _ => cowen_infra::sys::STATUS_NOT_REGISTERED,
         };
 
-        Ok(cowen_infra::sys::format_service_status("macOS", &label, plist_path.exists(), status_str))
+        Ok(cowen_infra::sys::format_service_status(
+            "macOS",
+            &label,
+            plist_path.exists(),
+            status_str,
+        ))
     }
 }
 

@@ -1,6 +1,7 @@
 #[macro_use]
 pub mod macros;
 
+pub mod api_registry;
 pub mod native_audit;
 pub mod native_auth;
 pub mod native_config;
@@ -8,7 +9,6 @@ pub mod native_dlq;
 pub mod native_system;
 pub mod native_worker;
 pub mod public_system;
-pub mod api_registry;
 
 pub use cowen_capabilities::rbac;
 

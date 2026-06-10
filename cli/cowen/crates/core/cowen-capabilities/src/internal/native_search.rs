@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[tonic::async_trait]
@@ -13,7 +13,8 @@ pub trait NativeSearchCapability: Send + Sync {
 }
 
 pub struct DefaultSearch {
-    search_cache: Arc<RwLock<HashMap<String, (u64, u64, Arc<cowen_search::loader::FallbackProvider>)>>>,
+    search_cache:
+        Arc<RwLock<HashMap<String, (u64, u64, Arc<cowen_search::loader::FallbackProvider>)>>>,
 }
 
 impl DefaultSearch {
@@ -66,7 +67,9 @@ impl NativeSearchCapability for DefaultSearch {
         let provider = if let Some(p) = provider {
             p
         } else {
-            let p = Arc::new(cowen_search::loader::SearchProviderFactory::create("default_tenant"));
+            let p = Arc::new(cowen_search::loader::SearchProviderFactory::create(
+                "default_tenant",
+            ));
 
             use cowen_search::SearchProvider;
             p.update_index(&docs);
@@ -81,7 +84,10 @@ impl NativeSearchCapability for DefaultSearch {
 
         let mut new_ops = Vec::new();
         for (_score, doc) in results {
-            if let Some(op) = ops.iter().find(|o| o["id"].as_str().unwrap_or("") == doc.id) {
+            if let Some(op) = ops
+                .iter()
+                .find(|o| o["id"].as_str().unwrap_or("") == doc.id)
+            {
                 let mut new_op = op.clone();
                 if let Some(obj) = new_op.as_object_mut() {
                     // Inject the score (rounded to 4 decimal places for readability)
@@ -104,8 +110,8 @@ impl NativeSearchCapability for DefaultSearch {
 
 impl DefaultSearch {
     fn hash_docs(docs: &[cowen_search::SearchDocument]) -> u64 {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         for d in docs {
             d.id.hash(&mut hasher);
@@ -125,8 +131,8 @@ impl DefaultSearch {
                 }
             }
         }
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         plugins.hash(&mut hasher);
         hasher.finish()

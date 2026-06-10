@@ -1,7 +1,5 @@
-
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
-
 
 /// A vectorized API document
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -24,22 +22,29 @@ impl SearchIndex {
     }
 
     /// Hybrid search: Vector similarity + N-Gram boost for Chinese
-    pub fn search(&self, query_vec: &[f32], query_text: &str, top: usize) -> Vec<(f32, &SearchDocument)> {
+    pub fn search(
+        &self,
+        query_vec: &[f32],
+        query_text: &str,
+        top: usize,
+    ) -> Vec<(f32, &SearchDocument)> {
         let query_lower = query_text.to_lowercase();
         let query_runes: Vec<char> = query_lower.chars().collect();
-        
+
         // Generate N-Grams (2, 3, 4 chars) for boosting
         let mut n_grams = Vec::new();
         for window_size in 2..=4 {
             if query_runes.len() >= window_size {
                 for i in 0..=(query_runes.len() - window_size) {
-                    let gram: String = query_runes[i..i+window_size].iter().collect();
+                    let gram: String = query_runes[i..i + window_size].iter().collect();
                     n_grams.push(gram);
                 }
             }
         }
 
-        let mut results: Vec<(f32, &SearchDocument)> = self.docs.iter()
+        let mut results: Vec<(f32, &SearchDocument)> = self
+            .docs
+            .iter()
             .map(|doc| {
                 // 1. Vector cosine similarity
                 let mut similarity = 0.0;
@@ -76,9 +81,20 @@ impl SearchIndex {
         let data_path = models_dir.join("model_quantized.onnx_data");
         let tokenizer_path = models_dir.join("tokenizer.json");
 
-        Self::ensure_asset(&model_path, include_bytes!("../../../../../../../../assets/search/models/model_quantized.onnx"))?;
-        Self::ensure_asset(&data_path, include_bytes!("../../../../../../../../assets/search/models/model_quantized.onnx_data"))?;
-        Self::ensure_asset(&tokenizer_path, include_bytes!("../../../../../../../../assets/search/models/tokenizer.json"))?;
+        Self::ensure_asset(
+            &model_path,
+            include_bytes!("../../../../../../../../assets/search/models/model_quantized.onnx"),
+        )?;
+        Self::ensure_asset(
+            &data_path,
+            include_bytes!(
+                "../../../../../../../../assets/search/models/model_quantized.onnx_data"
+            ),
+        )?;
+        Self::ensure_asset(
+            &tokenizer_path,
+            include_bytes!("../../../../../../../../assets/search/models/tokenizer.json"),
+        )?;
 
         Ok(())
     }
@@ -96,7 +112,7 @@ impl SearchIndex {
         let tokenizer_path = models_dir.join("tokenizer.json");
         (
             model_path.to_string_lossy().to_string(),
-            tokenizer_path.to_string_lossy().to_string()
+            tokenizer_path.to_string_lossy().to_string(),
         )
     }
 }

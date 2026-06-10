@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use directories;
+use std::path::PathBuf;
 
 pub fn get_app_dir() -> PathBuf {
     if let Ok(path) = std::env::var("COWEN_HOME") {

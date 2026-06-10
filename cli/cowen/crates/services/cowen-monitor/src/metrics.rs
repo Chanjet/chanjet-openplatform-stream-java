@@ -4,11 +4,11 @@ macro_rules! counter {
         let opts = prometheus::Opts::new($name, $help);
         let counter = prometheus::Counter::with_opts(opts).unwrap();
         if let Err(e) = prometheus::register(Box::new(counter.clone())) {
-             if let prometheus::Error::AlreadyReg = e {
-                 // Ignore: Already registered
-             } else {
-                 panic!("Failed to register counter: {}", e);
-             }
+            if let prometheus::Error::AlreadyReg = e {
+                // Ignore: Already registered
+            } else {
+                panic!("Failed to register counter: {}", e);
+            }
         }
         counter
     }};
@@ -20,11 +20,11 @@ macro_rules! gauge {
         let opts = prometheus::Opts::new($name, $help);
         let gauge = prometheus::Gauge::with_opts(opts).unwrap();
         if let Err(e) = prometheus::register(Box::new(gauge.clone())) {
-             if let prometheus::Error::AlreadyReg = e {
-                 // Ignore: Already registered
-             } else {
-                 panic!("Failed to register gauge: {}", e);
-             }
+            if let prometheus::Error::AlreadyReg = e {
+                // Ignore: Already registered
+            } else {
+                panic!("Failed to register gauge: {}", e);
+            }
         }
         gauge
     }};

@@ -1,10 +1,9 @@
-
-use std::sync::Arc;
-use extism::Function;
 use cowen_common::config::Config;
+use extism::Function;
+use std::sync::Arc;
 
-pub mod native_config;
 pub mod native_auth;
+pub mod native_config;
 
 pub struct CapabilityContext {
     pub profile: String,
@@ -15,7 +14,7 @@ pub struct CapabilityContext {
 pub trait HostCapabilityProvider: Send + Sync {
     /// Domain, e.g., "sys.vault" or "sys.http"
     fn domain(&self) -> &'static str;
-    
+
     /// The versions of the capability contract this provider supports generating Host Functions for
     fn supported_versions(&self) -> Vec<&'static str> {
         vec!["1.0.0"] // default to 1.0.0
@@ -32,15 +31,20 @@ pub trait HostCapabilityProvider: Send + Sync {
                 }
             }
         }
-        anyhow::bail!("Unsupported {} version: {}. Supported versions: {:?}", self.domain(), req_version, self.supported_versions());
+        anyhow::bail!(
+            "Unsupported {} version: {}. Supported versions: {:?}",
+            self.domain(),
+            req_version,
+            self.supported_versions()
+        );
     }
-    
+
     /// Create Extism host functions for the given version and specific permissions
     fn create_functions(
-        &self, 
-        version: &str, 
-        permissions: &[String], 
-        context: &CapabilityContext
+        &self,
+        version: &str,
+        permissions: &[String],
+        context: &CapabilityContext,
     ) -> anyhow::Result<Vec<Function>>;
 }
 
@@ -54,7 +58,7 @@ pub fn registry_supported_versions() -> std::collections::HashMap<&'static str, 
     for p in providers {
         map.insert(p.domain(), p.supported_versions());
     }
-    
+
     // The Wasm facade must align with the gRPC facade to pass the FacadeManifest check.
     // Since Wasm currently doesn't implement these directly as Extism host functions,
     // we declare their versions here to maintain contract alignment.
@@ -62,7 +66,7 @@ pub fn registry_supported_versions() -> std::collections::HashMap<&'static str, 
     map.insert("native.system", vec!["1.0.0"]);
     map.insert("native.dlq", vec!["1.0.0"]);
     map.insert("native.search", vec!["1.0.0"]);
-    
+
     map
 }
 
@@ -138,7 +142,15 @@ impl<'a> WasmHostFunctionBuilder<'a> {
     ) where
         I: IntoIterator<Item = extism::ValType>,
         O: IntoIterator<Item = extism::ValType>,
-        F: Fn(&mut extism::CurrentPlugin, &[extism::Val], &mut [extism::Val], extism::UserData<()>) -> Result<(), extism::Error> + Send + Sync + 'static,
+        F: Fn(
+                &mut extism::CurrentPlugin,
+                &[extism::Val],
+                &mut [extism::Val],
+                extism::UserData<()>,
+            ) -> Result<(), extism::Error>
+            + Send
+            + Sync
+            + 'static,
     {
         // For sys.base, we skip permission checks (or we could define it properly)
         // Actually, if we pass "" as action, has_policy_permission will allow it if empty policy

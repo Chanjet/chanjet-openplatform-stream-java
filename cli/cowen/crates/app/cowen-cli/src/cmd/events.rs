@@ -5,7 +5,7 @@ pub struct EventsArgs {
     /// 按 Profile 过滤事件
     #[arg(short, long)]
     pub profile: Option<String>,
-    
+
     /// 显示的事件条数限制
     #[arg(short = 'n', long, default_value = "20")]
     pub limit: i64,

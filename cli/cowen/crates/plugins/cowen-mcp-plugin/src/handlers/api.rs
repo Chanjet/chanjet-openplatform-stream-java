@@ -1,5 +1,5 @@
 use crate::client::{get_grpc_client, inject_auth, proto};
-use crate::protocol::{AppState, generate_tool_name};
+use crate::protocol::{generate_tool_name, AppState};
 use crate::schema::build_schema_from_openapi;
 use serde_json::json;
 
@@ -18,9 +18,11 @@ pub async fn fetch_apis(
         refresh: false,
     };
 
-    let resp = client.api_list(inject_auth(grpc_req)).await
+    let resp = client
+        .api_list(inject_auth(grpc_req))
+        .await
         .map_err(|e| crate::client::handle_grpc_status(e))?;
-    
+
     let inner = resp.into_inner();
     if let Some(err) = inner.error_message {
         return Err(format!("Error: {}", err));
@@ -39,10 +41,7 @@ pub async fn handle_api_list(
         .and_then(|s| s.as_str())
         .map(|s| s.to_string());
     let page = args.get("page").and_then(|v| v.as_i64()).unwrap_or(1) as u32;
-    let page_size = args
-        .get("page_size")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(20) as u32;
+    let page_size = args.get("page_size").and_then(|v| v.as_i64()).unwrap_or(20) as u32;
 
     match fetch_apis(app_state, search, page, page_size).await {
         Ok((total, apis)) => {
@@ -52,7 +51,10 @@ pub async fn handle_api_list(
                 let method = api.get("method").and_then(|v| v.as_str()).unwrap_or("");
                 let path = api.get("path").and_then(|v| v.as_str()).unwrap_or("");
                 let summary = api.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-                let description = api.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let description = api
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 let score = api.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let tool_name = generate_tool_name(method, path);
 
@@ -102,7 +104,11 @@ pub async fn handle_enable_api(
     }
 
     if !api_found {
-        return (format!("API for tool_name '{}' not found", target_tool_name), true, None);
+        return (
+            format!("API for tool_name '{}' not found", target_tool_name),
+            true,
+            None,
+        );
     }
 
     let mut client = match get_grpc_client().await {
@@ -198,12 +204,8 @@ pub async fn handle_enable_api(
         target_tool_name,
         serde_json::to_string_pretty(&tool_json).unwrap_or_default()
     );
-    
-    (
-        msg.clone(),
-        false,
-        Some(tool_json),
-    )
+
+    (msg.clone(), false, Some(tool_json))
 }
 
 pub async fn handle_disable_api(

@@ -26,62 +26,95 @@ pub(crate) async fn get_token(
         _ => {
             // 🚀 OCP: Fallback to AppAccessToken if no arbitration headers are provided.
             // This allows CLI commands to "see" the app-level token for status checks.
-            match pool.get_app_access_token(&cfg.app_key).await {
-                Ok(t) if !t.is_expired() => Ok(t),
-                _ => {
-                    // Slow path via Vault
-                    match pool.as_vault().get_app_access_token(&cfg.app_key).await {
-                        Ok(t) if !t.is_expired() => {
+            get_app_access_token_fallback(pool, http_sender, profile, cfg).await
+        }
+    }
+}
+
+async fn get_app_access_token_fallback(
+    pool: &(dyn TokenPool + Send + Sync),
+    http_sender: &dyn HttpSender,
+    profile: &str,
+    cfg: &Config,
+) -> CowenResult<cowen_common::models::Token> {
+    match pool.get_app_access_token(&cfg.app_key).await {
+        Ok(t) if !t.is_expired() => Ok(t),
+        _ => {
+            match pool.as_vault().get_app_access_token(&cfg.app_key).await {
+                Ok(t) if !t.is_expired() => {
+                    pool.set_app_access_token(&cfg.app_key, &t).await?;
+                    Ok(t)
+                }
+                _ => handle_concurrent_app_token_fetch(pool, http_sender, profile, cfg).await,
+            }
+        }
+    }
+}
+
+async fn handle_concurrent_app_token_fetch(
+    pool: &(dyn TokenPool + Send + Sync),
+    http_sender: &dyn HttpSender,
+    profile: &str,
+    cfg: &Config,
+) -> CowenResult<cowen_common::models::Token> {
+    let store = pool.as_vault().primary_store();
+    let lock_key = format!("lock:app_access:{}", cfg.app_key);
+    let now = chrono::Utc::now().timestamp();
+
+    if let Ok(expire_val) = store.get_token(profile, &lock_key).await {
+        if let Ok(expire_ts) = expire_val.parse::<i64>() {
+            if now < expire_ts {
+                tracing::info!(target: "sys", profile = %profile, app_key = %cfg.app_key, "AppAccessToken fetch is locked by a concurrent task. Waiting...");
+                for _ in 0..15 {
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                    if let Ok(t) = pool.as_vault().get_app_access_token(&cfg.app_key).await {
+                        if !t.is_expired() {
                             pool.set_app_access_token(&cfg.app_key, &t).await?;
-                            Ok(t)
-                        }
-                        _ => {
-                            // 🚀 Distributed Lock to prevent Concurrent Cache Drift
-                            let store = pool.as_vault().primary_store();
-                            let lock_key = format!("lock:app_access:{}", cfg.app_key);
-                            let now = chrono::Utc::now().timestamp();
-                            
-                            if let Ok(expire_val) = store.get_token(profile, &lock_key).await {
-                                if let Ok(expire_ts) = expire_val.parse::<i64>() {
-                                    if now < expire_ts {
-                                        tracing::info!(target: "sys", profile = %profile, app_key = %cfg.app_key, "AppAccessToken fetch is locked by a concurrent task. Waiting...");
-                                        // Wait for the lock to be released or for the token to appear in Vault
-                                        for _ in 0..15 {
-                                            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                                            if let Ok(t) = pool.as_vault().get_app_access_token(&cfg.app_key).await {
-                                                if !t.is_expired() {
-                                                    pool.set_app_access_token(&cfg.app_key, &t).await?;
-                                                    return Ok(t);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Acquire distributed lock for 10 seconds
-                            let new_expire_ts = now + 10;
-                            let _ = store.set_token(profile, &lock_key, &new_expire_ts.to_string(), 10).await;
-
-                            // 🚀 Slow path recovery: Proactively exchange the AppAccessToken using the appTicket in the Vault.
-                            match client::get_app_access_token(pool, http_sender, profile, cfg).await {
-                                Ok(t) => {
-                                    pool.set_app_access_token(&cfg.app_key, &t).await?;
-                                    let _ = store.delete_token(profile, &lock_key).await;
-                                    Ok(t)
-                                }
-                                Err(err) => {
-                                    let _ = store.delete_token(profile, &lock_key).await;
-                                    tracing::error!(target: "sys", error = %err, "Proactive AppAccessToken exchange failed");
-                                    Err(CowenError::Auth("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).".to_string()))
-                                }
-                            }
+                            return Ok(t);
                         }
                     }
                 }
             }
         }
     }
+
+    let new_expire_ts = now + 10;
+    let _ = store
+        .set_token(profile, &lock_key, &new_expire_ts.to_string(), 10)
+        .await;
+
+    match client::get_app_access_token(pool, http_sender, profile, cfg).await {
+        Ok(t) => {
+            pool.set_app_access_token(&cfg.app_key, &t).await?;
+            let _ = store.delete_token(profile, &lock_key).await;
+            Ok(t)
+        }
+        Err(err) => {
+            let _ = store.delete_token(profile, &lock_key).await;
+            tracing::error!(target: "sys", error = %err, "Proactive AppAccessToken exchange failed");
+            Err(CowenError::Auth("401 Unauthorized: Missing mandatory multi-tenant arbitration headers (x-org-id is required).".to_string()))
+        }
+    }
+}
+
+async fn check_token_cache(
+    pool: &(dyn TokenPool + Send + Sync),
+    custom_profile: &str,
+) -> CowenResult<Option<cowen_common::models::Token>> {
+    if let Ok(token) = pool.get_access_token(custom_profile).await {
+        if !token.is_expired() {
+            return Ok(Some(token));
+        }
+    }
+
+    if let Ok(token) = pool.as_vault().get_access_token(custom_profile).await {
+        if !token.is_expired() {
+            pool.set_access_token(custom_profile, &token).await?;
+            return Ok(Some(token));
+        }
+    }
+    
+    Ok(None)
 }
 
 pub(crate) async fn get_user_token(
@@ -95,21 +128,9 @@ pub(crate) async fn get_user_token(
     let uid = user_id.trim();
     let app_key = cfg.app_key.trim();
 
-    // 1. Check local cache (memory/fast vault)
     let custom_profile = storage::get_custom_profile(profile, app_key, org_id, Some(uid));
-    if let Ok(token) = pool.get_access_token(&custom_profile).await {
-        if !token.is_expired() {
-            return Ok(token);
-        }
-    }
-
-    // 2. Slow path via Vault
-    let custom_profile = storage::get_custom_profile(profile, app_key, org_id, Some(uid));
-    if let Ok(token) = pool.as_vault().get_access_token(&custom_profile).await {
-        if !token.is_expired() {
-            pool.set_access_token(&custom_profile, &token).await?;
-            return Ok(token);
-        }
+    if let Ok(Some(token)) = check_token_cache(pool, &custom_profile).await {
+        return Ok(token);
     }
 
     // 🚀 Fallback to User Permanent Auth Code ("Fire Seed")
@@ -142,21 +163,9 @@ pub(crate) async fn get_org_token(
     let app_key = cfg.app_key.trim();
     let org_id = org_id.trim();
 
-    // 1. Check local cache
     let custom_profile = storage::get_custom_profile(profile, app_key, org_id, None);
-    if let Ok(token) = pool.get_access_token(&custom_profile).await {
-        if !token.is_expired() {
-            return Ok(token);
-        }
-    }
-
-    // 2. Slow path via Vault
-    let custom_profile = storage::get_custom_profile(profile, app_key, org_id, None);
-    if let Ok(token) = pool.as_vault().get_access_token(&custom_profile).await {
-        if !token.is_expired() {
-            pool.set_access_token(&custom_profile, &token).await?;
-            return Ok(token);
-        }
+    if let Ok(Some(token)) = check_token_cache(pool, &custom_profile).await {
+        return Ok(token);
     }
 
     // 4. Permanent code recovery

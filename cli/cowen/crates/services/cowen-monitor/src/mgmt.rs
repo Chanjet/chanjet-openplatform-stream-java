@@ -1,14 +1,14 @@
 use axum::{
-    extract::{State, Query},
-    Json,
-    response::IntoResponse,
+    extract::{Query, State},
     http::StatusCode,
+    response::IntoResponse,
+    Json,
 };
+use cowen_common::daemon::DaemonService;
+use cowen_common::status::{AuthProgressInfo, AuthStatus, FinalizeRequest, ProgressQuery};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use std::collections::HashMap;
-use cowen_common::daemon::DaemonService;
-use cowen_common::status::{AuthStatus, AuthProgressInfo, FinalizeRequest, ProgressQuery};
 
 pub struct AuthManager {
     progress: Mutex<HashMap<String, AuthProgressInfo>>,
@@ -27,15 +27,25 @@ impl AuthManager {
         }
     }
 
-    pub async fn update_progress(&self, profile: &str, status: AuthStatus, message: &str, percent: u32, error: Option<String>) {
+    pub async fn update_progress(
+        &self,
+        profile: &str,
+        status: AuthStatus,
+        message: &str,
+        percent: u32,
+        error: Option<String>,
+    ) {
         let mut progress = self.progress.lock().await;
-        progress.insert(profile.to_string(), AuthProgressInfo {
-            profile: profile.to_string(),
-            status,
-            message: message.to_string(),
-            percent,
-            error,
-        });
+        progress.insert(
+            profile.to_string(),
+            AuthProgressInfo {
+                profile: profile.to_string(),
+                status,
+                message: message.to_string(),
+                percent,
+                error,
+            },
+        );
     }
 
     pub async fn get_progress(&self, profile: &str) -> Option<AuthProgressInfo> {
@@ -51,19 +61,59 @@ pub async fn finalize_auth_handler(
     let profile = payload.profile.clone();
     let auth_mgr_clone = auth_mgr.clone();
     let daemon_svc_clone = daemon_svc.clone();
-    
+
     // Initial status
-    auth_mgr.update_progress(&profile, AuthStatus::Starting, "Received authorization code", 10, None).await;
-    
+    auth_mgr
+        .update_progress(
+            &profile,
+            AuthStatus::Starting,
+            "Received authorization code",
+            10,
+            None,
+        )
+        .await;
+
     tokio::spawn(async move {
-        auth_mgr_clone.update_progress(&profile, AuthStatus::Exchanging, "Exchanging token via daemon...", 30, None).await;
-        
-        match daemon_svc_clone.finalize_auth(&payload.profile, &payload.code, payload.state.as_deref(), &payload.session_id).await {
+        auth_mgr_clone
+            .update_progress(
+                &profile,
+                AuthStatus::Exchanging,
+                "Exchanging token via daemon...",
+                30,
+                None,
+            )
+            .await;
+
+        match daemon_svc_clone
+            .finalize_auth(
+                &payload.profile,
+                &payload.code,
+                payload.state.as_deref(),
+                &payload.session_id,
+            )
+            .await
+        {
             Ok(_) => {
-                auth_mgr_clone.update_progress(&profile, AuthStatus::Completed, "Authorization successful", 100, None).await;
+                auth_mgr_clone
+                    .update_progress(
+                        &profile,
+                        AuthStatus::Completed,
+                        "Authorization successful",
+                        100,
+                        None,
+                    )
+                    .await;
             }
             Err(e) => {
-                auth_mgr_clone.update_progress(&profile, AuthStatus::Failed, &format!("Authorization failed: {}", e), 0, Some(e.to_string())).await;
+                auth_mgr_clone
+                    .update_progress(
+                        &profile,
+                        AuthStatus::Failed,
+                        &format!("Authorization failed: {}", e),
+                        0,
+                        Some(e.to_string()),
+                    )
+                    .await;
             }
         }
     });

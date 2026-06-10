@@ -1,9 +1,9 @@
-use async_trait::async_trait;
 use anyhow::Result;
-use std::sync::Arc;
+use async_trait::async_trait;
 use cowen_common::config::Config;
 use cowen_common::vault::Vault;
 use cowen_config::ConfigManager;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct DoctorContext {

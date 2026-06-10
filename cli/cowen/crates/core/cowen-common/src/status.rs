@@ -1,12 +1,12 @@
-use crate::CowenResult;
-use serde::{Serialize, Deserialize};
-use std::sync::Arc;
-use crate::vault::Vault;
 use crate::config::Config;
-use sysinfo::System;
-use std::path::PathBuf;
+use crate::vault::Vault;
+use crate::CowenResult;
 use cowen_infra::path::get_app_dir;
-use cowen_infra::process::{get_bin_name, check_port_occupancy, extract_profile_from_cmdline};
+use cowen_infra::process::{check_port_occupancy, extract_profile_from_cmdline, get_bin_name};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::sync::Arc;
+use sysinfo::System;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum StatusLevel {
@@ -66,11 +66,11 @@ pub enum CommonTemplate {
     Configuration,
     Storage,
     Cache,
-    Daemon(String),        // display_name
+    Daemon(String), // display_name
     ProactiveRefresh,
     BridgeConnection,
     ProviderSummary(String, String), // dynamic_name, dynamic_icon
-    Custom(String, String), // name, icon
+    Custom(String, String),          // name, icon
 }
 
 impl AsStatusUI for CommonTemplate {
@@ -118,10 +118,11 @@ pub struct DaemonInfo {
 
 pub fn get_active_daemon_info(profile: &str) -> Option<DaemonInfo> {
     let app_dir = get_daemon_app_dir();
-    
+
     // Check for unified master daemon first
     let master_pid_file = app_dir.join("master_daemon.pid");
-    println!("Checking pid file: {:?}", master_pid_file); if master_pid_file.exists() {
+    println!("Checking pid file: {:?}", master_pid_file);
+    if master_pid_file.exists() {
         if let Some(info) = read_daemon_info(&master_pid_file) {
             return Some(info);
         }
@@ -140,13 +141,15 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
     if let Ok(pid_content) = std::fs::read_to_string(pid_file) {
         let mut lines = pid_content.lines();
         if let Some(pid_str) = lines.next() {
-            if let Ok(pid_val) = pid_str.trim().parse::<u32>() { println!("Parsed PID: {}", pid_val);
+            if let Ok(pid_val) = pid_str.trim().parse::<u32>() {
+                println!("Parsed PID: {}", pid_val);
                 // Secondary check: verify the process actually exists and looks like us.
                 let mut s = System::new();
                 let sys_pid = sysinfo::Pid::from_u32(pid_val);
                 s.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
 
-                if let Some(process) = s.process(sys_pid) { println!("Process: {}", process.name().to_string_lossy());
+                if let Some(process) = s.process(sys_pid) {
+                    println!("Process: {}", process.name().to_string_lossy());
                     let name = process.name().to_string_lossy();
                     let is_target = crate::utils::is_cowen_process_name(&name, None);
                     if is_target {
@@ -158,7 +161,7 @@ fn read_daemon_info(pid_file: &std::path::Path) -> Option<DaemonInfo> {
                             start_time: None,
                             last_error: None,
                         };
-                        
+
                         for line in lines {
                             if let Some(bid) = line.strip_prefix("BUILD_ID=") {
                                 info.build_id = Some(bid.trim().to_string());
@@ -190,7 +193,8 @@ pub async fn is_port_responsive(port: u16) -> bool {
         tokio::time::timeout(
             std::time::Duration::from_secs(1),
             tokio::net::TcpStream::connect(addr)
-        ).await,
+        )
+        .await,
         Ok(Ok(_))
     )
 }
@@ -202,47 +206,117 @@ fn evaluate_daemon_running_state(
 ) -> (StatusLevel, String, Vec<StatusEntry>, Option<String>) {
     if let Some(info) = daemon_info {
         (
-            StatusLevel::OK, 
+            StatusLevel::OK,
             format!("[RUNNING] (PID: {})", info.pid),
-            vec![
-                StatusEntry::new(
-                    CommonTemplate::ProactiveRefresh,
-                    StatusLevel::OK,
-                    "主动续约: [ACTIVE] 令牌环境将保持热启动状态".to_string()
-                )
-            ],
-            None
+            vec![StatusEntry::new(
+                CommonTemplate::ProactiveRefresh,
+                StatusLevel::OK,
+                "主动续约: [ACTIVE] 令牌环境将保持热启动状态".to_string(),
+            )],
+            None,
         )
     } else {
         let mut level = StatusLevel::WARN;
         let mut port_conflict = None;
-        
+
         if ctx.config.proxy_enabled {
             let bin_name = get_bin_name();
-            if let Some((other_pid, other_name)) = check_port_occupancy(ctx.config.proxy_port, &bin_name) {
+            if let Some((other_pid, other_name)) =
+                check_port_occupancy(ctx.config.proxy_port, &bin_name)
+            {
                 level = StatusLevel::ERROR;
                 if other_name.to_lowercase().contains(&bin_name.to_lowercase()) {
-                    let other_profile = extract_profile_from_cmdline(other_pid).unwrap_or_else(|| "unknown".to_string());
-                    port_conflict = Some(format!("端口冲突: 代理端口 {} 已被 Profile '{}' (PID: {}) 占用。", ctx.config.proxy_port, other_profile, other_pid));
+                    let other_profile = extract_profile_from_cmdline(other_pid)
+                        .unwrap_or_else(|| "unknown".to_string());
+                    port_conflict = Some(format!(
+                        "端口冲突: 代理端口 {} 已被 Profile '{}' (PID: {}) 占用。",
+                        ctx.config.proxy_port, other_profile, other_pid
+                    ));
                 } else {
-                    port_conflict = Some(format!("端口冲突: 代理端口 {} 已被进程 '{}' (PID: {}) 占用。", ctx.config.proxy_port, other_name, other_pid));
+                    port_conflict = Some(format!(
+                        "端口冲突: 代理端口 {} 已被进程 '{}' (PID: {}) 占用。",
+                        ctx.config.proxy_port, other_name, other_pid
+                    ));
                 }
             }
         }
 
         (
-            level, 
+            level,
             "[OFFLINE] (未检测到活跃后台进程)".to_string(),
-            vec![
-                StatusEntry::new(
-                    CommonTemplate::Custom("Efficiency Tip".to_string(), "💡".to_string()),
-                    StatusLevel::WARN,
-                    efficiency_tip.to_string()
-                )
-            ],
-            port_conflict
+            vec![StatusEntry::new(
+                CommonTemplate::Custom("Efficiency Tip".to_string(), "💡".to_string()),
+                StatusLevel::WARN,
+                efficiency_tip.to_string(),
+            )],
+            port_conflict,
         )
     }
+}
+
+fn parse_connection_state_from_json(json: &serde_json::Value) -> (Option<u64>, String, Option<String>, bool) {
+    let proxy_port = json.get("proxy_port").and_then(|v| v.as_u64());
+    
+    let conn_state = json
+        .get("state")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown")
+        .to_string();
+        
+    let error_val = json
+        .get("error")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let is_fresh = if let Some(ts_str) = json.get("updated_at").and_then(|v| v.as_str()) {
+        if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+            chrono::Utc::now().signed_duration_since(ts).num_seconds() < 60
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    (proxy_port, conn_state, error_val, is_fresh)
+}
+
+fn determine_conn_level(
+    conn_state: &str,
+    is_fresh: bool,
+    supports_webhooks: bool,
+    error_val: &Option<String>
+) -> (StatusLevel, Option<&'static str>, String) {
+    let (mut conn_level, conn_icon_override, mut final_state) =
+        if supports_webhooks && !is_fresh && conn_state == "Connected" {
+            (
+                StatusLevel::ERROR,
+                Some("💤"),
+                format!("{} (Stale)", conn_state),
+            )
+        } else {
+            match conn_state {
+                "Connected" => (StatusLevel::OK, None, conn_state.to_string()),
+                "Connecting" => (StatusLevel::WARN, Some("⏳"), conn_state.to_string()),
+                "Disconnected" => (StatusLevel::WARN, Some("💤"), conn_state.to_string()),
+                "Reconnecting" => (StatusLevel::ERROR, Some("📡"), conn_state.to_string()),
+                "Active" if !supports_webhooks => (StatusLevel::OK, None, conn_state.to_string()),
+                _ => (StatusLevel::WARN, Some("❓"), conn_state.to_string()),
+            }
+        };
+
+    if let Some(ref err) = error_val {
+        if err.contains("404")
+            || err.contains("Nonce")
+            || err.contains("401")
+            || err.contains("403")
+        {
+            conn_level = StatusLevel::ERROR;
+        }
+        final_state = format!("{} (Error: {})", final_state, err);
+    }
+    
+    (conn_level, conn_icon_override, final_state)
 }
 
 fn inject_connection_state(
@@ -255,45 +329,22 @@ fn inject_connection_state(
     let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
     if let Ok(content) = std::fs::read_to_string(status_file) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            if let Some(p) = json.get("proxy_port").and_then(|v| v.as_u64()) {
+            let (proxy_port, conn_state, error_val, is_fresh) = parse_connection_state_from_json(&json);
+            if let Some(p) = proxy_port {
                 captured_proxy_port = Some(p);
             }
-            
-            let conn_state = json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
-            let error_val = json.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
-            
-            let is_fresh = if let Some(ts_str) = json.get("updated_at").and_then(|v| v.as_str()) {
-                if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
-                    chrono::Utc::now().signed_duration_since(ts).num_seconds() < 60
-                } else { false }
-            } else { false };
 
-            let (mut conn_level, conn_icon_override, mut final_state) = if supports_webhooks && !is_fresh && conn_state == "Connected" {
-                (StatusLevel::ERROR, Some("💤"), format!("{} (Stale)", conn_state))
-            } else {
-                match conn_state.as_str() {
-                    "Connected" => (StatusLevel::OK, None, conn_state),
-                    "Connecting" => (StatusLevel::WARN, Some("⏳"), conn_state), 
-                    "Disconnected" => (StatusLevel::WARN, Some("💤"), conn_state),
-                    "Reconnecting" => (StatusLevel::ERROR, Some("📡"), conn_state),
-                    "Active" if !supports_webhooks => (StatusLevel::OK, None, conn_state),
-                    _ => (StatusLevel::WARN, Some("❓"), conn_state),
-                }
-            };
-
-            if let Some(ref err) = error_val {
-                if err.contains("404") || err.contains("Nonce") || err.contains("401") || err.contains("403") {
-                    conn_level = StatusLevel::ERROR;
-                }
-                final_state = format!("{} (Error: {})", final_state, err);
-            }
+            let (conn_level, conn_icon_override, final_state) = determine_conn_level(
+                &conn_state, is_fresh, supports_webhooks, &error_val
+            );
 
             if conn_level as i32 > *level as i32 && conn_level != StatusLevel::WARN {
-                *level = conn_level;
+                *level = conn_level.clone();
             }
 
             if supports_webhooks {
-                let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state);
+                let mut entry =
+                    StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state);
                 if let Some(icon) = conn_icon_override {
                     entry.icon = icon.to_string();
                 }
@@ -327,7 +378,10 @@ fn evaluate_daemon_details_and_version(
     if let Some(p) = captured_proxy_port {
         details.push(format!("Proxy Port:   {}", p));
     } else if ctx.config.proxy_enabled && ctx.config.proxy_port != 0 {
-        details.push(format!("Proxy Port:   {} (configured)", ctx.config.proxy_port));
+        details.push(format!(
+            "Proxy Port:   {} (configured)",
+            ctx.config.proxy_port
+        ));
     }
 
     if let Some(bid) = &info.build_id {
@@ -335,7 +389,7 @@ fn evaluate_daemon_details_and_version(
             outdated = true;
         }
     } else {
-        outdated = true; 
+        outdated = true;
     }
 
     if !outdated
@@ -359,18 +413,21 @@ fn build_final_status_entry(
     outdated: bool,
 ) -> StatusEntry {
     StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
-        .with_reason(if daemon_info.is_none() { 
+        .with_reason(if daemon_info.is_none() {
             if let Some(conflict) = port_conflict {
                 Some(conflict)
             } else {
-                Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string()) 
+                Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string())
             }
         } else if outdated {
-            Some("⚠️ 当前后台进程版本已过时。建议运行 'cowen daemon restart' 以同步最新功能。".to_string())
+            Some(
+                "⚠️ 当前后台进程版本已过时。建议运行 'cowen daemon restart' 以同步最新功能。"
+                    .to_string(),
+            )
         } else if level == StatusLevel::ERROR {
             Some("Daemon 已启动，但当前连接状态异常。".to_string())
-        } else { 
-            None 
+        } else {
+            None
         })
         .with_details(details)
         .with_children(children)
@@ -384,32 +441,35 @@ pub async fn collect_daemon_status(
     daemon_info: Option<DaemonInfo>,
 ) -> CowenResult<StatusEntry> {
     let daemon_info = daemon_info.or_else(|| get_active_daemon_info(&ctx.profile));
-    
-    let (mut level, msg, mut children, port_conflict) = evaluate_daemon_running_state(
-        ctx, efficiency_tip, &daemon_info
-    );
+
+    let (mut level, msg, mut children, port_conflict) =
+        evaluate_daemon_running_state(ctx, efficiency_tip, &daemon_info);
 
     let mut captured_proxy_port = None;
 
     if daemon_info.is_some() {
-        captured_proxy_port = inject_connection_state(
-            ctx, supports_webhooks, &mut level, &mut children
-        );
+        captured_proxy_port =
+            inject_connection_state(ctx, supports_webhooks, &mut level, &mut children);
     }
 
     let mut details = vec![];
     let mut outdated = false;
-    
+
     if let Some(info) = &daemon_info {
-        let (d, o) = evaluate_daemon_details_and_version(
-            ctx, info, captured_proxy_port
-        );
+        let (d, o) = evaluate_daemon_details_and_version(ctx, info, captured_proxy_port);
         details = d;
         outdated = o;
     }
 
     let res = build_final_status_entry(
-        display_name, &daemon_info, level, msg, children, details, port_conflict, outdated
+        display_name,
+        &daemon_info,
+        level,
+        msg,
+        children,
+        details,
+        port_conflict,
+        outdated,
     );
 
     Ok(res)
@@ -464,18 +524,29 @@ impl MonitorClient {
 
     pub async fn reload_worker(&self, profile: &str) -> CowenResult<()> {
         let url = format!("{}/daemon/reload?profile={}", self.base_url, profile);
-        let resp = self.http.post(&url).send().await
-            .map_err(|e| crate::CowenError::api(format!("Failed to connect to monitor: {}", e)))?;
-        
+        let resp =
+            self.http.post(&url).send().await.map_err(|e| {
+                crate::CowenError::api(format!("Failed to connect to monitor: {}", e))
+            })?;
+
         if resp.status().is_success() {
             Ok(())
         } else {
             let err = resp.text().await.unwrap_or_default();
-            Err(crate::CowenError::api(format!("Monitor reload failed: {}", err)))
+            Err(crate::CowenError::api(format!(
+                "Monitor reload failed: {}",
+                err
+            )))
         }
     }
 
-    pub async fn finalize_auth(&self, profile: &str, code: &str, state: Option<&str>, session_id: &str) -> CowenResult<()> {
+    pub async fn finalize_auth(
+        &self,
+        profile: &str,
+        code: &str,
+        state: Option<&str>,
+        session_id: &str,
+    ) -> CowenResult<()> {
         let url = format!("{}/v1/mgmt/auth/finalize", self.base_url);
         let req = FinalizeRequest {
             profile: profile.to_string(),
@@ -484,27 +555,43 @@ impl MonitorClient {
             session_id: session_id.to_string(),
         };
 
-        let resp = self.http.post(&url).json(&req).send().await
-            .map_err(|e| crate::CowenError::api(format!("Failed to connect to monitor for finalization: {}", e)))?;
-        
+        let resp = self.http.post(&url).json(&req).send().await.map_err(|e| {
+            crate::CowenError::api(format!(
+                "Failed to connect to monitor for finalization: {}",
+                e
+            ))
+        })?;
+
         if resp.status().is_success() {
             Ok(())
         } else {
             let err = resp.text().await.unwrap_or_default();
-            Err(crate::CowenError::api(format!("Auth finalization failed: {}", err)))
+            Err(crate::CowenError::api(format!(
+                "Auth finalization failed: {}",
+                err
+            )))
         }
     }
 
     pub async fn get_auth_progress(&self, profile: &str) -> CowenResult<AuthProgressInfo> {
-        let url = format!("{}/v1/mgmt/auth/progress?profile={}", self.base_url, profile);
-        let resp = self.http.get(&url).send().await
-            .map_err(|e| crate::CowenError::api(format!("Failed to connect to monitor for progress: {}", e)))?;
-        
+        let url = format!(
+            "{}/v1/mgmt/auth/progress?profile={}",
+            self.base_url, profile
+        );
+        let resp = self.http.get(&url).send().await.map_err(|e| {
+            crate::CowenError::api(format!("Failed to connect to monitor for progress: {}", e))
+        })?;
+
         if resp.status().is_success() {
-            Ok(resp.json().await.map_err(|e| crate::CowenError::api(format!("Failed to parse progress JSON: {}", e)))?)
+            Ok(resp.json().await.map_err(|e| {
+                crate::CowenError::api(format!("Failed to parse progress JSON: {}", e))
+            })?)
         } else {
             let err = resp.text().await.unwrap_or_default();
-            Err(crate::CowenError::api(format!("Progress query failed: {}", err)))
+            Err(crate::CowenError::api(format!(
+                "Progress query failed: {}",
+                err
+            )))
         }
     }
 }

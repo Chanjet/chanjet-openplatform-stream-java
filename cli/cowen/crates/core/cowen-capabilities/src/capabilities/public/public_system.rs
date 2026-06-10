@@ -29,7 +29,9 @@ pub struct DefaultPublicSystem {
 
 impl DefaultPublicSystem {
     pub fn new(supported_capabilities: HashMap<String, String>) -> Self {
-        Self { supported_capabilities }
+        Self {
+            supported_capabilities,
+        }
     }
 }
 
@@ -40,7 +42,6 @@ impl PublicSystemCapability for DefaultPublicSystem {
         _claims: Option<&cowen_common::jwt::IpcClaims>,
         req: DomainPluginHandshakeRequest,
     ) -> Result<DomainPluginHandshakeResponse, CowenError> {
-        
         let supported = self.supported_capabilities.clone();
 
         let mut missing = vec![];
@@ -54,7 +55,7 @@ impl PublicSystemCapability for DefaultPublicSystem {
                         continue;
                     }
                 };
-                
+
                 let mut matched = false;
                 for sup in supported_vers.split(',') {
                     if let Ok(ver) = semver::Version::parse(sup) {
@@ -64,9 +65,12 @@ impl PublicSystemCapability for DefaultPublicSystem {
                         }
                     }
                 }
-                
+
                 if !matched {
-                    incompatible.push(format!("{} (requested: {}, supported: {})", cap, req_ver, supported_vers));
+                    incompatible.push(format!(
+                        "{} (requested: {}, supported: {})",
+                        cap, req_ver, supported_vers
+                    ));
                 }
             } else {
                 missing.push(cap.clone());
@@ -88,7 +92,7 @@ impl PublicSystemCapability for DefaultPublicSystem {
                 supported_capabilities: supported,
             });
         }
-        
+
         Ok(DomainPluginHandshakeResponse {
             accepted: true,
             server_version: env!("CARGO_PKG_VERSION").to_string(),

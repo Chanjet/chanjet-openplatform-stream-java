@@ -5,13 +5,13 @@ use async_trait::async_trait;
 pub trait ResetTask: Send + Sync {
     /// Name of the reset task module
     fn name(&self) -> &'static str;
-    
+
     /// Description of what will be reset
     fn description(&self) -> &'static str;
-    
+
     /// Dry run: Describe what would be deleted without actually deleting
     async fn dry_run(&self) -> Result<Vec<String>>;
-    
+
     /// Execute the reset logic
     async fn execute(&self) -> Result<()>;
 }

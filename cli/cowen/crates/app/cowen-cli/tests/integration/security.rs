@@ -1,5 +1,5 @@
-use cowen_common::Config;
 use cowen_common::utils::mask_sensitive_json;
+use cowen_common::Config;
 
 #[test]
 fn test_config_debug_masking() {
@@ -10,12 +10,12 @@ fn test_config_debug_masking() {
     cfg.encrypt_key = "val_test_val_4433".to_string();
 
     let debug_str = format!("{:?}", cfg);
-    
+
     // Should NOT contain the plain secrets
     assert!(!debug_str.contains("val_test_val_8877"));
     assert!(!debug_str.contains("val_test_val_6655"));
     assert!(!debug_str.contains("val_test_val_4433"));
-    
+
     // The debug implementation in cowen-common uses finish() which skips secret fields
     // instead of masking them (for maximum safety). Let's verify that behavior.
     assert!(!debug_str.contains("app_secret"));
@@ -34,12 +34,12 @@ fn test_json_masking_comprehensive() {
     }"#;
 
     let masked = mask_sensitive_json(raw_json);
-    
+
     assert!(!masked.contains("mock_at_test_val_8877"));
     assert!(!masked.contains("mock_as_test_val_8877"));
     assert!(!masked.contains("mock_ti_test_val_8877"));
     assert!(!masked.contains("mock_ce_test_val_8877"));
-    
+
     assert!(masked.contains("mock_at_...8877"));
     assert!(masked.contains("mock_as_...8877"));
     assert!(masked.contains("mock_ti_...8877"));

@@ -1,6 +1,6 @@
 use extism_pdk::*;
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[host_fn]
 extern "ExtismHost" {
@@ -21,16 +21,21 @@ pub struct FilterHeadersReq {
 #[derive(Serialize, Deserialize)]
 pub struct Token {
     pub value: String,
-    pub created_at: String, 
+    pub created_at: String,
 }
 
 #[plugin_fn]
-pub fn filter_headers(Json(mut req): Json<FilterHeadersReq>) -> FnResult<Json<HashMap<String, String>>> {
+pub fn filter_headers(
+    Json(mut req): Json<FilterHeadersReq>,
+) -> FnResult<Json<HashMap<String, String>>> {
     // 1. Ask Host what auth headers are required for this path/method according to the OpenAPI Spec
-    let required_keys_json = unsafe { host_get_required_auth_keys(req.path.clone(), req.method.clone()) }.unwrap_or_default();
-    
+    let required_keys_json =
+        unsafe { host_get_required_auth_keys(req.path.clone(), req.method.clone()) }
+            .unwrap_or_default();
+
     let required_keys: Vec<String> = if !required_keys_json.is_empty() {
-        serde_json::from_str(&required_keys_json).unwrap_or_else(|_| vec!["appKey".to_string(), "openToken".to_string()])
+        serde_json::from_str(&required_keys_json)
+            .unwrap_or_else(|_| vec!["appKey".to_string(), "openToken".to_string()])
     } else {
         vec!["appKey".to_string(), "openToken".to_string()]
     };
@@ -56,7 +61,7 @@ pub fn filter_headers(Json(mut req): Json<FilterHeadersReq>) -> FnResult<Json<Ha
         // Send the current incoming headers to the host so it can execute store_app arbitration logic (x-org-id / x-user-id)
         let headers_json = serde_json::to_string(&req.headers).unwrap_or_default();
         let token_json_str = unsafe { host_get_resolved_token(headers_json) }.unwrap_or_default();
-        
+
         let mut open_token = "".to_string();
         if !token_json_str.is_empty() {
             if let Ok(token_val) = serde_json::from_str::<serde_json::Value>(&token_json_str) {
@@ -71,7 +76,7 @@ pub fn filter_headers(Json(mut req): Json<FilterHeadersReq>) -> FnResult<Json<Ha
                 }
             }
         }
-        
+
         if !open_token.is_empty() {
             req.headers.insert("openToken".to_string(), open_token);
         }

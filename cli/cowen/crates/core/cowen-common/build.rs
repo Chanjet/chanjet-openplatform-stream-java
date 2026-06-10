@@ -7,7 +7,7 @@ fn main() {
     // Ensure we rebuild when git HEAD changes to keep BUILD_ID fresh
     println!("cargo:rerun-if-changed=../../../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../../../.git/index");
-    
+
     println!("cargo:rerun-if-env-changed=DEF_OPENAPI_URL");
     println!("cargo:rerun-if-env-changed=DEF_STREAM_URL");
     println!("cargo:rerun-if-env-changed=DEF_MARKET_URL");
@@ -43,10 +43,14 @@ fn main() {
     println!("cargo:rustc-env=GIT_HASH={}", git_hash);
 
     // Provide env vars for config if not present (Option A: Forced env injection)
-    let openapi_url = std::env::var("DEF_OPENAPI_URL").unwrap_or_else(|_| "https://openapi.chanjet.com".to_string());
-    let stream_url = std::env::var("DEF_STREAM_URL").unwrap_or_else(|_| "https://stream-open.chanapp.chanjet.com".to_string());
-    let market_url = std::env::var("DEF_MARKET_URL").unwrap_or_else(|_| "https://market.chanjet.com".to_string());
-    let builtin_client_id = std::env::var("BUILTIN_CLIENT_ID").unwrap_or_else(|_| "<BUILTIN_CLIENT_ID>".to_string());
+    let openapi_url = std::env::var("DEF_OPENAPI_URL")
+        .unwrap_or_else(|_| "https://openapi.chanjet.com".to_string());
+    let stream_url = std::env::var("DEF_STREAM_URL")
+        .unwrap_or_else(|_| "https://stream-open.chanapp.chanjet.com".to_string());
+    let market_url = std::env::var("DEF_MARKET_URL")
+        .unwrap_or_else(|_| "https://market.chanjet.com".to_string());
+    let builtin_client_id =
+        std::env::var("BUILTIN_CLIENT_ID").unwrap_or_else(|_| "<BUILTIN_CLIENT_ID>".to_string());
     println!("cargo:rustc-env=DEF_OPENAPI_URL={}", openapi_url);
     println!("cargo:rustc-env=DEF_STREAM_URL={}", stream_url);
     println!("cargo:rustc-env=DEF_MARKET_URL={}", market_url);
@@ -65,5 +69,6 @@ fn main() {
             &["../../../proto"],
         )
         .expect("Failed to compile native protos");
-    tonic_build::compile_protos("../../../proto/native_api_registry.proto").expect("Failed to compile native_api_registry.proto");
+    tonic_build::compile_protos("../../../proto/native_api_registry.proto")
+        .expect("Failed to compile native_api_registry.proto");
 }

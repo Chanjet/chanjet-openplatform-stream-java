@@ -1,9 +1,9 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-pub mod provider;
 pub mod loader;
-pub use provider::StringMatchProvider;
+pub mod provider;
 pub use loader::SidecarSearchProvider;
+pub use provider::StringMatchProvider;
 
 /// API Document model
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -20,4 +20,3 @@ pub trait SearchProvider: Send + Sync {
     fn update_index(&self, docs: &[SearchDocument]);
     fn name(&self) -> &str;
 }
-

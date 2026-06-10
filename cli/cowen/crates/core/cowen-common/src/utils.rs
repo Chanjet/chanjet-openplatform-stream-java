@@ -1,24 +1,17 @@
 use crate::CowenResult;
 pub use cowen_infra::{
-    get_bin_name, mask_string, mask_sensitive_json, mask_url_query, mask_tail, mask_url, obfs
+    get_bin_name, mask_sensitive_json, mask_string, mask_tail, mask_url, mask_url_query, obfs,
 };
 pub use cowen_sys::set_process_name;
 use serde::Serialize;
 
-
 pub fn render<T: Serialize>(data: &T, format: &str) -> CowenResult<()> {
     let output = match format {
-        "json" => {
-            serde_json::to_string_pretty(data)?
-        }
-        "yaml" => {
-            serde_yaml::to_string(data)?
-        }
-        _ => {
-            serde_json::to_string_pretty(data)?
-        }
+        "json" => serde_json::to_string_pretty(data)?,
+        "yaml" => serde_yaml::to_string(data)?,
+        _ => serde_json::to_string_pretty(data)?,
     };
-    
+
     if std::env::var("COWEN_RAW_OUTPUT").unwrap_or_default() == "true" {
         println!("{}", output);
     } else {
@@ -29,8 +22,14 @@ pub fn render<T: Serialize>(data: &T, format: &str) -> CowenResult<()> {
 
 pub fn print_error_json(err_msg: &str) {
     let mut map = serde_json::Map::new();
-    map.insert("status".to_string(), serde_json::Value::String("failed".to_string()));
-    map.insert("error".to_string(), serde_json::Value::String(err_msg.to_string()));
+    map.insert(
+        "status".to_string(),
+        serde_json::Value::String("failed".to_string()),
+    );
+    map.insert(
+        "error".to_string(),
+        serde_json::Value::String(err_msg.to_string()),
+    );
     if let Ok(json_str) = serde_json::to_string_pretty(&serde_json::Value::Object(map)) {
         println!("{}", json_str);
     }
@@ -39,15 +38,21 @@ pub fn print_error_json(err_msg: &str) {
 pub fn sanitize_credential(s: &str) -> String {
     s.chars()
         .filter(|&c| {
-            c != '\u{200b}' && c != '\u{200c}' && c != '\u{200d}' && c != '\u{feff}' 
-            && !c.is_control()
+            c != '\u{200b}'
+                && c != '\u{200c}'
+                && c != '\u{200d}'
+                && c != '\u{feff}'
+                && !c.is_control()
         })
         .collect::<String>()
         .trim()
         .to_string()
 }
 
-pub fn secure_write<P: std::convert::AsRef<std::path::Path>, C: std::convert::AsRef<[u8]>>(path: P, contents: C) -> std::io::Result<()> {
+pub fn secure_write<P: std::convert::AsRef<std::path::Path>, C: std::convert::AsRef<[u8]>>(
+    path: P,
+    contents: C,
+) -> std::io::Result<()> {
     cowen_sys::fs::secure_write(path, contents)
 }
 
@@ -73,16 +78,31 @@ mod tests {
         assert!(is_cowen_process_name("cowen-daemon.exe", None));
         assert!(is_cowen_process_name("cowen-daemon-something", None));
         assert!(is_cowen_process_name("cowen_daemon_something", None));
-        assert!(is_cowen_process_name("cowen_case_60", Some("cowen_case_60")));
+        assert!(is_cowen_process_name(
+            "cowen_case_60",
+            Some("cowen_case_60")
+        ));
         assert!(!is_cowen_process_name("some-other-app", None));
     }
 
     #[test]
     fn test_mask_url() {
-        assert_eq!(mask_url("redis://:password@localhost:6379"), "redis://:***@localhost:6379");
-        assert_eq!(mask_url("mysql://user:pass@127.0.0.1:3306/db"), "mysql://user:***@127.0.0.1:3306/db");
-        assert_eq!(mask_url("postgres://admin@localhost/mydb"), "postgres://***@localhost/mydb");
-        assert_eq!(mask_url("https://openapi.chanjet.com"), "https://openapi.chanjet.com");
+        assert_eq!(
+            mask_url("redis://:password@localhost:6379"),
+            "redis://:***@localhost:6379"
+        );
+        assert_eq!(
+            mask_url("mysql://user:pass@127.0.0.1:3306/db"),
+            "mysql://user:***@127.0.0.1:3306/db"
+        );
+        assert_eq!(
+            mask_url("postgres://admin@localhost/mydb"),
+            "postgres://***@localhost/mydb"
+        );
+        assert_eq!(
+            mask_url("https://openapi.chanjet.com"),
+            "https://openapi.chanjet.com"
+        );
     }
 
     #[test]

@@ -25,7 +25,9 @@ async fn test_oauth2_refresh_works_with_structured_rt() {
         .unwrap();
 
     let pool = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
-    let sender = Arc::new(common::MockHttpSender::with_body("{\"access_token\":\"new_at\",\"refresh_token\":\"new_rt\",\"expires_in\":3600}"));
+    let sender = Arc::new(common::MockHttpSender::with_body(
+        "{\"access_token\":\"new_at\",\"refresh_token\":\"new_rt\",\"expires_in\":3600}",
+    ));
     let provider = OAuth2Provider::new(pool, sender);
 
     let config = cowen_common::Config::default_with_profile("p1");
@@ -72,7 +74,9 @@ async fn test_oauth2_on_maintenance_tick_refreshes_expired_token() {
         .unwrap();
 
     let pool = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
-    let sender = Arc::new(common::MockHttpSender::with_body("{\"access_token\":\"new_at\",\"refresh_token\":\"new_rt\",\"expires_in\":3600}"));
+    let sender = Arc::new(common::MockHttpSender::with_body(
+        "{\"access_token\":\"new_at\",\"refresh_token\":\"new_rt\",\"expires_in\":3600}",
+    ));
     let provider = OAuth2Provider::new(pool, sender);
 
     let config = cowen_common::Config::default_with_profile("p1");

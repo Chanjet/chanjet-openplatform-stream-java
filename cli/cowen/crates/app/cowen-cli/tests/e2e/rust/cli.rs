@@ -9,12 +9,21 @@ impl Drop for TestDaemonGuard {
     fn drop(&mut self) {
         let child_pid = self.child.id();
         let pid_file = std::path::Path::new(&self.home).join("master_daemon.pid");
-        eprintln!("DEBUG_TEST: TestDaemonGuard dropping. home={}, child_pid={}, pid_file={:?}, exists={}", self.home, child_pid, pid_file, pid_file.exists());
+        eprintln!(
+            "DEBUG_TEST: TestDaemonGuard dropping. home={}, child_pid={}, pid_file={:?}, exists={}",
+            self.home,
+            child_pid,
+            pid_file,
+            pid_file.exists()
+        );
 
         // 1. Send SIGTERM to the CLI child process so it can shut down its child daemon gracefully
         #[cfg(unix)]
         {
-            let _ = std::process::Command::new("kill").arg("-15").arg(child_pid.to_string()).status();
+            let _ = std::process::Command::new("kill")
+                .arg("-15")
+                .arg(child_pid.to_string())
+                .status();
         }
         std::thread::sleep(std::time::Duration::from_millis(200));
 
@@ -26,8 +35,14 @@ impl Drop for TestDaemonGuard {
         if let Ok(content) = std::fs::read_to_string(&pid_file) {
             if let Some(pid_str) = content.lines().next() {
                 if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                    eprintln!("DEBUG_TEST: TestDaemonGuard force-killing master daemon pid {}", pid);
-                    let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+                    eprintln!(
+                        "DEBUG_TEST: TestDaemonGuard force-killing master daemon pid {}",
+                        pid
+                    );
+                    let _ = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .status();
                 }
             }
         }
@@ -43,16 +58,17 @@ fn start_daemon_for_test(home: &str, profile: &str) -> TestDaemonGuard {
         "telemetry_enabled": false,
         "log": { "level": "debug" }
     });
-    std::fs::write(&app_config_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
+    std::fs::write(
+        &app_config_path,
+        serde_yaml::to_string(&app_config).unwrap(),
+    )
+    .unwrap();
 
-    
-    
-    
     let config_path = std::path::Path::new(home).join(format!("{}.yaml", profile));
     let config = serde_json::json!({
         "app_key": "test_key",
         "app_mode": "oauth2",
-        "encrypt_key": "1234567890123456", 
+        "encrypt_key": "1234567890123456",
         "webhook_target": "http://localhost:8080",
         "auto_start": false,
         "version": 1
@@ -72,14 +88,13 @@ fn start_daemon_for_test(home: &str, profile: &str) -> TestDaemonGuard {
         .stderr(std::process::Stdio::inherit())
         .spawn()
         .unwrap();
-    
+
     std::thread::sleep(std::time::Duration::from_millis(1500));
     TestDaemonGuard {
         home: home.to_string(),
         child,
     }
 }
-
 
 #[test]
 fn test_cli_help() {
@@ -113,7 +128,7 @@ fn test_cli_config_set_global() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
     let _daemon = start_daemon_for_test(&home, "default");
-    
+
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
@@ -130,8 +145,6 @@ fn test_cli_dlq_list_page_size_short_n() {
     cmd.assert().success();
 }
 
-
-
 #[test]
 fn test_config_list_json_format() {
     let dir = tempfile::tempdir().unwrap();
@@ -143,13 +156,13 @@ fn test_config_list_json_format() {
     cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
     cmd.arg("-o").arg("json");
     cmd.arg("config").arg("list");
-    
+
     let output = cmd.assert().success().get_output().clone();
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     println!("STDERR: {}", stderr);
     println!("STDOUT: {}", stdout);
-    
+
     assert!(stdout.contains("\"openapi_url\":"));
 }
 
@@ -158,7 +171,7 @@ fn test_reset_specific_profile_only() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
     let _daemon = start_daemon_for_test(&home, "profile_reset");
-    
+
     let app_config_path = dir.path().join("app.yaml");
     let profile_keep_config = dir.path().join("profile_keep.yaml");
     std::fs::write(&profile_keep_config, "app_key: \"keep_key\"").unwrap();
@@ -175,11 +188,26 @@ fn test_reset_specific_profile_only() {
     cmd.args(&["-p", "profile_reset", "reset"]);
     cmd.assert().success();
 
-    assert!(!profile_reset_config.exists(), "profile_reset.yaml should have been deleted");
-    assert!(!profile_reset_db.exists(), "profile_reset_dlq.db should have been deleted");
-    assert!(profile_keep_config.exists(), "profile_keep.yaml should NOT have been deleted");
-    assert!(profile_keep_db.exists(), "profile_keep_dlq.db should NOT have been deleted");
-    assert!(app_config_path.exists(), "app.yaml should NOT have been deleted");
+    assert!(
+        !profile_reset_config.exists(),
+        "profile_reset.yaml should have been deleted"
+    );
+    assert!(
+        !profile_reset_db.exists(),
+        "profile_reset_dlq.db should have been deleted"
+    );
+    assert!(
+        profile_keep_config.exists(),
+        "profile_keep.yaml should NOT have been deleted"
+    );
+    assert!(
+        profile_keep_db.exists(),
+        "profile_keep_dlq.db should NOT have been deleted"
+    );
+    assert!(
+        app_config_path.exists(),
+        "app.yaml should NOT have been deleted"
+    );
 }
 
 #[test]
@@ -187,7 +215,7 @@ fn test_reset_all_profiles() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
     let _daemon = start_daemon_for_test(&home, "profile_reset");
-    
+
     let app_config_path = dir.path().join("app.yaml");
     let profile_keep_config = dir.path().join("profile_keep.yaml");
     std::fs::write(&profile_keep_config, "app_key: \"keep_key\"").unwrap();
@@ -204,11 +232,26 @@ fn test_reset_all_profiles() {
     cmd.args(&["reset", "-a"]);
     cmd.assert().success();
 
-    assert!(!profile_reset_config.exists(), "profile_reset.yaml should have been deleted");
-    assert!(!profile_reset_db.exists(), "profile_reset_dlq.db should have been deleted");
-    assert!(!profile_keep_config.exists(), "profile_keep.yaml should have been deleted");
-    assert!(!profile_keep_db.exists(), "profile_keep_dlq.db should have been deleted");
-    assert!(!app_config_path.exists(), "app.yaml should have been deleted");
+    assert!(
+        !profile_reset_config.exists(),
+        "profile_reset.yaml should have been deleted"
+    );
+    assert!(
+        !profile_reset_db.exists(),
+        "profile_reset_dlq.db should have been deleted"
+    );
+    assert!(
+        !profile_keep_config.exists(),
+        "profile_keep.yaml should have been deleted"
+    );
+    assert!(
+        !profile_keep_db.exists(),
+        "profile_keep_dlq.db should have been deleted"
+    );
+    assert!(
+        !app_config_path.exists(),
+        "app.yaml should have been deleted"
+    );
 }
 
 #[test]
@@ -216,7 +259,7 @@ fn test_reset_active_profile_by_default() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().to_str().unwrap().to_string();
     let _daemon = start_daemon_for_test(&home, "profile_reset");
-    
+
     let current_profile_path = dir.path().join("current_profile");
     std::fs::write(&current_profile_path, "profile_reset").unwrap();
 
@@ -236,12 +279,24 @@ fn test_reset_active_profile_by_default() {
     cmd.args(&["reset"]);
     cmd.assert().success();
 
-    assert!(!profile_reset_config.exists(), "profile_reset.yaml should have been deleted");
-    assert!(!profile_reset_db.exists(), "profile_reset_dlq.db should have been deleted");
-    assert!(profile_keep_config.exists(), "profile_keep.yaml should NOT have been deleted");
-    assert!(profile_keep_db.exists(), "profile_keep_dlq.db should NOT have been deleted");
-    assert!(app_config_path.exists(), "app.yaml should NOT have been deleted");
+    assert!(
+        !profile_reset_config.exists(),
+        "profile_reset.yaml should have been deleted"
+    );
+    assert!(
+        !profile_reset_db.exists(),
+        "profile_reset_dlq.db should have been deleted"
+    );
+    assert!(
+        profile_keep_config.exists(),
+        "profile_keep.yaml should NOT have been deleted"
+    );
+    assert!(
+        profile_keep_db.exists(),
+        "profile_keep_dlq.db should NOT have been deleted"
+    );
+    assert!(
+        app_config_path.exists(),
+        "app.yaml should NOT have been deleted"
+    );
 }
-
-
-

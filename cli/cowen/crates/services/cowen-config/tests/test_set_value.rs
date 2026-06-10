@@ -1,7 +1,7 @@
 use cowen_config::ConfigManager;
 use std::fs;
-use tempfile::tempdir;
 use std::sync::{Mutex, OnceLock};
+use tempfile::tempdir;
 
 static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -37,8 +37,9 @@ stream_url: ws://localhost
 webhook_target: http://target
 log:
   level: debug
-"#
-    ).unwrap();
+"#,
+    )
+    .unwrap();
 
     std::env::set_var("COWEN_HOME", app_dir.to_str().unwrap());
 
@@ -76,14 +77,17 @@ stream_url: ws://localhost
 webhook_target: http://target
 log:
   level: debug
-"#
-    ).unwrap();
+"#,
+    )
+    .unwrap();
 
     std::env::set_var("COWEN_HOME", app_dir.to_str().unwrap());
 
     let mgr = ConfigManager::new().unwrap();
 
     // Setting an invalid log level should return Err
-    let res = mgr.set_value("main", "log.level", "invalid_log_level").await;
+    let res = mgr
+        .set_value("main", "log.level", "invalid_log_level")
+        .await;
     assert!(res.is_err());
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-/// The Global Facade Manifest aggregates and aligns the capability versions 
+/// The Global Facade Manifest aggregates and aligns the capability versions
 /// provided by both the Wasm and gRPC facades.
 pub struct FacadeManifest;
 
@@ -26,9 +26,11 @@ impl FacadeManifest {
     }
 
     /// Checks if a plugin's required capabilities are fully satisfied by this host's unified facade manifest using SemVer rules.
-    pub fn check_plugin_compatibility(required: &std::collections::HashMap<String, String>) -> anyhow::Result<()> {
+    pub fn check_plugin_compatibility(
+        required: &std::collections::HashMap<String, String>,
+    ) -> anyhow::Result<()> {
         let supported = Self::get_global_manifest();
-        
+
         for (domain, req_ver_str) in required {
             // Ignore Wasm-internal ABI declarations
             if domain == "extism.pdk" {
@@ -36,7 +38,12 @@ impl FacadeManifest {
             }
 
             let req_ver = semver::VersionReq::parse(req_ver_str).map_err(|e| {
-                anyhow::anyhow!("Invalid semantic version requirement '{}' for capability '{}': {}", req_ver_str, domain, e)
+                anyhow::anyhow!(
+                    "Invalid semantic version requirement '{}' for capability '{}': {}",
+                    req_ver_str,
+                    domain,
+                    e
+                )
             })?;
 
             if let Some(host_versions_strs) = supported.get(domain.as_str()) {

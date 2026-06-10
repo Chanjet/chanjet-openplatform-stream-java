@@ -1,7 +1,7 @@
 pub mod config_manager;
-pub mod path_parser;
 pub mod interceptors;
-pub mod strategy;
+pub mod path_parser;
 pub mod reset;
-pub use config_manager::{ConfigManager, ConfigValidator, ConfigInterceptor};
+pub mod strategy;
+pub use config_manager::{ConfigInterceptor, ConfigManager, ConfigValidator};
 pub use strategy::ConfigStrategy;

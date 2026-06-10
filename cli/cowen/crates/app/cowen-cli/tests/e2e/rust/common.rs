@@ -1,5 +1,5 @@
-use std::fs;
 use serde_json::json;
+use std::fs;
 use tempfile::tempdir;
 
 pub struct DaemonKiller {
@@ -9,41 +9,49 @@ pub struct DaemonKiller {
 impl Drop for DaemonKiller {
     fn drop(&mut self) {
         let pid_file = std::path::PathBuf::from(&self.home).join("master_daemon.pid");
-        eprintln!("DEBUG_TEST: DaemonKiller dropping. home={}, pid_file={:?}, exists={}", self.home, pid_file, pid_file.exists());
+        eprintln!(
+            "DEBUG_TEST: DaemonKiller dropping. home={}, pid_file={:?}, exists={}",
+            self.home,
+            pid_file,
+            pid_file.exists()
+        );
         if let Ok(content) = std::fs::read_to_string(&pid_file) {
             if let Some(pid_str) = content.lines().next() {
                 if let Ok(pid) = pid_str.trim().parse::<i32>() {
                     eprintln!("DEBUG_TEST: DaemonKiller killing master daemon pid {}", pid);
-                    let kill_status = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+                    let kill_status = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .status();
                     eprintln!("DEBUG_TEST: kill -9 status: {:?}", kill_status);
                 }
             }
         } else {
             eprintln!("DEBUG_TEST: DaemonKiller failed to read pid file");
         }
-        
+
         // Also stop workers gracefully if possible
         let bin_path = assert_cmd::cargo::cargo_bin("cowen");
         let _ = std::process::Command::new(bin_path)
             .env("COWEN_HOME", &self.home)
-            .arg("daemon").arg("stop")
+            .arg("daemon")
+            .arg("stop")
             .output();
-            
+
         let _ = std::fs::remove_file(pid_file);
     }
 }
 
 use axum::{
-    routing::post,
     extract::State,
-    Json,
-    Router,
     http::{HeaderMap, StatusCode},
+    routing::post,
+    Json, Router,
 };
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct MockState {
     pub last_generate_token_body: Option<serde_json::Value>,
@@ -67,16 +75,22 @@ async fn handle_generate_token(
     s.last_generate_token_body = Some(body);
 
     if headers.get("appKey").is_none() || headers.get("appSecret").is_none() {
-        return (StatusCode::UNAUTHORIZED, Json(json!({"code": "50001", "message": "appKey/appSecret missing"})));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"code": "50001", "message": "appKey/appSecret missing"})),
+        );
     }
 
-    (StatusCode::OK, Json(json!({
-        "result": true,
-        "value": {
-            "accessToken": "mock_at_sb_12345",
-            "expiresIn": 7200
-        }
-    })))
+    (
+        StatusCode::OK,
+        Json(json!({
+            "result": true,
+            "value": {
+                "accessToken": "mock_at_sb_12345",
+                "expiresIn": 7200
+            }
+        })),
+    )
 }
 
 async fn handle_oauth2_token(
@@ -87,12 +101,15 @@ async fn handle_oauth2_token(
     let mut s = state.lock().await;
     s.last_refresh_token_body = Some(json!(payload));
 
-    (StatusCode::OK, Json(json!({
-        "access_token": "mock_at_oa2_new",
-        "refresh_token": "mock_rt_oa2_new",
-        "expires_in": 7200,
-        "refresh_token_expires_in": 604800
-    })))
+    (
+        StatusCode::OK,
+        Json(json!({
+            "access_token": "mock_at_oa2_new",
+            "refresh_token": "mock_rt_oa2_new",
+            "expires_in": 7200,
+            "refresh_token_expires_in": 604800
+        })),
+    )
 }
 
 pub async fn start_mock_platform() -> (SocketAddr, tokio::task::JoinHandle<()>) {
@@ -102,7 +119,10 @@ pub async fn start_mock_platform() -> (SocketAddr, tokio::task::JoinHandle<()>) 
     }));
 
     let app = Router::new()
-        .route("/v1/common/auth/selfBuiltApp/generateToken", post(handle_generate_token))
+        .route(
+            "/v1/common/auth/selfBuiltApp/generateToken",
+            post(handle_generate_token),
+        )
         .route("/oauth2/token", post(handle_oauth2_token))
         .with_state(state);
 
@@ -116,7 +136,15 @@ pub async fn start_mock_platform() -> (SocketAddr, tokio::task::JoinHandle<()>) 
     (addr, handle)
 }
 
-pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile::TempDir, String, crate::e2e::rust::common::DaemonKiller) {
+pub fn setup_test_env(
+    profile: &str,
+    mode: &str,
+    openapi_url: &str,
+) -> (
+    tempfile::TempDir,
+    String,
+    crate::e2e::rust::common::DaemonKiller,
+) {
     let dir = tempdir().unwrap();
     let cowen_home = dir.path().join(".cowen");
     fs::create_dir_all(&cowen_home).unwrap();
@@ -148,13 +176,29 @@ pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile
     fs::create_dir_all(&bin_dir).unwrap();
 
     let current_dir = std::env::current_dir().unwrap();
-    
+
     // Potential target directories to search for binaries
     let mut search_paths = vec![
         current_dir.join("target").join("debug"),
         current_dir.join("target").join("release"),
-        current_dir.parent().unwrap().parent().unwrap().parent().unwrap().join("target").join("debug"),
-        current_dir.parent().unwrap().parent().unwrap().parent().unwrap().join("target").join("release"),
+        current_dir
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("target")
+            .join("debug"),
+        current_dir
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("target")
+            .join("release"),
     ];
 
     // If CARGO_TARGET_DIR is set, prioritize it
@@ -164,7 +208,7 @@ pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile
         } else {
             current_dir.join(target_env)
         };
-        
+
         // Add common subdirectories within the custom target dir
         search_paths.insert(0, base.join("x86_64-unknown-linux-gnu").join("release"));
         search_paths.insert(1, base.join("x86_64-unknown-linux-gnu").join("debug"));
@@ -185,18 +229,31 @@ pub fn setup_test_env(profile: &str, mode: &str, openapi_url: &str) -> (tempfile
             cli_found = true;
         }
         if !daemon_found && daemon_src.exists() {
-            fs::copy(&daemon_src, bin_dir.join(format!("cowen-daemon{}", exe_suffix))).unwrap();
+            fs::copy(
+                &daemon_src,
+                bin_dir.join(format!("cowen-daemon{}", exe_suffix)),
+            )
+            .unwrap();
             daemon_found = true;
         }
-        
-        if cli_found && daemon_found { break; }
+
+        if cli_found && daemon_found {
+            break;
+        }
     }
 
     if !cli_found {
-        panic!("Could not find 'cowen' binary in any expected target directory. Search paths: {:?}", 
-            current_dir); // Simplification for error reporting
+        panic!(
+            "Could not find 'cowen' binary in any expected target directory. Search paths: {:?}",
+            current_dir
+        ); // Simplification for error reporting
     }
 
-    (dir, cowen_home.to_str().unwrap().to_string().clone(), crate::e2e::rust::common::DaemonKiller { home: cowen_home.to_str().unwrap().to_string() })
+    (
+        dir,
+        cowen_home.to_str().unwrap().to_string().clone(),
+        crate::e2e::rust::common::DaemonKiller {
+            home: cowen_home.to_str().unwrap().to_string(),
+        },
+    )
 }
-

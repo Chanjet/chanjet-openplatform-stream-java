@@ -1,9 +1,14 @@
+use crate::Colorize;
 use anyhow::Result;
 use cowen_common::grpc::client::DaemonResponse;
-use crate::Colorize;
 
 pub async fn execute(profile: &str, _verbose: bool, _fix: bool) -> Result<()> {
-    println!("\n{} {} (Profile: {})", "🩺".bold(), "Cowen Doctor - 环境诊断工具 (IPC Client)".bold(), profile.cyan());
+    println!(
+        "\n{} {} (Profile: {})",
+        "🩺".bold(),
+        "Cowen Doctor - 环境诊断工具 (IPC Client)".bold(),
+        profile.cyan()
+    );
     println!("{}\n", "=".repeat(60).dimmed());
 
     let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
@@ -23,6 +28,3 @@ pub async fn execute(profile: &str, _verbose: bool, _fix: bool) -> Result<()> {
 
     Ok(())
 }
-
-
-

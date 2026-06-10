@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use cowen_wasm_facade::{CapabilityContext, HostCapabilityProvider, SysBaseProvider, native_config::NativeConfigProvider, native_auth::NativeAuthProvider};
+use cowen_wasm_facade::{
+    native_auth::NativeAuthProvider, native_config::NativeConfigProvider, CapabilityContext,
+    HostCapabilityProvider, SysBaseProvider,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WasmPluginManifest {
@@ -77,18 +80,28 @@ impl WasmPipelineManager {
                 });
 
             if !plugin_manifest.required_capabilities.is_empty() {
-                crate::daemon::facade_manifest::FacadeManifest::check_plugin_compatibility(&plugin_manifest.required_capabilities).map_err(|e| {
+                crate::daemon::facade_manifest::FacadeManifest::check_plugin_compatibility(
+                    &plugin_manifest.required_capabilities,
+                )
+                .map_err(|e| {
                     anyhow::anyhow!("Plugin {} capability check failed: {}", plugin_info.name, e)
                 })?;
             }
 
-            let host_functions = self.create_host_functions(&plugin_manifest.requested_permissions, &plugin_manifest.required_capabilities);
+            let host_functions = self.create_host_functions(
+                &plugin_manifest.requested_permissions,
+                &plugin_manifest.required_capabilities,
+            );
             let plugin = Plugin::new(&manifest, host_functions, true)?;
             loaded_plugins.insert(plugin_info.name.clone(), Arc::new(Mutex::new(plugin)));
             loaded_manifests.insert(plugin_info.name.clone(), plugin_manifest);
         }
 
-        self.load_system_plugins(&mut loaded_plugins, &mut loaded_manifests, &mut lazy_plugins);
+        self.load_system_plugins(
+            &mut loaded_plugins,
+            &mut loaded_manifests,
+            &mut lazy_plugins,
+        );
 
         let total_loaded = loaded_plugins.len();
         self.plugins.store(Arc::new(loaded_plugins));
@@ -96,7 +109,10 @@ impl WasmPipelineManager {
         self.lazy_system_plugins.store(Arc::new(lazy_plugins));
         self.routes.store(Arc::new(config.routes));
 
-        tracing::info!("Wasm pipeline reloaded successfully (Total plugins loaded: {})", total_loaded);
+        tracing::info!(
+            "Wasm pipeline reloaded successfully (Total plugins loaded: {})",
+            total_loaded
+        );
         Ok(())
     }
 
@@ -109,7 +125,9 @@ impl WasmPipelineManager {
         let mut paths_to_try = vec![cowen_common::config::get_app_dir().join("system_plugins")];
 
         if cfg!(unix) {
-            paths_to_try.push(std::path::PathBuf::from("/usr/local/share/cowen/system_plugins"));
+            paths_to_try.push(std::path::PathBuf::from(
+                "/usr/local/share/cowen/system_plugins",
+            ));
         } else if cfg!(windows) {
             if let Ok(exe_path) = std::env::current_exe() {
                 if let Some(parent) = exe_path.parent() {
@@ -229,12 +247,12 @@ impl WasmPipelineManager {
     }
 
     fn create_host_functions(
-        &self, 
+        &self,
         scopes: &[String],
-        required_capabilities: &HashMap<String, String>
+        required_capabilities: &HashMap<String, String>,
     ) -> Vec<extism::Function> {
         let mut funcs = vec![];
-        
+
         let context = CapabilityContext {
             profile: self.profile.clone(),
             config: self.config.clone(),
@@ -252,7 +270,7 @@ impl WasmPipelineManager {
         // match what it provides, and looks up the version from `required_capabilities`.
         for provider in providers {
             let domain = provider.domain();
-            
+
             let req_version = required_capabilities.get(domain).map(|s| s.as_str());
 
             // If it's sys.base, we always provide it using the highest supported version for compatibility if not explicitly requested
@@ -260,12 +278,16 @@ impl WasmPipelineManager {
                 v
             } else if domain == "sys.base" {
                 // Default to the first supported version
-                provider.supported_versions().first().copied().unwrap_or("1.0.0")
+                provider
+                    .supported_versions()
+                    .first()
+                    .copied()
+                    .unwrap_or("1.0.0")
             } else {
                 // Capability not explicitly requested, do not mount its host functions
                 continue;
             };
-            
+
             match provider.create_functions(version_to_use, scopes, &context) {
                 Ok(mut provider_funcs) => {
                     funcs.append(&mut provider_funcs);
@@ -353,7 +375,10 @@ impl WasmPipelineManager {
                 if let Ok(wasm_bytes) = std::fs::read(path) {
                     let wasm = Wasm::data(wasm_bytes);
                     let manifest = Manifest::new([wasm]);
-                    let host_functions = self.create_host_functions(&plugin_manifest.requested_permissions, &plugin_manifest.required_capabilities);
+                    let host_functions = self.create_host_functions(
+                        &plugin_manifest.requested_permissions,
+                        &plugin_manifest.required_capabilities,
+                    );
                     if let Ok(plugin) = Plugin::new(&manifest, host_functions, true) {
                         let plugin_arc = Arc::new(Mutex::new(plugin));
                         self.plugins.rcu(|old| {
@@ -367,12 +392,44 @@ impl WasmPipelineManager {
                         tracing::info!("Lazy loaded system plugin: {}", target_plugin_name);
                         return Some(self.plugins.load().get(target_plugin_name).unwrap().clone());
                     } else {
-                        tracing::error!("Failed to instantiate lazy system plugin: {}", target_plugin_name);
+                        tracing::error!(
+                            "Failed to instantiate lazy system plugin: {}",
+                            target_plugin_name
+                        );
                     }
                 }
             }
         }
         None
+    }
+
+    fn find_matched_plugins(&self, interceptor_name: &str, app_mode_str: &str) -> Vec<(String, i32)> {
+        let manifests_map = self.plugin_manifests.load();
+        let mut matched_plugins = Vec::new();
+
+        for (actual_name, manifest) in manifests_map.iter() {
+            if let Some(interceptor) = manifest
+                .wasm_interceptors
+                .iter()
+                .find(|i| i.name == interceptor_name)
+            {
+                let has_match = interceptor.app_modes.is_empty()
+                    || interceptor
+                        .app_modes
+                        .iter()
+                        .any(|m| m == app_mode_str || m == &app_mode_str.replace("-", "_"));
+
+                if has_match {
+                    matched_plugins.push((actual_name.clone(), interceptor.priority));
+                }
+            } else if actual_name == interceptor_name {
+                // Fallback: direct exact name match
+                matched_plugins.push((actual_name.clone(), 0));
+            }
+        }
+
+        matched_plugins.sort_by(|a, b| b.1.cmp(&a.1));
+        matched_plugins
     }
 
     pub fn filter_headers(
@@ -387,8 +444,6 @@ impl WasmPipelineManager {
             None => return headers,
         };
 
-        let manifests_map = self.plugin_manifests.load();
-
         let app_mode_str = match self.config.app_mode {
             cowen_common::models::AuthMode::Oauth2 => "oauth2",
             cowen_common::models::AuthMode::SelfBuilt => "self-built",
@@ -396,30 +451,7 @@ impl WasmPipelineManager {
         };
 
         for interceptor_name in route.request_filter_plugins.clone() {
-            let mut matched_plugins = Vec::new();
-
-            for (actual_name, manifest) in manifests_map.iter() {
-                if let Some(interceptor) = manifest
-                    .wasm_interceptors
-                    .iter()
-                    .find(|i| i.name == interceptor_name)
-                {
-                    let has_match = interceptor.app_modes.is_empty()
-                        || interceptor
-                            .app_modes
-                            .iter()
-                            .any(|m| m == app_mode_str || m == &app_mode_str.replace("-", "_"));
-
-                    if has_match {
-                        matched_plugins.push((actual_name.clone(), interceptor.priority));
-                    }
-                } else if actual_name == &interceptor_name {
-                    // Fallback: direct exact name match
-                    matched_plugins.push((actual_name.clone(), 0));
-                }
-            }
-
-            matched_plugins.sort_by(|a, b| b.1.cmp(&a.1));
+            let matched_plugins = self.find_matched_plugins(&interceptor_name, app_mode_str);
 
             for (target_plugin_name, _) in matched_plugins {
                 if let Some(plugin_mutex) = self.get_or_load_plugin(&target_plugin_name) {
@@ -476,7 +508,6 @@ impl WasmPipelineManager {
             None => return body,
         };
 
-
         for plugin_name in route.request_filter_plugins.clone() {
             if let Some(plugin_mutex) = self.get_or_load_plugin(&plugin_name) {
                 let mut plugin = match plugin_mutex.lock() {
@@ -520,8 +551,6 @@ impl WasmPipelineManager {
             None => return body,
         };
 
-        let manifests_map = self.plugin_manifests.load();
-
         let app_mode_str = match self.config.app_mode {
             cowen_common::models::AuthMode::Oauth2 => "oauth2",
             cowen_common::models::AuthMode::SelfBuilt => "self-built",
@@ -529,29 +558,7 @@ impl WasmPipelineManager {
         };
 
         for interceptor_name in route.response_filter_plugins.clone() {
-            let mut matched_plugins = Vec::new();
-
-            for (actual_name, manifest) in manifests_map.iter() {
-                if let Some(interceptor) = manifest
-                    .wasm_interceptors
-                    .iter()
-                    .find(|i| i.name == interceptor_name)
-                {
-                    let has_match = interceptor.app_modes.is_empty()
-                        || interceptor
-                            .app_modes
-                            .iter()
-                            .any(|m| m == app_mode_str || m == &app_mode_str.replace("-", "_"));
-
-                    if has_match {
-                        matched_plugins.push((actual_name.clone(), interceptor.priority));
-                    }
-                } else if actual_name == &interceptor_name {
-                    matched_plugins.push((actual_name.clone(), 0));
-                }
-            }
-
-            matched_plugins.sort_by(|a, b| b.1.cmp(&a.1));
+            let matched_plugins = self.find_matched_plugins(&interceptor_name, app_mode_str);
 
             for (target_plugin_name, _) in matched_plugins {
                 if let Some(plugin_mutex) = self.get_or_load_plugin(&target_plugin_name) {
@@ -604,7 +611,16 @@ mod tests {
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
 
         let config_manager = cowen_config::ConfigManager::new_with_dir(temp_dir.clone()).unwrap();
-        let caps = std::sync::Arc::new(cowen_capabilities::CapabilityRegistry::new(std::sync::Arc::new(cowen_common::daemon::DummyDaemonService), vault.clone(), config_manager, 0, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
+        let caps = std::sync::Arc::new(cowen_capabilities::CapabilityRegistry::new(
+            std::sync::Arc::new(cowen_common::daemon::DummyDaemonService),
+            vault.clone(),
+            config_manager,
+            0,
+            cowen_wasm_facade::registry_supported_versions()
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v[0].to_string()))
+                .collect(),
+        ));
         let manager = WasmPipelineManager::new("test_profile".to_string(), config, caps);
 
         let wasm_path =

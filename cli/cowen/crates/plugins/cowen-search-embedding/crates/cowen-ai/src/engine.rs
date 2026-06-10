@@ -27,7 +27,12 @@ impl Engine {
         Self { docs }
     }
 
-    pub fn search(&self, query_vector: &[f32], query_text: &str, limit: usize) -> Vec<SearchResult> {
+    pub fn search(
+        &self,
+        query_vector: &[f32],
+        query_text: &str,
+        limit: usize,
+    ) -> Vec<SearchResult> {
         if query_vector.is_empty() {
             return Vec::new();
         }
@@ -48,7 +53,7 @@ impl Engine {
         let mut results = Vec::new();
         for doc in &self.docs {
             let mut score = cosine_similarity(query_vector, &doc.vector);
-            
+
             let metadata_lower = doc.metadata.to_lowercase();
             let desc_lower = doc.description.to_lowercase();
             let id_lower = doc.id.to_lowercase();
@@ -56,11 +61,14 @@ impl Engine {
             if !n_grams.is_empty() {
                 let mut hit_count = 0;
                 for gram in &n_grams {
-                    if metadata_lower.contains(gram) || desc_lower.contains(gram) || id_lower.contains(gram) {
+                    if metadata_lower.contains(gram)
+                        || desc_lower.contains(gram)
+                        || id_lower.contains(gram)
+                    {
                         hit_count += 1;
                     }
                 }
-                
+
                 let boost = (hit_count as f32) / (n_grams.len() as f32) * 0.98;
                 if boost > 0.0 {
                     score += boost;

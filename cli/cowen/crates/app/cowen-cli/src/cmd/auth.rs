@@ -3,7 +3,7 @@ use cowen_common::grpc::client::DaemonResponse;
 
 pub async fn login(profile: &str, force: bool) -> Result<()> {
     let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
-    
+
     // 1. Get Auth URL
     println!("🔄 Requesting authorization session from Daemon...");
     match ipc.get_auth_url(profile, force).await {
@@ -16,7 +16,7 @@ pub async fn login(profile: &str, force: bool) -> Result<()> {
         Ok(DaemonResponse::AuthUrl { url, state }) => {
             println!("\x1b[1mPlease authorize in the LOCAL browser of this machine. Opening URL...\x1b[0m");
             println!("\x1b[34m{}\x1b[0m", url);
-            
+
             if std::env::var("COWEN_SKIP_BROWSER").unwrap_or_default() == "true" {
                 println!("Browser mock triggered for URL: {}", url);
             } else {
@@ -24,7 +24,7 @@ pub async fn login(profile: &str, force: bool) -> Result<()> {
                     println!("\x1b[33m(Failed to open browser automatically.)\x1b[0m");
                 }
             }
-            
+
             println!("\x1b[33m💡 Tip: If you are in an SSH or Headless environment:\x1b[0m");
             println!("\x1b[33m   1. Copy the URL above and open it in your local browser manually.\x1b[0m");
             println!("\x1b[33m   2. After authorization, your browser will redirect to a localhost URL.\x1b[0m");
@@ -56,15 +56,11 @@ pub async fn login(profile: &str, force: bool) -> Result<()> {
             return Err(anyhow::anyhow!("Unexpected response"));
         }
     }
-    
+
     Ok(())
 }
 
-pub async fn token(
-    profile: &str,
-    format: &str,
-    refresh: bool,
-) -> Result<()> {
+pub async fn token(profile: &str, format: &str, refresh: bool) -> Result<()> {
     let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     match ipc.get_token(profile, refresh).await {
         Ok(DaemonResponse::TokenData { token_json }) => {
@@ -87,7 +83,10 @@ pub async fn token(
             if std::env::var("COWEN_RAW_OUTPUT").unwrap_or_default() == "true" {
                 println!("\x1b[1;36m{}\x1b[0m", t.value);
             } else {
-                println!("\x1b[1;36m{}\x1b[0m", cowen_common::utils::mask_string(&t.value));
+                println!(
+                    "\x1b[1;36m{}\x1b[0m",
+                    cowen_common::utils::mask_string(&t.value)
+                );
             }
             println!();
         }

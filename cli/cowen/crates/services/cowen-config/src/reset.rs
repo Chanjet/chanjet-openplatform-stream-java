@@ -10,7 +10,10 @@ pub struct ConfigResetTask {
 
 impl ConfigResetTask {
     pub fn new(app_dir: PathBuf, target_profile: Option<String>) -> Self {
-        Self { app_dir, target_profile }
+        Self {
+            app_dir,
+            target_profile,
+        }
     }
 }
 
@@ -26,7 +29,7 @@ impl ResetTask for ConfigResetTask {
 
     async fn dry_run(&self) -> Result<Vec<String>> {
         let mut actions = Vec::new();
-        
+
         if let Some(ref profile) = self.target_profile {
             let config_file = self.app_dir.join(format!("{}.yaml", profile));
             if config_file.exists() {
@@ -47,12 +50,15 @@ impl ResetTask for ConfigResetTask {
                     } else if name.ends_with(".yaml") {
                         actions.push(format!("Delete Config YAML: {}", entry.path().display()));
                     } else if name == "profiles" {
-                        actions.push(format!("Delete legacy profiles directory: {}", entry.path().display()));
+                        actions.push(format!(
+                            "Delete legacy profiles directory: {}",
+                            entry.path().display()
+                        ));
                     }
                 }
             }
         }
-        
+
         Ok(actions)
     }
 
@@ -74,11 +80,11 @@ impl ResetTask for ConfigResetTask {
         } else {
             for entry in std::fs::read_dir(&self.app_dir)?.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
-                    if name.ends_with(".db") 
-                        || name.ends_with(".db-wal") 
-                        || name.ends_with(".db-shm") 
-                        || name.ends_with(".ddl.lock") 
-                        || name.ends_with(".yaml") 
+                    if name.ends_with(".db")
+                        || name.ends_with(".db-wal")
+                        || name.ends_with(".db-shm")
+                        || name.ends_with(".ddl.lock")
+                        || name.ends_with(".yaml")
                     {
                         let _ = std::fs::remove_file(entry.path());
                     } else if name == "profiles" {
@@ -91,4 +97,3 @@ impl ResetTask for ConfigResetTask {
         Ok(())
     }
 }
-

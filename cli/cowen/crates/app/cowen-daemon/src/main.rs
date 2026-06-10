@@ -1,22 +1,20 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
-
 #![allow(unused_imports)]
-
 
 use anyhow::Result;
 use clap::Parser;
-use tracing::{info, error};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tracing::{error, info};
 
 use tokio::net::{TcpListener, TcpStream};
 
+use cowen_auth::client::Client;
 use cowen_common::daemon::DaemonService;
 use cowen_common::vault::Vault;
-use cowen_server::ServerDaemonService;
 use cowen_config::ConfigManager;
-use cowen_auth::client::Client;
+use cowen_server::ServerDaemonService;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -49,10 +47,12 @@ async fn main() -> Result<()> {
     if args.run_as_service {
         let pid_file_clone = cowen_common::config::get_app_dir().join("master_daemon.pid");
         let auto_start = args.auto_start_all;
-        return cowen_sys::get_process_manager().run_as_service(Box::new(move || {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(run_main(&pid_file_clone, None, auto_start))
-        })).await;
+        return cowen_sys::get_process_manager()
+            .run_as_service(Box::new(move || {
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(run_main(&pid_file_clone, None, auto_start))
+            }))
+            .await;
     }
 
     let app_dir = cowen_common::config::get_app_dir();
@@ -64,16 +64,33 @@ async fn main() -> Result<()> {
         let current_pid = std::process::id();
         let error_msg = e.to_string().replace('\n', " ");
         let start_time = chrono::Utc::now().to_rfc3339();
-        let _ = cowen_common::utils::secure_write(&pid_file, format!("{}\nSTART_TIME={}\nLAST_ERROR={}\nBUILD_ID={}\nBUILD_TIME={}", current_pid, start_time, error_msg, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+        let _ = cowen_common::utils::secure_write(
+            &pid_file,
+            format!(
+                "{}\nSTART_TIME={}\nLAST_ERROR={}\nBUILD_ID={}\nBUILD_TIME={}",
+                current_pid,
+                start_time,
+                error_msg,
+                cowen_common::BUILD_ID,
+                cowen_common::BUILD_TIME
+            ),
+        );
     }
     result
 }
 
-async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_start_all: bool) -> Result<()> {
+async fn run_main(
+    pid_file: &PathBuf,
+    _ipc_port_file: Option<PathBuf>,
+    auto_start_all: bool,
+) -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     std::panic::set_hook(Box::new(|info| {
-        let payload = info.payload().downcast_ref::<&str>().cloned()
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .cloned()
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("no message");
         eprintln!("FATAL DAEMON PANIC: {}", payload);
@@ -87,19 +104,21 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
     cowen_common::jwt::set_global_daemon_secret(jwt_secret.clone());
 
     let admin_claims = cowen_common::jwt::IpcClaims::new(
-        "cli".to_string(), 
-        cowen_common::jwt::IpcRole::Admin, 
-        vec!["*".to_string()], 
-        86400 * 365 * 10
+        "cli".to_string(),
+        cowen_common::jwt::IpcRole::Admin,
+        vec!["*".to_string()],
+        86400 * 365 * 10,
     );
-    let ipc_token = cowen_common::jwt::sign_jwt(&admin_claims, &jwt_secret).unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+    let ipc_token = cowen_common::jwt::sign_jwt(&admin_claims, &jwt_secret)
+        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
 
     let current_pid = std::process::id();
     let start_time = chrono::Utc::now().to_rfc3339();
 
-    let cfg_mgr = ConfigManager::new().map_err(|e| anyhow::anyhow!("Failed to init ConfigManager: {}", e))?;
+    let cfg_mgr =
+        ConfigManager::new().map_err(|e| anyhow::anyhow!("Failed to init ConfigManager: {}", e))?;
     let app_dir = cowen_common::config::get_app_dir();
-    
+
     let (telemetry_db, vault, app_cfg) = init_telemetry_and_vault(&cfg_mgr, &app_dir).await?;
 
     cleanup_stale_status_files(&app_dir);
@@ -112,20 +131,34 @@ async fn run_main(pid_file: &PathBuf, _ipc_port_file: Option<PathBuf>, auto_star
     let app_dir_clone = app_dir.clone();
     let (hs_stop_tx, hs_stop_rx) = tokio::sync::mpsc::channel(1);
     tokio::spawn(async move {
-        if let Err(e) = cowen_sys::get_ipc_binder().serve_handshake(&app_dir_clone, handshake_payload, hs_stop_rx).await {
+        if let Err(e) = cowen_sys::get_ipc_binder()
+            .serve_handshake(&app_dir_clone, handshake_payload, hs_stop_rx)
+            .await
+        {
             tracing::error!("Failed to serve IPC handshake: {}", e);
         }
     });
 
     let daemon_svc: Arc<dyn DaemonService> = Arc::new(ServerDaemonService::new(cfg_mgr.clone()));
 
-    let (actual_m_port, monitor_shutdown_tx) = start_monitor_server(&app_cfg, daemon_svc.clone(), telemetry_db).await?;
+    let (actual_m_port, monitor_shutdown_tx) =
+        start_monitor_server(&app_cfg, daemon_svc.clone(), telemetry_db).await?;
 
-    let _ = cowen_common::utils::secure_write(pid_file, format!("{}
+    let _ = cowen_common::utils::secure_write(
+        pid_file,
+        format!(
+            "{}
 MONITOR_PORT={}
 START_TIME={}
 BUILD_ID={}
-BUILD_TIME={}", current_pid, actual_m_port, start_time, cowen_common::BUILD_ID, cowen_common::BUILD_TIME));
+BUILD_TIME={}",
+            current_pid,
+            actual_m_port,
+            start_time,
+            cowen_common::BUILD_ID,
+            cowen_common::BUILD_TIME
+        ),
+    );
 
     let stop_rx = setup_signal_handlers();
 
@@ -144,12 +177,23 @@ BUILD_TIME={}", current_pid, actual_m_port, start_time, cowen_common::BUILD_ID, 
         });
     }
 
-    let caps = Arc::new(cowen_capabilities::CapabilityRegistry::new(daemon_svc.clone(), vault.clone(), cfg_mgr.clone(), ipc_port, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
-    
+    let caps = Arc::new(cowen_capabilities::CapabilityRegistry::new(
+        daemon_svc.clone(),
+        vault.clone(),
+        cfg_mgr.clone(),
+        ipc_port,
+        cowen_wasm_facade::registry_supported_versions()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v[0].to_string()))
+            .collect(),
+    ));
+
     let _manifest = cowen_server::daemon::facade_manifest::FacadeManifest::get_global_manifest();
     info!("Capability Facade Manifest aligned successfully");
 
-    if let Err(e) = start_grpc_server(listener, caps, jwt_secret, stop_rx, monitor_shutdown_tx).await {
+    if let Err(e) =
+        start_grpc_server(listener, caps, jwt_secret, stop_rx, monitor_shutdown_tx).await
+    {
         error!("gRPC Server error: {}", e);
     }
 
@@ -157,18 +201,22 @@ BUILD_TIME={}", current_pid, actual_m_port, start_time, cowen_common::BUILD_ID, 
     let _ = hs_stop_tx.send(()).await;
     let _ = std::fs::remove_file(pid_file);
     info!("cowen-daemon shutdown complete.");
-    
+
     Ok(())
 }
 
 async fn init_telemetry_and_vault(
     cfg_mgr: &ConfigManager,
     app_dir: &PathBuf,
-) -> Result<(Arc<cowen_monitor::telemetry_db::TelemetryDb>, Arc<dyn Vault>, cowen_common::config::AppConfig)> {
+) -> Result<(
+    Arc<cowen_monitor::telemetry_db::TelemetryDb>,
+    Arc<dyn Vault>,
+    cowen_common::config::AppConfig,
+)> {
     let telemetry_db = Arc::new(
         cowen_monitor::telemetry_db::TelemetryDb::new(&app_dir.join("telemetry.db"))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to init telemetry db: {}", e))?
+            .map_err(|e| anyhow::anyhow!("Failed to init telemetry db: {}", e))?,
     );
     let _ = telemetry_db.run_gc().await;
 
@@ -179,7 +227,10 @@ async fn init_telemetry_and_vault(
     };
     app_cfg.apply_env_overrides();
 
-    if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
+    if let (Ok(st), Ok(url)) = (
+        std::env::var("COWEN_STORE_TYPE"),
+        std::env::var("COWEN_DB_URL"),
+    ) {
         app_cfg.storage.store = st;
         app_cfg.storage.db_url = Some(url);
     }
@@ -207,8 +258,8 @@ fn cleanup_stale_status_files(app_dir: &PathBuf) {
 }
 
 fn setup_tracing(vault: Arc<dyn Vault>) {
-    use tracing_subscriber::prelude::*;
     use tracing_subscriber::fmt::writer::MakeWriterExt;
+    use tracing_subscriber::prelude::*;
 
     let make_writer = std::io::stderr
         .with_max_level(tracing::Level::WARN)
@@ -216,7 +267,10 @@ fn setup_tracing(vault: Arc<dyn Vault>) {
 
     let console_layer = tracing_subscriber::fmt::layer()
         .with_writer(make_writer)
-        .with_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")));
+        .with_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        );
 
     let (_vault_tx, vault_rx) = tokio::sync::watch::channel(Some(vault));
     let vault_audit_layer = cowen_monitor::audit::VaultAuditLayer::new(vault_rx);
@@ -242,22 +296,28 @@ async fn start_monitor_server(
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
     let (monitor_shutdown_tx, monitor_shutdown_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
-        if let Err(e) = m_server.start(Some(port_tx), allow_fallback, monitor_shutdown_rx).await {
+        if let Err(e) = m_server
+            .start(Some(port_tx), allow_fallback, monitor_shutdown_rx)
+            .await
+        {
             tracing::error!("Monitor server error: {}", e);
         }
     });
 
-    let actual_m_port = match tokio::time::timeout(tokio::time::Duration::from_secs(5), port_rx).await {
-        Ok(Ok(p)) => p,
-        Ok(Err(_)) => {
-            tracing::error!("Monitor server failed to start (e.g., port occupied). Aborting.");
-            return Err(anyhow::anyhow!("Monitor server failed to start. Port may be occupied."));
-        }
-        Err(_) => {
-            tracing::error!("Timed out waiting for monitor server to start. Aborting.");
-            return Err(anyhow::anyhow!("Monitor server start timeout"));
-        }
-    };
+    let actual_m_port =
+        match tokio::time::timeout(tokio::time::Duration::from_secs(5), port_rx).await {
+            Ok(Ok(p)) => p,
+            Ok(Err(_)) => {
+                tracing::error!("Monitor server failed to start (e.g., port occupied). Aborting.");
+                return Err(anyhow::anyhow!(
+                    "Monitor server failed to start. Port may be occupied."
+                ));
+            }
+            Err(_) => {
+                tracing::error!("Timed out waiting for monitor server to start. Aborting.");
+                return Err(anyhow::anyhow!("Monitor server start timeout"));
+            }
+        };
 
     Ok((actual_m_port, monitor_shutdown_tx))
 }
@@ -299,16 +359,31 @@ async fn start_grpc_server(
     mut stop_rx: tokio::sync::mpsc::Receiver<()>,
     monitor_shutdown_tx: tokio::sync::oneshot::Sender<()>,
 ) -> std::result::Result<(), tonic::transport::Error> {
-    let native_audit_ctrl = cowen_grpc_facade::native_audit::NativeAuditController { capabilities: caps.clone() };
-    let native_auth_ctrl = cowen_grpc_facade::native_auth::NativeAuthController { capabilities: caps.clone() };
-    let native_config_ctrl = cowen_grpc_facade::native_config::NativeConfigController { capabilities: caps.clone() };
-    let native_dlq_ctrl = cowen_grpc_facade::native_dlq::NativeDlqController { capabilities: caps.clone() };
-    let native_system_ctrl = cowen_grpc_facade::native_system::NativeSystemController { capabilities: caps.clone() };
-    let native_worker_ctrl = cowen_grpc_facade::native_worker::NativeWorkerController { capabilities: caps.clone() };
-    let public_system_ctrl = cowen_grpc_facade::public_system::PublicSystemController { capabilities: caps.clone() };
-    
-    let api_registry_controller = cowen_grpc_facade::api_registry::ApiRegistryController::new(caps.clone());
-    
+    let native_audit_ctrl = cowen_grpc_facade::native_audit::NativeAuditController {
+        capabilities: caps.clone(),
+    };
+    let native_auth_ctrl = cowen_grpc_facade::native_auth::NativeAuthController {
+        capabilities: caps.clone(),
+    };
+    let native_config_ctrl = cowen_grpc_facade::native_config::NativeConfigController {
+        capabilities: caps.clone(),
+    };
+    let native_dlq_ctrl = cowen_grpc_facade::native_dlq::NativeDlqController {
+        capabilities: caps.clone(),
+    };
+    let native_system_ctrl = cowen_grpc_facade::native_system::NativeSystemController {
+        capabilities: caps.clone(),
+    };
+    let native_worker_ctrl = cowen_grpc_facade::native_worker::NativeWorkerController {
+        capabilities: caps.clone(),
+    };
+    let public_system_ctrl = cowen_grpc_facade::public_system::PublicSystemController {
+        capabilities: caps.clone(),
+    };
+
+    let api_registry_controller =
+        cowen_grpc_facade::api_registry::ApiRegistryController::new(caps.clone());
+
     let secret_clone = jwt_secret.clone();
     let auth_interceptor = move |mut req: tonic::Request<()>| -> std::result::Result<tonic::Request<()>, tonic::Status> {
         match req.metadata().get("authorization") {
@@ -345,11 +420,16 @@ async fn start_grpc_server(
         .add_service(native_worker_svc)
         .add_service(public_system_svc)
         .add_service(api_registry_svc)
-        .serve_with_incoming_shutdown(tokio_stream::wrappers::TcpListenerStream::new(listener), async move {
-            let _ = stop_rx.recv().await;
-            tracing::info!("Shutdown signal received, initiating graceful shutdown...");
-            let _ = monitor_shutdown_tx.send(());
-            let stopped_file = cowen_common::config::get_app_dir().join("master_daemon.stopped");
-            let _ = cowen_common::utils::secure_write(stopped_file, "1");
-        }).await
+        .serve_with_incoming_shutdown(
+            tokio_stream::wrappers::TcpListenerStream::new(listener),
+            async move {
+                let _ = stop_rx.recv().await;
+                tracing::info!("Shutdown signal received, initiating graceful shutdown...");
+                let _ = monitor_shutdown_tx.send(());
+                let stopped_file =
+                    cowen_common::config::get_app_dir().join("master_daemon.stopped");
+                let _ = cowen_common::utils::secure_write(stopped_file, "1");
+            },
+        )
+        .await
 }

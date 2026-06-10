@@ -1,11 +1,11 @@
 use cowen_common::{CowenError, CowenResult};
 pub mod client;
 pub mod decorator;
+pub mod diagnostics;
 pub mod lifecycle;
 pub mod models;
 pub mod pool;
 pub mod provider;
-pub mod diagnostics;
 
 pub use client::AuthClient;
 pub use decorator::RequestDecorator;
@@ -77,7 +77,9 @@ impl AuthProviderValidator {
 }
 
 fn validate_decrypt_key(config: &cowen_common::config::Config) -> CowenResult<()> {
-    if config.app_mode == cowen_common::models::AuthMode::SelfBuilt || config.app_mode == cowen_common::models::AuthMode::StoreApp {
+    if config.app_mode == cowen_common::models::AuthMode::SelfBuilt
+        || config.app_mode == cowen_common::models::AuthMode::StoreApp
+    {
         let decrypt_key_raw = if !config.encrypt_key.is_empty() {
             &config.encrypt_key
         } else {
@@ -95,7 +97,9 @@ fn validate_decrypt_key(config: &cowen_common::config::Config) -> CowenResult<()
             }
         } else {
             let key_len = if decrypt_key.len() == 32 {
-                if decrypt_key.len().is_multiple_of(2) && decrypt_key.chars().all(|c| c.is_ascii_hexdigit()) {
+                if decrypt_key.len().is_multiple_of(2)
+                    && decrypt_key.chars().all(|c| c.is_ascii_hexdigit())
+                {
                     16
                 } else {
                     32
@@ -178,18 +182,24 @@ mod tests {
             ..Config::default_with_profile("test")
         };
         assert!(validator.validate_save("test", &config, false).is_ok());
-        assert!(validator.validate_load("test", &config, false, true).is_ok());
+        assert!(validator
+            .validate_load("test", &config, false, true)
+            .is_ok());
 
         // 2. SelfBuilt with valid 32-character hex key (should succeed)
         config.encrypt_key = "12345678901234561234567890123456".to_string(); // 32-char hex, valid
         assert!(validator.validate_save("test", &config, false).is_ok());
-        assert!(validator.validate_load("test", &config, false, true).is_ok());
+        assert!(validator
+            .validate_load("test", &config, false, true)
+            .is_ok());
 
         // 3. SelfBuilt with invalid 32-character hex key (should fail)
         config.encrypt_key = "1234567890123456123456789012345g".to_string(); // 'g' is invalid hex
         run_in_prod_env(|| {
             assert!(validator.validate_save("test", &config, false).is_err());
-            assert!(validator.validate_load("test", &config, false, true).is_err());
+            assert!(validator
+                .validate_load("test", &config, false, true)
+                .is_err());
         });
 
         // 4. SelfBuilt with empty key and empty app_secret (should fail)
@@ -198,7 +208,20 @@ mod tests {
         run_in_prod_env(|| {
             let res_save = validator.validate_save("test", &config, false);
             assert!(res_save.as_ref().is_err());
-            assert!(res_save.as_ref().err().unwrap().to_string().contains("is required and cannot be empty") || res_save.as_ref().err().unwrap().to_string().contains("is_required and cannot be empty"));
+            assert!(
+                res_save
+                    .as_ref()
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("is required and cannot be empty")
+                    || res_save
+                        .as_ref()
+                        .err()
+                        .unwrap()
+                        .to_string()
+                        .contains("is_required and cannot be empty")
+            );
 
             let res_load = validator.validate_load("test", &config, false, true);
             assert!(res_load.is_err());
@@ -209,7 +232,11 @@ mod tests {
         run_in_prod_env(|| {
             let res_save_short = validator.validate_save("test", &config, false);
             assert!(res_save_short.is_err());
-            assert!(res_save_short.err().unwrap().to_string().contains("must be exactly 16 bytes"));
+            assert!(res_save_short
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("must be exactly 16 bytes"));
         });
 
         // 6. StoreApp with valid 16-byte key
@@ -218,12 +245,16 @@ mod tests {
             encrypt_key: "abcdefghijklmnop".to_string(),
             ..Config::default_with_profile("test")
         };
-        assert!(validator.validate_save("test", &config_store, false).is_ok());
+        assert!(validator
+            .validate_save("test", &config_store, false)
+            .is_ok());
 
         // 7. StoreApp with invalid key length
         config_store.encrypt_key = "too_short".to_string();
         run_in_prod_env(|| {
-            assert!(validator.validate_save("test", &config_store, false).is_err());
+            assert!(validator
+                .validate_save("test", &config_store, false)
+                .is_err());
         });
 
         // 8. OAuth2 doesn't require encrypt_key validation
@@ -232,7 +263,9 @@ mod tests {
             encrypt_key: "".to_string(),
             ..Config::default_with_profile("test")
         };
-        assert!(validator.validate_save("test", &config_oauth, false).is_ok());
+        assert!(validator
+            .validate_save("test", &config_oauth, false)
+            .is_ok());
     }
 
     #[test]
@@ -247,8 +280,12 @@ mod tests {
             ..Config::default_with_profile("test")
         };
         run_in_prod_env(|| {
-            assert!(validator.validate_save("test", &config_short_fallback, false).is_err());
-            assert!(validator.validate_load("test", &config_short_fallback, false, true).is_err());
+            assert!(validator
+                .validate_save("test", &config_short_fallback, false)
+                .is_err());
+            assert!(validator
+                .validate_load("test", &config_short_fallback, false, true)
+                .is_err());
         });
 
         // 2. Fallback: encrypt_key is empty, app_secret is valid but with whitespaces (should succeed after trim)
@@ -258,8 +295,12 @@ mod tests {
             app_secret: "\n 1234567890123456 \n".to_string(),
             ..Config::default_with_profile("test")
         };
-        assert!(validator.validate_save("test", &config_whitespace_fallback, false).is_ok());
-        assert!(validator.validate_load("test", &config_whitespace_fallback, false, true).is_ok());
+        assert!(validator
+            .validate_save("test", &config_whitespace_fallback, false)
+            .is_ok());
+        assert!(validator
+            .validate_load("test", &config_whitespace_fallback, false, true)
+            .is_ok());
 
         // 3. encrypt_key itself is valid but with whitespaces (should succeed after trim)
         let config_whitespace_encrypt_key = Config {
@@ -268,8 +309,11 @@ mod tests {
             app_secret: "some_secret".to_string(),
             ..Config::default_with_profile("test")
         };
-        assert!(validator.validate_save("test", &config_whitespace_encrypt_key, false).is_ok());
-        assert!(validator.validate_load("test", &config_whitespace_encrypt_key, false, true).is_ok());
+        assert!(validator
+            .validate_save("test", &config_whitespace_encrypt_key, false)
+            .is_ok());
+        assert!(validator
+            .validate_load("test", &config_whitespace_encrypt_key, false, true)
+            .is_ok());
     }
 }
-

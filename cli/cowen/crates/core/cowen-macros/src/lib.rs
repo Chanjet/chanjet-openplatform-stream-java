@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ItemFn, ItemImpl, LitStr, Token, Attribute};
 use syn::parse::{Parse, ParseStream};
+use syn::{parse_macro_input, Attribute, ItemFn, ItemImpl, LitStr, Token};
 
 struct RbacArgs {
     scopes: Vec<String>,
@@ -27,7 +27,7 @@ impl Parse for RbacArgs {
             let ident: syn::Ident = input.parse()?;
             input.parse::<Token![=]>()?;
             let lit: LitStr = input.parse()?;
-            
+
             if ident == "scope" {
                 args.scopes.push(lit.value());
             } else if ident == "any_scope" {
@@ -65,7 +65,9 @@ impl Parse for DomainArgs {
         }
         input.parse::<Token![=]>()?;
         let lit: LitStr = input.parse()?;
-        Ok(DomainArgs { domain: lit.value() })
+        Ok(DomainArgs {
+            domain: lit.value(),
+        })
     }
 }
 
@@ -82,14 +84,18 @@ pub fn rbac_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
         if let syn::ImplItem::Fn(method) = impl_item {
             for attr in &mut method.attrs {
                 if attr.path().is_ident("rbac") {
-                    let attr_tokens = attr.meta.require_list().map(|l| l.tokens.clone()).unwrap_or_default();
-                    
+                    let attr_tokens = attr
+                        .meta
+                        .require_list()
+                        .map(|l| l.tokens.clone())
+                        .unwrap_or_default();
+
                     if let Ok(rbac_args) = syn::parse2::<RbacArgs>(attr_tokens) {
                         let mut new_args = proc_macro2::TokenStream::new();
-                        
+
                         // Inject domain
                         new_args.extend(quote! { domain = #domain, });
-                        
+
                         for action in rbac_args.actions {
                             new_args.extend(quote! { action = #action, });
                         }
@@ -102,11 +108,11 @@ pub fn rbac_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
                         for scope in rbac_args.any_scopes {
                             new_args.extend(quote! { any_scope = #scope, });
                         }
-                        
+
                         if let Some(profile) = rbac_args.profile {
                             new_args.extend(quote! { profile = #profile, });
                         }
-                        
+
                         let new_attr: Attribute = syn::parse_quote!( #[rbac(#new_args)] );
                         *attr = new_attr;
                     }
@@ -149,7 +155,10 @@ fn extract_claims_ident(input_fn: &ItemFn) -> Option<syn::Ident> {
 fn is_tonic_result(output: &syn::ReturnType) -> bool {
     if let syn::ReturnType::Type(_, ty) = output {
         let ty_str = quote!(#ty).to_string().replace(" ", "");
-        ty_str.contains(",Status>") || ty_str.contains(",tonic::Status>") || ty_str.contains("tonic::Response<") || ty_str.contains("Response<")
+        ty_str.contains(",Status>")
+            || ty_str.contains(",tonic::Status>")
+            || ty_str.contains("tonic::Response<")
+            || ty_str.contains("Response<")
     } else {
         false
     }
@@ -177,10 +186,10 @@ fn generate_domain_check_block(
     for any_action in &args.any_actions {
         actions_exprs.push(quote! { crate::rbac::get_policy(#domain, #any_action) });
     }
-    
+
     let scopes_iter = args.scopes.iter();
     let any_scopes_iter = args.any_scopes.iter();
-    
+
     quote! {
         let mut all_scopes_dyn: Vec<&str> = Vec::new();
         let mut any_scopes_dyn: Vec<&str> = Vec::new();
@@ -189,13 +198,13 @@ fn generate_domain_check_block(
             all_scopes_dyn.extend(all);
             any_scopes_dyn.extend(any);
         )*
-        
+
         let static_scopes: &[&str] = &[ #(#scopes_iter),* ];
         all_scopes_dyn.extend(static_scopes);
-        
+
         let static_any_scopes: &[&str] = &[ #(#any_scopes_iter),* ];
         any_scopes_dyn.extend(static_any_scopes);
-        
+
         let claims_opt = #claims_expr;
         if let Err(e) = crate::rbac::verify_permission(claims_opt, #profile_expr, &all_scopes_dyn, &any_scopes_dyn) {
             #err_return
@@ -214,7 +223,7 @@ fn generate_static_check_block(
 
     let any_scopes_iter = args.any_scopes.iter();
     let any_scopes_expr = quote! { &[ #(#any_scopes_iter),* ] };
-    
+
     quote! {
         let claims_opt = #claims_expr;
         if let Err(e) = crate::rbac::verify_permission(claims_opt, #profile_expr, #all_scopes_expr, #any_scopes_expr) {

@@ -1,9 +1,9 @@
-use cowen_common::CowenResult;
 use chrono::Utc;
+use cowen_common::models::AuditEntry;
+use cowen_common::vault::Vault;
+use cowen_common::CowenResult;
 use std::sync::Arc;
 use uuid::Uuid;
-use cowen_common::vault::Vault;
-use cowen_common::models::AuditEntry;
 
 pub struct AuditStore;
 
@@ -12,7 +12,11 @@ impl AuditStore {
         vault.save_audit(entry).await
     }
 
-    pub async fn list(vault: &dyn Vault, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>> {
+    pub async fn list(
+        vault: &dyn Vault,
+        profile: &str,
+        limit: usize,
+    ) -> CowenResult<Vec<AuditEntry>> {
         vault.list_audit(profile, limit).await
     }
 }
@@ -32,7 +36,11 @@ impl<S> tracing_subscriber::Layer<S> for VaultAuditLayer
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
 {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
         let metadata = event.metadata();
         if metadata.target() != "audit" {
             return;
@@ -48,11 +56,13 @@ where
         let mut visitor = JsonVisitor(&mut fields);
         event.record(&mut visitor);
 
-        let profile = fields.remove("profile")
+        let profile = fields
+            .remove("profile")
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "default".to_string());
-        
-        let message = fields.remove("message")
+
+        let message = fields
+            .remove("message")
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_default();
 
@@ -77,22 +87,29 @@ struct JsonVisitor<'a>(&'a mut serde_json::Map<String, serde_json::Value>);
 
 impl<'a> tracing::field::Visit for JsonVisitor<'a> {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.0.insert(field.name().to_string(), serde_json::json!(format!("{:?}", value)));
+        self.0.insert(
+            field.name().to_string(),
+            serde_json::json!(format!("{:?}", value)),
+        );
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.0.insert(field.name().to_string(), serde_json::json!(value));
+        self.0
+            .insert(field.name().to_string(), serde_json::json!(value));
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.0.insert(field.name().to_string(), serde_json::json!(value));
+        self.0
+            .insert(field.name().to_string(), serde_json::json!(value));
     }
 
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.0.insert(field.name().to_string(), serde_json::json!(value));
+        self.0
+            .insert(field.name().to_string(), serde_json::json!(value));
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.0.insert(field.name().to_string(), serde_json::json!(value));
+        self.0
+            .insert(field.name().to_string(), serde_json::json!(value));
     }
 }

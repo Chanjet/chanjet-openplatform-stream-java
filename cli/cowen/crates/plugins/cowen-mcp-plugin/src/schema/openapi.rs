@@ -59,6 +59,35 @@ pub fn build_schema_from_openapi(
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
 
+    extract_path_query_parameters(operation, components, &mut properties, &mut required);
+    extract_missing_path_parameters(path, &mut properties, &mut required);
+    let body_params = extract_request_body(operation, components, &mut properties, &mut required);
+
+    let mut schema = json!({
+        "type": "object",
+        "properties": properties,
+    });
+
+    if !required.is_empty() {
+        required.sort();
+        required.dedup();
+        schema
+            .as_object_mut()
+            .unwrap()
+            .insert("required".to_string(), json!(required));
+    }
+
+    let output_schema = extract_response_schema(operation, components);
+
+    (schema, output_schema, body_params)
+}
+
+fn extract_path_query_parameters(
+    operation: &serde_json::Value,
+    components: &serde_json::Value,
+    properties: &mut serde_json::Map<String, serde_json::Value>,
+    required: &mut Vec<String>,
+) {
     if let Some(params) = operation.get("parameters").and_then(|p| p.as_array()) {
         for param in params {
             let mut param_obj = param.clone();
@@ -91,7 +120,13 @@ pub fn build_schema_from_openapi(
             }
         }
     }
+}
 
+fn extract_missing_path_parameters(
+    path: &str,
+    properties: &mut serde_json::Map<String, serde_json::Value>,
+    required: &mut Vec<String>,
+) {
     let re = Regex::new(r"\{([a-zA-Z0-9_]+)\}").unwrap();
     for cap in re.captures_iter(path) {
         let param = cap[1].to_string();
@@ -106,7 +141,69 @@ pub fn build_schema_from_openapi(
             required.push(param);
         }
     }
+}
 
+fn process_object_body(
+    body_schema: &serde_json::Value,
+    is_body_req: bool,
+    properties: &mut serde_json::Map<String, serde_json::Value>,
+    required: &mut Vec<String>,
+    body_params: &mut Vec<String>,
+) {
+    if let Some(body_props) = body_schema.get("properties").and_then(|p| p.as_object()) {
+        for (k, v) in body_props {
+            properties.insert(k.clone(), v.clone());
+            body_params.push(k.clone());
+        }
+    }
+    if let Some(body_req) = body_schema.get("required").and_then(|r| r.as_array()) {
+        for req_key in body_req {
+            if let Some(req_str) = req_key.as_str() {
+                if is_body_req {
+                    required.push(req_str.to_string());
+                }
+            }
+        }
+    }
+}
+
+fn process_scalar_body(
+    mut body_schema: serde_json::Value,
+    is_body_req: bool,
+    req_desc: &str,
+    properties: &mut serde_json::Map<String, serde_json::Value>,
+    required: &mut Vec<String>,
+    body_params: &mut Vec<String>,
+) {
+    let schema_desc = body_schema
+        .get("description")
+        .and_then(|d| d.as_str())
+        .unwrap_or("");
+    let mut final_desc = String::from("JSON payload for the request body. ");
+    if !req_desc.is_empty() {
+        final_desc.push_str(req_desc);
+        final_desc.push_str(" ");
+    }
+    if !schema_desc.is_empty() && schema_desc != req_desc {
+        final_desc.push_str(schema_desc);
+    }
+
+    if let Some(obj) = body_schema.as_object_mut() {
+        obj.insert("description".to_string(), json!(final_desc.trim()));
+    }
+    properties.insert("body_payload".to_string(), body_schema);
+    body_params.push("body_payload".to_string());
+    if is_body_req {
+        required.push("body_payload".to_string());
+    }
+}
+
+fn extract_request_body(
+    operation: &serde_json::Value,
+    components: &serde_json::Value,
+    properties: &mut serde_json::Map<String, serde_json::Value>,
+    required: &mut Vec<String>,
+) -> Vec<String> {
     let mut body_params = Vec::new();
 
     if let Some(req_body) = operation.get("requestBody") {
@@ -137,124 +234,87 @@ pub fn build_schema_from_openapi(
                 .is_some();
 
             if is_object && has_properties {
-                if let Some(body_props) = body_schema.get("properties").and_then(|p| p.as_object())
-                {
-                    for (k, v) in body_props {
-                        properties.insert(k.clone(), v.clone());
-                        body_params.push(k.clone());
-                    }
-                }
-                if let Some(body_req) = body_schema.get("required").and_then(|r| r.as_array()) {
-                    for req_key in body_req {
-                        if let Some(req_str) = req_key.as_str() {
-                            if is_body_req {
-                                required.push(req_str.to_string());
-                            }
-                        }
-                    }
-                }
+                process_object_body(&body_schema, is_body_req, properties, required, &mut body_params);
             } else {
-                let schema_desc = body_schema
-                    .get("description")
-                    .and_then(|d| d.as_str())
-                    .unwrap_or("");
-                let mut final_desc = String::from("JSON payload for the request body. ");
-                if !req_desc.is_empty() {
-                    final_desc.push_str(req_desc);
-                    final_desc.push_str(" ");
-                }
-                if !schema_desc.is_empty() && schema_desc != req_desc {
-                    final_desc.push_str(schema_desc);
-                }
-
-                if let Some(obj) = body_schema.as_object_mut() {
-                    obj.insert("description".to_string(), json!(final_desc.trim()));
-                }
-                properties.insert("body_payload".to_string(), body_schema);
-                body_params.push("body_payload".to_string());
-                if is_body_req {
-                    required.push("body_payload".to_string());
-                }
+                process_scalar_body(body_schema, is_body_req, req_desc, properties, required, &mut body_params);
             }
         }
     }
 
-    let mut schema = json!({
-        "type": "object",
-        "properties": properties,
-    });
+    body_params
+}
 
-    if !required.is_empty() {
-        required.sort();
-        required.dedup();
-        schema
-            .as_object_mut()
-            .unwrap()
-            .insert("required".to_string(), json!(required));
-    }
-
-    let mut output_schema = None;
-    let mut ok_resp = None;
+fn get_ok_response(operation: &serde_json::Value) -> Option<serde_json::Value> {
     if let Some(responses) = operation.get("responses").and_then(|r| r.as_object()) {
         for key in &["200", "201", "202", "204", "default"] {
             if let Some(resp) = responses.get(*key) {
-                ok_resp = Some(resp.clone());
-                break;
+                return Some(resp.clone());
             }
         }
-        if ok_resp.is_none() {
-            for (k, v) in responses {
-                if k.starts_with('2') || k == "default" {
-                    ok_resp = Some(v.clone());
-                    break;
-                }
+        for (k, v) in responses {
+            if k.starts_with('2') || k == "default" {
+                return Some(v.clone());
             }
         }
     }
+    None
+}
 
-    if let Some(mut resp_obj) = ok_resp {
+fn find_json_schema(resp_obj: &serde_json::Value) -> Option<(serde_json::Value, serde_json::Value)> {
+    if let Some(content) = resp_obj.get("content").and_then(|c| c.as_object()) {
+        for (mime, media_type) in content {
+            if mime.starts_with("application/json") || mime.contains("json") {
+                if let Some(s) = media_type.get("schema") {
+                    return Some((s.clone(), media_type.clone()));
+                }
+            }
+        }
+        for (_, media_type) in content {
+            if let Some(s) = media_type.get("schema") {
+                return Some((s.clone(), media_type.clone()));
+            }
+        }
+    }
+    None
+}
+
+fn ensure_array_schema(mut schema: serde_json::Value, media_type: &serde_json::Value) -> serde_json::Value {
+    let has_array_type = media_type
+        .get("type")
+        .and_then(|t| t.as_str())
+        .map(|t| t == "array")
+        .unwrap_or(false)
+        || media_type
+            .get("types")
+            .and_then(|ts| ts.as_array())
+            .map(|arr| arr.iter().any(|val| val.as_str() == Some("array")))
+            .unwrap_or(false);
+
+    if has_array_type {
+        let schema_type = schema.get("type").and_then(|t| t.as_str());
+        if schema_type != Some("array") {
+            schema = serde_json::json!({
+                "type": "array",
+                "items": schema
+            });
+        }
+    }
+    schema
+}
+
+fn extract_response_schema(
+    operation: &serde_json::Value,
+    components: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    if let Some(mut resp_obj) = get_ok_response(operation) {
         resolve_refs(&mut resp_obj, components, 0);
-        let mut schema_val = None;
-        if let Some(content) = resp_obj.get("content").and_then(|c| c.as_object()) {
-            for (mime, media_type) in content {
-                if mime.starts_with("application/json") || mime.contains("json") {
-                    if let Some(s) = media_type.get("schema") {
-                        schema_val = Some((s.clone(), media_type.clone()));
-                        break;
-                    }
-                }
-            }
-            if schema_val.is_none() {
-                for (_, media_type) in content {
-                    if let Some(s) = media_type.get("schema") {
-                        schema_val = Some((s.clone(), media_type.clone()));
-                        break;
-                    }
-                }
-            }
-        }
-
-        if let Some((mut schema, media_type)) = schema_val {
+        
+        if let Some((mut schema, media_type)) = find_json_schema(&resp_obj) {
             resolve_refs(&mut schema, components, 0);
-
-            let has_array_type = media_type.get("type").and_then(|t| t.as_str()).map(|t| t == "array").unwrap_or(false)
-                || media_type.get("types").and_then(|ts| ts.as_array()).map(|arr| arr.iter().any(|val| val.as_str() == Some("array"))).unwrap_or(false);
-
-            if has_array_type {
-                let schema_type = schema.get("type").and_then(|t| t.as_str());
-                if schema_type != Some("array") {
-                    schema = serde_json::json!({
-                        "type": "array",
-                        "items": schema
-                    });
-                }
-            }
-
-            output_schema = Some(schema);
+            return Some(ensure_array_schema(schema, &media_type));
         }
     }
-
-    (schema, output_schema, body_params)
+    None
 }
 
 #[cfg(test)]
@@ -394,7 +454,15 @@ mod tests {
         });
         let (_, out_schema_201, _) = build_schema_from_openapi("/test", &spec_201_charset);
         assert!(out_schema_201.is_some());
-        assert_eq!(out_schema_201.unwrap().get("type").unwrap().as_str().unwrap(), "object");
+        assert_eq!(
+            out_schema_201
+                .unwrap()
+                .get("type")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "object"
+        );
 
         let spec_fallback_mime = json!({
             "operation": {
@@ -415,7 +483,15 @@ mod tests {
         });
         let (_, out_schema_fallback, _) = build_schema_from_openapi("/test", &spec_fallback_mime);
         assert!(out_schema_fallback.is_some());
-        assert_eq!(out_schema_fallback.unwrap().get("type").unwrap().as_str().unwrap(), "string");
+        assert_eq!(
+            out_schema_fallback
+                .unwrap()
+                .get("type")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "string"
+        );
     }
 
     #[test]

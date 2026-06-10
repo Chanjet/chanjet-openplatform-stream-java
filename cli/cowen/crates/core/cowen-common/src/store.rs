@@ -1,19 +1,27 @@
+use crate::models::{AuditEntry, DlqMessage, Item, Ticket, Token};
 use crate::CowenResult;
 use async_trait::async_trait;
-use crate::models::{Token, Ticket, Item, AuditEntry, DlqMessage};
 use std::sync::Arc;
 
 #[async_trait]
 pub trait Store: Send + Sync {
     // --- Lifecycle ---
-    async fn shutdown(&self) -> CowenResult<()> { Ok(()) }
+    async fn shutdown(&self) -> CowenResult<()> {
+        Ok(())
+    }
 
     // --- Config Domain ---
     async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String>;
     async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)>;
     async fn get_config_full(&self, profile: &str, key: &str) -> CowenResult<Item>;
     async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<()>;
-    async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> CowenResult<()>;
+    async fn set_config_conditional(
+        &self,
+        profile: &str,
+        key: &str,
+        value: &str,
+        expected_version: u64,
+    ) -> CowenResult<()>;
     async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>>;
     async fn delete_config(&self, profile: &str, key: &str) -> CowenResult<()>;
 
@@ -41,13 +49,35 @@ pub trait Store: Send + Sync {
 
     // --- Permanent Code Domain ---
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String>;
-    async fn save_org_permanent_code(&self, app_key: &str, org_id: &str, code: &str) -> CowenResult<()>;
-    async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> CowenResult<String>;
-    async fn save_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str, code: &str) -> CowenResult<()>;
+    async fn save_org_permanent_code(
+        &self,
+        app_key: &str,
+        org_id: &str,
+        code: &str,
+    ) -> CowenResult<()>;
+    async fn get_user_permanent_code(
+        &self,
+        app_key: &str,
+        org_id: &str,
+        user_id: &str,
+    ) -> CowenResult<String>;
+    async fn save_user_permanent_code(
+        &self,
+        app_key: &str,
+        org_id: &str,
+        user_id: &str,
+        code: &str,
+    ) -> CowenResult<()>;
 
     // --- Legacy Support ---
     async fn get_token(&self, profile: &str, key: &str) -> CowenResult<String>;
-    async fn set_token(&self, profile: &str, key: &str, value: &str, expires_in_secs: u64) -> CowenResult<()>;
+    async fn set_token(
+        &self,
+        profile: &str,
+        key: &str,
+        value: &str,
+        expires_in_secs: u64,
+    ) -> CowenResult<()>;
     async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()>;
     async fn list_tokens(&self, profile: &str) -> CowenResult<Vec<String>>;
 
@@ -61,7 +91,12 @@ pub trait Store: Send + Sync {
     async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>>;
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>>;
     async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>>;
-    async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> CowenResult<Vec<DlqMessage>>;
+    async fn list_dlq_paged(
+        &self,
+        profile: &str,
+        offset: usize,
+        limit: usize,
+    ) -> CowenResult<Vec<DlqMessage>>;
     async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()>;
 
     // --- Schema Migration ---
@@ -81,7 +116,12 @@ pub trait Store: Send + Sync {
 #[async_trait]
 pub trait StoreBuilder: Send + Sync {
     fn scheme(&self) -> &str;
-    async fn build(&self, url: &str, app_dir: &std::path::Path, fingerprint: &str) -> CowenResult<Arc<dyn Store>>;
+    async fn build(
+        &self,
+        url: &str,
+        app_dir: &std::path::Path,
+        fingerprint: &str,
+    ) -> CowenResult<Arc<dyn Store>>;
 }
 
 pub struct StoreBuilderRegistration {

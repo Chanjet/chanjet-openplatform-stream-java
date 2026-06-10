@@ -66,6 +66,82 @@ impl DefaultApiRegistry {
     pub fn new(vault: Arc<dyn Vault>, cfg_mgr: ConfigManager, native_search: Arc<dyn crate::internal::native_search::NativeSearchCapability>) -> Self {
         Self { vault, cfg_mgr, native_search }
     }
+
+    async fn validate_api_call(&self, profile: &str, config: &cowen_common::config::Config, req: &DomainCallApiRequest, method_upper: &str, body_option: &Option<String>) -> Result<(), CowenError> {
+        let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
+        if !auth_cli.supports_api_call(config) {
+            return Err(CowenError::Validation(format!("Auth mode {:?} does not support direct CLI API calls.", config.app_mode)));
+        }
+
+        if !req.force {
+            let spec_str = match auth_cli.get_openapi_spec(profile, config, false).await {
+                Ok(spec) => spec.to_string(),
+                Err(e) => return Err(CowenError::Internal(e.to_string()))
+            };
+            if let Ok(spec) = serde_json::from_str::<serde_json::Value>(&spec_str) {
+                if let Err(e) = cowen_common::openapi::validate_request(&spec, method_upper, &req.path, body_option) {
+                    return Err(CowenError::Validation(format!("OpenAPI validation failed: {}", e)));
+                }
+                let path_no_query = req.path.split('?').next().unwrap_or(&req.path);
+                if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
+                    return Err(CowenError::Auth(format!("CLI Rejected: Target path {} is not in the OpenAPI whitelist.", path_no_query)));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn execute_http_api_call(&self, profile: &str, config: &cowen_common::config::Config, app_cfg: &cowen_common::config::AppConfig, req: &DomainCallApiRequest, method_upper: &str, body_option: &Option<String>) -> Result<DomainCallApiResponse, CowenError> {
+        let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
+        let token = match auth_cli.get_token(profile, config, &reqwest::header::HeaderMap::new()).await {
+            Ok(t) => t,
+            Err(e) => return Err(CowenError::Internal(format!("Failed to get token: {}", e)))
+        };
+
+        let ua = cowen_infra::get_user_agent("0.4.0");
+        let client = match cowen_infra::create_client(&ua) {
+            Ok(c) => c,
+            Err(e) => return Err(CowenError::Internal(e.to_string()))
+        };
+        let url = if req.path.starts_with("http") {
+            req.path.clone()
+        } else {
+            let base = app_cfg.openapi_url.trim_end_matches('/');
+            format!("{}{}", base, req.path)
+        };
+
+        let method_enum = match reqwest::Method::from_bytes(method_upper.as_bytes()) {
+            Ok(m) => m,
+            Err(_) => return Err(CowenError::Validation(format!("Invalid HTTP method: {}", method_upper)))
+        };
+
+        let mut api_req = client.request(method_enum, &url)
+            .header("openToken", token.value)
+            .header("appKey", config.app_key.trim());
+
+        if let Some(b) = body_option {
+            let json_body: serde_json::Value = match serde_json::from_str(b) {
+                Ok(j) => j,
+                Err(e) => return Err(CowenError::Validation(format!("Invalid JSON payload: {}", e)))
+            };
+            api_req = api_req.json(&json_body);
+        }
+
+        match api_req.send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let mut headers_map = std::collections::HashMap::new();
+                for (k, v) in resp.headers().iter() {
+                    if let Ok(v_str) = v.to_str() {
+                        headers_map.insert(k.to_string(), v_str.to_string());
+                    }
+                }
+                let body = resp.text().await.unwrap_or_default();
+                Ok(DomainCallApiResponse { status: status as u32, headers: headers_map, body, error_message: None })
+            }
+            Err(e) => Ok(DomainCallApiResponse { status: 520, headers: std::collections::HashMap::new(), body: "".to_string(), error_message: Some(format!("Request failed: {}", e)) })
+        }
+    }
 }
 
 #[rbac_controller(domain = "native.api.registry")]
@@ -105,17 +181,13 @@ impl NativeApiRegistryCapability for DefaultApiRegistry {
 
     #[rbac(action = "execute")]
     async fn call_api(&self, _claims: Option<&cowen_common::jwt::IpcClaims>, req: DomainCallApiRequest) -> Result<DomainCallApiResponse, CowenError> {
-        let profile = req.profile;
+        let profile = req.profile.clone();
         info!("CallApi requested for profile={} method={} path={}", profile, req.method, req.path);
         
         let config = match self.cfg_mgr.load(&profile).await {
             Ok(c) => c,
             Err(e) => return Err(CowenError::NotFound(e.to_string()))
         };
-        let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
-        if !auth_cli.supports_api_call(&config) {
-            return Err(CowenError::Validation(format!("Auth mode {:?} does not support direct CLI API calls.", config.app_mode)));
-        }
 
         let app_cfg = match self.cfg_mgr.load_app_config().await {
             Ok(c) => c,
@@ -130,74 +202,13 @@ impl NativeApiRegistryCapability for DefaultApiRegistry {
 
         let method_upper = req.method.to_uppercase();
 
-        if !req.force {
-            let spec_str = match auth_cli.get_openapi_spec(&profile, &config, false).await {
-                Ok(spec) => spec.to_string(),
-                Err(e) => return Err(CowenError::Internal(e.to_string()))
-            };
-            if let Ok(spec) = serde_json::from_str::<serde_json::Value>(&spec_str) {
-                if let Err(e) = cowen_common::openapi::validate_request(&spec, &method_upper, &req.path, &body_option) {
-                    return Err(CowenError::Validation(format!("OpenAPI validation failed: {}", e)));
-                }
-                let path_no_query = req.path.split('?').next().unwrap_or(&req.path);
-                if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
-                    return Err(CowenError::Auth(format!("CLI Rejected: Target path {} is not in the OpenAPI whitelist.", path_no_query)));
-                }
-            }
-        }
+        self.validate_api_call(&profile, &config, &req, &method_upper, &body_option).await?;
 
         if req.path.starts_with("http") && !req.path.starts_with(&app_cfg.openapi_url) {
             return Err(CowenError::Auth("CLI Security Block: Absolute external URLs are not allowed.".to_string()));
         }
 
-        let token = match auth_cli.get_token(&profile, &config, &reqwest::header::HeaderMap::new()).await {
-            Ok(t) => t,
-            Err(e) => return Err(CowenError::Internal(format!("Failed to get token: {}", e)))
-        };
-
-        let ua = cowen_infra::get_user_agent("0.4.0");
-        let client = match cowen_infra::create_client(&ua) {
-            Ok(c) => c,
-            Err(e) => return Err(CowenError::Internal(e.to_string()))
-        };
-        let url = if req.path.starts_with("http") {
-            req.path.clone()
-        } else {
-            let base = app_cfg.openapi_url.trim_end_matches('/');
-            format!("{}{}", base, req.path)
-        };
-
-        let method_enum = match reqwest::Method::from_bytes(method_upper.as_bytes()) {
-            Ok(m) => m,
-            Err(_) => return Err(CowenError::Validation(format!("Invalid HTTP method: {}", method_upper)))
-        };
-
-        let mut api_req = client.request(method_enum, &url)
-            .header("openToken", token.value)
-            .header("appKey", config.app_key.trim());
-
-        if let Some(b) = body_option {
-            let json_body: serde_json::Value = match serde_json::from_str(&b) {
-                Ok(j) => j,
-                Err(e) => return Err(CowenError::Validation(format!("Invalid JSON payload: {}", e)))
-            };
-            api_req = api_req.json(&json_body);
-        }
-
-        match api_req.send().await {
-            Ok(resp) => {
-                let status = resp.status().as_u16();
-                let mut headers_map = std::collections::HashMap::new();
-                for (k, v) in resp.headers().iter() {
-                    if let Ok(v_str) = v.to_str() {
-                        headers_map.insert(k.to_string(), v_str.to_string());
-                    }
-                }
-                let body = resp.text().await.unwrap_or_default();
-                Ok(DomainCallApiResponse { status: status as u32, headers: headers_map, body, error_message: None })
-            }
-            Err(e) => Ok(DomainCallApiResponse { status: 520, headers: std::collections::HashMap::new(), body: "".to_string(), error_message: Some(format!("Request failed: {}", e)) })
-        }
+        self.execute_http_api_call(&profile, &config, &app_cfg, &req, &method_upper, &body_option).await
     }
 
     #[rbac(action = "search")]

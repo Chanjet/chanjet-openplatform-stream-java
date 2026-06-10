@@ -1,8 +1,15 @@
-pub fn validate_json_against_schema(value: &serde_json::Value, schema: &serde_json::Value) -> Result<(), String> {
+pub fn validate_json_against_schema(
+    value: &serde_json::Value,
+    schema: &serde_json::Value,
+) -> Result<(), String> {
     if let serde_json::Value::Bool(b) = schema {
-        if *b { return Ok(()); } else { return Err("Schema is false".to_string()); }
+        if *b {
+            return Ok(());
+        } else {
+            return Err("Schema is false".to_string());
+        }
     }
-    
+
     let schema_obj = match schema.as_object() {
         Some(o) => o,
         None => return Ok(()),
@@ -10,79 +17,102 @@ pub fn validate_json_against_schema(value: &serde_json::Value, schema: &serde_js
 
     if let Some(type_val) = schema_obj.get("type").and_then(|t| t.as_str()) {
         match type_val {
-            "object" => {
-                if !value.is_object() {
-                    return Err(format!("Expected object, found {}", get_type_name(value)));
-                }
-                let val_obj = value.as_object().unwrap();
-                
-                if let Some(required_arr) = schema_obj.get("required").and_then(|r| r.as_array()) {
-                    for req_field in required_arr {
-                        if let Some(field_name) = req_field.as_str() {
-                            if !val_obj.contains_key(field_name) {
-                                return Err(format!("Missing required property '{}'", field_name));
-                            }
-                        }
-                    }
-                }
-
-                if let Some(properties_obj) = schema_obj.get("properties").and_then(|p| p.as_object()) {
-                    for (prop_name, prop_schema) in properties_obj {
-                        if let Some(prop_value) = val_obj.get(prop_name) {
-                            validate_json_against_schema(prop_value, prop_schema)
-                                .map_err(|e| format!("Property '{}' failed validation: {}", prop_name, e))?;
-                        }
-                    }
-                }
-            }
-            "array" => {
-                if !value.is_array() {
-                    return Err(format!("Expected array, found {}", get_type_name(value)));
-                }
-                let val_arr = value.as_array().unwrap();
-
-                if let Some(items_schema) = schema_obj.get("items") {
-                    for (idx, item_val) in val_arr.iter().enumerate() {
-                        validate_json_against_schema(item_val, items_schema)
-                            .map_err(|e| format!("Item at index {} failed validation: {}", idx, e))?;
-                    }
-                }
-            }
-            "string" => {
-                if !value.is_string() {
-                    return Err(format!("Expected string, found {}", get_type_name(value)));
-                }
-            }
-            "number" => {
-                if !value.is_number() {
-                    return Err(format!("Expected number, found {}", get_type_name(value)));
-                }
-            }
-            "integer" => {
-                if !value.is_i64() && !value.is_u64() {
-                    if let Some(f) = value.as_f64() {
-                        if f.fract() != 0.0 {
-                            return Err(format!("Expected integer, found fractional number {}", f));
-                        }
-                    } else {
-                        return Err(format!("Expected integer, found {}", get_type_name(value)));
-                    }
-                }
-            }
-            "boolean" => {
-                if !value.is_boolean() {
-                    return Err(format!("Expected boolean, found {}", get_type_name(value)));
-                }
-            }
-            "null" => {
-                if !value.is_null() {
-                    return Err(format!("Expected null, found {}", get_type_name(value)));
-                }
-            }
+            "object" => validate_object(value, schema_obj)?,
+            "array" => validate_array(value, schema_obj)?,
+            "string" => validate_string(value)?,
+            "number" => validate_number(value)?,
+            "integer" => validate_integer(value)?,
+            "boolean" => validate_boolean(value)?,
+            "null" => validate_null(value)?,
             _ => {}
         }
     }
 
+    Ok(())
+}
+
+fn validate_object(value: &serde_json::Value, schema_obj: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    if !value.is_object() {
+        return Err(format!("Expected object, found {}", get_type_name(value)));
+    }
+    let val_obj = value.as_object().unwrap();
+
+    if let Some(required_arr) = schema_obj.get("required").and_then(|r| r.as_array()) {
+        for req_field in required_arr {
+            if let Some(field_name) = req_field.as_str() {
+                if !val_obj.contains_key(field_name) {
+                    return Err(format!("Missing required property '{}'", field_name));
+                }
+            }
+        }
+    }
+
+    if let Some(properties_obj) = schema_obj.get("properties").and_then(|p| p.as_object()) {
+        for (prop_name, prop_schema) in properties_obj {
+            if let Some(prop_value) = val_obj.get(prop_name) {
+                validate_json_against_schema(prop_value, prop_schema).map_err(|e| {
+                    format!("Property '{}' failed validation: {}", prop_name, e)
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_array(value: &serde_json::Value, schema_obj: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    if !value.is_array() {
+        return Err(format!("Expected array, found {}", get_type_name(value)));
+    }
+    let val_arr = value.as_array().unwrap();
+
+    if let Some(items_schema) = schema_obj.get("items") {
+        for (idx, item_val) in val_arr.iter().enumerate() {
+            validate_json_against_schema(item_val, items_schema).map_err(|e| {
+                format!("Item at index {} failed validation: {}", idx, e)
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_string(value: &serde_json::Value) -> Result<(), String> {
+    if !value.is_string() {
+        return Err(format!("Expected string, found {}", get_type_name(value)));
+    }
+    Ok(())
+}
+
+fn validate_number(value: &serde_json::Value) -> Result<(), String> {
+    if !value.is_number() {
+        return Err(format!("Expected number, found {}", get_type_name(value)));
+    }
+    Ok(())
+}
+
+fn validate_integer(value: &serde_json::Value) -> Result<(), String> {
+    if !value.is_i64() && !value.is_u64() {
+        if let Some(f) = value.as_f64() {
+            if f.fract() != 0.0 {
+                return Err(format!("Expected integer, found fractional number {}", f));
+            }
+        } else {
+            return Err(format!("Expected integer, found {}", get_type_name(value)));
+        }
+    }
+    Ok(())
+}
+
+fn validate_boolean(value: &serde_json::Value) -> Result<(), String> {
+    if !value.is_boolean() {
+        return Err(format!("Expected boolean, found {}", get_type_name(value)));
+    }
+    Ok(())
+}
+
+fn validate_null(value: &serde_json::Value) -> Result<(), String> {
+    if !value.is_null() {
+        return Err(format!("Expected null, found {}", get_type_name(value)));
+    }
     Ok(())
 }
 

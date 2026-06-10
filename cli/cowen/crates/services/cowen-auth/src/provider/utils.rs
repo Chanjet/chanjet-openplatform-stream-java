@@ -18,9 +18,7 @@ pub fn check_decryption_key_format(
         )
     } else {
         let key_len = if decrypt_key.len() == 32 {
-            if decrypt_key
-                .len()
-                .is_multiple_of(2)
+            if decrypt_key.len().is_multiple_of(2)
                 && decrypt_key.chars().all(|c| c.is_ascii_hexdigit())
             {
                 16
@@ -68,10 +66,7 @@ pub fn wrap_auth_entries(auth_entries: Vec<StatusEntry>) -> Option<StatusEntry> 
 
     Some(
         StatusEntry::new(
-            CommonTemplate::ProviderSummary(
-                "Authentication Status".to_string(),
-                "🔐".to_string(),
-            ),
+            CommonTemplate::ProviderSummary("Authentication Status".to_string(), "🔐".to_string()),
             max_level,
             format!("Collected {} status indicators", auth_entries.len()),
         )

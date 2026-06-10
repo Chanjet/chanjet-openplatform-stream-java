@@ -52,7 +52,8 @@ pub struct McpState {
 
 impl McpState {
     pub fn supports_feature(&self, feature: &crate::capabilities::McpFeature) -> bool {
-        crate::capabilities::get_global_registry().supports(feature, self.protocol_version.as_deref())
+        crate::capabilities::get_global_registry()
+            .supports(feature, self.protocol_version.as_deref())
     }
 }
 

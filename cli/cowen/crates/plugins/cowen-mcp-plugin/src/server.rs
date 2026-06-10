@@ -1,5 +1,5 @@
+use crate::handlers::{handle_initialize, handle_tools_call, handle_tools_list};
 use crate::protocol::{AppState, JsonRpcError, JsonRpcRequest, JsonRpcResponse};
-use crate::handlers::{handle_initialize, handle_tools_list, handle_tools_call};
 
 pub async fn handle_request(
     req: JsonRpcRequest,
@@ -40,7 +40,11 @@ mod tests {
     use crate::protocol::EnabledTool;
     use serde_json::json;
 
-    async fn setup_app_state_with_tool(protocol_version: &str, tool_name: &str, output_schema: Option<serde_json::Value>) -> AppState {
+    async fn setup_app_state_with_tool(
+        protocol_version: &str,
+        tool_name: &str,
+        output_schema: Option<serde_json::Value>,
+    ) -> AppState {
         let app_state = AppState::new("test_tenant".to_string());
         let mut state = app_state.mcp_state.lock().await;
         state.protocol_version = Some(protocol_version.to_string());
@@ -48,7 +52,11 @@ mod tests {
             tool_name.to_string(),
             EnabledTool {
                 method: "GET".to_string(),
-                path: if tool_name == "get__v1_array" { "/v1/array".to_string() } else { "/v1/test".to_string() },
+                path: if tool_name == "get__v1_array" {
+                    "/v1/array".to_string()
+                } else {
+                    "/v1/test".to_string()
+                },
                 description: "Test description".to_string(),
                 input_schema: json!({ "type": "object", "properties": {} }),
                 output_schema,
@@ -69,8 +77,9 @@ mod tests {
                 "properties": {
                     "data": { "type": "string" }
                 }
-            }))
-        ).await;
+            })),
+        )
+        .await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -87,7 +96,7 @@ mod tests {
 
         assert_eq!(response.id.unwrap().as_i64().unwrap(), 1);
         let result = response.result.unwrap();
-        
+
         assert_eq!(result.get("structuredContent").unwrap(), &json!({}));
     }
 
@@ -99,8 +108,9 @@ mod tests {
             Some(json!({
                 "type": "array",
                 "items": { "type": "string" }
-            }))
-        ).await;
+            })),
+        )
+        .await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -113,15 +123,30 @@ mod tests {
         let response = resp.unwrap();
         let result = response.result.unwrap();
         let tools = result.get("tools").unwrap().as_array().unwrap();
-        
-        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_array").unwrap();
+
+        let tool = tools
+            .iter()
+            .find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_array")
+            .unwrap();
         let output_schema = tool.get("outputSchema").unwrap();
-        
-        assert_eq!(output_schema.get("type").unwrap().as_str().unwrap(), "object");
+
+        assert_eq!(
+            output_schema.get("type").unwrap().as_str().unwrap(),
+            "object"
+        );
         let properties = output_schema.get("properties").unwrap();
         let value_schema = properties.get("value").unwrap();
         assert_eq!(value_schema.get("type").unwrap().as_str().unwrap(), "array");
-        assert_eq!(value_schema.get("items").unwrap().get("type").unwrap().as_str().unwrap(), "string");
+        assert_eq!(
+            value_schema
+                .get("items")
+                .unwrap()
+                .get("type")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "string"
+        );
         assert_eq!(output_schema.get("required").unwrap(), &json!(["value"]));
     }
 
@@ -176,8 +201,9 @@ mod tests {
         let app_state = setup_app_state_with_tool(
             "2024-10-01",
             "get__v1_test",
-            Some(json!({ "type": "object" }))
-        ).await;
+            Some(json!({ "type": "object" })),
+        )
+        .await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -188,12 +214,25 @@ mod tests {
 
         let (resp, _) = handle_request(req, &app_state).await;
         let response = resp.unwrap();
-        let tools = response.result.unwrap().get("tools").unwrap().as_array().unwrap().clone();
-        
-        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test").unwrap();
+        let tools = response
+            .result
+            .unwrap()
+            .get("tools")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let tool = tools
+            .iter()
+            .find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test")
+            .unwrap();
         assert!(tool.get("outputSchema").is_none());
-        
-        let list_tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "cowen_api_list").unwrap();
+
+        let list_tool = tools
+            .iter()
+            .find(|t| t.get("name").unwrap().as_str().unwrap() == "cowen_api_list")
+            .unwrap();
         assert!(list_tool.get("outputSchema").is_none());
     }
 
@@ -202,8 +241,9 @@ mod tests {
         let app_state = setup_app_state_with_tool(
             "2025-06-18",
             "get__v1_test",
-            Some(json!({ "type": "object" }))
-        ).await;
+            Some(json!({ "type": "object" })),
+        )
+        .await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -214,12 +254,25 @@ mod tests {
 
         let (resp, _) = handle_request(req, &app_state).await;
         let response = resp.unwrap();
-        let tools = response.result.unwrap().get("tools").unwrap().as_array().unwrap().clone();
-        
-        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test").unwrap();
+        let tools = response
+            .result
+            .unwrap()
+            .get("tools")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let tool = tools
+            .iter()
+            .find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test")
+            .unwrap();
         assert!(tool.get("outputSchema").is_some());
-        
-        let list_tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "cowen_api_list").unwrap();
+
+        let list_tool = tools
+            .iter()
+            .find(|t| t.get("name").unwrap().as_str().unwrap() == "cowen_api_list")
+            .unwrap();
         assert!(list_tool.get("outputSchema").is_some());
     }
 
@@ -228,8 +281,9 @@ mod tests {
         let app_state = setup_app_state_with_tool(
             "2024-11-05",
             "get__v1_test",
-            Some(json!({ "type": "object" }))
-        ).await;
+            Some(json!({ "type": "object" })),
+        )
+        .await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -239,9 +293,20 @@ mod tests {
         };
 
         let (resp, _) = handle_request(req, &app_state).await;
-        let tools = resp.unwrap().result.unwrap().get("tools").unwrap().as_array().unwrap().clone();
-        
-        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test").unwrap();
+        let tools = resp
+            .unwrap()
+            .result
+            .unwrap()
+            .get("tools")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let tool = tools
+            .iter()
+            .find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test")
+            .unwrap();
         assert!(tool.get("outputSchema").is_none());
     }
 
@@ -250,8 +315,9 @@ mod tests {
         let app_state = setup_app_state_with_tool(
             "2026-01-01",
             "get__v1_test",
-            Some(json!({ "type": "object" }))
-        ).await;
+            Some(json!({ "type": "object" })),
+        )
+        .await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -261,9 +327,20 @@ mod tests {
         };
 
         let (resp, _) = handle_request(req, &app_state).await;
-        let tools = resp.unwrap().result.unwrap().get("tools").unwrap().as_array().unwrap().clone();
-        
-        let tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test").unwrap();
+        let tools = resp
+            .unwrap()
+            .result
+            .unwrap()
+            .get("tools")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let tool = tools
+            .iter()
+            .find(|t| t.get("name").unwrap().as_str().unwrap() == "get__v1_test")
+            .unwrap();
         assert!(tool.get("outputSchema").is_some());
     }
 
@@ -272,8 +349,9 @@ mod tests {
         let app_state = setup_app_state_with_tool(
             "2024-11-05",
             "get__v1_test",
-            Some(json!({ "type": "object", "properties": { "data": { "type": "string" } } }))
-        ).await;
+            Some(json!({ "type": "object", "properties": { "data": { "type": "string" } } })),
+        )
+        .await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -284,7 +362,7 @@ mod tests {
 
         let (resp, _) = handle_request(req, &app_state).await;
         let result = resp.unwrap().result.unwrap();
-        
+
         assert!(result.get("structuredContent").is_none());
     }
 }

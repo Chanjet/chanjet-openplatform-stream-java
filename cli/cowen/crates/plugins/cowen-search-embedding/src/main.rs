@@ -150,133 +150,8 @@ fn process_line(line: &str) -> JsonRpcResponse {
     };
 
     match req.method.as_str() {
-        "search/update_index" => {
-            let params_val = match req.params {
-                Some(p) => p,
-                None => return missing_params_error(req.id),
-            };
-
-            let params: UpdateIndexParams = match serde_json::from_value(params_val) {
-                Ok(p) => p,
-                Err(e) => return invalid_params_error(req.id, e),
-            };
-
-            let cache_dir = get_app_dir().join("search").join("cache");
-            let cache_file = cache_dir.join(format!("{}.json", &params.tenant_id));
-
-            // Load existing disk cache to reuse unmodified vector embeddings
-            let mut cached_map = std::collections::HashMap::new();
-            if cache_file.exists() {
-                if let Ok(content) = std::fs::read_to_string(&cache_file) {
-                    if let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content) {
-                        for doc in cached_index.docs {
-                            cached_map.insert(doc.id.clone(), doc);
-                        }
-                    }
-                }
-            }
-
-            let mut index = SearchIndex::default();
-            for doc in params.documents {
-                let mut vector = None;
-                if let Some(cached_doc) = cached_map.get(&doc.id) {
-                    if cached_doc.summary == doc.summary && cached_doc.description == doc.description && !cached_doc.vector.is_empty() {
-                        vector = Some(cached_doc.vector.clone());
-                    }
-                }
-
-                if vector.is_none() {
-                    let text = format!("{} {}", doc.summary, doc.description);
-                    if let Ok(v) = engine.embedder.embed(&text) {
-                        vector = Some(v);
-                    }
-                }
-
-                if let Some(v) = vector {
-                    index.push(AiDocument {
-                        id: doc.id,
-                        summary: doc.summary,
-                        description: doc.description,
-                        vector: v,
-                    });
-                }
-            }
-
-            // Update memory index
-            engine.indexes.insert(params.tenant_id.clone(), index.clone());
-
-            // Write back to disk cache
-            let _ = std::fs::create_dir_all(&cache_dir);
-            if let Ok(serialized) = serde_json::to_string(&index) {
-                let _ = std::fs::write(&cache_file, serialized);
-            }
-
-            JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id: req.id,
-                result: Some(json!({ "status": "success" })),
-                error: None,
-            }
-        }
-        "search/query" => {
-            let params_val = match req.params {
-                Some(p) => p,
-                None => return missing_params_error(req.id),
-            };
-
-            let params: QueryParams = match serde_json::from_value(params_val) {
-                Ok(p) => p,
-                Err(e) => return invalid_params_error(req.id, e),
-            };
-
-            // Lazily pre-load index from disk cache if not in memory
-            let has_index = if engine.indexes.contains_key(&params.tenant_id) {
-                true
-            } else {
-                let cache_dir = get_app_dir().join("search").join("cache");
-                let cache_file = cache_dir.join(format!("{}.json", &params.tenant_id));
-                if cache_file.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&cache_file) {
-                        if let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content) {
-                            engine.indexes.insert(params.tenant_id.clone(), cached_index);
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            };
-
-            let results = if has_index {
-                let index = engine.indexes.get(&params.tenant_id).unwrap();
-                if let Ok(query_vector) = engine.embedder.embed(&params.query) {
-                    let raw_results = index.search(&query_vector, &params.query, params.top);
-                    raw_results.into_iter().map(|(score, ai_doc)| {
-                        (score, SearchDocument {
-                            id: ai_doc.id.clone(),
-                            summary: ai_doc.summary.clone(),
-                            description: ai_doc.description.clone(),
-                            vector: ai_doc.vector.clone(),
-                        })
-                    }).collect::<Vec<_>>()
-                } else {
-                    vec![]
-                }
-            } else {
-                vec![]
-            };
-
-            JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id: req.id,
-                result: Some(serde_json::to_value(results).unwrap_or(serde_json::Value::Null)),
-                error: None,
-            }
-        }
+        "search/update_index" => handle_update_index(req.id, req.params, engine),
+        "search/query" => handle_query(req.id, req.params, engine),
         _ => JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id: req.id,
@@ -286,6 +161,149 @@ fn process_line(line: &str) -> JsonRpcResponse {
                 message: format!("Method not found: {}", req.method),
             }),
         },
+    }
+}
+
+fn load_search_cache(cache_file: &std::path::PathBuf) -> std::collections::HashMap<String, AiDocument> {
+    let mut cached_map = std::collections::HashMap::new();
+    if cache_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(cache_file) {
+            if let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content) {
+                for doc in cached_index.docs {
+                    cached_map.insert(doc.id.clone(), doc);
+                }
+            }
+        }
+    }
+    cached_map
+}
+
+fn process_documents_for_index(
+    documents: Vec<SearchDocument>,
+    cached_map: &std::collections::HashMap<String, AiDocument>,
+    engine: &mut SidecarEngine
+) -> SearchIndex {
+    let mut index = SearchIndex::default();
+    for doc in documents {
+        let mut vector = None;
+        if let Some(cached_doc) = cached_map.get(&doc.id) {
+            if cached_doc.summary == doc.summary && cached_doc.description == doc.description && !cached_doc.vector.is_empty() {
+                vector = Some(cached_doc.vector.clone());
+            }
+        }
+
+        if vector.is_none() {
+            let text = format!("{} {}", doc.summary, doc.description);
+            if let Ok(v) = engine.embedder.embed(&text) {
+                vector = Some(v);
+            }
+        }
+
+        if let Some(v) = vector {
+            index.push(AiDocument {
+                id: doc.id,
+                summary: doc.summary,
+                description: doc.description,
+                vector: v,
+            });
+        }
+    }
+    index
+}
+
+fn handle_update_index(req_id: Option<serde_json::Value>, params: Option<serde_json::Value>, engine: &mut SidecarEngine) -> JsonRpcResponse {
+    let params_val = match params {
+        Some(p) => p,
+        None => return missing_params_error(req_id),
+    };
+
+    let params: UpdateIndexParams = match serde_json::from_value(params_val) {
+        Ok(p) => p,
+        Err(e) => return invalid_params_error(req_id, e),
+    };
+
+    let cache_dir = get_app_dir().join("search").join("cache");
+    let cache_file = cache_dir.join(format!("{}.json", &params.tenant_id));
+
+    // Load existing disk cache to reuse unmodified vector embeddings
+    let cached_map = load_search_cache(&cache_file);
+
+    let index = process_documents_for_index(params.documents, &cached_map, engine);
+
+    // Update memory index
+    engine.indexes.insert(params.tenant_id.clone(), index.clone());
+
+    // Write back to disk cache
+    let _ = std::fs::create_dir_all(&cache_dir);
+    if let Ok(serialized) = serde_json::to_string(&index) {
+        let _ = std::fs::write(&cache_file, serialized);
+    }
+
+    JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id: req_id,
+        result: Some(json!({ "status": "success" })),
+        error: None,
+    }
+}
+
+fn handle_query(req_id: Option<serde_json::Value>, params: Option<serde_json::Value>, engine: &mut SidecarEngine) -> JsonRpcResponse {
+    let params_val = match params {
+        Some(p) => p,
+        None => return missing_params_error(req_id),
+    };
+
+    let params: QueryParams = match serde_json::from_value(params_val) {
+        Ok(p) => p,
+        Err(e) => return invalid_params_error(req_id, e),
+    };
+
+    // Lazily pre-load index from disk cache if not in memory
+    let has_index = if engine.indexes.contains_key(&params.tenant_id) {
+        true
+    } else {
+        let cache_dir = get_app_dir().join("search").join("cache");
+        let cache_file = cache_dir.join(format!("{}.json", &params.tenant_id));
+        if cache_file.exists() {
+            if let Ok(content) = std::fs::read_to_string(&cache_file) {
+                if let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content) {
+                    engine.indexes.insert(params.tenant_id.clone(), cached_index);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    };
+
+    let results = if has_index {
+        let index = engine.indexes.get(&params.tenant_id).unwrap();
+        if let Ok(query_vector) = engine.embedder.embed(&params.query) {
+            let raw_results = index.search(&query_vector, &params.query, params.top);
+            raw_results.into_iter().map(|(score, ai_doc)| {
+                (score, SearchDocument {
+                    id: ai_doc.id.clone(),
+                    summary: ai_doc.summary.clone(),
+                    description: ai_doc.description.clone(),
+                    vector: ai_doc.vector.clone(),
+                })
+            }).collect::<Vec<_>>()
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
+    JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id: req_id,
+        result: Some(serde_json::to_value(results).unwrap_or(serde_json::Value::Null)),
+        error: None,
     }
 }
 

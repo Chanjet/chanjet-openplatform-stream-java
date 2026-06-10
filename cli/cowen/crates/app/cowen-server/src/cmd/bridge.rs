@@ -204,12 +204,11 @@ async fn run_stream_client(
                     }
                 };
 
-                let mut json =
-                    if let Ok(content) = std::fs::read_to_string(&status_file) {
-                        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
-                    } else {
-                        serde_json::json!({})
-                    };
+                let mut json = if let Ok(content) = std::fs::read_to_string(&status_file) {
+                    serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+                } else {
+                    serde_json::json!({})
+                };
 
                 json["state"] = serde_json::json!(state_str);
                 if let Some(err) = error_msg {
@@ -244,32 +243,37 @@ async fn run_maintenance_loop(
         let _ = auth.trigger_push(&profile, &config, true).await;
     }
     loop {
-        let mut next_delay = Duration::from_secs(600);
-        if let Err(_e) = auth.on_maintenance_tick(&profile, &config).await {
-            next_delay = Duration::from_secs(60);
-        } else {
-            if let Ok(token) = auth.get_app_access_token(&profile, &config).await {
-                next_delay = crate::cmd::renewer::calculate_next_check_delay(
-                    token.expires_at,
-                    Utc::now(),
-                );
-            }
-            if config.app_mode != cowen_common::models::AuthMode::Oauth2 {
-                match auth
-                    .get_token(&profile, &config, &reqwest::header::HeaderMap::new())
-                    .await
-                {
-                    Ok(t) => {
-                        tracing::info!(target: "sys", profile = %profile, token = %t.value, "Bridge synced token successfully")
-                    }
-                    Err(e) => {
-                        tracing::warn!(target: "sys", profile = %profile, error = %e, "Bridge token sync failed")
-                    }
-                }
-            }
-        }
+        let next_delay = process_maintenance_tick(&auth, &profile, &config).await;
         sleep(next_delay).await;
     }
+}
+
+async fn process_maintenance_tick(
+    auth: &cowen_auth::AuthClient,
+    profile: &str,
+    config: &Config,
+) -> Duration {
+    if let Err(_e) = auth.on_maintenance_tick(profile, config).await {
+        return Duration::from_secs(60);
+    }
+    let mut next_delay = Duration::from_secs(600);
+    if let Ok(token) = auth.get_app_access_token(profile, config).await {
+        next_delay = crate::cmd::renewer::calculate_next_check_delay(token.expires_at, Utc::now());
+    }
+    if config.app_mode != cowen_common::models::AuthMode::Oauth2 {
+        match auth
+            .get_token(profile, config, &reqwest::header::HeaderMap::new())
+            .await
+        {
+            Ok(t) => {
+                tracing::info!(target: "sys", profile = %profile, token = %t.value, "Bridge synced token successfully")
+            }
+            Err(e) => {
+                tracing::warn!(target: "sys", profile = %profile, error = %e, "Bridge token sync failed")
+            }
+        }
+    }
+    next_delay
 }
 
 fn spawn_status_writers(
@@ -336,39 +340,52 @@ async fn execute_graceful_shutdown(
 ) -> Result<()> {
     tracing::info!(target: "sys", profile = %profile, "Shutdown signal received, initiating graceful shutdown sequence.");
 
-    // Phase 1: Stop accepting new streams/events
+    stop_stream_client(profile, requires_stream, client_ptr);
+    drain_active_tasks(profile, shutdown_gate).await;
+    shutdown_storage_layer(profile, vault).await;
+
+    Ok(())
+}
+
+fn stop_stream_client(
+    profile: &str,
+    requires_stream: bool,
+    client_ptr: Arc<connector_sdk::GatewayClient>,
+) {
     if requires_stream {
         tracing::info!(target: "sys", profile = %profile, "Stopping stream client...");
         client_ptr.stop();
     }
+}
 
-    // Phase 2: Draining active tasks
+async fn drain_active_tasks(profile: &str, shutdown_gate: ShutdownGate) {
     let active_count = shutdown_gate.active_count();
     if active_count > 0 {
         tracing::info!(target: "sys", profile = %profile, tasks = active_count, "Waiting for active tasks to complete (up to 10s)...");
 
-        let drain_timeout = tokio::time::timeout(
-            Duration::from_secs(10),
-            shutdown_gate.wait_for_zero()
-        );
+        let drain_timeout =
+            tokio::time::timeout(Duration::from_secs(10), shutdown_gate.wait_for_zero());
 
         match drain_timeout.await {
-            Ok(_) => tracing::info!(target: "sys", profile = %profile, "All active tasks completed gracefully."),
-            Err(_) => tracing::warn!(target: "sys", profile = %profile, "Timeout waiting for active tasks. Forcing shutdown."),
+            Ok(_) => {
+                tracing::info!(target: "sys", profile = %profile, "All active tasks completed gracefully.")
+            }
+            Err(_) => {
+                tracing::warn!(target: "sys", profile = %profile, "Timeout waiting for active tasks. Forcing shutdown.")
+            }
         }
     } else {
         tracing::info!(target: "sys", profile = %profile, "No active tasks, proceeding with shutdown.");
     }
+}
 
-    // Phase 3: Storage layer safe recycle
+async fn shutdown_storage_layer(profile: &str, vault: Arc<dyn Vault>) {
     tracing::info!(target: "sys", profile = %profile, "Shutting down storage connections...");
     if let Err(e) = vault.shutdown().await {
         tracing::error!(target: "sys", profile = %profile, error = %e, "Error shutting down storage");
     } else {
         tracing::info!(target: "sys", profile = %profile, "Storage connections closed gracefully.");
     }
-
-    Ok(())
 }
 
 pub async fn build_client_options(

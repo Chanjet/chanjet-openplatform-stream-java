@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey, errors::Error};
-use std::time::{SystemTime, UNIX_EPOCH};
+use jsonwebtoken::{decode, encode, errors::Error, DecodingKey, EncodingKey, Header, Validation};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -26,7 +26,10 @@ pub struct IpcClaims {
 
 impl IpcClaims {
     pub fn new(sub: String, role: IpcRole, scopes: Vec<String>, lifetime_seconds: usize) -> Self {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
         Self {
             sub,
             role,
@@ -67,10 +70,6 @@ pub fn sign_jwt(claims: &IpcClaims, secret: &[u8]) -> Result<String, Error> {
 pub fn verify_jwt(token: &str, secret: &[u8]) -> Result<IpcClaims, Error> {
     let mut validation = Validation::default();
     validation.leeway = 60; // 60 seconds leeway for clock skew
-    let token_data = decode::<IpcClaims>(
-        token,
-        &DecodingKey::from_secret(secret),
-        &validation,
-    )?;
+    let token_data = decode::<IpcClaims>(token, &DecodingKey::from_secret(secret), &validation)?;
     Ok(token_data.claims)
 }

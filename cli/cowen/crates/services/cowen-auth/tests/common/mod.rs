@@ -39,14 +39,21 @@ impl MockVault {
 #[async_trait]
 impl cowen_common::vault::Vault for MockVault {
     fn primary_store(&self) -> Arc<dyn cowen_store::Store> {
-        self.store.clone().expect("MockVault was not initialized with a store")
+        self.store
+            .clone()
+            .expect("MockVault was not initialized with a store")
     }
 }
 
 #[async_trait]
 impl TokenDomain for MockVault {
     async fn get_access_token(&self, p: &str) -> CowenResult<Token> {
-        self.tokens.lock().await.get(p).cloned().ok_or(CowenError::Auth("not found".to_string()))
+        self.tokens
+            .lock()
+            .await
+            .get(p)
+            .cloned()
+            .ok_or(CowenError::Auth("not found".to_string()))
     }
     async fn save_access_token(&self, p: &str, t: Token) -> CowenResult<()> {
         self.tokens.lock().await.insert(p.to_string(), t);
@@ -57,7 +64,12 @@ impl TokenDomain for MockVault {
         Ok(())
     }
     async fn get_refresh_token(&self, p: &str) -> CowenResult<Token> {
-        self.refresh_tokens.lock().await.get(p).cloned().ok_or(CowenError::Auth("not found".to_string()))
+        self.refresh_tokens
+            .lock()
+            .await
+            .get(p)
+            .cloned()
+            .ok_or(CowenError::Auth("not found".to_string()))
     }
     async fn save_refresh_token(&self, p: &str, t: Token) -> CowenResult<()> {
         self.refresh_tokens.lock().await.insert(p.to_string(), t);
@@ -81,11 +93,19 @@ impl TokenDomain for MockVault {
 #[async_trait]
 impl ConfigDomain for MockVault {
     async fn get_config(&self, _: &str, k: &str) -> CowenResult<String> {
-        self.configs.lock().await.get(k).cloned().unwrap_or_else(|| "".to_string());
+        self.configs
+            .lock()
+            .await
+            .get(k)
+            .cloned()
+            .unwrap_or_else(|| "".to_string());
         Ok("".to_string())
     }
     async fn set_config(&self, _: &str, k: &str, v: &str) -> CowenResult<()> {
-        self.configs.lock().await.insert(k.to_string(), v.to_string());
+        self.configs
+            .lock()
+            .await
+            .insert(k.to_string(), v.to_string());
         Ok(())
     }
     async fn delete_config(&self, _: &str, k: &str) -> CowenResult<()> {
@@ -117,7 +137,13 @@ impl PermanentCodeDomain for MockVault {
     async fn get_user_permanent_code(&self, _: &str, _: &str, _: &str) -> CowenResult<String> {
         Err(CowenError::Auth("not found".to_string()))
     }
-    async fn save_user_permanent_code(&self, _: &str, _: &str, _: &str, _: &str) -> CowenResult<()> {
+    async fn save_user_permanent_code(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> CowenResult<()> {
         Ok(())
     }
 }
@@ -169,27 +195,64 @@ impl AuditDomain for MockVault {
     async fn save_audit(&self, _: &cowen_common::models::AuditEntry) -> CowenResult<()> {
         Ok(())
     }
-    async fn list_audit(&self, _: &str, _: usize) -> CowenResult<Vec<cowen_common::models::AuditEntry>> {
+    async fn list_audit(
+        &self,
+        _: &str,
+        _: usize,
+    ) -> CowenResult<Vec<cowen_common::models::AuditEntry>> {
         Ok(vec![])
     }
 }
 
 #[async_trait]
 impl DlqDomain for MockVault {
-    async fn push_dlq(&self, _: &cowen_common::models::DlqMessage) -> CowenResult<()> { Ok(()) }
-    async fn pop_dlq(&self, _: &str, _: &str) -> CowenResult<Option<cowen_common::models::DlqMessage>> { Ok(None) }
-    async fn list_dlq(&self, _: &str, _: usize) -> CowenResult<Vec<cowen_common::models::DlqMessage>> { Ok(vec![]) }
-    async fn list_all_dlq(&self, _: &str) -> CowenResult<Vec<cowen_common::models::DlqMessage>> { Ok(vec![]) }
-    async fn get_dlq_by_id(&self, _: i64) -> CowenResult<Option<cowen_common::models::DlqMessage>> { Ok(None) }
-    async fn list_dlq_paged(&self, _: &str, _: usize, _: usize) -> CowenResult<Vec<cowen_common::models::DlqMessage>> { Ok(vec![]) }
-    async fn delete_dlq_by_id(&self, _: i64) -> CowenResult<()> { Ok(()) }
+    async fn push_dlq(&self, _: &cowen_common::models::DlqMessage) -> CowenResult<()> {
+        Ok(())
+    }
+    async fn pop_dlq(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> CowenResult<Option<cowen_common::models::DlqMessage>> {
+        Ok(None)
+    }
+    async fn list_dlq(
+        &self,
+        _: &str,
+        _: usize,
+    ) -> CowenResult<Vec<cowen_common::models::DlqMessage>> {
+        Ok(vec![])
+    }
+    async fn list_all_dlq(&self, _: &str) -> CowenResult<Vec<cowen_common::models::DlqMessage>> {
+        Ok(vec![])
+    }
+    async fn get_dlq_by_id(&self, _: i64) -> CowenResult<Option<cowen_common::models::DlqMessage>> {
+        Ok(None)
+    }
+    async fn list_dlq_paged(
+        &self,
+        _: &str,
+        _: usize,
+        _: usize,
+    ) -> CowenResult<Vec<cowen_common::models::DlqMessage>> {
+        Ok(vec![])
+    }
+    async fn delete_dlq_by_id(&self, _: i64) -> CowenResult<()> {
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl ManagementDomain for MockVault {
-    async fn clear_profile(&self, _: &str) -> CowenResult<()> { Ok(()) }
-    async fn rename_profile(&self, _: &str, _: &str) -> CowenResult<()> { Ok(()) }
-    async fn list_all_profiles(&self) -> CowenResult<Vec<String>> { Ok(vec![]) }
+    async fn clear_profile(&self, _: &str) -> CowenResult<()> {
+        Ok(())
+    }
+    async fn rename_profile(&self, _: &str, _: &str) -> CowenResult<()> {
+        Ok(())
+    }
+    async fn list_all_profiles(&self) -> CowenResult<Vec<String>> {
+        Ok(vec![])
+    }
 }
 
 pub struct MockHttpSender {

@@ -1,3 +1,4 @@
+
 #![cfg(feature = "mssql")]
 use async_trait::async_trait;
 use cowen_common::{CowenError, CowenResult};
@@ -7,6 +8,69 @@ use chrono::{DateTime, Utc};
 use cowen_common::models::{AuditEntry, DlqMessage, Item, Ticket, Token};
 use deadpool_tiberius::Pool;
 use std::sync::Arc;
+
+
+macro_rules! tiberius_get_string {
+    ($pool:expr, $sql:expr, $p1:expr, $p2:expr, $err_msg:expr) => {{
+        let mut conn = $pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let row = conn.query($sql, &[&$p1, &$p2])
+            .await.map_err(|e| CowenError::Store(e.to_string()))?
+            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
+            .ok_or_else(|| CowenError::NotFound($err_msg.to_string()))?;
+        let val: &str = row.get(0).ok_or_else(|| CowenError::Store("Null value".to_string()))?;
+        Ok(val.to_string())
+    }};
+    ($pool:expr, $sql:expr, $p1:expr, $err_msg:expr) => {{
+        let mut conn = $pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let row = conn.query($sql, &[&$p1])
+            .await.map_err(|e| CowenError::Store(e.to_string()))?
+            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
+            .ok_or_else(|| CowenError::NotFound($err_msg.to_string()))?;
+        let val: &str = row.get(0).ok_or_else(|| CowenError::Store("Null value".to_string()))?;
+        Ok(val.to_string())
+    }};
+    ($pool:expr, $sql:expr, $p1:expr, $p2:expr, $p3:expr, $err_msg:expr) => {{
+        let mut conn = $pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let row = conn.query($sql, &[&$p1, &$p2, &$p3])
+            .await.map_err(|e| CowenError::Store(e.to_string()))?
+            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
+            .ok_or_else(|| CowenError::NotFound($err_msg.to_string()))?;
+        let val: &str = row.get(0).ok_or_else(|| CowenError::Store("Null value".to_string()))?;
+        Ok(val.to_string())
+    }};
+}
+
+macro_rules! tiberius_execute {
+    ($pool:expr, $sql:expr, $p1:expr) => {{
+        let mut conn = $pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        conn.execute($sql, &[&$p1]).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        Ok(())
+    }};
+    ($pool:expr, $sql:expr, $p1:expr, $p2:expr) => {{
+        let mut conn = $pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        conn.execute($sql, &[&$p1, &$p2]).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        Ok(())
+    }};
+    ($pool:expr, $sql:expr, $p1:expr, $p2:expr, $p3:expr) => {{
+        let mut conn = $pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        conn.execute($sql, &[&$p1, &$p2, &$p3]).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        Ok(())
+    }};
+    ($pool:expr, $sql:expr, $p1:expr, $p2:expr, $p3:expr, $p4:expr) => {{
+        let mut conn = $pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        conn.execute($sql, &[&$p1, &$p2, &$p3, &$p4]).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        Ok(())
+    }};
+}
+
+macro_rules! tiberius_list_strings {
+    ($pool:expr, $sql:expr, $p1:expr) => {{
+        let mut conn = $pool.get().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let stream = conn.query($sql, &[&$p1]).await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let rows = stream.into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        Ok(rows.into_iter().map(|r| r.get::<&str, _>(0).unwrap_or_default().to_string()).collect())
+    }};
+}
 
 pub struct MssqlDriver {
     pool: Pool,
@@ -180,30 +244,8 @@ impl SqlDriver for MssqlDriver {
         Ok(())
     }
 
-    async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let row = conn
-            .query(
-                "SELECT item_value FROM cowen_config WHERE profile = @p1 AND item_key = @p2",
-                &[&profile, &key],
-            )
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| {
-                CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile))
-            })?;
-
-        let val: &str = row
-            .get(0)
-            .ok_or_else(|| CowenError::Store("Null value".to_string()))?;
-        Ok(val.to_string())
+        async fn get_config(&self, profile: &str, key: &str) -> CowenResult<String> {
+        tiberius_get_string!(self.pool, "SELECT item_value FROM cowen_config WHERE profile = @p1 AND item_key = @p2", profile, key, format!("Key '{}' not found in profile '{}'", key, profile))
     }
 
     async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)> {
@@ -245,22 +287,15 @@ impl SqlDriver for MssqlDriver {
         })
     }
 
-    async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute("MERGE cowen_config AS target
+        async fn set_config(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "MERGE cowen_config AS target
                       USING (SELECT @p1, @p2, @p3) AS source (profile, item_key, item_value)
                       ON (target.profile = source.profile AND target.item_key = source.item_key)
                       WHEN MATCHED THEN
                           UPDATE SET item_value = source.item_value, version = version + 1, updated_at = GETUTCDATE()
                       WHEN NOT MATCHED THEN
                           INSERT (profile, item_key, item_value, version, updated_at) VALUES (source.profile, source.item_key, source.item_value, 1, GETUTCDATE());",
-            &[&profile, &key, &value]
-        ).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+            profile, key, value)
     }
 
     async fn set_config_conditional(
@@ -287,124 +322,35 @@ impl SqlDriver for MssqlDriver {
         Ok(())
     }
 
-    async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let rows = conn
-            .query(
-                "SELECT item_key FROM cowen_config WHERE profile = @p1",
-                &[&profile],
-            )
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_first_result()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-
-        Ok(rows
-            .into_iter()
-            .map(|r| r.get::<&str, _>(0).unwrap_or_default().to_string())
-            .collect())
+        async fn list_configs(&self, profile: &str) -> CowenResult<Vec<String>> {
+        tiberius_list_strings!(self.pool, "SELECT item_key FROM cowen_config WHERE profile = @p1", profile)
     }
 
-    async fn delete_config(&self, profile: &str, key: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM cowen_config WHERE profile = @p1 AND item_key = @p2",
-            &[&profile, &key],
-        )
-        .await
-        .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_config(&self, profile: &str, key: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "DELETE FROM cowen_config WHERE profile = @p1 AND item_key = @p2", profile, key)
     }
 
-    async fn get_secret(&self, profile: &str, key: &str) -> CowenResult<String> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let row = conn
-            .query(
-                "SELECT item_value FROM cowen_secret WHERE profile = @p1 AND item_key = @p2",
-                &[&profile, &key],
-            )
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| {
-                CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile))
-            })?;
-
-        let val: &str = row
-            .get(0)
-            .ok_or_else(|| CowenError::Store("Null value".to_string()))?;
-        Ok(val.to_string())
+        async fn get_secret(&self, profile: &str, key: &str) -> CowenResult<String> {
+        tiberius_get_string!(self.pool, "SELECT item_value FROM cowen_secret WHERE profile = @p1 AND item_key = @p2", profile, key, format!("Key '{}' not found in profile '{}'", key, profile))
     }
 
-    async fn set_secret(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute("MERGE cowen_secret AS target
+        async fn set_secret(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "MERGE cowen_secret AS target
                       USING (SELECT @p1, @p2, @p3) AS source (profile, item_key, item_value)
                       ON (target.profile = source.profile AND target.item_key = source.item_key)
                       WHEN MATCHED THEN
                           UPDATE SET item_value = source.item_value, updated_at = GETUTCDATE()
                       WHEN NOT MATCHED THEN
                           INSERT (profile, item_key, item_value, updated_at) VALUES (source.profile, source.item_key, source.item_value, GETUTCDATE());",
-            &[&profile, &key, &value]
-        ).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+            profile, key, value)
     }
 
-    async fn delete_secret(&self, profile: &str, key: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM cowen_secret WHERE profile = @p1 AND item_key = @p2",
-            &[&profile, &key],
-        )
-        .await
-        .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_secret(&self, profile: &str, key: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "DELETE FROM cowen_secret WHERE profile = @p1 AND item_key = @p2", profile, key)
     }
 
-    async fn list_secrets(&self, profile: &str) -> CowenResult<Vec<String>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let rows = conn
-            .query(
-                "SELECT item_key FROM cowen_secret WHERE profile = @p1",
-                &[&profile],
-            )
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_first_result()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-
-        Ok(rows
-            .into_iter()
-            .map(|r| r.get::<&str, _>(0).unwrap_or_default().to_string())
-            .collect())
+        async fn list_secrets(&self, profile: &str) -> CowenResult<Vec<String>> {
+        tiberius_list_strings!(self.pool, "SELECT item_key FROM cowen_secret WHERE profile = @p1", profile)
     }
 
     async fn get_access_token(&self, profile: &str) -> CowenResult<Token> {
@@ -425,37 +371,19 @@ impl SqlDriver for MssqlDriver {
         })
     }
 
-    async fn save_access_token(&self, profile: &str, token: Token) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute("MERGE cowen_tenant_token AS target
+        async fn save_access_token(&self, profile: &str, token: Token) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "MERGE cowen_tenant_token AS target
                       USING (SELECT @p1, 'access_token', @p2, @p3, @p4) AS source (profile, token_type, token_value, expires_at, created_at)
                       ON (target.profile = source.profile AND target.token_type = source.token_type)
                       WHEN MATCHED THEN
                           UPDATE SET token_value = source.token_value, expires_at = source.expires_at, created_at = source.created_at
                       WHEN NOT MATCHED THEN
                           INSERT (profile, token_type, token_value, expires_at, created_at) VALUES (source.profile, source.token_type, source.token_value, source.expires_at, source.created_at);",
-            &[&profile, &token.value.as_str(), &token.expires_at, &token.created_at]
-        ).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+            profile, token.value.as_str(), token.expires_at, token.created_at)
     }
 
-    async fn delete_access_token(&self, profile: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'access_token'",
-            &[&profile],
-        )
-        .await
-        .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_access_token(&self, profile: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "DELETE FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'access_token'", profile)
     }
 
     async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token> {
@@ -476,37 +404,19 @@ impl SqlDriver for MssqlDriver {
         })
     }
 
-    async fn save_refresh_token(&self, profile: &str, token: Token) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute("MERGE cowen_tenant_token AS target
+        async fn save_refresh_token(&self, profile: &str, token: Token) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "MERGE cowen_tenant_token AS target
                       USING (SELECT @p1, 'refresh_token', @p2, @p3, @p4) AS source (profile, token_type, token_value, expires_at, created_at)
                       ON (target.profile = source.profile AND target.token_type = source.token_type)
                       WHEN MATCHED THEN
                           UPDATE SET token_value = source.token_value, expires_at = source.expires_at, created_at = source.created_at
                       WHEN NOT MATCHED THEN
                           INSERT (profile, token_type, token_value, expires_at, created_at) VALUES (source.profile, source.token_type, source.token_value, source.expires_at, source.created_at);",
-            &[&profile, &token.value.as_str(), &token.expires_at, &token.created_at]
-        ).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+            profile, token.value.as_str(), token.expires_at, token.created_at)
     }
 
-    async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'refresh_token'",
-            &[&profile],
-        )
-        .await
-        .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "DELETE FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'refresh_token'", profile)
     }
 
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
@@ -527,37 +437,19 @@ impl SqlDriver for MssqlDriver {
         })
     }
 
-    async fn save_app_access_token(&self, app_key: &str, token: Token) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute("MERGE cowen_app_token AS target
+        async fn save_app_access_token(&self, app_key: &str, token: Token) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "MERGE cowen_app_token AS target
                       USING (SELECT @p1, @p2, @p3, @p4) AS source (app_key, token_value, expires_at, created_at)
                       ON (target.app_key = source.app_key)
                       WHEN MATCHED THEN
                           UPDATE SET token_value = source.token_value, expires_at = source.expires_at, created_at = source.created_at
                       WHEN NOT MATCHED THEN
                           INSERT (app_key, token_value, expires_at, created_at) VALUES (source.app_key, source.token_value, source.expires_at, source.created_at);",
-            &[&app_key, &token.value.as_str(), &token.expires_at, &token.created_at]
-        ).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+            app_key, token.value.as_str(), token.expires_at, token.created_at)
     }
 
-    async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM cowen_app_token WHERE app_key = @p1",
-            &[&app_key],
-        )
-        .await
-        .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_app_access_token(&self, app_key: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "DELETE FROM cowen_app_token WHERE app_key = @p1", app_key)
     }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {
@@ -586,51 +478,23 @@ impl SqlDriver for MssqlDriver {
         })
     }
 
-    async fn save_app_ticket(&self, app_key: &str, ticket: Ticket) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute("MERGE cowen_ticket AS target
+        async fn save_app_ticket(&self, app_key: &str, ticket: Ticket) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "MERGE cowen_ticket AS target
                       USING (SELECT @p1, @p2, @p3) AS source (app_key, ticket_value, created_at)
                       ON (target.app_key = source.app_key)
                       WHEN MATCHED THEN
                           UPDATE SET ticket_value = source.ticket_value, created_at = source.created_at
                       WHEN NOT MATCHED THEN
                           INSERT (app_key, ticket_value, created_at) VALUES (source.app_key, source.ticket_value, source.created_at);",
-            &[&app_key, &ticket.value.as_str(), &ticket.created_at]
-        ).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+            app_key, ticket.value.as_str(), ticket.created_at)
     }
 
-    async fn delete_app_ticket(&self, app_key: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute("DELETE FROM cowen_ticket WHERE app_key = @p1", &[&app_key])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_app_ticket(&self, app_key: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "DELETE FROM cowen_ticket WHERE app_key = @p1", app_key)
     }
 
-    async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let row = conn.query("SELECT code_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND code_type = 'org_permanent'", &[&app_key, &org_id])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound(format!("OrgPermanentCode not found for app '{}' and org '{}'", app_key, org_id)))?;
-
-        let val: &str = row
-            .get(0)
-            .ok_or_else(|| CowenError::Store("Null value".to_string()))?;
-        Ok(val.to_string())
+        async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String> {
+        tiberius_get_string!(self.pool, "SELECT item_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND code_type = 'org_permanent'", app_key, org_id, format!("OrgPermanentCode not found for app '{}' and org '{}'", app_key, org_id))
     }
 
     async fn save_org_permanent_code(
@@ -656,26 +520,8 @@ impl SqlDriver for MssqlDriver {
         Ok(())
     }
 
-    async fn get_user_permanent_code(
-        &self,
-        app_key: &str,
-        org_id: &str,
-        user_id: &str,
-    ) -> CowenResult<String> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let row = conn.query("SELECT code_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND user_id = @p3 AND code_type = 'user_permanent'", &[&app_key, &org_id, &user_id])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound(format!("UserPermanentCode not found for app '{}', org '{}' and user '{}'", app_key, org_id, user_id)))?;
-
-        let val: &str = row
-            .get(0)
-            .ok_or_else(|| CowenError::Store("Null value".to_string()))?;
-        Ok(val.to_string())
+        async fn get_user_permanent_code(&self, app_key: &str, org_id: &str, user_id: &str) -> CowenResult<String> {
+        tiberius_get_string!(self.pool, "SELECT code_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND user_id = @p3 AND code_type = 'user_permanent'", app_key, org_id, user_id, format!("UserPermanentCode not found for app '{}', org '{}' and user '{}'", app_key, org_id, user_id))
     }
 
     async fn save_user_permanent_code(
@@ -702,30 +548,8 @@ impl SqlDriver for MssqlDriver {
         Ok(())
     }
 
-    async fn get_token(&self, profile: &str, key: &str) -> CowenResult<String> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let row = conn
-            .query(
-                "SELECT item_value FROM cowen_token WHERE profile = @p1 AND item_key = @p2",
-                &[&profile, &key],
-            )
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| {
-                CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile))
-            })?;
-
-        let val: &str = row
-            .get(0)
-            .ok_or_else(|| CowenError::Store("Null value".to_string()))?;
-        Ok(val.to_string())
+        async fn get_token(&self, profile: &str, key: &str) -> CowenResult<String> {
+        tiberius_get_string!(self.pool, "SELECT item_value FROM cowen_token WHERE profile = @p1 AND item_key = @p2", profile, key, format!("Key '{}' not found in profile '{}'", key, profile))
     }
 
     async fn set_token(
@@ -753,42 +577,12 @@ impl SqlDriver for MssqlDriver {
         Ok(())
     }
 
-    async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute(
-            "DELETE FROM cowen_token WHERE profile = @p1 AND item_key = @p2",
-            &[&profile, &key],
-        )
-        .await
-        .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
+        async fn delete_token(&self, profile: &str, key: &str) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "DELETE FROM cowen_token WHERE profile = @p1 AND item_key = @p2", profile, key)
     }
 
-    async fn list_tokens(&self, profile: &str) -> CowenResult<Vec<String>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let rows = conn
-            .query(
-                "SELECT item_key FROM cowen_token WHERE profile = @p1",
-                &[&profile],
-            )
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_first_result()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-
-        Ok(rows
-            .into_iter()
-            .map(|r| r.get::<&str, _>(0).unwrap_or_default().to_string())
-            .collect())
+        async fn list_tokens(&self, profile: &str) -> CowenResult<Vec<String>> {
+        tiberius_list_strings!(self.pool, "SELECT item_key FROM cowen_token WHERE profile = @p1", profile)
     }
 
     async fn save_audit(&self, entry: &AuditEntry) -> CowenResult<()> {
@@ -1131,3 +925,5 @@ impl SqlBuilder for MssqlBuilder {
 }
 
 inventory::submit! { SqlBuilderRegistration { builder: &MssqlBuilder } }
+
+

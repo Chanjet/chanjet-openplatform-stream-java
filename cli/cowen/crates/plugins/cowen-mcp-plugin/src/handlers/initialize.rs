@@ -8,7 +8,7 @@ pub async fn handle_initialize(req: JsonRpcRequest, app_state: &AppState) -> Jso
 
     if let Some(params) = &req.params {
         let mut state = app_state.mcp_state.lock().await;
-        
+
         if let Some(pv) = params.get("protocolVersion").and_then(|v| v.as_str()) {
             negotiated_version = pv.to_string();
             state.protocol_version = Some(pv.to_string());

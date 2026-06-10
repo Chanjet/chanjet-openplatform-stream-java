@@ -1,7 +1,7 @@
+use crate::sys::{IpcBinder, ProcessManager, ServiceManager, SysFingerprint};
 use std::path::Path;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::Sender;
-use crate::sys::{ProcessManager, IpcBinder, SysFingerprint, ServiceManager};
 
 pub struct MockWindowsSys {
     pub mock_pid: u32,
@@ -22,22 +22,25 @@ impl ProcessManager for MockWindowsSys {
     fn current_pid(&self) -> u32 {
         self.mock_pid
     }
-    
+
     async fn is_process_alive(&self, _pid: u32) -> bool {
         self.should_alive
     }
-    
+
     async fn kill_process(&self, _pid: u32, _force: bool) -> anyhow::Result<()> {
         Ok(())
     }
-    
+
     async fn daemonize(&self) -> anyhow::Result<()> {
         Ok(())
     }
-    
+
     fn set_stop_channel(&self, _tx: Sender<()>) {}
-    
-    async fn run_as_service(&self, _f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>) -> anyhow::Result<()> {
+
+    async fn run_as_service(
+        &self,
+        _f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -53,7 +56,12 @@ impl ProcessManager for MockWindowsSys {
 
 #[async_trait::async_trait]
 impl ServiceManager for MockWindowsSys {
-    async fn install(&self, _bin_name: &str, _bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
+    async fn install(
+        &self,
+        _bin_name: &str,
+        _bin_path: &str,
+        _log_dir: &str,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
     async fn uninstall(&self, _bin_name: &str) -> anyhow::Result<()> {
@@ -70,18 +78,23 @@ impl SysFingerprint for MockWindowsSys {
     }
 }
 
-    #[async_trait::async_trait]
-    impl IpcBinder for MockWindowsSys {
-        async fn bind_ipc_listener(&self, _addr: &str) -> anyhow::Result<TcpListener> {
-            let listener = TcpListener::bind("127.0.0.1:0").await?;
-            Ok(listener)
-        }
-        
-        async fn serve_handshake(&self, _app_dir: &Path, _payload: String, _stop_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> {
-            Ok(())
-        }
-        
-        async fn fetch_handshake(&self, _app_dir: &Path) -> anyhow::Result<String> {
-            Ok(r#"{"port":1234,"token":"mock-windows-ipc-token-secret"}"#.to_string())
-        }
+#[async_trait::async_trait]
+impl IpcBinder for MockWindowsSys {
+    async fn bind_ipc_listener(&self, _addr: &str) -> anyhow::Result<TcpListener> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        Ok(listener)
     }
+
+    async fn serve_handshake(
+        &self,
+        _app_dir: &Path,
+        _payload: String,
+        _stop_rx: tokio::sync::mpsc::Receiver<()>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn fetch_handshake(&self, _app_dir: &Path) -> anyhow::Result<String> {
+        Ok(r#"{"port":1234,"token":"mock-windows-ipc-token-secret"}"#.to_string())
+    }
+}

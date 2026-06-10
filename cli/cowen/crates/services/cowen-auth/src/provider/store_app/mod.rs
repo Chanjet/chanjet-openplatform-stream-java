@@ -1,5 +1,5 @@
 use crate::client::HttpSender;
-use crate::lifecycle::AuthSessionManager;
+
 use crate::models::{OAuth2TokenPair, Token};
 use crate::pool::TokenPool;
 use crate::provider::AuthProvider;
@@ -114,54 +114,20 @@ impl StoreAppProvider {
         cfg: &Config,
         session_id: &str,
     ) -> CowenResult<()> {
-        tracing::info!(target: "sys", profile = %profile, session_id = %session_id, "Finalizer started for StoreApp auth");
-
-        let session_manager = AuthSessionManager::new(self.pool.as_ref());
-        let session = session_manager.get_session(session_id).await?;
-
-        let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
-            session.redirect_port,
-            profile.to_string(),
-        )
-        .await?;
-        tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
-
-        let res = tokio::select! {
-            result = rx => {
-                match result {
-                    Ok(inner_res) => {
-                        match inner_res {
-                            Ok(res) => {
-                                tracing::info!(target: "sys", "Callback received, saving code...");
-                                session_manager.save_code(profile, &res.code, &res.state).await?;
-
-                                // Trigger exchange
-                                match self.get_app_access_token(profile, cfg).await {
-                                    Ok(_) => {
-                                        tracing::info!(target: "sys", "Token exchange successful");
-                                        Ok(())
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(target: "sys", error = %e, "Token exchange failed");
-                                        Err(e)
-                                    }
-                                }
-                            }
-                            Err(e) => Err(CowenError::Auth(format!("Authorization failed: {}", e)))
-                        }
-                    }
-                    Err(e) => Err(CowenError::Auth(format!("Internal listener error: {}", e)))
+        crate::provider::shared::execute_finalize_login(
+            self.pool.as_ref(),
+            profile,
+            session_id,
+            "StoreApp",
+            |_code| async move {
+                // Trigger exchange
+                match self.get_app_access_token(profile, cfg).await {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(e),
                 }
             },
-            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-                Err(CowenError::Auth("Timeout waiting for authorization (5 mins)".to_string()))
-            }
-        };
-
-        if res.is_err() {
-            let _ = session_manager.clear(profile).await;
-        }
-        res
+        )
+        .await
     }
 }
 
@@ -401,33 +367,10 @@ impl AuthProvider for StoreAppProvider {
         params: crate::provider::InitParams,
         daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
     ) -> CowenResult<()> {
-        // 1. Setup credentials
-        if let Some(ak) = params.app_key {
-            config.app_key = cowen_common::utils::sanitize_credential(&ak);
-        }
-        if let Some(as_val) = params.app_secret {
-            config.app_secret = cowen_common::utils::sanitize_credential(&as_val);
-        }
-        if let Some(ek) = params.encrypt_key {
-            config.encrypt_key = cowen_common::utils::sanitize_credential(&ek);
-        }
+        let is_new = params.is_new;
+        let auto_start = params.auto_start;
 
-
-        if config.app_key.trim().is_empty() {
-            return Err(CowenError::Config(
-                "Missing mandatory parameter: --app-key".to_string(),
-            ));
-        }
-        if config.app_secret.trim().is_empty() {
-            return Err(CowenError::Config(
-                "Missing mandatory parameter: --app-secret".to_string(),
-            ));
-        }
-        if config.encrypt_key.trim().is_empty() {
-            return Err(CowenError::Config(
-                "Missing mandatory parameter: --encrypt-key".to_string(),
-            ));
-        }
+        setup_store_app_credentials(config, &params)?;
 
         let app_key = config.app_key.trim();
         let global_profile = format!("app:{}", app_key);
@@ -438,6 +381,7 @@ impl AuthProvider for StoreAppProvider {
         vault
             .set_secret(&global_profile, "encrypt_key", &config.encrypt_key)
             .await?;
+            
         if let Some(target) = params.webhook_target {
             config.webhook_target = target;
         }
@@ -445,18 +389,11 @@ impl AuthProvider for StoreAppProvider {
             config.proxy_port = port;
         }
 
-        // 1.1 Use is_new from params (as Init already anchored the identity)
-        let is_new = params.is_new;
-
         // 2. Persist config so daemon can see it
         cfg_mgr.save(profile, config).await?;
 
         // 3. Validation and Startup
-        // Validation: appKey, appSecret and encryptKey are required for sidecar
-        if config.app_key.trim().is_empty()
-            || config.app_secret.trim().is_empty()
-            || config.encrypt_key.trim().is_empty()
-        {
+        if let Err(e) = validate_store_app_config(config) {
             if is_new {
                 let _ = cfg_mgr.delete(profile).await;
             }
@@ -466,7 +403,7 @@ impl AuthProvider for StoreAppProvider {
                 "Example: {} init --app-mode store-app --app-key X --app-secret Y --encrypt-key Z",
                 bin_name
             );
-            return Err(CowenError::Auth("Missing required credentials for StoreApp mode".to_string()));
+            return Err(e);
         }
 
         println!(
@@ -474,7 +411,7 @@ impl AuthProvider for StoreAppProvider {
             profile
         );
         println!("💡 Please perform authorization through your main application.");
-        if params.auto_start {
+        if auto_start {
             println!("🚀 Sidecar is ready. Starting background daemon...");
             if let Some(ds) = &daemon_service {
                 let _ = ds.start_daemon(profile).await;
@@ -484,7 +421,9 @@ impl AuthProvider for StoreAppProvider {
     }
 
     async fn trigger_push(&self, _profile: &str, config: &Config, _force: bool) -> CowenResult<()> {
-        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        let app_cfg = cowen_config::ConfigManager::new()?
+            .load_app_config()
+            .await?;
         let url = format!(
             "{}/auth/appTicket/resend",
             app_cfg.openapi_url.trim_end_matches('/')
@@ -507,30 +446,41 @@ impl AuthProvider for StoreAppProvider {
         let app_key = config.app_key.trim();
         let global_profile = format!("app:{}", app_key);
 
-        match vault.get_secret(&global_profile, "app_secret").await { Ok(s) => {
-            config.app_secret = s;
-        } _ => { if let Ok(s) = vault.get_secret(profile, "app_secret").await {
-            config.app_secret = s;
-        }}}
+        match vault.get_secret(&global_profile, "app_secret").await {
+            Ok(s) => {
+                config.app_secret = s;
+            }
+            _ => {
+                if let Ok(s) = vault.get_secret(profile, "app_secret").await {
+                    config.app_secret = s;
+                }
+            }
+        }
 
-        match vault.get_secret(&global_profile, "encrypt_key").await { Ok(ek) => {
-            config.encrypt_key = ek;
-        } _ => { if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await {
-            config.encrypt_key = ek;
-        }}}
+        match vault.get_secret(&global_profile, "encrypt_key").await {
+            Ok(ek) => {
+                config.encrypt_key = ek;
+            }
+            _ => {
+                if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await {
+                    config.encrypt_key = ek;
+                }
+            }
+        }
         Ok(())
     }
 
     async fn requires_initial_push(&self, config: &Config) -> bool {
         // Check if ticket is missing or older than 50 minutes
-        match self.pool.get_app_ticket(&config.app_key).await { Ok(ticket) => {
-            let age = chrono::Utc::now()
-                .signed_duration_since(ticket.created_at)
-                .num_minutes();
-            age > 50
-        } _ => {
-            true
-        }}
+        match self.pool.get_app_ticket(&config.app_key).await {
+            Ok(ticket) => {
+                let age = chrono::Utc::now()
+                    .signed_duration_since(ticket.created_at)
+                    .num_minutes();
+                age > 50
+            }
+            _ => true,
+        }
     }
 
     async fn handle_platform_event(
@@ -715,12 +665,59 @@ impl AuthProvider for StoreAppProvider {
         let app_key = config.app_key.trim();
         let global_profile = format!("app:{}", app_key);
 
-        let has_secret = vault.get_secret(&global_profile, "app_secret").await.is_ok()
+        let has_secret = vault
+            .get_secret(&global_profile, "app_secret")
+            .await
+            .is_ok()
             || vault.get_secret(profile, "app_secret").await.is_ok();
 
-        let has_ek = vault.get_secret(&global_profile, "encrypt_key").await.is_ok()
+        let has_ek = vault
+            .get_secret(&global_profile, "encrypt_key")
+            .await
+            .is_ok()
             || vault.get_secret(profile, "encrypt_key").await.is_ok();
 
         has_secret && has_ek
     }
+}
+
+fn setup_store_app_credentials(config: &mut Config, params: &crate::provider::InitParams) -> CowenResult<()> {
+    if let Some(ak) = &params.app_key {
+        config.app_key = cowen_common::utils::sanitize_credential(ak);
+    }
+    if let Some(as_val) = &params.app_secret {
+        config.app_secret = cowen_common::utils::sanitize_credential(as_val);
+    }
+    if let Some(ek) = &params.encrypt_key {
+        config.encrypt_key = cowen_common::utils::sanitize_credential(ek);
+    }
+
+    if config.app_key.trim().is_empty() {
+        return Err(CowenError::Config(
+            "Missing mandatory parameter: --app-key".to_string(),
+        ));
+    }
+    if config.app_secret.trim().is_empty() {
+        return Err(CowenError::Config(
+            "Missing mandatory parameter: --app-secret".to_string(),
+        ));
+    }
+    if config.encrypt_key.trim().is_empty() {
+        return Err(CowenError::Config(
+            "Missing mandatory parameter: --encrypt-key".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_store_app_config(config: &Config) -> CowenResult<()> {
+    if config.app_key.trim().is_empty()
+        || config.app_secret.trim().is_empty()
+        || config.encrypt_key.trim().is_empty()
+    {
+        return Err(CowenError::Auth(
+            "Missing required credentials for StoreApp mode".to_string(),
+        ));
+    }
+    Ok(())
 }

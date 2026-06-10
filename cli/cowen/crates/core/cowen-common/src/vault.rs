@@ -1,12 +1,20 @@
-use std::sync::Arc;
 use crate::domain::*;
 use crate::CowenResult;
+use std::sync::Arc;
 
 #[async_trait::async_trait]
-pub trait Vault: 
-    TicketDomain + TokenDomain + PermanentCodeDomain + SessionDomain + 
-    SecretDomain + ConfigDomain + AuditDomain + DlqDomain + ManagementDomain + 
-    Send + Sync 
+pub trait Vault:
+    TicketDomain
+    + TokenDomain
+    + PermanentCodeDomain
+    + SessionDomain
+    + SecretDomain
+    + ConfigDomain
+    + AuditDomain
+    + DlqDomain
+    + ManagementDomain
+    + Send
+    + Sync
 {
     fn primary_store(&self) -> Arc<dyn crate::store::Store>;
 

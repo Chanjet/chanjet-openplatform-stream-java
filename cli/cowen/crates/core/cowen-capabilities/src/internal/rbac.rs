@@ -95,7 +95,7 @@ pub fn has_policy_permission(permissions: &[String], domain: &str, action: &str)
     // If there are no required scopes, allow
     if all_scopes.is_empty() && any_scopes.is_empty() {
         return true; // Or should we default to false if not found? Let's assume some actions don't require scopes.
-        // Wait, for Wasm, we only call this for actions that DO require scopes.
+                     // Wait, for Wasm, we only call this for actions that DO require scopes.
     }
 
     if permissions.contains(&"*".to_string()) {
@@ -109,7 +109,9 @@ pub fn has_policy_permission(permissions: &[String], domain: &str, action: &str)
     }
 
     if !any_scopes.is_empty() {
-        let has_any = any_scopes.iter().any(|s| permissions.contains(&s.to_string()));
+        let has_any = any_scopes
+            .iter()
+            .any(|s| permissions.contains(&s.to_string()));
         if !has_any {
             return false;
         }

@@ -50,7 +50,12 @@ pub trait SidecarPluginSpi {
     type QueryResult;
 
     fn update_index(&self, tenant_id: &str, documents: Vec<Self::Document>) -> Result<(), String>;
-    fn query(&self, tenant_id: &str, query: &str, top: usize) -> Result<Vec<Self::QueryResult>, String>;
+    fn query(
+        &self,
+        tenant_id: &str,
+        query: &str,
+        top: usize,
+    ) -> Result<Vec<Self::QueryResult>, String>;
 }
 
 #[cfg(test)]
@@ -61,7 +66,7 @@ mod tests {
     fn test_jsonrpc_request_parsing() {
         let json_data = r#"{"jsonrpc":"2.0","id":1,"method":"query","params":{"tenant_id":"test_tenant","query":"hello","top":5}}"#;
         let parsed: JsonRpcRequest = serde_json::from_str(json_data).unwrap();
-        
+
         // Assert correctly (Green phase of TDD)
         assert_eq!(parsed.jsonrpc, "2.0");
         assert_eq!(parsed.method, "query");
@@ -69,7 +74,10 @@ mod tests {
 
     #[test]
     fn test_jsonrpc_response_serialization() {
-        let resp = JsonRpcResponse::success(Some(serde_json::json!(1)), serde_json::json!({"status": "ok"}));
+        let resp = JsonRpcResponse::success(
+            Some(serde_json::json!(1)),
+            serde_json::json!({"status": "ok"}),
+        );
         let serialized = serde_json::to_string(&resp).unwrap();
         assert!(serialized.contains(r#""jsonrpc":"2.0""#));
         assert!(serialized.contains(r#""result":{"status":"ok"}"#));

@@ -24,23 +24,40 @@ pub fn check_port_occupancy(port: u16, bin_name: &str) -> Option<(u32, String)> 
     }
 
     // 2. It's occupied. Try to find the process using sysinfo
-    use sysinfo::{System, ProcessesToUpdate};
+    use sysinfo::{ProcessesToUpdate, System};
     let mut s = System::new();
     s.refresh_processes(ProcessesToUpdate::All, true);
-    
+
     // Scan all processes
     let bin_name_lower = bin_name.to_lowercase();
-    
-    for (pid, process) in s.processes() {
-        let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>();
-        let cmd_str = cmdline.join(" ");
-        
-        let has_bin = process.name().to_string_lossy().to_lowercase().contains(&bin_name_lower) || cmd_str.to_lowercase().contains(&bin_name_lower);
-        if !has_bin { continue; }
 
-        let is_daemon = cmdline.iter().any(|arg| arg.contains("cowen-daemon") || arg == "daemon");
-        let is_cowen_exe = process.name().to_string_lossy().to_lowercase().contains("cowen-daemon");
-        
+    for (pid, process) in s.processes() {
+        let cmdline = process
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy())
+            .collect::<Vec<_>>();
+        let cmd_str = cmdline.join(" ");
+
+        let has_bin = process
+            .name()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains(&bin_name_lower)
+            || cmd_str.to_lowercase().contains(&bin_name_lower);
+        if !has_bin {
+            continue;
+        }
+
+        let is_daemon = cmdline
+            .iter()
+            .any(|arg| arg.contains("cowen-daemon") || arg == "daemon");
+        let is_cowen_exe = process
+            .name()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains("cowen-daemon");
+
         if (is_daemon || is_cowen_exe) && pid.as_u32() != std::process::id() {
             return Some((pid.as_u32(), bin_name.to_string()));
         }
@@ -51,13 +68,18 @@ pub fn check_port_occupancy(port: u16, bin_name: &str) -> Option<(u32, String)> 
 
 /// 从进程命令行中提取 Profile 名称
 pub fn extract_profile_from_cmdline(pid: u32) -> Option<String> {
-    use sysinfo::{System, ProcessesToUpdate, Pid};
+    use sysinfo::{Pid, ProcessesToUpdate, System};
     let mut s = System::new();
     let sys_pid = Pid::from_u32(pid);
     s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
     if let Some(process) = s.process(sys_pid) {
-        let cmdline = process.cmd().iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>();
-        return cmdline.windows(2)
+        let cmdline = process
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy())
+            .collect::<Vec<_>>();
+        return cmdline
+            .windows(2)
             .find(|w| w[0] == "--profile")
             .map(|w| w[1].to_string());
     }

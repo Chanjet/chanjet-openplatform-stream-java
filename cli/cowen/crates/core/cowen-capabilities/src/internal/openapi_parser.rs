@@ -7,16 +7,24 @@ impl OpenApiParser {
             for (path, methods) in paths {
                 if let Some(methods_obj) = methods.as_object() {
                     for (method, details) in methods_obj {
-                        let summary = details.get("summary").and_then(|v| v.as_str()).unwrap_or("");
-                        let description = details.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                        let summary = details
+                            .get("summary")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let description = details
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
                         let mut tags_str = String::new();
                         if let Some(tags) = details.get("tags").and_then(|t| t.as_array()) {
-                            let tag_list: Vec<&str> = tags.iter().filter_map(|t| t.as_str()).collect();
+                            let tag_list: Vec<&str> =
+                                tags.iter().filter_map(|t| t.as_str()).collect();
                             tags_str = tag_list.join(", ");
                         }
-                        
-                        let combined_desc = format!("{} {}", description, tags_str).trim().to_string();
-                        
+
+                        let combined_desc =
+                            format!("{} {}", description, tags_str).trim().to_string();
+
                         ops.push(serde_json::json!({
                             "id": format!("{} {}", method.to_uppercase(), path),
                             "method": method.to_uppercase(),

@@ -41,7 +41,12 @@ pub struct SidecarSearchProvider {
 }
 
 impl SidecarSearchProvider {
-    pub fn new(name: &str, binary_path: std::path::PathBuf, tenant_id: String, ipc_token: Option<String>) -> Self {
+    pub fn new(
+        name: &str,
+        binary_path: std::path::PathBuf,
+        tenant_id: String,
+        ipc_token: Option<String>,
+    ) -> Self {
         Self {
             name: name.to_string(),
             client: cowen_sys::plugin::RpcPluginClient::new(binary_path, tenant_id, ipc_token),
@@ -91,22 +96,32 @@ impl SearchProviderFactory {
         if let Ok(content) = std::fs::read_to_string(&app_yaml_path) {
             if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
                 if let Some(plugins) = val.get("plugins").and_then(|v| v.as_sequence()) {
-                    enabled_plugins = plugins.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+                    enabled_plugins = plugins
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect();
                 }
             }
         }
-        
+
         let plugins_dir = cowen_infra::path::get_app_dir().join("plugins");
         let mut search_plugin_name = None;
         for p in &enabled_plugins {
             let bundle_path = plugins_dir.join(p).with_extension("bundle");
             if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path) {
                 if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
-                    if let Some(contributes) = bundle.get("manifest").and_then(|m| m.get("contributes")).and_then(|c| c.as_object()) {
-                        if let Some(providers) = contributes.get("providers").and_then(|p| p.as_array()) {
+                    if let Some(contributes) = bundle
+                        .get("manifest")
+                        .and_then(|m| m.get("contributes"))
+                        .and_then(|c| c.as_object())
+                    {
+                        if let Some(providers) =
+                            contributes.get("providers").and_then(|p| p.as_array())
+                        {
                             let has_search = providers.iter().any(|p| {
                                 p.get("type").and_then(|t| t.as_str()) == Some("SearchEmbedding")
-                                    || p.get("type").and_then(|t| t.as_str()) == Some("SearchProvider")
+                                    || p.get("type").and_then(|t| t.as_str())
+                                        == Some("SearchProvider")
                             });
                             if has_search {
                                 search_plugin_name = Some(p.clone());
@@ -117,7 +132,7 @@ impl SearchProviderFactory {
                 }
             }
         }
-        
+
         let mut primary: Option<Box<dyn SearchProvider>> = None;
         if let Some(p_name) = search_plugin_name {
             let expected_path = if cfg!(target_os = "windows") && !p_name.ends_with(".exe") {
@@ -125,7 +140,7 @@ impl SearchProviderFactory {
             } else {
                 plugins_dir.join(&p_name)
             };
-            
+
             if expected_path.exists() {
                 primary = Some(Box::new(SidecarSearchProvider::new(
                     &p_name,
@@ -138,7 +153,9 @@ impl SearchProviderFactory {
 
         FallbackProvider {
             primary,
-            fallback: Box::new(crate::StringMatchProvider { docs: std::sync::RwLock::new(vec![]) }),
+            fallback: Box::new(crate::StringMatchProvider {
+                docs: std::sync::RwLock::new(vec![]),
+            }),
         }
     }
 }

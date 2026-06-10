@@ -30,7 +30,16 @@ pub async fn start_proxy(
     app_dir: std::path::PathBuf,
 ) -> CowenResult<()> {
     let config_manager = cowen_config::ConfigManager::new_with_dir(app_dir)?;
-    let caps = Arc::new(cowen_capabilities::CapabilityRegistry::new(Arc::new(cowen_common::daemon::DummyDaemonService), vault.clone(), config_manager.clone(), port, cowen_wasm_facade::registry_supported_versions().into_iter().map(|(k, v)| (k.to_string(), v[0].to_string())).collect()));
+    let caps = Arc::new(cowen_capabilities::CapabilityRegistry::new(
+        Arc::new(cowen_common::daemon::DummyDaemonService),
+        vault.clone(),
+        config_manager.clone(),
+        port,
+        cowen_wasm_facade::registry_supported_versions()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v[0].to_string()))
+            .collect(),
+    ));
     let state = ProxyState {
         client: Client::builder().no_proxy().build().unwrap(),
         config: config.clone(),
@@ -116,90 +125,41 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
         .publish(cowen_common::events::GlobalEvent::ProxyRequestReceived);
     let method_str = req.method().as_str().to_uppercase();
 
-    let origin_header = req
-        .headers()
-        .get("origin")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let allow_origin = if origin_header.contains("localhost") || origin_header.contains("127.0.0.1")
-    {
-        origin_header.to_string()
-    } else {
-        "http://127.0.0.1".to_string()
-    };
+    let allow_origin = get_allow_origin(&req);
 
     if method_str == "OPTIONS" {
-        tracing::info!(target: "sys", "Intercepted OPTIONS pre-flight request, returning CORS headers immediately.");
-        return axum::response::Response::builder()
-            .status(axum::http::StatusCode::NO_CONTENT)
-            .header("Access-Control-Allow-Origin", &allow_origin)
-            .header(
-                "Access-Control-Allow-Methods",
-                "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-            )
-            .header("Access-Control-Allow-Headers", "*")
-            .header("Access-Control-Max-Age", "86400")
-            .body(axum::body::Body::empty())
-            .unwrap();
+        return handle_options_request(&allow_origin);
     }
 
-    // 0. Extract Parts
     let (parts, body) = req.into_parts();
-
-    // Helper for CORS-enabled error responses
-    let allow_origin_clone = allow_origin.clone();
-    let cors_error = |status: axum::http::StatusCode, msg: String| {
-        axum::response::Response::builder()
-            .status(status)
-            .header("Access-Control-Allow-Origin", &allow_origin_clone)
-            .body(axum::body::Body::from(msg))
-            .unwrap()
-    };
 
     let app_cfg = match state.config_manager.load_app_config().await {
         Ok(cfg) => cfg,
-        Err(e) => return cors_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        Err(e) => {
+            return cors_error(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                e.to_string(),
+                &allow_origin,
+            )
+        }
     };
 
-    let base_url = app_cfg.openapi_url.trim_end_matches('/');
-    let req_path_and_query = parts
-        .uri
-        .path_and_query()
-        .map(|x| x.as_str())
-        .unwrap_or("/");
-    let target_url = format!(
-        "{}{}",
-        base_url,
-        if req_path_and_query.starts_with('/') {
-            req_path_and_query.to_string()
-        } else {
-            format!("/{}", req_path_and_query)
-        }
-    );
-
+    let target_url = build_target_url(&app_cfg, &parts.uri);
     tracing::info!(target: "audit", profile = %state.profile, "Proxying {} request to: {}", parts.method, target_url);
 
     let req_path = parts.uri.path().to_string();
 
-    // 1. Resolve Auth directly reusing the shared Vault O(1)
-    let auth_cli = cowen_auth::create_auth_client_with_vault(state.vault.clone());
-
-    // 1.1. Read body early
     let bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(b) => b,
         Err(e) => {
             return cors_error(
                 axum::http::StatusCode::BAD_REQUEST,
                 format!("Failed to read body: {}", e),
+                &allow_origin,
             )
         }
     };
 
-    let bytes = axum::body::Bytes::from(bytes);
-
-    let provider = auth_cli.provider(&state.config.app_mode);
-
-    // 🚀 Execute Wasm Filters
     let (headers, modified_bytes) = apply_wasm_request_filters(
         state.wasm_manager.as_ref(),
         &req_path,
@@ -209,9 +169,10 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
     );
     let bytes = axum::body::Bytes::from(modified_bytes);
 
-    // 1.2. Pre-flight Interceptor
-    let fallback_spec = serde_json::Value::Null;
-    let intercept_result = match provider
+    let auth_cli = cowen_auth::create_auth_client_with_vault(state.vault.clone());
+    let provider = auth_cli.provider(&state.config.app_mode);
+
+    let reqwest_headers = match provider
         .intercept_request(
             &state.profile,
             &state.config,
@@ -219,24 +180,11 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
             &method_str,
             headers,
             &bytes,
-            &fallback_spec,
+            &serde_json::Value::Null,
         )
         .await
     {
-        Ok(res) => res,
-        Err(e) => {
-            let masked_err = cowen_common::utils::mask_sensitive_json(&e.to_string());
-            tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, error = %masked_err, "Proxy pre-flight intercept failed");
-            return cors_error(
-                axum::http::StatusCode::UNAUTHORIZED,
-                format!("Pre-flight error: {}", masked_err),
-            );
-        }
-    };
-
-    // 1.3. Dispatch
-    let reqwest_headers = match intercept_result {
-        cowen_auth::provider::ProxyRequestAction::Respond(json_resp) => {
+        Ok(cowen_auth::provider::ProxyRequestAction::Respond(json_resp)) => {
             let body_bytes = serde_json::to_vec(&json_resp).unwrap_or_default();
             return axum::response::Response::builder()
                 .status(axum::http::StatusCode::OK)
@@ -245,16 +193,24 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
                 .body(axum::body::Body::from(body_bytes))
                 .unwrap();
         }
-        cowen_auth::provider::ProxyRequestAction::Forward { mut headers } => {
+        Ok(cowen_auth::provider::ProxyRequestAction::Forward { mut headers }) => {
             headers.remove(reqwest::header::HOST);
             headers
+        }
+        Err(e) => {
+            let masked_err = cowen_common::utils::mask_sensitive_json(&e.to_string());
+            tracing::error!(target: "audit", profile = %state.profile, method = %method_str, path = %req_path, error = %masked_err, "Proxy pre-flight intercept failed");
+            return cors_error(
+                axum::http::StatusCode::UNAUTHORIZED,
+                format!("Pre-flight error: {}", masked_err),
+                &allow_origin,
+            );
         }
     };
 
     let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes())
         .unwrap_or(reqwest::Method::GET);
 
-    // 2. Forward
     let fwd_req = state
         .client
         .request(method, target_url)
@@ -263,7 +219,79 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
 
     let res = fwd_req.send().await;
 
-    // 3. Post-flight Interceptor & Respond
+    handle_upstream_response(
+        res,
+        &state,
+        &*provider,
+        &req_path,
+        &method_str,
+        &allow_origin,
+    )
+    .await
+}
+
+fn get_allow_origin(req: &Request) -> String {
+    let origin_header = req
+        .headers()
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if origin_header.contains("localhost") || origin_header.contains("127.0.0.1") {
+        origin_header.to_string()
+    } else {
+        "http://127.0.0.1".to_string()
+    }
+}
+
+fn handle_options_request(allow_origin: &str) -> axum::response::Response {
+    tracing::info!(target: "sys", "Intercepted OPTIONS pre-flight request, returning CORS headers immediately.");
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::NO_CONTENT)
+        .header("Access-Control-Allow-Origin", allow_origin)
+        .header(
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+        )
+        .header("Access-Control-Allow-Headers", "*")
+        .header("Access-Control-Max-Age", "86400")
+        .body(axum::body::Body::empty())
+        .unwrap()
+}
+
+fn cors_error(
+    status: axum::http::StatusCode,
+    msg: String,
+    allow_origin: &str,
+) -> axum::response::Response {
+    axum::response::Response::builder()
+        .status(status)
+        .header("Access-Control-Allow-Origin", allow_origin)
+        .body(axum::body::Body::from(msg))
+        .unwrap()
+}
+
+fn build_target_url(app_cfg: &cowen_common::config::AppConfig, uri: &axum::http::Uri) -> String {
+    let base_url = app_cfg.openapi_url.trim_end_matches('/');
+    let req_path_and_query = uri.path_and_query().map(|x| x.as_str()).unwrap_or("/");
+    format!(
+        "{}{}",
+        base_url,
+        if req_path_and_query.starts_with('/') {
+            req_path_and_query.to_string()
+        } else {
+            format!("/{}", req_path_and_query)
+        }
+    )
+}
+
+async fn handle_upstream_response(
+    res: Result<reqwest::Response, reqwest::Error>,
+    state: &ProxyState,
+    provider: &dyn cowen_auth::provider::AuthProvider,
+    req_path: &str,
+    method_str: &str,
+    allow_origin: &str,
+) -> axum::response::Response {
     match res {
         Ok(r) => {
             let status = r.status().as_u16();
@@ -281,21 +309,20 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
             let out_headers = r.headers().clone();
             let out_bytes = apply_wasm_response_filters(
                 state.wasm_manager.as_ref(),
-                &req_path,
-                &method_str,
+                req_path,
+                method_str,
                 status,
                 r.bytes().await.unwrap_or_default().to_vec(),
             );
 
             let out_bytes = axum::body::Bytes::from(out_bytes);
 
-            // Execute Post-flight Interceptor
             if let Err(e) = provider
                 .intercept_response(
                     &state.profile,
                     &state.config,
-                    &req_path,
-                    &method_str,
+                    req_path,
+                    method_str,
                     status,
                     &out_headers,
                     &out_bytes,
@@ -322,6 +349,7 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
             cors_error(
                 axum::http::StatusCode::BAD_GATEWAY,
                 format!("Proxy upstream error: {}", e),
+                allow_origin,
             )
         }
     }
@@ -382,23 +410,37 @@ mod tests {
     use super::*;
     use cowen_common::config::AppConfig;
 
-    async fn setup_proxy_test_env(mock_addr: std::net::SocketAddr) -> (u16, std::path::PathBuf, tokio::task::JoinHandle<()>) {
-        let temp_dir = std::env::temp_dir().join(format!("cowen_proxy_test_{}", uuid::Uuid::new_v4()));
+    async fn setup_proxy_test_env(
+        mock_addr: std::net::SocketAddr,
+    ) -> (u16, std::path::PathBuf, tokio::task::JoinHandle<()>) {
+        let temp_dir =
+            std::env::temp_dir().join(format!("cowen_proxy_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let app_cfg = AppConfig::default();
-        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint").await.unwrap();
+        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint")
+            .await
+            .unwrap();
 
-        vault.set_config("test_profile", "app_key", "test_key").await.unwrap();
-        vault.set_secret("test_profile", "app_secret", "test_secret").await.unwrap();
-        vault.save_app_access_token(
-            "test_key",
-            cowen_common::models::Token {
-                value: "mock_at_sb_12345".to_string(),
-                expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-                created_at: chrono::Utc::now(),
-            },
-        ).await.unwrap();
+        vault
+            .set_config("test_profile", "app_key", "test_key")
+            .await
+            .unwrap();
+        vault
+            .set_secret("test_profile", "app_secret", "test_secret")
+            .await
+            .unwrap();
+        vault
+            .save_app_access_token(
+                "test_key",
+                cowen_common::models::Token {
+                    value: "mock_at_sb_12345".to_string(),
+                    expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+                    created_at: chrono::Utc::now(),
+                },
+            )
+            .await
+            .unwrap();
 
         let mut config = Config::default_with_profile("test_profile");
         config.app_key = "test_key".to_string();
@@ -425,13 +467,14 @@ mod tests {
                 0,
                 Some(port_tx),
                 p_temp_dir,
-            ).await.unwrap();
+            )
+            .await
+            .unwrap();
         });
 
         let proxy_port = port_rx.await.unwrap();
         (proxy_port, temp_dir, proxy_task)
     }
-
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_proxy_concurrency_no_deadlock() {

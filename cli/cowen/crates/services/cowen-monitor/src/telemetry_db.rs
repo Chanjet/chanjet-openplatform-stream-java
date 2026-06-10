@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sqlx::{SqlitePool, sqlite::SqliteConnectOptions, ConnectOptions};
+use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, SqlitePool};
 use std::path::Path;
 use std::time::Duration;
 use tracing::info;
@@ -78,7 +78,9 @@ impl TelemetryDb {
 
             match res {
                 Ok(_) => return Ok(()),
-                Err(sqlx::Error::Database(e)) if e.message().contains("database is locked") && retries < 10 => {
+                Err(sqlx::Error::Database(e))
+                    if e.message().contains("database is locked") && retries < 10 =>
+                {
                     retries += 1;
                     let delay = rand::thread_rng().gen_range(10..=50);
                     tokio::time::sleep(Duration::from_millis(delay)).await;
@@ -88,18 +90,22 @@ impl TelemetryDb {
         }
     }
 
-    pub async fn list_events(&self, profile: Option<&str>, limit: i64) -> Result<Vec<TelemetryEventRecord>> {
+    pub async fn list_events(
+        &self,
+        profile: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<TelemetryEventRecord>> {
         let query = if let Some(p) = profile {
             sqlx::query_as(
                 "SELECT id, profile, event_type, old_status, new_status, details, created_at
-                 FROM telemetry_events WHERE profile = ? ORDER BY created_at DESC LIMIT ?"
+                 FROM telemetry_events WHERE profile = ? ORDER BY created_at DESC LIMIT ?",
             )
             .bind(p)
             .bind(limit)
         } else {
             sqlx::query_as(
                 "SELECT id, profile, event_type, old_status, new_status, details, created_at
-                 FROM telemetry_events ORDER BY created_at DESC LIMIT ?"
+                 FROM telemetry_events ORDER BY created_at DESC LIMIT ?",
             )
             .bind(limit)
         };
@@ -110,14 +116,15 @@ impl TelemetryDb {
 
     pub async fn run_gc(&self) -> Result<()> {
         // 1. Delete events older than 15 days
-        let deleted_by_time = sqlx::query("DELETE FROM telemetry_events WHERE created_at < date('now', '-15 days')")
-            .execute(&self.pool)
-            .await?;
+        let deleted_by_time =
+            sqlx::query("DELETE FROM telemetry_events WHERE created_at < date('now', '-15 days')")
+                .execute(&self.pool)
+                .await?;
 
         // 2. Keep only latest 10000 events
         let deleted_by_count = sqlx::query(
             "DELETE FROM telemetry_events 
-             WHERE id NOT IN (SELECT id FROM telemetry_events ORDER BY id DESC LIMIT 10000)"
+             WHERE id NOT IN (SELECT id FROM telemetry_events ORDER BY id DESC LIMIT 10000)",
         )
         .execute(&self.pool)
         .await?;
@@ -151,13 +158,15 @@ mod tests {
         for i in 0..50 {
             let db_clone = db_arc.clone();
             let handle = tokio::spawn(async move {
-                db_clone.insert_event(
-                    "profile_test",
-                    "type_test",
-                    Some("old"),
-                    Some("new"),
-                    Some(&format!("detail {}", i)),
-                ).await
+                db_clone
+                    .insert_event(
+                        "profile_test",
+                        "type_test",
+                        Some("old"),
+                        Some("new"),
+                        Some(&format!("detail {}", i)),
+                    )
+                    .await
             });
             handles.push(handle);
         }
@@ -172,4 +181,3 @@ mod tests {
         }
     }
 }
-

@@ -6,10 +6,11 @@ pub mod daemon_proto {
     tonic::include_proto!("cowen.daemon.public.system.v1");
 }
 
-use proto::api_registry_service_client::ApiRegistryServiceClient;
 use daemon_proto::public_system_service_client::PublicSystemServiceClient;
+use proto::api_registry_service_client::ApiRegistryServiceClient;
 
-pub async fn get_grpc_client() -> Result<ApiRegistryServiceClient<tonic::transport::Channel>, String> {
+pub async fn get_grpc_client() -> Result<ApiRegistryServiceClient<tonic::transport::Channel>, String>
+{
     let port_str = match std::env::var("COWEN_IPC_PORT") {
         Ok(p) => p,
         Err(_) => {
@@ -37,8 +38,10 @@ pub async fn get_grpc_client() -> Result<ApiRegistryServiceClient<tonic::transpo
         })
 }
 
-pub async fn get_daemon_grpc_client() -> Result<PublicSystemServiceClient<tonic::transport::Channel>, String> {
-    let port_str = std::env::var("COWEN_IPC_PORT").map_err(|_| "Missing COWEN_IPC_PORT env var".to_string())?;
+pub async fn get_daemon_grpc_client(
+) -> Result<PublicSystemServiceClient<tonic::transport::Channel>, String> {
+    let port_str = std::env::var("COWEN_IPC_PORT")
+        .map_err(|_| "Missing COWEN_IPC_PORT env var".to_string())?;
     let endpoint = format!("http://127.0.0.1:{}", port_str);
     PublicSystemServiceClient::connect(endpoint)
         .await
@@ -48,7 +51,9 @@ pub async fn get_daemon_grpc_client() -> Result<PublicSystemServiceClient<tonic:
 pub fn handle_grpc_status(e: tonic::Status) -> String {
     #[cfg(not(test))]
     if e.code() == tonic::Code::Unavailable || e.to_string().contains("transport error") {
-        eprintln!("Lost connection to daemon (transport error). Exiting to trigger MCP Client restart.");
+        eprintln!(
+            "Lost connection to daemon (transport error). Exiting to trigger MCP Client restart."
+        );
         std::process::exit(1);
     }
     format!("gRPC Error: {}", e)

@@ -1,7 +1,7 @@
+use cowen_common::status::{AuthStatus, MonitorClient};
 use cowen_common::vault::Vault;
 use cowen_common::{CowenError, CowenResult};
 use cowen_config::ConfigManager;
-use cowen_common::status::{MonitorClient, AuthStatus};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{BufRead, Seek, Write};
 use std::sync::Arc;
@@ -139,48 +139,62 @@ pub async fn wait_for_token_exchange(
         }
 
         // 2. Failure check: Log file growth + ERROR check
-        if log_file.exists() {
-            let metadata = std::fs::metadata(&log_file).map_err(CowenError::from)?;
-            if metadata.len() > last_log_size {
-                // Read new content
-                let file = std::fs::File::open(&log_file).map_err(CowenError::from)?;
-                let mut reader = std::io::BufReader::new(file);
-                reader
-                    .seek(std::io::SeekFrom::Start(last_log_size))
-                    .map_err(CowenError::from)?;
-
-                for line in reader.lines() {
-                    if let Ok(l) = line {
-                        if l.contains("ERROR") {
-                            println!("\n❌ 令牌交换失败！");
-                            println!("\x1b[31m🔍 错误原因: {}\x1b[0m", l);
-                            // Guard will handle cleanup
-                            return Err(CowenError::Auth("Token exchange failed".to_string()));
-                        }
-                    }
-                }
-                last_log_size = metadata.len();
-            }
+        if check_failure_log_growth(&log_file, &mut last_log_size)? {
+            return Err(CowenError::Auth("Token exchange failed".to_string()));
         }
 
         // 3. State check: If session is GONE but no token was produced
-        if vault.get_session(session_id).await.is_err() {
-            // Give it a tiny bit of time to persist the token if it just happened
-            sleep(Duration::from_millis(500)).await;
-            if vault.get_access_token(profile).await.is_err() {
-                println!(
-                    "\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。"
-                );
-                render_last_auth_error(profile)?;
-                // Guard will handle cleanup
-                return Err(CowenError::Auth(
-                    "Authorization state invalid (Session lost)".to_string(),
-                ));
-            }
+        if check_session_lost(&vault, session_id, profile).await? {
+            return Err(CowenError::Auth(
+                "Authorization state invalid (Session lost)".to_string(),
+            ));
         }
 
         sleep(Duration::from_millis(1000)).await;
     }
+}
+
+fn check_failure_log_growth(log_file: &std::path::Path, last_log_size: &mut u64) -> CowenResult<bool> {
+    if !log_file.exists() {
+        return Ok(false);
+    }
+    let metadata = std::fs::metadata(log_file).map_err(CowenError::from)?;
+    if metadata.len() <= *last_log_size {
+        return Ok(false);
+    }
+
+    let file = std::fs::File::open(log_file).map_err(CowenError::from)?;
+    let mut reader = std::io::BufReader::new(file);
+    reader
+        .seek(std::io::SeekFrom::Start(*last_log_size))
+        .map_err(CowenError::from)?;
+
+    for line in reader.lines() {
+        if let Ok(l) = line {
+            if l.contains("ERROR") {
+                println!("\n❌ 令牌交换失败！");
+                println!("\x1b[31m🔍 错误原因: {}\x1b[0m", l);
+                return Ok(true);
+            }
+        }
+    }
+    *last_log_size = metadata.len();
+    Ok(false)
+}
+
+async fn check_session_lost(vault: &Arc<dyn Vault>, session_id: &str, profile: &str) -> CowenResult<bool> {
+    if vault.get_session(session_id).await.is_err() {
+        // Give it a tiny bit of time to persist the token if it just happened
+        sleep(Duration::from_millis(500)).await;
+        if vault.get_access_token(profile).await.is_err() {
+            println!(
+                "\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。"
+            );
+            render_last_auth_error(profile)?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn spawn_finalizer(profile: &str, session_id: &str) -> CowenResult<u32> {
@@ -209,7 +223,8 @@ pub fn spawn_finalizer(profile: &str, session_id: &str) -> CowenResult<u32> {
     .stdout(file.try_clone().map_err(CowenError::from)?)
     .stderr(file);
 
-    let child_id = cowen_sys::get_process_manager().spawn_daemon(&mut cmd)
+    let child_id = cowen_sys::get_process_manager()
+        .spawn_daemon(&mut cmd)
         .map_err(|e| CowenError::Auth(e.to_string()))?;
     Ok(child_id)
 }

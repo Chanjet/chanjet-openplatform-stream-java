@@ -83,6 +83,14 @@ impl ConfigManager {
         self.interceptors.lock().await.push(interceptor);
     }
 
+    fn apply_storage_env_overrides(config: &mut AppConfig) {
+        if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
+            config.storage.store = st;
+            config.storage.db_url = Some(url);
+        }
+        config.apply_env_overrides();
+    }
+
     pub fn load_app_config_sync(app_dir: &std::path::Path) -> CowenResult<AppConfig> {
         let path = app_dir.join("app.yaml");
         let mut config = if !path.exists() {
@@ -93,12 +101,7 @@ impl ConfigManager {
         };
 
         // 🚀 SYNC: Environment variables have highest priority for storage settings
-        if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
-            config.storage.store = st;
-            config.storage.db_url = Some(url);
-        }
-
-        config.apply_env_overrides();
+        Self::apply_storage_env_overrides(&mut config);
         Ok(config)
     }
 
@@ -245,49 +248,59 @@ impl ConfigManager {
         cache.insert(profile.to_string(), (config.clone(), std::time::Instant::now()));
     }
 
-    async fn try_load_from_vault(&self, profile: &str, is_db_mode: bool) -> CowenResult<Option<Config>> {
-        if let Some(vault) = self.vault.get() {
-            tracing::debug!(target: "sys", profile = %profile, "Attempting to load manifest from Vault");
-            match vault.get_config_full(profile, "system:manifest").await {
-                Ok(item) => {
-                    tracing::info!(target: "sys", profile = %profile, version = %item.version, "Manifest loaded from Vault");
-                    match serde_yaml::from_str::<Config>(&item.value) {
-                        Ok(mut config) => {
-                            config.version = item.version;
-                            let app_key = config.app_key.trim();
-                            let global_profile = format!("app:{}", app_key);
+    async fn merge_vault_secrets(&self, profile: &str, vault: &Arc<dyn Vault>, config: &mut Config) {
+        let app_key = config.app_key.trim();
+        let global_profile = format!("app:{}", app_key);
 
-                            if let Ok(s) = vault.get_secret(profile, "app_secret").await { 
-                                let s: String = s;
-                                if !s.is_empty() { config.app_secret = s; } 
-                            }
-                            else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
-
-                            if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
-                            else if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
-
-                            if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
-                            else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { config.encrypt_key = ek; }
-
-                            if let Some(validator) = self.validator.get() {
-                                validator.validate_load(profile, &config, is_db_mode, true)?;
-                            }
-                            
-                            config.apply_env_overrides();
-                            self.update_manifest_cache(profile, &config).await;
-                            return Ok(Some(config));
-                        },
-                        Err(e) => {
-                            tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
-                        }
-                    }
-                },
-                Err(e) => {
-                    tracing::error!(target: "sys", profile = %profile, error = %e, "Manifest not found in Vault or Vault error");
-                }
-            }
+        if let Ok(s) = vault.get_secret(profile, "app_secret").await { 
+            let s: String = s;
+            if !s.is_empty() { config.app_secret = s; } 
+        } else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { 
+            config.app_secret = s; 
         }
-        Ok(None)
+
+        if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
+        else if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
+
+        if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
+        else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { config.encrypt_key = ek; }
+    }
+
+    async fn try_load_from_vault(&self, profile: &str, is_db_mode: bool) -> CowenResult<Option<Config>> {
+        let vault = match self.vault.get() {
+            Some(v) => v,
+            None => return Ok(None)
+        };
+        tracing::debug!(target: "sys", profile = %profile, "Attempting to load manifest from Vault");
+        
+        let item = match vault.get_config_full(profile, "system:manifest").await {
+            Ok(item) => item,
+            Err(e) => {
+                tracing::error!(target: "sys", profile = %profile, error = %e, "Manifest not found in Vault or Vault error");
+                return Ok(None);
+            }
+        };
+
+        tracing::info!(target: "sys", profile = %profile, version = %item.version, "Manifest loaded from Vault");
+        
+        let mut config = match serde_yaml::from_str::<Config>(&item.value) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
+                return Ok(None);
+            }
+        };
+
+        config.version = item.version;
+        self.merge_vault_secrets(profile, vault, &mut config).await;
+
+        if let Some(validator) = self.validator.get() {
+            validator.validate_load(profile, &config, is_db_mode, true)?;
+        }
+        
+        config.apply_env_overrides();
+        self.update_manifest_cache(profile, &config).await;
+        Ok(Some(config))
     }
 
     pub async fn load(&self, profile: &str) -> CowenResult<Config> {
@@ -352,6 +365,37 @@ impl ConfigManager {
         Ok((Config::default_with_profile(profile), false))
     }
 
+    async fn sync_secrets_to_vault(&self, vault: &std::sync::Arc<dyn cowen_common::vault::Vault>, config: &Config) -> CowenResult<()> {
+        let app_key = config.app_key.trim();
+        let global_profile = format!("app:{}", app_key);
+
+        if !config.app_secret.is_empty() {
+            let _ = vault.set_secret(&global_profile, "app_secret", &config.app_secret).await;
+        }
+        if !config.certificate.is_empty() {
+            let _ = vault.set_secret(&global_profile, "certificate", &config.certificate).await;
+        }
+        if !config.encrypt_key.is_empty() {
+            let _ = vault.set_secret(&global_profile, "encrypt_key", &config.encrypt_key).await;
+        }
+        Ok(())
+    }
+
+    async fn sync_manifest_to_vault(&self, profile: &str, vault: &std::sync::Arc<dyn cowen_common::vault::Vault>, config: &mut Config, is_db_mode: bool) -> CowenResult<()> {
+        let manifest = serde_yaml::to_string(config)?;
+        if is_db_mode && config.version > 0 {
+            vault.set_config_conditional(profile, "system:manifest", &manifest, config.version).await?;
+        } else {
+            vault.set_config(profile, "system:manifest", &manifest).await?;
+        }
+        event_bus().publish(cowen_common::events::GlobalEvent::ConfigChanged { 
+            profile: profile.to_string(), 
+            key: "system:manifest".to_string() 
+        });
+        config.version += 1;
+        Ok(())
+    }
+
     pub async fn save(&self, profile: &str, config: &mut Config) -> CowenResult<()> {
         let app_cfg = self.load_app_config().await?;
         let is_db_mode = self.is_distributed_storage(&app_cfg);
@@ -361,30 +405,8 @@ impl ConfigManager {
         }
 
         if let Some(vault) = self.vault.get() {
-            let app_key = config.app_key.trim();
-            let global_profile = format!("app:{}", app_key);
-
-            if !config.app_secret.is_empty() {
-                let _ = vault.set_secret(&global_profile, "app_secret", &config.app_secret).await;
-            }
-            if !config.certificate.is_empty() {
-                let _ = vault.set_secret(&global_profile, "certificate", &config.certificate).await;
-            }
-            if !config.encrypt_key.is_empty() {
-                let _ = vault.set_secret(&global_profile, "encrypt_key", &config.encrypt_key).await;
-            }
-            
-            let manifest = serde_yaml::to_string(config)?;
-            if is_db_mode && config.version > 0 {
-                vault.set_config_conditional(profile, "system:manifest", &manifest, config.version).await?;
-            } else {
-                vault.set_config(profile, "system:manifest", &manifest).await?;
-            }
-            event_bus().publish(cowen_common::events::GlobalEvent::ConfigChanged { 
-                profile: profile.to_string(), 
-                key: "system:manifest".to_string() 
-            });
-            config.version += 1;
+            self.sync_secrets_to_vault(vault, config).await?;
+            self.sync_manifest_to_vault(profile, vault, config, is_db_mode).await?;
         }
 
         if !is_db_mode {
@@ -483,44 +505,64 @@ impl ConfigManager {
         }
     }
 
-    pub async fn set_value(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
-        let mut final_value = value.to_string();
-        if key == "log.level" {
-            final_value = final_value.to_lowercase();
-            let valid_levels = ["trace", "debug", "info", "warn", "error"];
-            if !valid_levels.contains(&final_value.as_str()) {
-                return Err(CowenError::Config(format!(
-                    "Invalid log level: {}. Allowed levels: trace, debug, info, warn, error",
-                    value
-                )));
-            }
+    fn validate_log_level(value: &str) -> CowenResult<String> {
+        let final_value = value.to_lowercase();
+        let valid_levels = ["trace", "debug", "info", "warn", "error"];
+        if !valid_levels.contains(&final_value.as_str()) {
+            return Err(CowenError::Config(format!(
+                "Invalid log level: {}. Allowed levels: trace, debug, info, warn, error",
+                value
+            )));
         }
-        let value = final_value.as_str();
+        Ok(final_value)
+    }
+
+    async fn set_global_value(&self, key: &str, value: &str, strategy: &dyn ConfigStrategy) -> CowenResult<()> {
+        let mut app_cfg = self.load_app_config().await?;
+        let mut val = serde_json::to_value(&app_cfg)?;
+        strategy.handle_set(key, value, &mut val)?;
+        app_cfg = serde_json::from_value(val)?;
+        self.save_app_config(&app_cfg).await?;
+        Ok(())
+    }
+
+    fn restore_secrets(new_config: &mut Config, config: &Config) {
+        new_config.app_secret = config.app_secret.clone();
+        new_config.certificate = config.certificate.clone();
+        new_config.encrypt_key = config.encrypt_key.clone();
+        new_config.version = config.version;
+    }
+
+    async fn set_profile_value(&self, profile: &str, key: &str, value: &str, strategy: &dyn ConfigStrategy) -> CowenResult<()> {
+        let config = self.load(profile).await?;
+        let mut val = serde_json::to_value(&config)?;
+        strategy.handle_set(key, value, &mut val)?;
+        let mut new_config: Config = serde_json::from_value(val)?;
+        
+        Self::restore_secrets(&mut new_config, &config);
+        
+        self.save(profile, &mut new_config).await?;
+        Ok(())
+    }
+
+    pub async fn set_value(&self, profile: &str, key: &str, value: &str) -> CowenResult<()> {
+        let final_value = if key == "log.level" {
+            Self::validate_log_level(value)?
+        } else {
+            value.to_string()
+        };
+        let value_ref = final_value.as_str();
 
         for interceptor in self.interceptors.lock().await.iter() {
-            interceptor.validate(key, value)?;
+            interceptor.validate(key, value_ref)?;
         }
 
         let strategy = self.get_strategy(key);
         
         if strategy.is_global() {
-            let mut app_cfg = self.load_app_config().await?;
-            let mut val = serde_json::to_value(&app_cfg)?;
-            strategy.handle_set(key, value, &mut val)?;
-            app_cfg = serde_json::from_value(val)?;
-            self.save_app_config(&app_cfg).await?;
+            self.set_global_value(key, value_ref, strategy).await?;
         } else {
-            let config = self.load(profile).await?;
-            let mut val = serde_json::to_value(&config)?;
-            strategy.handle_set(key, value, &mut val)?;
-            let mut new_config: Config = serde_json::from_value(val)?;
-            
-            new_config.app_secret = config.app_secret;
-            new_config.certificate = config.certificate;
-            new_config.encrypt_key = config.encrypt_key;
-            new_config.version = config.version;
-            
-            self.save(profile, &mut new_config).await?;
+            self.set_profile_value(profile, key, value_ref, strategy).await?;
         }
         Ok(())
     }
@@ -540,14 +582,62 @@ impl ConfigManager {
             strategy.handle_unset(key, &mut val)?;
             let mut new_config: Config = serde_json::from_value(val)?;
             
-            new_config.app_secret = config.app_secret;
-            new_config.certificate = config.certificate;
-            new_config.encrypt_key = config.encrypt_key;
-            new_config.version = config.version;
+            Self::restore_secrets(&mut new_config, &config);
             
             self.save(profile, &mut new_config).await?;
         }
         Ok(())
+    }
+
+    fn process_storage_migration(&self, profile: &str, mut yaml: serde_yaml::Value, path: &PathBuf, app_cfg: &mut AppConfig) -> bool {
+        let storage = match yaml.get_mut("storage") {
+            Some(s) => s.clone(),
+            None => return false,
+        };
+
+        let new_storage = match serde_yaml::from_value::<StorageConfig>(storage) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+
+        let is_valid = match new_storage.store.as_str() {
+            "local" | "innerdb" | "sqlite" => true,
+            "mysql" | "postgres" | "redis" | "mssql" => new_storage.db_url.as_ref().map(|u| !u.trim().is_empty()).unwrap_or(false),
+            _ => false,
+        };
+
+        if !is_valid {
+            return false;
+        }
+
+        let mut migrated = false;
+        let mut should_remove = false;
+
+        if app_cfg.storage.store == "local" || app_cfg.storage.store == "innerdb" {
+            println!("📦 Migrating storage config from profile: {}", profile);
+            app_cfg.storage = new_storage;
+            migrated = true;
+            should_remove = true;
+        } else if app_cfg.storage == new_storage {
+            should_remove = true;
+        }
+
+        if should_remove {
+            if let Some(mapping) = yaml.as_mapping_mut() {
+                mapping.remove(serde_yaml::Value::String("storage".to_string()));
+            }
+
+            let backup_path = path.with_extension("yaml.bak");
+            if !backup_path.exists() {
+                let _ = fs::copy(path, &backup_path);
+            }
+            if let Ok(updated) = serde_yaml::to_string(&yaml) {
+                 let _ = cowen_common::utils::secure_write(path, updated);
+                 println!("  ✓ Removed storage config from {}.yaml (backup created: {}.yaml.bak)", profile, profile);
+            }
+        }
+        
+        migrated
     }
 
     pub async fn auto_migrate(&self) -> CowenResult<()> {
@@ -558,49 +648,9 @@ impl ConfigManager {
         for profile in local_profiles {
             let path = self.app_dir.join(format!("{}.yaml", profile));
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(mut yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
-                    // Extract 'storage' from profile if present
-                    if let Some(storage) = yaml.get_mut("storage") {
-                        let mut should_remove = false;
-                        
-                        if let Ok(new_storage) = serde_yaml::from_value::<StorageConfig>(storage.clone()) {
-                            // 🛡️ VALIDATION: Only migrate if it's a known valid store and has URL if needed
-                            let is_valid = match new_storage.store.as_str() {
-                                "local" | "innerdb" | "sqlite" => true,
-                                "mysql" | "postgres" | "redis" | "mssql" => new_storage.db_url.as_ref().map(|u| !u.trim().is_empty()).unwrap_or(false),
-                                _ => false,
-                            };
-
-                            if is_valid {
-                                // Merge into app_cfg if app_cfg is default/empty
-                                if app_cfg.storage.store == "local" || app_cfg.storage.store == "innerdb" {
-                                    println!("📦 Migrating storage config from profile: {}", profile);
-                                    app_cfg.storage = new_storage;
-                                    migrated = true;
-                                    should_remove = true;
-                                } else if app_cfg.storage == new_storage {
-                                    // Already matches global, safe to remove from profile
-                                    should_remove = true;
-                                }
-                            }
-                        }
-
-                        if should_remove {
-                            // Remove storage from profile yaml
-                            if let Some(mapping) = yaml.as_mapping_mut() {
-                                mapping.remove(serde_yaml::Value::String("storage".to_string()));
-                            }
-
-                            // Backup and Save updated profile
-                            let backup_path = path.with_extension("yaml.bak");
-                            if !backup_path.exists() {
-                                let _ = fs::copy(&path, &backup_path);
-                            }
-                            if let Ok(updated) = serde_yaml::to_string(&yaml) {
-                                 let _ = cowen_common::utils::secure_write(&path, updated);
-                                 println!("  ✓ Removed storage config from {}.yaml (backup created: {}.yaml.bak)", profile, profile);
-                            }
-                        }
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    if self.process_storage_migration(&profile, yaml, &path, &mut app_cfg) {
+                        migrated = true;
                     }
                 }
             }
@@ -623,12 +673,7 @@ impl ConfigManager {
             AppConfig::default()
         };
 
-        if let (Ok(st), Ok(url)) = (std::env::var("COWEN_STORE_TYPE"), std::env::var("COWEN_DB_URL")) {
-            config.storage.store = st;
-            config.storage.db_url = Some(url);
-        }
-
-        config.apply_env_overrides();
+        Self::apply_storage_env_overrides(&mut config);
 
         Ok(config)
     }
@@ -710,6 +755,20 @@ impl ConfigManager {
         }
     }
 
+    fn format_config_value(k: &str, v: serde_json::Value) -> String {
+        let mut val_str = match v {
+            serde_json::Value::String(s) => s,
+            _ => v.to_string(),
+        };
+        if k.ends_with("_url") && !val_str.is_empty() {
+            val_str = cowen_common::utils::mask_url_query(&val_str);
+        }
+        if k == "log.max_size_mb" {
+            val_str = format!("{} MB", val_str);
+        }
+        val_str
+    }
+
     pub async fn get_global_display(&self) -> CowenResult<Vec<ConfigFieldDisplay>> {
         let app_cfg = self.load_app_config().await?;
         let mut global_json = serde_json::to_value(&app_cfg)?;
@@ -723,16 +782,7 @@ impl ConfigManager {
         let mut global_fields = Vec::new();
         for (k, v) in global_map {
             if v.is_null() { continue; }
-            let mut val_str = match v {
-                serde_json::Value::String(s) => s,
-                _ => v.to_string(),
-            };
-            if k.ends_with("_url") && !val_str.is_empty() {
-                val_str = cowen_common::utils::mask_url_query(&val_str);
-            }
-            if k == "log.max_size_mb" {
-                val_str = format!("{} MB", val_str);
-            }
+            let val_str = Self::format_config_value(&k, v);
             let readonly = self.get_strategy(&k).is_readonly(&k);
             global_fields.push(ConfigFieldDisplay { key: k, value: val_str, readonly });
         }
@@ -753,13 +803,7 @@ impl ConfigManager {
         let mut profile_fields = Vec::new();
         for (k, v) in profile_map {
             if v.is_null() { continue; }
-            let mut val_str = match v {
-                serde_json::Value::String(s) => s,
-                _ => v.to_string(),
-            };
-            if k.ends_with("_url") && !val_str.is_empty() {
-                val_str = cowen_common::utils::mask_url_query(&val_str);
-            }
+            let val_str = Self::format_config_value(&k, v);
             let readonly = self.get_strategy(&k).is_readonly(&k);
             profile_fields.push(ConfigFieldDisplay { key: k, value: val_str, readonly });
         }
@@ -787,11 +831,9 @@ impl ConfigManager {
         }
     }
 
-    pub async fn list_profiles(&self) -> CowenResult<Vec<String>> {
-        let mut profiles = std::collections::HashSet::new();
+    async fn collect_remote_profiles(&self, profiles: &mut std::collections::HashSet<String>) {
         if let Some(vault) = self.vault.get() {
             if let Ok(remote_profiles) = vault.list_all_profiles().await {
-                let remote_profiles: Vec<String> = remote_profiles;
                 for p in remote_profiles {
                     let p_trimmed = p.trim();
                     if !p_trimmed.is_empty() && !p_trimmed.starts_with("app:") && !p_trimmed.starts_with("plugin_") && p_trimmed != "global" && p_trimmed != "system" {
@@ -800,39 +842,39 @@ impl ConfigManager {
                 }
             }
         }
+    }
+
+    fn collect_local_yaml_profiles(&self, profiles: &mut std::collections::HashSet<String>) {
         if let Ok(entries) = fs::read_dir(&self.app_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
                     if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                         let n_trimmed = name.trim();
-                        if !n_trimmed.is_empty() && !n_trimmed.contains("_openapi") && n_trimmed != "app" && !n_trimmed.starts_with("plugin_") {
+                        if !n_trimmed.is_empty() && !n_trimmed.contains("_openapi") && n_trimmed != "app" && n_trimmed != "global" && n_trimmed != "system" && !n_trimmed.starts_with("plugin_") {
                             profiles.insert(n_trimmed.to_string());
                         }
                     }
                 }
             }
         }
+    }
+
+    pub async fn list_profiles(&self) -> CowenResult<Vec<String>> {
+        let mut profiles = std::collections::HashSet::new();
+        self.collect_remote_profiles(&mut profiles).await;
+        self.collect_local_yaml_profiles(&mut profiles);
         let mut res: Vec<String> = profiles.into_iter().collect();
         res.sort();
         Ok(res)
     }
 
     pub fn list_local_profiles(&self) -> CowenResult<Vec<String>> {
-        let mut profiles = Vec::new();
-        if let Ok(entries) = fs::read_dir(&self.app_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().map(|s| s == "yaml").unwrap_or(false) {
-                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        if !name.is_empty() && !name.contains("_openapi") && name != "app" && name != "global" && name != "system" && !name.starts_with("plugin_") {
-                            profiles.push(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        Ok(profiles)
+        let mut profiles = std::collections::HashSet::new();
+        self.collect_local_yaml_profiles(&mut profiles);
+        let mut res: Vec<String> = profiles.into_iter().collect();
+        res.sort();
+        Ok(res)
     }
 
     pub async fn find_profile_by_key(&self, app_key: &str) -> CowenResult<Option<String>> {

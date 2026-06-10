@@ -1,6 +1,6 @@
 use crate::client::{get_grpc_client, inject_auth, proto};
 use crate::protocol::{AppState, EnabledTool};
-use crate::schema::{validate_json_against_schema, get_type_name};
+use crate::schema::{get_type_name, validate_json_against_schema};
 use regex::Regex;
 
 pub fn prepare_request_params(
@@ -153,7 +153,6 @@ pub fn process_api_response(
     (result_text, is_err, structured_content, schema_error)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,7 +167,8 @@ mod tests {
         }));
         let body = r#"{"data": "not an array"}"#;
 
-        let (result_text, is_err, structured, schema_err) = process_api_response(status, body, &output_schema);
+        let (result_text, is_err, structured, schema_err) =
+            process_api_response(status, body, &output_schema);
 
         assert_eq!(result_text, "Status: 200\n{\"data\": \"not an array\"}");
         assert_eq!(is_err, true);
@@ -180,4 +180,3 @@ mod tests {
         );
     }
 }
-

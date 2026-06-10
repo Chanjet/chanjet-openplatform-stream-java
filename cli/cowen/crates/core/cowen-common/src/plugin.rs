@@ -46,7 +46,7 @@ impl PluginManifest {
         let json_path = plugins_dir.join(format!("{}.json", plugin_name));
 
         let mut manifest_val: Option<serde_json::Value> = None;
-        
+
         if bundle_path.exists() {
             if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path) {
                 if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
@@ -62,53 +62,74 @@ impl PluginManifest {
         Self::parse_manifest(plugin_name, manifest_val)
     }
 
-    fn parse_manifest(plugin_name: &str, manifest_val: Option<serde_json::Value>) -> anyhow::Result<Self> {
+    fn parse_permissions(m: &serde_json::Value, scopes: &mut Vec<String>) {
+        if let Some(perms) = m.get("requested_permissions").and_then(|p| p.as_object()) {
+            for (k, v) in perms {
+                if v.as_bool().unwrap_or(false) {
+                    scopes.push(k.clone());
+                }
+            }
+        } else if let Some(privs) = m.get("required_privileges").and_then(|p| p.as_array()) {
+            for p in privs {
+                if let Some(s) = p.as_str() {
+                    scopes.push(s.to_string());
+                }
+            }
+        }
+    }
 
+    fn parse_capabilities(m: &serde_json::Value, required_capabilities: &mut std::collections::HashMap<String, String>) {
+        if let Some(caps) = m.get("required_capabilities").and_then(|c| c.as_object()) {
+            for (k, v) in caps {
+                if let Some(s) = v.as_str() {
+                    required_capabilities.insert(k.clone(), s.to_string());
+                }
+            }
+        }
+    }
+
+    fn parse_contributes(
+        m: &serde_json::Value,
+        allowed_commands: &mut HashSet<String>,
+        wasm_interceptors: &mut Vec<WasmInterceptorContribution>,
+    ) {
+        if let Some(contributes) = m.get("contributes").and_then(|c| c.as_object()) {
+            if let Some(cmds) = contributes.get("cli_commands").and_then(|c| c.as_array()) {
+                for cmd in cmds {
+                    if let Some(name) = cmd.get("name").and_then(|n| n.as_str()) {
+                        allowed_commands.insert(name.to_string());
+                    }
+                }
+            }
+            if let Some(interceptors) = contributes
+                .get("wasm_interceptors")
+                .and_then(|c| c.as_array())
+            {
+                for interceptor in interceptors {
+                    if let Ok(contribution) = serde_json::from_value::<
+                        WasmInterceptorContribution,
+                    >(interceptor.clone())
+                    {
+                        wasm_interceptors.push(contribution);
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_manifest(
+        plugin_name: &str,
+        manifest_val: Option<serde_json::Value>,
+    ) -> anyhow::Result<Self> {
         let mut scopes = vec![];
         let mut required_capabilities = std::collections::HashMap::new();
         let mut allowed_commands = HashSet::new();
         let mut wasm_interceptors = Vec::new();
 
         if let Some(m) = &manifest_val {
-            if let Some(perms) = m.get("requested_permissions").and_then(|p| p.as_object()) {
-                for (k, v) in perms {
-                    if v.as_bool().unwrap_or(false) {
-                        scopes.push(k.clone());
-                    }
-                }
-            } else if let Some(privs) = m.get("required_privileges").and_then(|p| p.as_array()) {
-                // Support legacy format
-                for p in privs {
-                    if let Some(s) = p.as_str() {
-                        scopes.push(s.to_string());
-                    }
-                }
-            }
-
-            if let Some(caps) = m.get("required_capabilities").and_then(|c| c.as_object()) {
-                for (k, v) in caps {
-                    if let Some(s) = v.as_str() {
-                        required_capabilities.insert(k.clone(), s.to_string());
-                    }
-                }
-            }
-
-            if let Some(contributes) = m.get("contributes").and_then(|c| c.as_object()) {
-                if let Some(cmds) = contributes.get("cli_commands").and_then(|c| c.as_array()) {
-                    for cmd in cmds {
-                        if let Some(name) = cmd.get("name").and_then(|n| n.as_str()) {
-                            allowed_commands.insert(name.to_string());
-                        }
-                    }
-                }
-                if let Some(interceptors) = contributes.get("wasm_interceptors").and_then(|c| c.as_array()) {
-                    for interceptor in interceptors {
-                        if let Ok(contribution) = serde_json::from_value::<WasmInterceptorContribution>(interceptor.clone()) {
-                            wasm_interceptors.push(contribution);
-                        }
-                    }
-                }
-            }
+            Self::parse_permissions(m, &mut scopes);
+            Self::parse_capabilities(m, &mut required_capabilities);
+            Self::parse_contributes(m, &mut allowed_commands, &mut wasm_interceptors);
         } else {
             // No manifest found, default empty permissions
             tracing::warn!("No plugin.json or bundle found for {}", plugin_name);

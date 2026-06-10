@@ -3,21 +3,12 @@ use extism::Function;
 
 pub struct NativeAuthProvider;
 
-impl HostCapabilityProvider for NativeAuthProvider {
-    fn domain(&self) -> &'static str {
-        "native.auth"
-    }
-
-    fn create_functions(
+impl NativeAuthProvider {
+    fn register_get_resolved_token(
         &self,
-        version: &str,
-        permissions: &[String],
+        builder: &mut crate::WasmHostFunctionBuilder,
         context: &CapabilityContext,
-    ) -> anyhow::Result<Vec<Function>> {
-        self.check_version(version)?;
-
-        let mut builder = crate::WasmHostFunctionBuilder::new(self.domain(), permissions);
-
+    ) {
         let caps = context.capabilities.clone();
         let profile_clone_for_token = context.profile.clone();
         let config_clone_for_token = context.config.clone();
@@ -63,7 +54,13 @@ impl HostCapabilityProvider for NativeAuthProvider {
                 Ok(())
             },
         );
+    }
 
+    fn register_get_required_auth_keys(
+        &self,
+        builder: &mut crate::WasmHostFunctionBuilder,
+        context: &CapabilityContext,
+    ) {
         let caps_for_spec = context.capabilities.clone();
         let profile_clone_for_spec = context.profile.clone();
         let config_clone_for_spec = context.config.clone();
@@ -99,6 +96,26 @@ impl HostCapabilityProvider for NativeAuthProvider {
                 Ok(())
             },
         );
+    }
+}
+
+impl HostCapabilityProvider for NativeAuthProvider {
+    fn domain(&self) -> &'static str {
+        "native.auth"
+    }
+
+    fn create_functions(
+        &self,
+        version: &str,
+        permissions: &[String],
+        context: &CapabilityContext,
+    ) -> anyhow::Result<Vec<Function>> {
+        self.check_version(version)?;
+
+        let mut builder = crate::WasmHostFunctionBuilder::new(self.domain(), permissions);
+
+        self.register_get_resolved_token(&mut builder, context);
+        self.register_get_required_auth_keys(&mut builder, context);
 
         Ok(builder.build())
     }

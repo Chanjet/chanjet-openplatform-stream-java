@@ -22,11 +22,16 @@ pub struct Pkce {
     pub verifier: String,
 }
 
-use std::sync::OnceLock;
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
+use std::sync::OnceLock;
 
-type ListenerMap = StdMutex<HashMap<String, tokio::sync::oneshot::Receiver<Result<crate::lifecycle::listener::CallbackResult, String>>>>;
+type ListenerMap = StdMutex<
+    HashMap<
+        String,
+        tokio::sync::oneshot::Receiver<Result<crate::lifecycle::listener::CallbackResult, String>>,
+    >,
+>;
 
 fn get_oauth_listeners() -> &'static ListenerMap {
     static LISTENERS: OnceLock<ListenerMap> = OnceLock::new();
@@ -60,7 +65,9 @@ impl OAuth2Provider {
         verifier: &str,
         redirect_uri: &str,
     ) -> CowenResult<cowen_common::models::Token> {
-        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        let app_cfg = cowen_config::ConfigManager::new()?
+            .load_app_config()
+            .await?;
         let url = format!(
             "{}{}",
             app_cfg.openapi_url.trim_end_matches('/'),
@@ -83,7 +90,9 @@ impl OAuth2Provider {
         cfg: &Config,
         refresh_token: &str,
     ) -> CowenResult<cowen_common::models::Token> {
-        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        let app_cfg = cowen_config::ConfigManager::new()?
+            .load_app_config()
+            .await?;
         let url = format!(
             "{}{}",
             app_cfg.openapi_url.trim_end_matches('/'),
@@ -269,56 +278,19 @@ impl OAuth2Provider {
         session_id: &str,
         daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
     ) -> CowenResult<()> {
-        tracing::info!(target: "sys", profile = %profile, session_id = %session_id, "Finalizer started for OAuth2 auth");
-
-        let session_manager = AuthSessionManager::new(self.pool.as_ref());
-        let session = session_manager.get_session(session_id).await?;
-
-        // 🚀 IPC ENHANCEMENT: Check if code is already captured (pushed via Monitor API)
-        if let Ok(captured_code) = session_manager.get_captured_code(profile).await {
-            tracing::info!(target: "sys", "Using pre-captured code from IPC/Session");
-            return self
-                .perform_exchange_and_finish(profile, cfg, &captured_code, &session, daemon_service)
-                .await;
-        }
-
-        let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
-            session.redirect_port,
-            profile.to_string(),
-        )
-        .await?;
-        tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
-
-        let res = tokio::select! {
-            result = rx => {
-                match result {
-                    Ok(inner_res) => {
-                        match inner_res {
-                            Ok(res) => {
-                                tracing::info!(target: "sys", "Callback received, saving code...");
-                                session_manager.save_code(profile, &res.code, &res.state).await?;
-
-                                // Trigger exchange
-                                self.perform_exchange_and_finish(profile, cfg, &res.code, &session, daemon_service).await
-                            }
-                            Err(e) => Err(CowenError::Auth(format!("Authorization failed: {}", e)))
-                        }
-                    }
-                    Err(e) => Err(CowenError::Auth(format!("Internal listener error: {}", e)))
-                }
+        crate::provider::shared::execute_finalize_login(
+            self.pool.as_ref(),
+            profile,
+            session_id,
+            "OAuth2",
+            |code| async move {
+                let session_manager = AuthSessionManager::new(self.pool.as_ref());
+                let session = session_manager.get_session(session_id).await?;
+                self.perform_exchange_and_finish(profile, cfg, &code, &session, daemon_service)
+                    .await
             },
-            _ = tokio::signal::ctrl_c() => {
-                Err(CowenError::Auth("Cancelled by user".to_string()))
-            }
-            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-                Err(CowenError::Auth("Timeout waiting for authorization (5 mins)".to_string()))
-            }
-        };
-
-        if res.is_err() {
-            let _ = session_manager.clear(profile).await;
-        }
-        res
+        )
+        .await
     }
 
     async fn perform_exchange_and_finish(
@@ -393,7 +365,9 @@ impl AuthProvider for OAuth2Provider {
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
-        let _app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        let _app_cfg = cowen_config::ConfigManager::new()?
+            .load_app_config()
+            .await?;
         // 1. Fast path: check current memory/local cache
         if let Ok(token) = self.pool.get_access_token(profile).await {
             if !token.is_expired() {
@@ -445,7 +419,10 @@ impl AuthProvider for OAuth2Provider {
             let rt = self.get_refresh_token_with_fallback(profile).await?;
 
             if rt.is_expired() {
-                return Err(CowenError::Auth("OAuth2 session expired. Please run 'owenc auth login' to re-authenticate.".to_string()));
+                return Err(CowenError::Auth(
+                    "OAuth2 session expired. Please run 'owenc auth login' to re-authenticate."
+                        .to_string(),
+                ));
             }
 
             self.refresh_token(profile, cfg, &rt.value).await
@@ -462,7 +439,9 @@ impl AuthProvider for OAuth2Provider {
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
-        let _app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        let _app_cfg = cowen_config::ConfigManager::new()?
+            .load_app_config()
+            .await?;
         let rt = self.get_refresh_token_with_fallback(profile).await?;
         self.refresh_token(profile, cfg, &rt.value).await
     }
@@ -524,125 +503,43 @@ impl AuthProvider for OAuth2Provider {
         params: crate::provider::InitParams,
         daemon_service: Option<std::sync::Arc<dyn DaemonService>>,
     ) -> CowenResult<()> {
-        use crate::lifecycle::orchestrator;
-
-        // 1. Setup credentials (OCP: forced built-in for OAuth2)
-        if params.app_key.is_some() || params.app_secret.is_some() {
-            println!("⚠️  Note: OAuth2 mode uses the standard built-in identity. Provided AppKey/AppSecret will be ignored.");
-        }
-        config.app_key = crate::models::BUILTIN_CLIENT_ID.to_string();
-        config.app_secret = "".to_string();
-
-
-        if let Some(target) = params.webhook_target {
-            config.webhook_target = target;
-        }
-        if let Some(port) = params.proxy_port {
-            config.proxy_port = port;
-        }
-
-        // 1.1 Use is_new from params (as Init already anchored the identity)
         let is_new = params.is_new;
+        let auto_start = params.auto_start;
 
-        // 2. Persist config early so callback listeners can see it
+        setup_oauth2_credentials(config, &params);
         cfg_mgr.save(profile, config).await?;
-
-        // 3. Start Flow
 
         println!("\n\x1b[1;34m🔒 Starting Authorization Flow...\x1b[0m");
 
         let token_pool = crate::VaultTokenPool::new(vault.clone());
         let session_manager = crate::lifecycle::AuthSessionManager::new(&token_pool);
 
-        // 1. Get a free port for redirect_uri
         let port = cfg_mgr.find_free_port().await;
-
-        // 1.1 Pre-cleanup residual sessions
         let _ = session_manager.clear(profile).await;
-
-        // 2. Create Session
         let session = session_manager.create_session(profile, port).await?;
 
-        // 3. Generate Auth URL
-        let market_url = obfs!(cowen_common::config::DEF_MARKET_URL);
-        let auth_url = format!(
-            "{}/user/v2/authorize?client_id={}&response_type=code&scope=all&redirect_uri={}&state={}&code_challenge={}&code_challenge_method=S256",
-            market_url.trim_end_matches('/'),
-            crate::models::BUILTIN_CLIENT_ID,
-            urlencoding::encode(&session.redirect_uri),
-            session.state,
-            Pkce::generate_challenge(&session.code_verifier),
-        );
-
+        let auth_url = generate_oauth2_url(&session);
         println!(
             "\n\x1b[1mPlease authorize in the LOCAL browser of this machine. Opening URL...\x1b[0m"
         );
 
-        // 4. Automatically open browser
-        if std::env::var("COWEN_SKIP_BROWSER").unwrap_or_default() == "true" {
-            println!("Browser mock triggered for URL: {}", auth_url);
-            tracing::info!(target: "sys", url = %auth_url, "Browser mock triggered for URL");
-        } else if let Err(e) = open::that(&auth_url) {
-            tracing::warn!(target: "sys", error = %e, "Failed to open browser automatically");
-            println!("\x1b[33m(Failed to open browser automatically.)\x1b[0m");
-        }
+        open_browser_for_auth(&auth_url);
 
-        println!("\x1b[34m{}\x1b[0m", auth_url);
-        println!("\x1b[33m💡 Tip: If you are in an SSH or Headless environment:\x1b[0m");
-        println!("\x1b[33m   1. Copy the URL above and open it in your local browser manually.\x1b[0m");
-        println!("\x1b[33m   2. After authorization, your browser will redirect to a localhost URL (it may show 'Connection Refused').\x1b[0m");
-        println!("\x1b[33m   3. Copy that redirected URL from your browser's address bar and run `curl \"<COPIED_URL>\"` in this terminal to complete the login.\x1b[0m");
-
-
-        // 5. Detect Running Daemon for IPC Finalization
         let daemon_info = cowen_common::status::get_active_daemon_info(profile);
         if let Some(info) = daemon_info {
             if let Some(m_port) = info.monitor_port {
-                println!("\n\x1b[34m🚀 Detected running Master Daemon. Using IPC-based authorization...\x1b[0m");
-
-                let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
-                    session.redirect_port,
-                    profile.to_string(),
-                )
-                .await?;
-                tracing::info!(target: "sys", port = %actual_port, "CLI listening for callback");
-
-                tokio::select! {
-                    result = rx => {
-                        match result {
-                            Ok(Ok(callback_res)) => {
-                                println!("✅ Callback received. Pushing to Daemon for exchange...");
-                                let monitor_cli = cowen_common::status::MonitorClient::new(m_port);
-                                monitor_cli.finalize_auth(profile, &callback_res.code, Some(&callback_res.state), &session.state).await?;
-
-                                // Wait for results via IPC progress bar
-                                orchestrator::wait_for_token_exchange_ipc(profile, m_port).await?;
-
-                                // Successfully finished via IPC
-                                return Ok(());
-                            }
-                            _ => return Err(CowenError::Auth("Failed to receive callback locally".to_string())),
-                        }
-                    }
-                    _ = tokio::signal::ctrl_c() => {
-                        println!("\n🛑 Authorization cancelled by user.");
-                        return Err(CowenError::Auth("Authorization cancelled".to_string()));
-                    }
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-                        return Err(CowenError::Auth("Timeout waiting for browser redirect (5 mins)".to_string()));
-                    }
+                if wait_for_daemon_ipc_auth(profile, m_port, &session.redirect_port, &session.state).await? {
+                    return Ok(());
                 }
             }
         }
 
-        // 6. Legacy Fallback: Spawn Background Finalizer
         println!("\n\x1b[34m🚀 授权监听已在本机启动。请在浏览器中确认...\x1b[0m");
 
-        let pid = orchestrator::spawn_finalizer(profile, &session.state)?;
+        let pid = crate::lifecycle::orchestrator::spawn_finalizer(profile, &session.state)?;
 
-        // 7. Wait for Result (Closed Loop) with Signal Handling
         tokio::select! {
-            res = orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr, &session.state) => {
+            res = crate::lifecycle::orchestrator::wait_for_token_exchange(profile, vault.clone(), pid, is_new, cfg_mgr, &session.state) => {
                 res?;
             }
             _ = tokio::signal::ctrl_c() => {
@@ -651,8 +548,7 @@ impl AuthProvider for OAuth2Provider {
             }
         }
 
-        // 8. Automatically start the daemon (OCP: Consistent experience across all modes)
-        if params.auto_start {
+        if auto_start {
             if let Some(ds) = &daemon_service {
                 let _ = ds.start_daemon(profile).await;
             }
@@ -707,7 +603,7 @@ impl AuthProvider for OAuth2Provider {
             profile.to_string(),
         )
         .await?;
-        
+
         tracing::info!(target: "sys", port = %actual_port, "Daemon listening for auth callback");
 
         // Save the receiver mapped to the session state
@@ -725,10 +621,11 @@ impl AuthProvider for OAuth2Provider {
         _cfg_mgr: &cowen_config::ConfigManager,
         state: &str,
     ) -> CowenResult<()> {
-
         let rx = {
             let mut map = get_oauth_listeners().lock().unwrap();
-            map.remove(state).ok_or_else(|| CowenError::Auth("No active authorization session found for this state.".into()))?
+            map.remove(state).ok_or_else(|| {
+                CowenError::Auth("No active authorization session found for this state.".into())
+            })?
         };
 
         // Wait for result
@@ -746,20 +643,22 @@ impl AuthProvider for OAuth2Provider {
         };
 
         tracing::info!("✅ Callback received. Exchanging code for token...");
-        
+
         let token_pool = crate::VaultTokenPool::new(vault.clone());
         let session_manager = crate::lifecycle::AuthSessionManager::new(&token_pool);
-        
+
         let session = session_manager.get_session(state).await?;
-        
+
         // Exchange code!
-        let _token = self.exchange_code(
-            profile,
-            config,
-            &callback_res.code,
-            &session.code_verifier,
-            &session.redirect_uri,
-        ).await?;
+        let _token = self
+            .exchange_code(
+                profile,
+                config,
+                &callback_res.code,
+                &session.code_verifier,
+                &session.redirect_uri,
+            )
+            .await?;
 
         // Clear session after success
         let _ = session_manager.clear(profile).await;
@@ -848,27 +747,7 @@ impl AuthProvider for OAuth2Provider {
         &self,
         ctx: &cowen_common::status::StatusContext<'_>,
     ) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
-        use cowen_common::status::{
-            collect_daemon_status, AsStatusUI, StatusEntry, StatusLevel,
-        };
-
-        enum OAuth2Template {
-            SecurityVault,
-            AccessToken,
-            RefreshToken,
-            Authentication,
-        }
-        impl AsStatusUI for OAuth2Template {
-            fn ui(&self) -> (String, String) {
-                match self {
-                    Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
-                    Self::AccessToken => ("AccessToken".to_string(), "🔑".to_string()),
-                    Self::RefreshToken => ("RefreshToken".to_string(), "🔄".to_string()),
-                    Self::Authentication => ("Authentication".to_string(), "🔐".to_string()),
-                }
-            }
-        }
-
+        use cowen_common::status::{collect_daemon_status, StatusEntry, StatusLevel};
         let mut results = Vec::new();
         let profile = &ctx.profile;
         let vault = ctx.vault.clone();
@@ -897,76 +776,9 @@ impl AuthProvider for OAuth2Provider {
                 let is_expired = at.is_expired();
                 let ref_expired = rt.is_expired();
 
-                let token_children = vec![
-                    StatusEntry::new(
-                        OAuth2Template::AccessToken,
-                        if is_expired || ref_revoked {
-                            StatusLevel::ERROR
-                        } else {
-                            StatusLevel::OK
-                        },
-                        format!(
-                            "[{}] (Expires: {})",
-                            if is_expired || ref_revoked {
-                                "EXPIRED"
-                            } else {
-                                "VALID"
-                            },
-                            at.expires_at
-                                .with_timezone(&chrono::Local)
-                                .format("%Y-%m-%d %H:%M:%S")
-                        ),
-                    )
-                    .with_reason(if ref_revoked {
-                        Some(
-                            "关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。"
-                                .to_string(),
-                        )
-                    } else if is_expired {
-                        refresh_error
-                            .as_ref()
-                            .map(|e| format!("自动续约失败: {}", e))
-                            .or(Some(
-                                "AccessToken 已过期，正在等待后台续约进程处理...".to_string(),
-                            ))
-                    } else {
-                        None
-                    }),
-                    StatusEntry::new(
-                        OAuth2Template::RefreshToken,
-                        if ref_expired || ref_revoked {
-                            StatusLevel::ERROR
-                        } else {
-                            StatusLevel::OK
-                        },
-                        format!(
-                            "[{}] (Expires: {})",
-                            if ref_revoked {
-                                "REVOKED"
-                            } else if ref_expired {
-                                "EXPIRED"
-                            } else {
-                                "VALID"
-                            },
-                            rt.expires_at
-                                .with_timezone(&chrono::Local)
-                                .format("%Y-%m-%d %H:%M:%S")
-                        ),
-                    )
-                    .with_reason(if ref_revoked {
-                        Some(
-                            "令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。"
-                                .to_string(),
-                        )
-                    } else if ref_expired {
-                        Some(
-                            "RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。"
-                                .to_string(),
-                        )
-                    } else {
-                        None
-                    }),
-                ];
+                let token_children = build_oauth2_token_children(
+                    &at, &rt, is_expired, ref_expired, ref_revoked, refresh_error
+                );
 
                 let mut details = vec![];
                 if let Some(identity) = at.extract_identity() {
@@ -1149,5 +961,186 @@ impl Pkce {
         hasher.update(verifier.as_bytes());
         let result = hasher.finalize();
         URL_SAFE_NO_PAD.encode(result)
+    }
+}
+
+enum OAuth2Template {
+    SecurityVault,
+    AccessToken,
+    RefreshToken,
+    Authentication,
+}
+
+impl cowen_common::status::AsStatusUI for OAuth2Template {
+    fn ui(&self) -> (String, String) {
+        match self {
+            Self::SecurityVault => ("Security (Vault)".to_string(), "🛡️".to_string()),
+            Self::AccessToken => ("AccessToken".to_string(), "🔑".to_string()),
+            Self::RefreshToken => ("RefreshToken".to_string(), "🔄".to_string()),
+            Self::Authentication => ("Authentication".to_string(), "🔐".to_string()),
+        }
+    }
+}
+
+fn build_oauth2_token_children(
+    at: &cowen_common::models::Token,
+    rt: &cowen_common::models::Token,
+    is_expired: bool,
+    ref_expired: bool,
+    ref_revoked: bool,
+    refresh_error: Option<String>,
+) -> Vec<cowen_common::status::StatusEntry> {
+    use cowen_common::status::{StatusEntry, StatusLevel};
+    vec![
+        StatusEntry::new(
+            OAuth2Template::AccessToken,
+            if is_expired || ref_revoked {
+                StatusLevel::ERROR
+            } else {
+                StatusLevel::OK
+            },
+            format!(
+                "[{}] (Expires: {})",
+                if is_expired || ref_revoked {
+                    "EXPIRED"
+                } else {
+                    "VALID"
+                },
+                at.expires_at
+                    .with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M:%S")
+            ),
+        )
+        .with_reason(if ref_revoked {
+            Some(
+                "关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。"
+                    .to_string(),
+            )
+        } else if is_expired {
+            refresh_error
+                .as_ref()
+                .map(|e| format!("自动续约失败: {}", e))
+                .or(Some(
+                    "AccessToken 已过期，正在等待后台续约进程处理...".to_string(),
+                ))
+        } else {
+            None
+        }),
+        StatusEntry::new(
+            OAuth2Template::RefreshToken,
+            if ref_expired || ref_revoked {
+                StatusLevel::ERROR
+            } else {
+                StatusLevel::OK
+            },
+            format!(
+                "[{}] (Expires: {})",
+                if ref_revoked {
+                    "REVOKED"
+                } else if ref_expired {
+                    "EXPIRED"
+                } else {
+                    "VALID"
+                },
+                rt.expires_at
+                    .with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M:%S")
+            ),
+        )
+        .with_reason(if ref_revoked {
+            Some(
+                "令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。"
+                    .to_string(),
+            )
+        } else if ref_expired {
+            Some(
+                "RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。"
+                    .to_string(),
+            )
+        } else {
+            None
+        }),
+    ]
+}
+
+fn setup_oauth2_credentials(config: &mut Config, params: &crate::provider::InitParams) {
+    if params.app_key.is_some() || params.app_secret.is_some() {
+        println!("⚠️  Note: OAuth2 mode uses the standard built-in identity. Provided AppKey/AppSecret will be ignored.");
+    }
+    config.app_key = crate::models::BUILTIN_CLIENT_ID.to_string();
+    config.app_secret = "".to_string();
+
+    if let Some(target) = &params.webhook_target {
+        config.webhook_target = target.clone();
+    }
+    if let Some(port) = params.proxy_port {
+        config.proxy_port = port;
+    }
+}
+
+fn generate_oauth2_url(session: &cowen_common::models::AuthSession) -> String {
+    let market_url = obfs!(cowen_common::config::DEF_MARKET_URL);
+    format!(
+        "{}/user/v2/authorize?client_id={}&response_type=code&scope=all&redirect_uri={}&state={}&code_challenge={}&code_challenge_method=S256",
+        market_url.trim_end_matches('/'),
+        crate::models::BUILTIN_CLIENT_ID,
+        urlencoding::encode(&session.redirect_uri),
+        session.state,
+        Pkce::generate_challenge(&session.code_verifier),
+    )
+}
+
+fn open_browser_for_auth(auth_url: &str) {
+    if std::env::var("COWEN_SKIP_BROWSER").unwrap_or_default() == "true" {
+        println!("Browser mock triggered for URL: {}", auth_url);
+        tracing::info!(target: "sys", url = %auth_url, "Browser mock triggered for URL");
+    } else if let Err(e) = open::that(auth_url) {
+        tracing::warn!(target: "sys", error = %e, "Failed to open browser automatically");
+        println!("\x1b[33m(Failed to open browser automatically.)\x1b[0m");
+    }
+
+    println!("\x1b[34m{}\x1b[0m", auth_url);
+    println!("\x1b[33m💡 Tip: If you are in an SSH or Headless environment:\x1b[0m");
+    println!(
+        "\x1b[33m   1. Copy the URL above and open it in your local browser manually.\x1b[0m"
+    );
+    println!("\x1b[33m   2. After authorization, your browser will redirect to a localhost URL (it may show 'Connection Refused').\x1b[0m");
+    println!("\x1b[33m   3. Copy that redirected URL from your browser's address bar and run `curl \"<COPIED_URL>\"` in this terminal to complete the login.\x1b[0m");
+}
+
+async fn wait_for_daemon_ipc_auth(profile: &str, m_port: u16, redirect_port: &u16, session_state: &str) -> CowenResult<bool> {
+    println!("\n\x1b[34m🚀 Detected running Master Daemon. Using IPC-based authorization...\x1b[0m");
+
+    let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
+        *redirect_port,
+        profile.to_string(),
+    )
+    .await?;
+    tracing::info!(target: "sys", port = %actual_port, "CLI listening for callback");
+
+    tokio::select! {
+        result = rx => {
+            match result {
+                Ok(Ok(callback_res)) => {
+                    println!("✅ Callback received. Pushing to Daemon for exchange...");
+                    let monitor_cli = cowen_common::status::MonitorClient::new(m_port);
+                    monitor_cli.finalize_auth(profile, &callback_res.code, Some(&callback_res.state), session_state).await?;
+
+                    // Wait for results via IPC progress bar
+                    crate::lifecycle::orchestrator::wait_for_token_exchange_ipc(profile, m_port).await?;
+
+                    // Successfully finished via IPC
+                    return Ok(true);
+                }
+                _ => return Err(CowenError::Auth("Failed to receive callback locally".to_string())),
+            }
+        }
+        _ = tokio::signal::ctrl_c() => {
+            println!("\n🛑 Authorization cancelled by user.");
+            return Err(CowenError::Auth("Authorization cancelled".to_string()));
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
+            return Err(CowenError::Auth("Timeout waiting for browser redirect (5 mins)".to_string()));
+        }
     }
 }

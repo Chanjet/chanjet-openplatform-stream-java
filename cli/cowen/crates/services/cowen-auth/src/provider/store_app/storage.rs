@@ -6,8 +6,6 @@ pub(crate) fn get_org_token_key(app_key: &str, org_id: &str) -> String {
     format!("oauth2_token_pair_org_{}_{}", app_key, org_id)
 }
 
-
-
 pub(crate) fn get_custom_profile(
     _base_profile: &str,
     app_key: &str,

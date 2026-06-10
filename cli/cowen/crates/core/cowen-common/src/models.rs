@@ -1,5 +1,5 @@
-use crate::{CowenResult, CowenError};
-use chrono::{DateTime, Utc, Duration};
+use crate::{CowenError, CowenResult};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,20 +52,36 @@ impl Token {
         if parts.len() != 3 {
             return Err(CowenError::Security("Invalid JWT format".to_string()));
         }
-        
-        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
         let payload = URL_SAFE_NO_PAD.decode(parts[1])?;
         Ok(serde_json::from_slice(&payload)?)
     }
 
     pub fn extract_identity(&self) -> Option<TokenIdentity> {
         let claims = self.extract_jwt_claims().ok()?;
-        
-        let user_id = claims.get("userId").or(claims.get("user_id"))?.as_str()?.to_string();
-        let org_id = claims.get("orgId").or(claims.get("org_id"))?.as_str()?.to_string();
-        let app_id = claims.get("appId").or(claims.get("app_id"))?.as_str()?.to_string();
-        
-        Some(TokenIdentity { user_id, org_id, app_id })
+
+        let user_id = claims
+            .get("userId")
+            .or(claims.get("user_id"))?
+            .as_str()?
+            .to_string();
+        let org_id = claims
+            .get("orgId")
+            .or(claims.get("org_id"))?
+            .as_str()?
+            .to_string();
+        let app_id = claims
+            .get("appId")
+            .or(claims.get("app_id"))?
+            .as_str()?
+            .to_string();
+
+        Some(TokenIdentity {
+            user_id,
+            org_id,
+            app_id,
+        })
     }
 }
 
@@ -125,7 +141,7 @@ impl OAuth2TokenPair {
     pub fn is_expired_with_buffer(&self, min_buffer: Duration) -> bool {
         let now = Utc::now();
         let total_lifetime = self.expires_at.signed_duration_since(self.created_at);
-        
+
         if total_lifetime < Duration::minutes(10) {
             return now >= self.expires_at;
         }
@@ -184,23 +200,33 @@ pub trait StoreItem: Serialize + for<'de> Deserialize<'de> + Send + Sync {
 }
 
 impl StoreItem for Token {
-    fn key_prefix() -> &'static str { "tokens" }
+    fn key_prefix() -> &'static str {
+        "tokens"
+    }
 }
 
 impl StoreItem for Ticket {
-    fn key_prefix() -> &'static str { "tickets" }
+    fn key_prefix() -> &'static str {
+        "tickets"
+    }
 }
 
 impl StoreItem for DlqMessage {
-    fn key_prefix() -> &'static str { "dlq" }
+    fn key_prefix() -> &'static str {
+        "dlq"
+    }
 }
 
 impl StoreItem for Item {
-    fn key_prefix() -> &'static str { "cfg" }
+    fn key_prefix() -> &'static str {
+        "cfg"
+    }
 }
 
 impl StoreItem for AuditEntry {
-    fn key_prefix() -> &'static str { "audit" }
+    fn key_prefix() -> &'static str {
+        "audit"
+    }
 }
 
 #[cfg(test)]
@@ -210,13 +236,19 @@ mod tests {
     #[test]
     fn auth_mode_from_str_valid_canonical() {
         assert_eq!("oauth2".parse::<AuthMode>().unwrap(), AuthMode::Oauth2);
-        assert_eq!("self_built".parse::<AuthMode>().unwrap(), AuthMode::SelfBuilt);
+        assert_eq!(
+            "self_built".parse::<AuthMode>().unwrap(),
+            AuthMode::SelfBuilt
+        );
         assert_eq!("store_app".parse::<AuthMode>().unwrap(), AuthMode::StoreApp);
     }
 
     #[test]
     fn auth_mode_from_str_valid_kebab_aliases() {
-        assert_eq!("self-built".parse::<AuthMode>().unwrap(), AuthMode::SelfBuilt);
+        assert_eq!(
+            "self-built".parse::<AuthMode>().unwrap(),
+            AuthMode::SelfBuilt
+        );
         assert_eq!("store-app".parse::<AuthMode>().unwrap(), AuthMode::StoreApp);
     }
 

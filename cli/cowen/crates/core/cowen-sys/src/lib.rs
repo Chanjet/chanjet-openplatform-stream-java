@@ -1,29 +1,29 @@
 use std::sync::Arc;
 
-#[cfg(target_os = "macos")]
-mod macos;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(unix)]
 pub mod unix;
 #[cfg(windows)]
 mod windows;
 
 pub mod plugin;
-pub use plugin::{PluginLoader, discover_plugins};
+pub use plugin::{discover_plugins, PluginLoader};
 
-pub use cowen_infra::sys::{ProcessManager, SysFingerprint, IpcBinder, ServiceManager};
+pub use cowen_infra::sys::{IpcBinder, ProcessManager, ServiceManager, SysFingerprint};
 
 pub fn get_process_manager() -> Arc<dyn ProcessManager> {
     #[cfg(target_os = "macos")]
     return Arc::new(macos::MacProcessManager::new());
-    
+
     #[cfg(target_os = "linux")]
     return Arc::new(linux::LinuxProcessManager::new());
-    
+
     #[cfg(windows)]
     return Arc::new(windows::WinProcessManager::new());
-    
+
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     compile_error!("Unsupported platform!");
 }
@@ -31,13 +31,13 @@ pub fn get_process_manager() -> Arc<dyn ProcessManager> {
 pub fn get_sys_fingerprint() -> Arc<dyn SysFingerprint> {
     #[cfg(target_os = "macos")]
     return Arc::new(macos::MacFingerprint::new());
-    
+
     #[cfg(target_os = "linux")]
     return Arc::new(linux::LinuxFingerprint::new());
-    
+
     #[cfg(windows)]
     return Arc::new(windows::WinFingerprint::new());
-    
+
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     compile_error!("Unsupported platform!");
 }
@@ -45,13 +45,13 @@ pub fn get_sys_fingerprint() -> Arc<dyn SysFingerprint> {
 pub fn get_ipc_binder() -> Arc<dyn IpcBinder> {
     #[cfg(target_os = "macos")]
     return Arc::new(macos::MacIpcBinder::new());
-    
+
     #[cfg(target_os = "linux")]
     return Arc::new(linux::LinuxIpcBinder::new());
-    
+
     #[cfg(windows)]
     return Arc::new(windows::WinIpcBinder::new());
-    
+
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     compile_error!("Unsupported platform!");
 }
@@ -59,21 +59,21 @@ pub fn get_ipc_binder() -> Arc<dyn IpcBinder> {
 pub fn get_service_manager() -> Arc<dyn ServiceManager> {
     #[cfg(target_os = "macos")]
     return Arc::new(macos::MacServiceManager::new());
-    
+
     #[cfg(target_os = "linux")]
     return Arc::new(linux::LinuxServiceManager::new());
-    
+
     #[cfg(windows)]
     return Arc::new(windows::WinServiceManager::new());
-    
+
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     compile_error!("Unsupported platform!");
 }
 
-#[cfg(target_os = "macos")]
-pub use macos::set_process_name;
 #[cfg(target_os = "linux")]
 pub use linux::set_process_name;
+#[cfg(target_os = "macos")]
+pub use macos::set_process_name;
 #[cfg(windows)]
 pub use windows::set_process_name;
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
@@ -188,7 +188,10 @@ mod tests {
             let args: Vec<_> = cmd.get_args().collect();
             assert_eq!(args[0], "-p");
             let profile = args[1].to_str().unwrap();
-            assert!(profile.contains("(allow file-write* (subpath \"/Users/zhangliang/workspace\"))"), "macOS Seatbelt profile must dynamically append allowed workspace subpaths");
+            assert!(
+                profile.contains("(allow file-write* (subpath \"/Users/zhangliang/workspace\"))"),
+                "macOS Seatbelt profile must dynamically append allowed workspace subpaths"
+            );
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -197,4 +200,3 @@ mod tests {
         }
     }
 }
-

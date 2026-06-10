@@ -1,5 +1,5 @@
-use std::sync::RwLock;
 use crate::{SearchDocument, SearchProvider};
+use std::sync::RwLock;
 
 pub struct StringMatchProvider {
     pub docs: RwLock<Vec<SearchDocument>>,
@@ -13,21 +13,20 @@ impl SearchProvider for StringMatchProvider {
     fn search(&self, query: &str, top: usize) -> Vec<(f32, SearchDocument)> {
         let query_lower = query.to_lowercase();
         let docs = self.docs.read().unwrap();
-        let mut results: Vec<(f32, SearchDocument)> = docs.iter()
+        let mut results: Vec<(f32, SearchDocument)> = docs
+            .iter()
             .filter_map(|doc| {
                 let mut score = 0.0;
                 let content = format!("{} {}", doc.summary, doc.description).to_lowercase();
-                
+
                 if content.contains(&query_lower) || doc.id.to_lowercase().contains(&query_lower) {
                     score += 1.0;
                 }
-                
+
                 // Simple partial match count
-                let match_count = query_lower.chars()
-                    .filter(|c| content.contains(*c))
-                    .count();
+                let match_count = query_lower.chars().filter(|c| content.contains(*c)).count();
                 score += match_count as f32 * 0.01;
-                
+
                 if score >= 1.0 {
                     Some((score, doc.clone()))
                 } else {
@@ -50,7 +49,7 @@ impl SearchProvider for StringMatchProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SearchDocument};
+    use crate::SearchDocument;
 
     #[test]
     fn test_string_match_provider() {
@@ -68,10 +67,12 @@ mod tests {
                 vector: vec![],
             },
         ];
-        
-        let provider = StringMatchProvider { docs: std::sync::RwLock::new(docs) };
+
+        let provider = StringMatchProvider {
+            docs: std::sync::RwLock::new(docs),
+        };
         let results = provider.search("Order", 1);
-        
+
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.id, "test1");
         assert!(results[0].0 > 0.0);

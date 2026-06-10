@@ -19,15 +19,15 @@ impl cowen_infra::sys::ProcessManager for UnixProcessManager {
     fn current_pid(&self) -> u32 {
         std::process::id()
     }
-    
+
     async fn is_process_alive(&self, pid: u32) -> bool {
-        use sysinfo::{System, Pid, ProcessesToUpdate};
+        use sysinfo::{Pid, ProcessesToUpdate, System};
         let mut s = System::new();
         let sys_pid = Pid::from_u32(pid);
         s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
         s.process(sys_pid).is_some()
     }
-    
+
     async fn kill_process(&self, pid: u32, force: bool) -> anyhow::Result<()> {
         let signal = if force { "-9" } else { "-15" };
         let _ = std::process::Command::new("kill")
@@ -36,27 +36,32 @@ impl cowen_infra::sys::ProcessManager for UnixProcessManager {
             .status();
         Ok(())
     }
-    
+
     async fn daemonize(&self) -> anyhow::Result<()> {
         Ok(())
     }
-    
+
     fn set_stop_channel(&self, tx: Sender<()>) {
         if let Ok(mut guard) = self.stop_tx.lock() {
             *guard = Some(tx.clone());
         }
         tokio::spawn(async move {
-            if let Ok(mut sigterm) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            if let Ok(mut sigterm) =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            {
                 sigterm.recv().await;
                 let _ = tx.send(()).await;
             }
         });
     }
-    
-    async fn run_as_service(&self, _f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>) -> anyhow::Result<()> {
+
+    async fn run_as_service(
+        &self,
+        _f: Box<dyn FnOnce() -> anyhow::Result<()> + Send>,
+    ) -> anyhow::Result<()> {
         anyhow::bail!("Unix does not support Windows Service model.")
     }
-    
+
     fn spawn_daemon(&self, cmd: &mut std::process::Command) -> anyhow::Result<u32> {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
@@ -88,12 +93,16 @@ impl UnixIpcBinder {
     pub fn new() -> Self {
         Self
     }
-    
+
     fn get_sock_path(app_dir: &Path) -> std::path::PathBuf {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(app_dir.to_string_lossy().as_bytes());
-        let hash: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+        let hash: String = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
         std::path::PathBuf::from(format!("/tmp/cowen_ipc_{}.sock", &hash[0..16]))
     }
 }
@@ -104,20 +113,25 @@ impl cowen_infra::sys::IpcBinder for UnixIpcBinder {
         let listener = TcpListener::bind(addr).await?;
         Ok(listener)
     }
-    
-    async fn serve_handshake(&self, app_dir: &Path, payload: String, mut stop_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> {
+
+    async fn serve_handshake(
+        &self,
+        app_dir: &Path,
+        payload: String,
+        mut stop_rx: tokio::sync::mpsc::Receiver<()>,
+    ) -> anyhow::Result<()> {
         let sock_path = Self::get_sock_path(app_dir);
         if sock_path.exists() {
             let _ = std::fs::remove_file(&sock_path);
         }
         let listener = tokio::net::UnixListener::bind(&sock_path)?;
-        
+
         // Ensure 0600 permissions
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(&sock_path)?.permissions();
         perms.set_mode(0o600);
         std::fs::set_permissions(&sock_path, perms)?;
-        
+
         loop {
             tokio::select! {
                 _ = stop_rx.recv() => {
@@ -137,7 +151,7 @@ impl cowen_infra::sys::IpcBinder for UnixIpcBinder {
         }
         Ok(())
     }
-    
+
     async fn fetch_handshake(&self, app_dir: &Path) -> anyhow::Result<String> {
         let sock_path = Self::get_sock_path(app_dir);
         let mut stream = tokio::net::UnixStream::connect(&sock_path).await?;
@@ -151,9 +165,12 @@ impl cowen_infra::sys::IpcBinder for UnixIpcBinder {
 pub mod fs {
     use std::path::Path;
 
-    pub fn secure_write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> std::io::Result<()> {
-        use std::os::unix::fs::OpenOptionsExt;
+    pub fn secure_write<P: AsRef<Path>, C: AsRef<[u8]>>(
+        path: P,
+        contents: C,
+    ) -> std::io::Result<()> {
         use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -187,16 +204,16 @@ pub mod fs {
 
     pub fn is_file_secure<P: AsRef<Path>>(path: P) -> bool {
         use std::os::unix::fs::MetadataExt;
-        
+
         let check_meta = |m: &std::fs::Metadata| -> bool {
             let mode = m.mode();
             let uid = m.uid();
-            
+
             // World-writable check
             if mode & 0o002 != 0 {
                 return false;
             }
-            
+
             // Owner check (must be owned by root or the current user)
             let current_uid = unsafe { libc::getuid() };
             if uid != 0 && uid != current_uid {
@@ -225,5 +242,4 @@ pub mod fs {
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

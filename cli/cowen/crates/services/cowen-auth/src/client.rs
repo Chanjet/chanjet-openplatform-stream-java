@@ -309,6 +309,8 @@ impl AuthClient {
                 panic!("No provider registered for mode: {:?}", mode);
             })
     }
+
+
 }
 
 #[async_trait]
@@ -475,7 +477,6 @@ impl Client for AuthClient {
     ) -> Option<Arc<dyn crate::provider::AuthProvider>> {
         self.providers.get(mode).cloned()
     }
-
     async fn get_openapi_spec(
         &self,
         profile: &str,
@@ -486,46 +487,29 @@ impl Client for AuthClient {
         let cache_path = app_dir.join(format!("{}_openapi.yaml", profile));
 
         // 1. Try Load Cache ONLY if not forcing refresh
-        if !force_refresh && cache_path.exists() {
-            if let Ok(data) = std::fs::read_to_string(&cache_path) {
-                if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
-                    let metadata = std::fs::metadata(&cache_path).map_err(CowenError::from)?;
-                    let elapsed = metadata
-                        .modified()
-                        .map_err(CowenError::from)?
-                        .elapsed()
-                        .map_err(|e| CowenError::Internal(e.to_string()))?
-                        .as_secs();
-
-                    // Cache is fresh (less than 1 hour)
-                    if elapsed < 3600 {
-                        return Ok(spec);
-                    }
-
-                    // Cache expired but we have it as fallback if network fails
-                    tracing::debug!(target: "sys", "Local spec cache expired ({}s), attempting refresh...", elapsed);
-                }
+        if !force_refresh {
+            if let Some(spec) = Self::try_load_fresh_cache(&cache_path)? {
+                return Ok(spec);
             }
-        }
-
-        if force_refresh {
+        } else {
             tracing::debug!(target: "sys", "Force refresh requested, bypassing local cache.");
         }
 
-        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
-        
+        let app_cfg = cowen_config::ConfigManager::new()?
+            .load_app_config()
+            .await?;
+
         // Both OpenAPI and Dynamic Discovery require a valid token. Fetch it once here!
-        let token = match self.get_token(profile, cfg, &reqwest::header::HeaderMap::new()).await {
+        let token = match self
+            .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
+            .await
+        {
             Ok(t) => t,
             Err(e) => {
                 // If we can't get a token, check if we have a local cache to fallback to
-                if cache_path.exists() {
-                    if let Ok(data) = std::fs::read_to_string(&cache_path) {
-                        if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
-                            tracing::warn!(target: "sys", "Token fetch failed, falling back to expired local cache: {}", e);
-                            return Ok(spec);
-                        }
-                    }
+                if let Some(spec) = Self::try_load_stale_cache(&cache_path) {
+                    tracing::warn!(target: "sys", "Token fetch failed, falling back to expired local cache: {}", e);
+                    return Ok(spec);
                 }
                 return Err(e);
             }
@@ -533,33 +517,8 @@ impl Client for AuthClient {
 
         // 2. Fetch fresh spec from Platform
         if !app_cfg.openapi_url.is_empty() {
-            let mut spec_url = format!(
-                "{}{}",
-                app_cfg.openapi_url.trim_end_matches('/'),
-                obfs!("/v1/common/openapi/spec")
-            );
-            
-            let mut headers = reqwest::header::HeaderMap::new();
-
-            // OCP: Delegate URL and Header decoration to provider
-            self.provider(&cfg.app_mode).decorate_openapi_request(
-                &mut spec_url,
-                &mut headers,
-                &token,
-                cfg,
-            );
-
-            match self.http_sender.get(&spec_url, headers).await {
-                Ok(resp) if resp.is_success() => {
-                    if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
-                        Self::clean_non_standard_fields(&mut fresh_spec);
-                        if let Err(e) = self.save_spec_to_cache(&cache_path, &fresh_spec) {
-                            tracing::warn!(target: "sys", "Failed to save spec cache: {}", e);
-                        }
-                        return Ok(fresh_spec);
-                    }
-                }
-                _ => {}
+            if let Some(spec) = self.try_fetch_openapi_spec(&app_cfg, profile, cfg, &token, &cache_path).await {
+                return Ok(spec);
             }
         }
 
@@ -574,13 +533,9 @@ impl Client for AuthClient {
             }
             Err(e) => {
                 // If refresh failed but we have OLD cache, return OLD cache as last resort
-                if cache_path.exists() {
-                    if let Ok(data) = std::fs::read_to_string(&cache_path) {
-                        if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
-                            tracing::warn!(target: "sys", "Refresh failed, falling back to expired local cache: {}", e);
-                            return Ok(spec);
-                        }
-                    }
+                if let Some(spec) = Self::try_load_stale_cache(&cache_path) {
+                    tracing::warn!(target: "sys", "Refresh failed, falling back to expired local cache: {}", e);
+                    return Ok(spec);
                 }
                 tracing::error!(target: "sys", "API list refresh failed: {}", e);
                 Err(CowenError::Api(format!(
@@ -600,7 +555,9 @@ impl Client for AuthClient {
         let token = self
             .get_token(profile, cfg, &reqwest::header::HeaderMap::new())
             .await?;
-        let app_cfg = cowen_config::ConfigManager::new()?.load_app_config().await?;
+        let app_cfg = cowen_config::ConfigManager::new()?
+            .load_app_config()
+            .await?;
         let base_url = format!(
             "{}{}",
             app_cfg.openapi_url.trim_end_matches('/'),
@@ -639,11 +596,11 @@ impl Client for AuthClient {
                     "Failed to fetch interface list page {}: HTTP {}",
                     current_page, status
                 );
-                
+
                 if status == 500 {
                     err_msg.push_str("\n\n💡 提示 (Hint): 服务端返回 500 内部错误 (Internal Server Error)。\n如果您使用的是新创建的【自建应用 (Self-Built)】，此错误通常是因为该应用尚未在任何企业（账套）中完成实质性安装或启用，导致服务端查询不到关联的授权数据。\n请前往开放平台确保该应用已至少关联一个企业账套。");
                 }
-                
+
                 return Err(CowenError::Api(err_msg));
             }
 
@@ -663,83 +620,7 @@ impl Client for AuthClient {
             if let Some(list) = value.get("resultList").and_then(|l| l.as_array()) {
                 tracing::debug!(target: "sys", "Page {} resultList contains {} items", current_page, list.len());
                 for item in list {
-                    let mut parsed_paths = None;
-
-                    // 1. Try to extract paths from openApi field
-                    if let Some(open_api_val) = item.get("openApi") {
-                        if !open_api_val.is_null() {
-                            let mut item_spec = if let Some(s) = open_api_val.as_str() {
-                                serde_json::from_str(s).unwrap_or(serde_json::json!({}))
-                            } else {
-                                open_api_val.clone()
-                            };
-
-                            Self::clean_non_standard_fields(&mut item_spec);
-                            if let Some(item_paths) =
-                                item_spec.get("paths").and_then(|p| p.as_object())
-                            {
-                                parsed_paths = Some(item_paths.clone());
-                            }
-                        }
-                    }
-
-                    // 2. Merge paths or use fallback
-                    if let Some(item_paths) = parsed_paths {
-                        for (path, methods) in item_paths {
-                            if let Some(existing) = combined_paths.get_mut(&path) {
-                                if let (Some(e_obj), Some(m_obj)) =
-                                    (existing.as_object_mut(), methods.as_object())
-                                {
-                                    for (k, v) in m_obj {
-                                        e_obj.insert(k.clone(), v.clone());
-                                    }
-                                }
-                            } else {
-                                combined_paths.insert(path, methods);
-                            }
-                        }
-                    } else {
-                        // Fallback: manually construct from requestPath and requestHttpMethod
-                        let path = item
-                            .get("requestPath")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let name = item
-                            .get("interfaceName")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("No Name");
-                        let method = item
-                            .get("requestHttpMethod")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("GET")
-                            .to_lowercase();
-
-                        if !path.is_empty() {
-                            let mut methods_obj = serde_json::Map::new();
-                            methods_obj.insert(
-                                method.clone(),
-                                serde_json::json!({
-                                    "summary": name,
-                                    "description": format!("Authorized Interface: {}", name),
-                                    "responses": { "200": { "description": "OK" } }
-                                }),
-                            );
-
-                            if let Some(existing) = combined_paths.get_mut(path) {
-                                if let Some(e_obj) = existing.as_object_mut() {
-                                    e_obj.insert(
-                                        method.clone(),
-                                        methods_obj.get(&method).unwrap().clone(),
-                                    );
-                                }
-                            } else {
-                                combined_paths.insert(
-                                    path.to_string(),
-                                    serde_json::Value::Object(methods_obj),
-                                );
-                            }
-                        }
-                    }
+                    Self::merge_paths_from_item(item, &mut combined_paths);
                 }
             }
             current_page += 1;
@@ -758,6 +639,78 @@ impl Client for AuthClient {
 }
 
 impl AuthClient {
+
+    fn try_load_fresh_cache(cache_path: &std::path::Path) -> CowenResult<Option<serde_json::Value>> {
+        if cache_path.exists() {
+            if let Ok(data) = std::fs::read_to_string(cache_path) {
+                if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
+                    let metadata = std::fs::metadata(cache_path).map_err(CowenError::from)?;
+                    let elapsed = metadata
+                        .modified()
+                        .map_err(CowenError::from)?
+                        .elapsed()
+                        .map_err(|e| CowenError::Internal(e.to_string()))?
+                        .as_secs();
+
+                    if elapsed < 3600 {
+                        return Ok(Some(spec));
+                    }
+                    tracing::debug!(target: "sys", "Local spec cache expired ({}s), attempting refresh...", elapsed);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn try_load_stale_cache(cache_path: &std::path::Path) -> Option<serde_json::Value> {
+        if cache_path.exists() {
+            if let Ok(data) = std::fs::read_to_string(cache_path) {
+                if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
+                    return Some(spec);
+                }
+            }
+        }
+        None
+    }
+
+    async fn try_fetch_openapi_spec(
+        &self,
+        app_cfg: &cowen_common::config::AppConfig,
+        _profile: &str,
+        cfg: &Config,
+        token: &cowen_common::models::Token,
+        cache_path: &std::path::PathBuf,
+    ) -> Option<serde_json::Value> {
+        let mut spec_url = format!(
+            "{}{}",
+            app_cfg.openapi_url.trim_end_matches('/'),
+            obfs!("/v1/common/openapi/spec")
+        );
+
+        let mut headers = reqwest::header::HeaderMap::new();
+
+        // OCP: Delegate URL and Header decoration to provider
+        self.provider(&cfg.app_mode).decorate_openapi_request(
+            &mut spec_url,
+            &mut headers,
+            token,
+            cfg,
+        );
+
+        if let Ok(resp) = self.http_sender.get(&spec_url, headers).await {
+            if resp.is_success() {
+                if let Ok(mut fresh_spec) = resp.json::<serde_json::Value>().await {
+                    Self::clean_non_standard_fields(&mut fresh_spec);
+                    if let Err(e) = self.save_spec_to_cache(cache_path, &fresh_spec) {
+                        tracing::warn!(target: "sys", "Failed to save spec cache: {}", e);
+                    }
+                    return Some(fresh_spec);
+                }
+            }
+        }
+        None
+    }
+
     fn save_spec_to_cache(
         &self,
         path: &std::path::PathBuf,
@@ -797,6 +750,86 @@ impl AuthClient {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn merge_paths_from_item(item: &serde_json::Value, combined_paths: &mut serde_json::Map<String, serde_json::Value>) {
+        let mut parsed_paths = None;
+
+        // 1. Try to extract paths from openApi field
+        if let Some(open_api_val) = item.get("openApi") {
+            if !open_api_val.is_null() {
+                let mut item_spec = if let Some(s) = open_api_val.as_str() {
+                    serde_json::from_str(s).unwrap_or(serde_json::json!({}))
+                } else {
+                    open_api_val.clone()
+                };
+
+                Self::clean_non_standard_fields(&mut item_spec);
+                if let Some(item_paths) =
+                    item_spec.get("paths").and_then(|p| p.as_object())
+                {
+                    parsed_paths = Some(item_paths.clone());
+                }
+            }
+        }
+
+        // 2. Merge paths or use fallback
+        if let Some(item_paths) = parsed_paths {
+            for (path, methods) in item_paths {
+                if let Some(existing) = combined_paths.get_mut(&path) {
+                    if let (Some(e_obj), Some(m_obj)) =
+                        (existing.as_object_mut(), methods.as_object())
+                    {
+                        for (k, v) in m_obj {
+                            e_obj.insert(k.clone(), v.clone());
+                        }
+                    }
+                } else {
+                    combined_paths.insert(path, methods);
+                }
+            }
+        } else {
+            // Fallback: manually construct from requestPath and requestHttpMethod
+            let path = item
+                .get("requestPath")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let name = item
+                .get("interfaceName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("No Name");
+            let method = item
+                .get("requestHttpMethod")
+                .and_then(|v| v.as_str())
+                .unwrap_or("GET")
+                .to_lowercase();
+
+            if !path.is_empty() {
+                let mut methods_obj = serde_json::Map::new();
+                methods_obj.insert(
+                    method.clone(),
+                    serde_json::json!({
+                        "summary": name,
+                        "description": format!("Authorized Interface: {}", name),
+                        "responses": { "200": { "description": "OK" } }
+                    }),
+                );
+
+                if let Some(existing) = combined_paths.get_mut(path) {
+                    if let Some(e_obj) = existing.as_object_mut() {
+                        e_obj.insert(
+                            method.clone(),
+                            methods_obj.get(&method).unwrap().clone(),
+                        );
+                    }
+                } else {
+                    combined_paths.insert(
+                        path.to_string(),
+                        serde_json::Value::Object(methods_obj),
+                    );
+                }
+            }
         }
     }
 }

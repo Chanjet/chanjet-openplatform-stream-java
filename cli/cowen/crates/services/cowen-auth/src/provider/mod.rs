@@ -6,6 +6,7 @@ use cowen_common::models::Token;
 
 pub mod oauth2;
 pub mod self_built;
+pub mod shared;
 pub mod store_app;
 pub mod utils;
 
@@ -70,7 +71,9 @@ pub trait AuthProvider: Send + Sync {
         _cfg_mgr: &cowen_config::ConfigManager,
         _params: crate::provider::InitParams,
     ) -> CowenResult<(String, String)> {
-        Err(CowenError::Auth("generate_auth_url is not supported in this auth mode".to_string()))
+        Err(CowenError::Auth(
+            "generate_auth_url is not supported in this auth mode".to_string(),
+        ))
     }
 
     /// 🚀 分步授权：等待回调并完成授权 (Route A 改造)
@@ -82,7 +85,9 @@ pub trait AuthProvider: Send + Sync {
         _cfg_mgr: &cowen_config::ConfigManager,
         _state: &str,
     ) -> CowenResult<()> {
-        Err(CowenError::Auth("wait_for_auth is not supported in this auth mode".to_string()))
+        Err(CowenError::Auth(
+            "wait_for_auth is not supported in this auth mode".to_string(),
+        ))
     }
 
     /// 🚀 临时授权码兑换永久授权码 (StoreApp 专有，其他模式默认不支持)

@@ -134,7 +134,6 @@ pub struct Config {
     pub exclusive: Option<bool>,
 }
 
-
 fn default_true() -> bool {
     true
 }

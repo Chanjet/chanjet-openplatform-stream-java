@@ -11,17 +11,26 @@ async fn test_daemon_version_sync_restart() {
     let bin_dir = dir.path().join("bin");
     let exe_suffix = std::env::consts::EXE_SUFFIX;
     let cowen_bin = bin_dir.join(format!("cowen{}", exe_suffix));
-    
+
     // 1. Seed dummy tokens
-    let app_cfg = cowen_common::config::AppConfig { 
-        openapi_url: "http://localhost:12345".to_string(), 
-        stream_url: "http://localhost:12345".to_string(), 
-        ..Default::default() 
+    let app_cfg = cowen_common::config::AppConfig {
+        openapi_url: "http://localhost:12345".to_string(),
+        stream_url: "http://localhost:12345".to_string(),
+        ..Default::default()
     };
-    let vault = cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "sync_fingerprint").await.unwrap();
-    vault.set_config(profile, "app_key", "sync_test_key").await.unwrap();
-    vault.set_secret(profile, "app_secret", "sync_test_secret").await.unwrap();
-    
+    let vault =
+        cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "sync_fingerprint")
+            .await
+            .unwrap();
+    vault
+        .set_config(profile, "app_key", "sync_test_key")
+        .await
+        .unwrap();
+    vault
+        .set_secret(profile, "app_secret", "sync_test_secret")
+        .await
+        .unwrap();
+
     let at = cowen_common::models::Token {
         value: "mock_at".to_string(),
         expires_at: chrono::Utc::now() + chrono::Duration::days(1),
@@ -34,7 +43,11 @@ async fn test_daemon_version_sync_restart() {
     cmd_start.env("COWEN_HOME", &home);
     cmd_start.env("HOME", &home);
     cmd_start.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
-    cmd_start.arg("--profile").arg(profile).arg("daemon").arg("start");
+    cmd_start
+        .arg("--profile")
+        .arg(profile)
+        .arg("daemon")
+        .arg("start");
     cmd_start.assert().success();
 
     // Wait for daemon to stabilize
@@ -46,7 +59,10 @@ async fn test_daemon_version_sync_restart() {
     cmd_status.env("HOME", &home);
     cmd_status.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
     cmd_status.arg("--profile").arg(profile).arg("status");
-    cmd_status.assert().success().stdout(predicate::str::contains("[RUNNING]"));
+    cmd_status
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[RUNNING]"));
 
     // 4. Verify version sync triggers restart
     let mut cmd_sync = Command::new(&cowen_bin);
@@ -54,11 +70,11 @@ async fn test_daemon_version_sync_restart() {
     cmd_sync.env("HOME", &home);
     cmd_sync.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
     cmd_sync.arg("--profile").arg(profile).arg("status");
-    
+
     // Due to build time mismatch in test environment, it often triggers sync
     let output = cmd_sync.output().unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
-    
+
     if stderr.contains("后台进程版本已过时") {
         assert!(stderr.contains("正在自动重启"));
         assert!(stderr.contains("Stopping master daemon"));
@@ -71,9 +87,16 @@ async fn test_daemon_version_sync_restart() {
         if let Some(first_line) = pid_str.lines().next() {
             if let Ok(pid) = first_line.trim().parse::<u32>() {
                 #[cfg(windows)]
-                let _ = std::process::Command::new("taskkill").arg("/F").arg("/PID").arg(pid.to_string()).status();
+                let _ = std::process::Command::new("taskkill")
+                    .arg("/F")
+                    .arg("/PID")
+                    .arg(pid.to_string())
+                    .status();
                 #[cfg(unix)]
-                let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+                let _ = std::process::Command::new("kill")
+                    .arg("-9")
+                    .arg(pid.to_string())
+                    .status();
             }
         }
     }
@@ -85,21 +108,27 @@ async fn test_daemon_version_sync_restart() {
     cmd_recover.env("COWEN_HOME", &home);
     cmd_recover.env("HOME", &home);
     cmd_recover.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
-    cmd_recover.arg("--profile").arg(profile).arg("api").arg("list");
-    
+    cmd_recover
+        .arg("--profile")
+        .arg(profile)
+        .arg("api")
+        .arg("list");
+
     let output_recover = cmd_recover.output().unwrap();
     let stdout_recover = String::from_utf8_lossy(&output_recover.stdout);
     let stderr_recover = String::from_utf8_lossy(&output_recover.stderr);
-    
+
     // Recovery can be silent in stdout if it finishes quickly, but usually prints to stderr
     assert!(
-        stdout_recover.contains("Daemon not running, triggering auto-recovery") || 
-        stderr_recover.contains("Daemon not running, triggering auto-recovery") ||
-        stderr_recover.contains("Startup command sent to daemon") ||
-        stdout_recover.contains("started successfully") ||
-        stderr_recover.contains("started successfully") ||
-        stderr_recover.contains("Starting daemon..."),
-        "Recovery failed. Stdout: {}, Stderr: {}", stdout_recover, stderr_recover
+        stdout_recover.contains("Daemon not running, triggering auto-recovery")
+            || stderr_recover.contains("Daemon not running, triggering auto-recovery")
+            || stderr_recover.contains("Startup command sent to daemon")
+            || stdout_recover.contains("started successfully")
+            || stderr_recover.contains("started successfully")
+            || stderr_recover.contains("Starting daemon..."),
+        "Recovery failed. Stdout: {}, Stderr: {}",
+        stdout_recover,
+        stderr_recover
     );
 
     // 6. Clean up
@@ -107,6 +136,10 @@ async fn test_daemon_version_sync_restart() {
     cmd_stop.env("COWEN_HOME", &home);
     cmd_stop.env("HOME", &home);
     cmd_stop.env("COWEN_FS_FINGERPRINT", "sync_fingerprint");
-    cmd_stop.arg("--profile").arg(profile).arg("daemon").arg("stop");
+    cmd_stop
+        .arg("--profile")
+        .arg(profile)
+        .arg("daemon")
+        .arg("stop");
     cmd_stop.assert().success();
 }
