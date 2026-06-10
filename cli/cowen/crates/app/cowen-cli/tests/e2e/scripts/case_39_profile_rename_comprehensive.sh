@@ -114,9 +114,8 @@ if command -v redis-server &> /dev/null; then
     REDIS_PORT=6389
     REDIS_URL="redis://127.0.0.1:$REDIS_PORT/0"
     lsof -ti ":$REDIS_PORT" | xargs kill -9 2>/dev/null || true
-    # Use $COWEN_HOME or /tmp as directory so dump.rdb is not created in the workspace
-    test_dir="${COWEN_HOME:-/tmp}"
-    redis-server --port $REDIS_PORT --dir "$test_dir" --save "" --daemonize yes
+    # Use /tmp as directory so dump.rdb is not created in the workspace
+    redis-server --port $REDIS_PORT --dir /tmp --save "" --daemonize yes
     sleep 2
     clear_redis "$REDIS_URL"
     
