@@ -5,9 +5,39 @@ echo "======================================"
 echo "    Running Code Quality Gate"
 echo "======================================"
 
-# 1. Check Rust Code Duplication <= 5%
+# 1. Check Cargo Fmt
 echo ""
-echo "[1/2] Checking code duplication with jscpd (Threshold: 5%)..."
+echo "[1/6] Checking code format (cargo fmt)..."
+if ! cargo fmt --all -- --check; then
+    echo "❌ Code format check failed! Please run 'cargo fmt --all'."
+    exit 1
+else
+    echo "✅ Code format check passed."
+fi
+
+# 2. Check Cargo Clippy
+echo ""
+echo "[2/6] Checking code idioms and lints (cargo clippy)..."
+if ! cargo clippy --workspace --all-targets --all-features -- -D warnings; then
+    echo "❌ Clippy check failed! Please fix the warnings."
+    exit 1
+else
+    echo "✅ Clippy check passed."
+fi
+
+# 3. Check Cross-Platform compilation
+echo ""
+echo "[3/6] Checking static cross-platform compilation..."
+if ! make check-cross; then
+    echo "❌ Cross-platform compilation check failed!"
+    exit 1
+else
+    echo "✅ Cross-platform compilation check passed."
+fi
+
+# 4. Check Rust Code Duplication <= 5%
+echo ""
+echo "[4/6] Checking code duplication with jscpd (Threshold: 5%)..."
 if ! npx -y jscpd@latest crates/ --format rust --threshold 5 --reporters console --ignore-pattern "**/tests/**"; then
     echo "❌ Code duplication check failed! Rust duplication rate > 5%."
     exit 1
@@ -15,9 +45,9 @@ else
     echo "✅ Code duplication check passed."
 fi
 
-# 2. Check Cyclomatic Complexity <= 15
+# 5. Check Cyclomatic Complexity <= 15
 echo ""
-echo "[2/2] Checking cyclomatic complexity with lizard (Threshold: 15)..."
+echo "[5/6] Checking cyclomatic complexity with lizard (Threshold: 15)..."
 # Check if lizard is available
 if ! command -v lizard &> /dev/null; then
     echo "lizard not found globally, setting up local venv to run lizard..."
@@ -35,6 +65,34 @@ if ! lizard crates/ -C 15 -w -x "**/tests/**"; then
     exit 1
 else
     echo "✅ Cyclomatic complexity check passed."
+fi
+
+# 6. Check Cargo Doc (Warn only for now, since it might fail immediately)
+echo ""
+echo "[6/6] Checking documentation compilation (cargo doc)..."
+if ! RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items > /dev/null 2>&1; then
+    echo "⚠️  Doc check failed (Warnings found). Please check cargo doc warnings. (Non-blocking for now)"
+else
+    echo "✅ Doc check passed."
+fi
+
+# 7. Check Cargo Audit & Deny (Warn only for now)
+echo ""
+echo "[Bonus] Checking security and dependencies (Warn only)..."
+if command -v cargo-audit &> /dev/null; then
+    if ! cargo audit; then
+        echo "⚠️  Cargo audit found vulnerabilities! (Non-blocking for now)"
+    fi
+else
+    echo "cargo-audit not installed. Skipping..."
+fi
+
+if command -v gitleaks &> /dev/null; then
+    if ! gitleaks detect --source . -v; then
+        echo "⚠️  Gitleaks found sensitive data! (Non-blocking for now)"
+    fi
+else
+    echo "gitleaks not installed. Skipping..."
 fi
 
 echo ""
