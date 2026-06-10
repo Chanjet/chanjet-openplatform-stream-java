@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-# fs2 = "0.4"
 async-trait = "0.1.89"
 cowen-common = { path = "../../core/cowen-common" }
 cowen-infra = { path = "../../core/cowen-infra" }

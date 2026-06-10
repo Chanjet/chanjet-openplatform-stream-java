@@ -15,21 +15,13 @@ cowen-grpc-facade = { path = "../../adapters/cowen-grpc-facade" }
 cowen-monitor = { path = "../../services/cowen-monitor" }
 cowen-server = { path = "../../app/cowen-server" }
 cowen-store = { path = "../../services/cowen-store", features = ["all-stores"] }
-# cowen-infra = { path = "../../core/cowen-infra" }
 cowen-sys = { path = "../../core/cowen-sys" }
 cowen-wasm-facade = { path = "../../adapters/cowen-wasm-facade" }
-# futures = "0.3"
-# directories = "6.0"
 rustls = { version = "0.23", features = ["ring"] }
-# serde = { version = "1.0", features = ["derive"] }
-# serde_json = "1.0"
 serde_yaml = "0.9"
-# cowen-search = { path = "../../services/cowen-search" }
-# cowen-doctor = { path = "../../services/cowen-doctor" }
 
 tokio = { version = "1.50", features = ["full"] }
 tokio-stream = "0.1"
-# reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "form", "query"] }
 
 # gRPC access layer dependencies
 tonic = "0.12"
@@ -39,8 +31,6 @@ uuid = { version = "1.23.1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
-# prost = "0.13"
-# cowen-macros = { version = "0.1.0", path = "../../core/cowen-macros" }
 
 [build-dependencies]
 tonic-build = "0.12"

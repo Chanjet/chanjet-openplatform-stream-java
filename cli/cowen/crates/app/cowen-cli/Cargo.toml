@@ -10,7 +10,6 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-# hex = "0.4"
 
 clap = { version = "4.6", features = ["derive", "env"] }
 clap_complete = "4.6"
@@ -18,27 +17,17 @@ config = "0.15"
 cowen-common = { path = "../../core/cowen-common" }
 cowen-sys = { path = "../../core/cowen-sys" }
 directories = "6.0"
-# uuid = { version = "1.12", features = ["v4"] }
-# rand = "0.10"
-# regex = "1.11"
-# urlencoding = "2.1.3"
 open = "5.3"
-# futures-util = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "form", "query"] }
-# thiserror = "2.0.11"
 rustls = { version = "0.23", features = ["ring"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# prettytable-rs = "^0.10"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 sysinfo = "0.38"
 tokio = { version = "1.50", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
-# async-trait = "0.1"
 tonic = "0.12"
 tracing = "0.1"
-# sha2 = "0.11"
-# inventory = "0.3"
 
 [build-dependencies]
 chrono = "0.4"

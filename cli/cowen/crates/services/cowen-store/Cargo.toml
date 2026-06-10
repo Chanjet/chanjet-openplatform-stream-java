@@ -24,11 +24,9 @@ connector-sdk = { version = "0.1.0", path = "../../../../../sdk/rust" }
 cowen-common = { path = "../../core/cowen-common", features = ["sqlx", "redis"] }
 cowen-config = { path = "../../services/cowen-config" }
 cowen-doctor = { path = "../../services/cowen-doctor" }
-# cowen-infra = { path = "../../core/cowen-infra" }
 cowen-sys = { path = "../../core/cowen-sys" }
 deadpool-tiberius = { version = "0.1.9", optional = true }
 fs2 = "0.4"
-# serde_yaml = "0.9"
 inventory = "0.3"
 redis = { version = "0.27", features = ["tokio-comp", "aio"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
