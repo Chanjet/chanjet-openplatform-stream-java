@@ -38,13 +38,14 @@ impl DlqStore {
         payload: &str,
         _headers: &str,
         error: &str,
+        retry_count: i32,
     ) -> CowenResult<()> {
         let msg = cowen_common::models::DlqMessage {
             id: None,
             profile: self.profile.clone(),
             topic: format!("{}:{}", msg_type, msg_id),
             payload: payload.to_string(),
-            retry_count: 1,
+            retry_count,
             error: Some(error.to_string()),
             created_at: Utc::now(),
         };

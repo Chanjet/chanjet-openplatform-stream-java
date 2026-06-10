@@ -18,6 +18,7 @@
     *   **修改建议**: 应该作为应用级配置移入 `AppConfig`，确保这些基础架构配置在所有 Profile 间共享，避免重复配置。
 - [x] **重构授权同步机制**: 替换 `orchestrator.rs` 中基于日志轮询的同步方式。现已实现基于 Monitor API (IPC) 的实时进度同步与进度条展示。
 - [x] **实现优雅关机 (Graceful Shutdown)**: 显式跟踪所有异步任务（如 Token 交换、事件处理），确保守护进程退出时能安全回收资源。
+- [x] **完善本地 DLQ / Write-Ahead Log 机制**: 在 Stream Forwarder 中引入“发前暂存，成功即删，失败更新”的 WAL 模型，确保因系统崩溃等极端情况导致的未决消息重启后可无损重推。
 - [x] **优化 DLQ 重试逻辑**: 改进 `Forwarder::retry_message`，实现分页查询与按 ID 精确检索，解决了 OOM 风险。
 - [x] **重构 Worker 生命周期管理**: 将 `WorkerManager` 中的复杂同步逻辑（oneshot/broadcast/Mutex）抽象为独立的 `ProfileWorker` 状态机，消除脆弱的 `drop(lock)` 模式，提升稳定性。
 - [x] **增强配置寻址算子 (path_parser)**: 支持数组下标访问（如 `search.plugins.0.name`）及键值寻址（`a.key:val.b`），彻底消除配置数组（如插件列表）时需手动输入完整 JSON 的痛点。

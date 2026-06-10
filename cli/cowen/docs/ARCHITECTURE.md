@@ -16,24 +16,30 @@ graph TD
         Main[main.rs] --> Cmd[cmd/*]
     end
 
-    subgraph "Service Layer"
-        Cmd --> AuthCli[AuthClient]
-        Cmd --> Daemon[Daemon Engine]
-        Cmd --> Search[Neural Search Hub]
+    subgraph "Facade Layer"
+        Cmd --> GrpcFacade[cowen-grpc-facade]
+        Cmd --> WasmFacade[cowen-wasm-facade]
+    end
+
+    subgraph "Capability Registry (cowen-capabilities)"
+        GrpcFacade --> CapRegistry[CapabilityRegistry]
+        WasmFacade --> CapRegistry
+        CapRegistry --> NativeAuth[native_auth]
+        CapRegistry --> NativeSystem[native_system]
+        CapRegistry --> NativeApi[native_api_registry]
+        CapRegistry --> NativeSearch[native_search]
     end
 
     subgraph "Core & Infrastructure"
-        AuthCli --> AuthSPI[AuthProvider SPI]
+        NativeAuth --> AuthSPI[AuthProvider SPI]
         AuthSPI --> SelfBuilt[SelfBuilt]
         AuthSPI --> OAuth2[OAuth2]
         
-        Search --> SearchSPI[SearchProvider SPI]
-        SearchSPI --> EmbedPlugin[Embedding Plugin .so/.dylib]
-        
-        AuthCli --> Vault[Vault Storage]
+        NativeAuth --> Vault[Vault Storage]
         Vault --> InnerDB[SQLite WAL]
         Vault --> Redis[Redis]
         
+        NativeSystem --> Daemon[Daemon Engine]
         Daemon --> Forwarder[Stream Forwarder]
         Daemon --> Renewer[Adaptive Token Renewer]
     end
@@ -72,11 +78,11 @@ graph TD
 ### 2. Store SPI: 多维持久化体系
 支持五大领域（Config, Secret, Token, Audit, DLQ）的异构后端存储。通过 `inventory` 宏实现 Schema 驱动的自动发现。
 
-### 3. SearchProvider SPI: 可插拔搜索 (v0.3.1+)
-为了保持主二进制文件的轻量，复杂的语义搜索（向量化、ONNX 推理）已被剥离为动态插件：
-- **枢纽 (Hub)**: `cowen-search` crate 提供基础 Trait 与插件加载逻辑。
-- **插件 (Plugin)**: 导出 C ABI 接口 of 动态链接库（`.dylib`, `.so`）。
-- **加载机制**: 使用 `cowen-infra` 中的 `PluginLoader` 实现跨平台动态链接，支持在运行时根据配置文件显式启用或禁用特定搜索算法。
+### 3. Native Capability Registry (v0.3.5+)
+为了取代过度复杂的纯动态链接库插件设计，`cowen` 引入了中心化的 `cowen-capabilities` 原生能力注册表：
+- **能力矩阵**: 将底层功能高度内聚封装为 `native_auth`, `native_system`, `native_api_registry`, `native_search` 等标准能力集。
+- **协议无关网关 (Facade)**: 通过 `cowen-grpc-facade` 和 `cowen-wasm-facade` 将这些原生能力向外安全透传。
+- **RBAC 鉴权拦截**: 在能力被调用前，底层强制通过宏 `#[rbac(capability = "...")]` 实施基于细粒度能力清单的越权拦截。
 
 ### 4. Resettable SPI: 模块化系统重置 (v0.3.5+)
 为了符合开闭原则（OCP），在 v0.3.5 中将 `cowen reset` 的破坏性清理逻辑彻底重构为插件化模型：
@@ -120,7 +126,9 @@ v0.3.5 实现了严格的物理目录隔离，每个领域拥有独立的 `Cargo
 - `cowen-config`: 配置管理器。实现全局应用配置与多 Profile 租户配置的分层解析寻址、校验及自动迁移策略。
 - `cowen-store`: 存储 SPI 与 SQLite/PostgreSQL/MySQL/Redis 等异构持久化存储后端驱动。
 - `cowen-auth`: 鉴权 SPI 与 Self-Built / Store-App / OAuth2 鉴权机制与驱动插件实现。
-- `cowen-search`: 语义搜索 Hub。承载向量化转换抽象与动态 C-ABI 搜索插件管理。
+- `cowen-capabilities`: 核心能力注册表（Registry），提供基于 RBAC 的安全调用边界与 `native_*` 核心能力集封装。
+- `cowen-grpc-facade` / `cowen-wasm-facade`: 协议网关层，负责将原生能力透传至不同的调用端。
+- `cowen-search`: 语义搜索核心 Hub，支持本地向量化计算与轻量化索引。
 - `cowen-search-embedding`: 语义搜索插件的具体 C-ABI 导出实现，桥接语义搜索 Hub 与底层的向量提取引擎。
 - `cowen-ai`: 核心向量模型推理及分词引擎，内置 ONNX 运行时，负责本地高维向量计算与 Top-K 检索。
 - `cowen-daemon`: 热重启工作子进程 worker 编排管理器，提供平滑热重启及 PID 监控保障。

@@ -56,7 +56,8 @@ search:
 ### `api spec` - 规约详情
 查看指定接口的文档定义或原始 JSON 片段。
 
-### `plugins` - 插件管理 (v0.3.5+)
+### `plugins` - 本地动态扩展管理 (Legacy / 高阶调试)
+> **注意**: 核心生态已重构并收敛至原生的 `cowen-capabilities`，此系列指令目前仅保留用于高级开发者在本地测试加载 `.dylib` / `.so` 格式的底层 C-ABI 扩展。
 动态扫描、启用或禁用本地扩展插件。
 - `cowen plugins list`: 扫描并列出 `~/.cowen/plugins/` 目录下的可用扩展插件（检测其导出的 C-ABI 接口与描述）。
 - `cowen plugins enable <NAME>`: 启用指定的插件并将其注册到全局配置中。

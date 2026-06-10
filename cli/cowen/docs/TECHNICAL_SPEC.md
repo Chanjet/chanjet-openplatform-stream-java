@@ -16,6 +16,10 @@
     - 内存级：使用 `Arc<Mutex<T>>` 或 `tokio::sync` 原语。
     - 物理级：关键操作（如 Token 刷新）必须持有 **跨进程文件锁 (File Lock)**。
     - **分布式**: 支持通过 `Store` 实现分布式互斥逻辑（乐观锁/版本号）。
+### 1.3 基于 RBAC 的能力注册表拦截 (Capabilities Registry)
+- **能力网关隔离**: 系统废弃了零散的业务调用逻辑，统一收拢为 `cowen-capabilities` 核心层（包含 `native_auth`, `native_system`, `native_api_registry` 等原生能力块）。
+- **细粒度宏校验**: 任意 `native_*` 方法在暴露给 Facade (gRPC / Wasm) 调用前，必须且强制通过 `#[rbac(capability = "system.daemon.start")]` 等宏进行越权拦截，实现基于角色/配置的动态权限控制。
+
 - **Profile 唯一性约束**: `AppKey` + `AppMode` 的组合在系统中必须具备全局唯一性，禁止创建指向同一云端实例的重复 Profile。
 
 ---
@@ -90,6 +94,7 @@
 - **索引策略**: 
     - 本地构建基于 Cosine Similarity 的线性搜索。
     - 缓存规约 MD5 校验，避免重复执行长文本向量化。
+- **能力注册表归属 (Registry)**: 作为底座支持能力，语义引擎已被归并纳入 `cowen-capabilities` 的 `native_search` 模块，向顶层的 `native_api_registry` 透明提供多维检索服务。
 - **兼容性 (Compatibility)**: 
     - **AVX 依赖**: `onnxruntime` 默认需要 CPU 支持 AVX 指令集（如 Intel Core 系列）。
     - **Legacy 模式**: 对于不支持 AVX 的旧款或低功耗 CPU（如 Intel Pentium G5400, Celeron 等），提供 **Legacy Build**。
