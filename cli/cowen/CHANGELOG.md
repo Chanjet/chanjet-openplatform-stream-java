@@ -4,6 +4,32 @@
 
 ---
 
+## [0.4.0] - 2026-06-10
+
+### 🚀 新特性 (Features)
+- **Thin CLI 瘦客户端架构演进**: 将 Init、Api 和 Auth Login 等核心业务逻辑全面下沉至 `cowen-daemon` 后台守护进程。CLI 命令行工具重构为轻量级 IPC 客户端，极大提高了多端操作时的状态一致性。
+- **纯 Rust 独立 AI 搜索与多租户隔离 (Standalone AI Sidecar)**: 重构了 AI 语义搜索组件，使其作为 100% Rust 编写的纯独立 Sidecar 进程运行。内存向量检索库引入了强租户 (Tenant Namespace) 隔离，实现了绝对的数据物理区隔。
+- **磁盘级向量检索缓存 (Vector Disk Caching)**: 为搜索插件实现了磁盘级缓存架构，并在更新索引时引入内容指纹 Hash 对比。当 API 规约未改变时完全跳过 ONNX 推理，将热启动耗时缩短至 5 毫秒以内。
+- **WebAssembly 插件引擎 (Wasm Integration)**: 在核心 HTTP 代理热路径中引入了 Phase 3 Wasmtime 引擎，支持基于 WIT 接口标准的 WebAssembly 插件执行，为未来的无状态扩展奠定基础。
+- **跨平台原生插件沙盒隔离 (Native Sandboxing)**: 实现了跨平台的非特权系统沙盒隔离包装器 (Sandboxing Wrapper)，为 Sidecar 插件子进程提供了操作系统级的安全隔离。
+- **纯可执行二进制插件支持**: 移除了对 `.so`、`.dylib` 和 `.dll` 等动态库伪装扩展名的依赖，插件现在可完全作为标准的跨平台可执行二进制文件被直接调用和校验。
+- **动态能力推导与注册 (Dynamic Capabilities)**: 移除了硬编码的能力配置，支持通过插件文件名或清单动态推导并注册其承载的能力（如 `SearchProvider`），极大提升了扩展灵活性。
+- **MCP API 响应优化**: 简化 `cowen_api_list` 输出文本，提升对现代客户端（如 AI Agents）的兼容性，修复了长文本解析截断的问题。
+- **插件安全管控增强**: 强化了插件执行层的命令管控，严格按照 `cli_commands` 注册清单进行过滤，避免越权执行。
+
+### 🔧 改进与修复 (Improvements & Fixes)
+- **OAuth2 离线授权流支持 (Thin CLI Finalizer)**: 增强了 `--finalize` 参数。即使在无守护进程处于激活状态时，后台终结器也可接管并捕获 OAuth2 授权回调的重定向 Code，确保登录流程闭环。
+- **IPC 指令高并发死锁修复**: 修复了并发环境下由于 `ConfigManager` 读取冲突导致的高 CPU 占用和请求死锁。
+- **Proxy WebSocket 竞态条件修复**: 修复了高并发场景下代理拦截器 WebSocket 初始化的极速竞态条件。
+- **配置环境安全切换**: 在配置 Profile 切换前增加物理校验逻辑，彻底杜绝了切换至一个不存在的环境而导致状态机崩溃的风险。
+- **系统重置 (Reset) 稳定性**: 实现了可靠的全局和特定配置的 `SystemReset` IPC 处理器，确保在重置并清理文件和缓存时的稳定一致。
+- **OAuth2 状态显示修复**: 修复了命令行状态检查中，OAuth2 环境配置被误报为 `Stale` (陈旧) 的问题。
+- **系统状态展示**: 优化了 `status` 诊断命令，现可正确渲染后台守护进程返回的 `error_level` 错误级别。
+- **初始化阻塞修复**: 修复了守护进程在执行开机自启动时可能阻塞 gRPC 服务端口监听的问题，将自启任务安全转入后台执行。
+- **Token 生成载荷补全**: 修复了 `generateToken` 时载荷中缺失 `appTicket` 的问题。
+
+---
+
 ## [0.3.6] - 2026-05-29
 
 ### 🚀 新特性 (Features)

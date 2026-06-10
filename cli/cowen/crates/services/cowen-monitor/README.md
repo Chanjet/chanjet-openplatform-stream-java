@@ -1,17 +1,18 @@
-# cowen-macros
+# cowen-monitor
 
-cowen-macros 包含了 Cowen 项目专用的 Rust 过程宏 (Procedural Macros) 定义。
+cowen-monitor 负责收集、聚合及转储 Cowen 运行时的系统遥测与监控指标数据。
 
 ## 🛡️ 能力范围与边界 (Scope & Boundaries)
-- **元编程提取**：为系统提供消除样板代码的宏。
-- **编译期校验**：提供代码自动生成的同时，对特定路由路径进行编译期检查。
+- **运行态感知**：监控 CPU 使用率、内存泄漏预警及长连接存活状态。
+- **审计与日志回溯**：集成并统一格式化输出系统级的错误溯源日志 (Audit Logs)。
 
 ## ✅ 允许增加内容 (Allowed Additions)
-- 增加新的 `derive` 或 `attribute` 宏用于处理通用元数据注入。
+- 增加对 Prometheus 或 OpenTelemetry 标准的指标暴露接口。
+- 增加日志滚动归档的清洗策略。
 
 ## ❌ 禁止增加内容 (Forbidden Additions / Red Lines)
 > **架构红线**：一旦突破以下边界，将可能导致 PR 审核被直接驳回，或引发严重的系统耦合。
-- **[FORBIDDEN]** 因为这是过程宏 Crate，禁止提供运行时可以直接调用的常规业务函数。
+- **[FORBIDDEN]** 禁止在遥测上报中包含任何未脱敏的用户业务数据（Body/Query Param）。
 
 ## 📚 内部文档索引 (Documentation Index)
 针对该模块的开发细节、API 接口参考及核心架构设计，请参考 `docs/` 目录：

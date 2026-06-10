@@ -120,7 +120,7 @@ echo "Node 2 Config List:"
 
 # Verify Node 2 can see the same token
 TOKEN_2=$(extract_token "main")
-RUST_LOG=info "$COWEN_BIN" auth token --profile "main" --format json > node2_token.log 2>&1
+RUST_LOG=info "$COWEN_BIN" auth token --profile "main" --format json > "$TEST_BASE/node2_token.log" 2>&1
 
 if [[ "$TOKEN_1" == "$TOKEN_2" ]]; then
     echo -e "   ${GREEN}✓${NC} Node 2 successfully retrieved the SAME token from Redis"

@@ -4,6 +4,26 @@
 
 ---
 
+## [0.4.0] - 2026-06-10
+
+### 🏗️ 架构重构 (Architectural Refactoring)
+- **Crate 分层架构重组 (Layered Architecture)**:
+  - 彻底完成了工程的模块化梳理，将工程重组为 `app`、`core`、`adapters`、`services`、`plugins` 和 `tools` 等多层架构。
+- **gRPC 客户端与代理层微服务能力分组 (gRPC Capability Grouping)**:
+  - 重构了 gRPC Client 与 Facade，全面实施了微服务级别的能力分组设计，解耦了公共与私有能力。将全部 Capabilities 扁平化整合为安全的独立受保护区域。
+- **搜索与 AI 插件深度物理隔离**:
+  - 彻底将 `cowen-search-embedding` 与核心引擎解耦，并将 `cowen-ai` 降级迁移为其子 Crate，消除主引擎对体积庞大的机器学习和 ONNX Runtime 的直接依赖。
+
+### 🔧 构建与质量管控 (Build & Quality Gate)
+- **全面质量门禁扩展 (Quality Gate Expansion)**:
+  - 在 CI 与 `make test` 流程中扩展了严格的代码规范检查，包含 `cargo clippy`、`cargo fmt`、跨平台交叉校验 (`cross-check`) 以及 `cargo doc` 文档健康度校验。全自动修复了历史遗留的警告，并将其设为阻塞构建的标准。
+- **严格 Mock 机制强化 (E2E Mock)**:
+  - 在 E2E 并发测试中进一步加强了基于本地 HTTP 拦截的严格 Mock 设计，保障了沙箱与生产环境之间的完全物理阻断。
+- **无依赖工具链清理**:
+  - 集成了 `cargo machete` 和 `cargo sort` 作为自动化非阻塞附加步骤，持续保持工程依赖项的精简与整洁。
+
+---
+
 ## [0.3.6] - 2026-05-29
 
 ### 🏗️ 架构重构 (Architectural Refactoring)

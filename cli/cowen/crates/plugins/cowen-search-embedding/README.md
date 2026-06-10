@@ -1,17 +1,18 @@
-# cowen-macros
+# cowen-search-embedding
 
-cowen-macros 包含了 Cowen 项目专用的 Rust 过程宏 (Procedural Macros) 定义。
+cowen-search-embedding 是 Cowen 内置的独立 Rust-native 本地语义向量化 (Embedding) 与 AI 搜索侧车 (Sidecar) 插件。
 
 ## 🛡️ 能力范围与边界 (Scope & Boundaries)
-- **元编程提取**：为系统提供消除样板代码的宏。
-- **编译期校验**：提供代码自动生成的同时，对特定路由路径进行编译期检查。
+- **本地向量化计算**：在本地或内存模型中进行 Embedding 计算提取。
+- **安全与防篡改**：独立执行以防内存污染或系统崩溃影响核心 Daemon。
 
 ## ✅ 允许增加内容 (Allowed Additions)
-- 增加新的 `derive` 或 `attribute` 宏用于处理通用元数据注入。
+- 引入更高效的 ONNX 或 Candle 算子后端。
+- 增加对新 embedding 模型的量化支持 (如 int8/fp16)。
 
 ## ❌ 禁止增加内容 (Forbidden Additions / Red Lines)
 > **架构红线**：一旦突破以下边界，将可能导致 PR 审核被直接驳回，或引发严重的系统耦合。
-- **[FORBIDDEN]** 因为这是过程宏 Crate，禁止提供运行时可以直接调用的常规业务函数。
+- **[FORBIDDEN]** 禁止在此侧车内执行任何修改本地核心数据库 (`sqlite`) 的越权行为。
 
 ## 📚 内部文档索引 (Documentation Index)
 针对该模块的开发细节、API 接口参考及核心架构设计，请参考 `docs/` 目录：

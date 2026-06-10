@@ -1,17 +1,18 @@
-# cowen-macros
+# cowen-sys
 
-cowen-macros 包含了 Cowen 项目专用的 Rust 过程宏 (Procedural Macros) 定义。
+cowen-sys 是 Cowen 对抗底层操作系统差异的核心系统抽象层 (System Abstraction Layer)。
 
 ## 🛡️ 能力范围与边界 (Scope & Boundaries)
-- **元编程提取**：为系统提供消除样板代码的宏。
-- **编译期校验**：提供代码自动生成的同时，对特定路由路径进行编译期检查。
+- **跨平台一致性屏蔽**：提供 Unix/Linux/macOS 与 Windows 底层 API 的统一封装。
+- **强行接口对齐律**：绝对遵循所有涉及 OS Specific 的代码在全部目标平台均有同步签名。
 
 ## ✅ 允许增加内容 (Allowed Additions)
-- 增加新的 `derive` 或 `attribute` 宏用于处理通用元数据注入。
+- 增加对新操作系统特性的适配调用（必须全平台声明齐平）。
+- 改进基于系统底层的单例锁 (PID Lock) 算法。
 
 ## ❌ 禁止增加内容 (Forbidden Additions / Red Lines)
 > **架构红线**：一旦突破以下边界，将可能导致 PR 审核被直接驳回，或引发严重的系统耦合。
-- **[FORBIDDEN]** 因为这是过程宏 Crate，禁止提供运行时可以直接调用的常规业务函数。
+- **[FORBIDDEN]** 禁止物理删除或截短其他操作系统的专属适配文件（如 `sys/windows.rs` 或 `sys/linux.rs`）。
 
 ## 📚 内部文档索引 (Documentation Index)
 针对该模块的开发细节、API 接口参考及核心架构设计，请参考 `docs/` 目录：

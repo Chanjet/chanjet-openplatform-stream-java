@@ -1,17 +1,18 @@
-# cowen-macros
+# cowen-wasm-auth-storeapp
 
-cowen-macros 包含了 Cowen 项目专用的 Rust 过程宏 (Procedural Macros) 定义。
+cowen-wasm-auth-storeapp 是为“商店应用模式 (Store App)”专供的鉴权逻辑 WebAssembly 插件。
 
 ## 🛡️ 能力范围与边界 (Scope & Boundaries)
-- **元编程提取**：为系统提供消除样板代码的宏。
-- **编译期校验**：提供代码自动生成的同时，对特定路由路径进行编译期检查。
+- **商店应用鉴权体系支持**：解析与处理商店应用特定的授权令牌 (Auth Tickets) 和验证回调逻辑。
+- **沙箱级分发**：热更新 Wasm 避免重编译主程序。
 
 ## ✅ 允许增加内容 (Allowed Additions)
-- 增加新的 `derive` 或 `attribute` 宏用于处理通用元数据注入。
+- 更新商店授权票据的验签规则。
+- 调整 Ticket 解析格式容错。
 
 ## ❌ 禁止增加内容 (Forbidden Additions / Red Lines)
 > **架构红线**：一旦突破以下边界，将可能导致 PR 审核被直接驳回，或引发严重的系统耦合。
-- **[FORBIDDEN]** 因为这是过程宏 Crate，禁止提供运行时可以直接调用的常规业务函数。
+- **[FORBIDDEN]** 禁止引入平台绑定相关的阻塞调用。
 
 ## 📚 内部文档索引 (Documentation Index)
 针对该模块的开发细节、API 接口参考及核心架构设计，请参考 `docs/` 目录：

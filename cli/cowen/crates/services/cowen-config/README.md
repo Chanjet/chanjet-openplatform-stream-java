@@ -1,17 +1,18 @@
-# cowen-macros
+# cowen-config
 
-cowen-macros 包含了 Cowen 项目专用的 Rust 过程宏 (Procedural Macros) 定义。
+cowen-config 是系统的配置管理服务，负责聚合来自不同源的配置树并向全系统派发配置项。
 
 ## 🛡️ 能力范围与边界 (Scope & Boundaries)
-- **元编程提取**：为系统提供消除样板代码的宏。
-- **编译期校验**：提供代码自动生成的同时，对特定路由路径进行编译期检查。
+- **文件系统落盘**：读取与解析本地配置文件（如 `~/.cowen/config.yaml`）。
+- **合并策略**：整合环境变量、CLI 运行时传递参数及本地存储配置项的覆盖规则。
 
 ## ✅ 允许增加内容 (Allowed Additions)
-- 增加新的 `derive` 或 `attribute` 宏用于处理通用元数据注入。
+- 增加新的配置项反序列化模型。
+- 增加从远程配置中心拉取配置的支持。
 
 ## ❌ 禁止增加内容 (Forbidden Additions / Red Lines)
 > **架构红线**：一旦突破以下边界，将可能导致 PR 审核被直接驳回，或引发严重的系统耦合。
-- **[FORBIDDEN]** 因为这是过程宏 Crate，禁止提供运行时可以直接调用的常规业务函数。
+- **[FORBIDDEN]** 禁止对外暴露可能包含明文敏感 Key 的全量子配置对象，必须对敏感字段提供脱敏访问方法。
 
 ## 📚 内部文档索引 (Documentation Index)
 针对该模块的开发细节、API 接口参考及核心架构设计，请参考 `docs/` 目录：

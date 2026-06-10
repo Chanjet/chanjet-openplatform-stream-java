@@ -1,24 +1,20 @@
-# Cowen Server
+# cowen-server
 
-畅捷通 Cowen CLI 的后台运行引擎与 Streaming Gateway 桥接器。
+cowen-server 负责统筹 Cowen Daemon 中的各类网络及端点监听逻辑。
 
-## 🎯 职责 (Responsibility)
-- **守护进程管理 (Daemonization)**: 负责 CLI 的后台化运行、PID 追踪及自愈恢复。
-- **Streaming 桥接 (Sidecar Bridge)**: 基于 WebSocket 实现云端消息到本地 Webhook 的高性能、低延迟转发。
-- **本地安全代理 (Security Proxy)**: 托管本地 HTTP 代理服务，自动注入生产环境鉴权头，实现“零配置”调用。
-- **运维观察 (DLQ & Observability)**: 管理死信队列 (DLQ)，确保消息投递的可靠性。
+## 🛡️ 能力范围与边界 (Scope & Boundaries)
+- **IPC/gRPC 服务端**：启动本地 IPC 服务器，接收来自 `cowen-cli` 的指令并执行。
+- **本地 Webhook/Proxy**：负责在本地启动用于转发和代理的 HTTP/WebSocket 接口。
 
-## 🛠️ 核心能力 (Capabilities)
-- **StreamingGateway**: 维持与云端的高可靠双向长连接。
-- **Forwarder**: 智能消息转发引擎，支持失败重试与 DLQ 自动压入。
-- **LocalProxy**: 基于 `axum` 的轻量级安全代理。
-- **ServiceManager**: 支持全平台（macOS/Linux/Windows）的自启动服务安装与卸载。
+## ✅ 允许增加内容 (Allowed Additions)
+- 增加新的本地端口监听器（如监控 Metrics 端点）。
+- 增加 HTTP/WebSocket 路由规则。
 
-## 📦 外部依赖 (Key Dependencies)
-- `axum`: 本地代理服务端框架。
-- `tokio-tungstenite`: WebSocket 协议实现。
-- `cowen-auth`: 依赖其令牌维护能力。
+## ❌ 禁止增加内容 (Forbidden Additions / Red Lines)
+> **架构红线**：一旦突破以下边界，将可能导致 PR 审核被直接驳回，或引发严重的系统耦合。
+- **[FORBIDDEN]** 禁止在 Server 中直接编写复杂的业务验证逻辑（应路由至 Services）。
 
-## ⚠️ 注意事项 (Constraints)
-- **并发安全**: 必须处理高并发下的端口竞争与资源泄漏问题。
-- **非阻塞设计**: 确保长连接维护、消息转发与代理服务在同一进程内高效并行。
+## 📚 内部文档索引 (Documentation Index)
+针对该模块的开发细节、API 接口参考及核心架构设计，请参考 `docs/` 目录：
+- [API Reference (`docs/api_reference.md`)](docs/api_reference.md) - 关键暴露接口与契约梳理。
+- [Design Notes (`docs/design_notes.md`)](docs/design_notes.md) - 架构设计与历史决策说明。

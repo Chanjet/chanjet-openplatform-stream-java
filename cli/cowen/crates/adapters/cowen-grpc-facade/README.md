@@ -1,17 +1,18 @@
-# cowen-macros
+# cowen-grpc-facade
 
-cowen-macros 包含了 Cowen 项目专用的 Rust 过程宏 (Procedural Macros) 定义。
+cowen-grpc-facade 是 Cowen 架构中的 gRPC 门面（Facade）适配层。它实现了底层 Core Capabilities 和 Services 的协议剥离。
 
 ## 🛡️ 能力范围与边界 (Scope & Boundaries)
-- **元编程提取**：为系统提供消除样板代码的宏。
-- **编译期校验**：提供代码自动生成的同时，对特定路由路径进行编译期检查。
+- **端点暴露**：定义和实现 `proto/` 中声明的 gRPC 微服务端点。
+- **协议转换**：将外部发来的 protobuf 数据结构转换为系统内部的 Domain Models（实体结构）。
 
 ## ✅ 允许增加内容 (Allowed Additions)
-- 增加新的 `derive` 或 `attribute` 宏用于处理通用元数据注入。
+- 增加基于 `.proto` 生成的端点服务实现。
+- 增加 DTO (Data Transfer Object) 到 Domain Model 的互相转换实现。
 
 ## ❌ 禁止增加内容 (Forbidden Additions / Red Lines)
 > **架构红线**：一旦突破以下边界，将可能导致 PR 审核被直接驳回，或引发严重的系统耦合。
-- **[FORBIDDEN]** 因为这是过程宏 Crate，禁止提供运行时可以直接调用的常规业务函数。
+- **[FORBIDDEN]** 绝对禁止在此 Crate 内部实现任何存储或鉴权业务逻辑（必须委托给底层 Traits）。
 
 ## 📚 内部文档索引 (Documentation Index)
 针对该模块的开发细节、API 接口参考及核心架构设计，请参考 `docs/` 目录：
