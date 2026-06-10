@@ -46,10 +46,23 @@ impl Forwarder {
             })?;
 
         let event: Value = serde_json::from_str(&entry.payload)?;
-        
-        let msg_id = event.get("msgId").or(event.get("id")).and_then(|v| v.as_str()).unwrap_or("unknown_id").to_string();
-        let msg_type = event.get("msg_type").or(event.get("msgType")).and_then(|v| v.as_str()).unwrap_or("UNKNOWN").to_string();
-        let headers = event.get("headers").map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
+
+        let msg_id = event
+            .get("msgId")
+            .or(event.get("id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown_id")
+            .to_string();
+        let msg_type = event
+            .get("msg_type")
+            .or(event.get("msgType"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("UNKNOWN")
+            .to_string();
+        let headers = event
+            .get("headers")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "{}".to_string());
 
         let result = self.do_send(&entry.payload, &msg_type, &msg_id).await;
 
@@ -58,7 +71,17 @@ impl Forwarder {
 
         if let Err(e) = result {
             let err_msg = e.to_string();
-            let _ = self.dlq.save(&msg_id, &msg_type, &entry.payload, &headers, &err_msg, entry.retry_count + 1).await;
+            let _ = self
+                .dlq
+                .save(
+                    &msg_id,
+                    &msg_type,
+                    &entry.payload,
+                    &headers,
+                    &err_msg,
+                    entry.retry_count + 1,
+                )
+                .await;
             return Err(e);
         }
 
@@ -87,7 +110,10 @@ impl Forwarder {
         let topic = format!("{}:{}", msg_type, msg_id);
 
         // WAL Pre-process: save to DLQ before forwarding
-        let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, "Pending forward", 0).await;
+        let _ = self
+            .dlq
+            .save(&msg_id, &msg_type, &payload, &headers, "Pending forward", 0)
+            .await;
 
         let result = self.do_send(&payload, &msg_type, &msg_id).await;
 
@@ -96,7 +122,10 @@ impl Forwarder {
 
         if let Err(e) = result {
             let err_msg = e.to_string();
-            let _ = self.dlq.save(&msg_id, &msg_type, &payload, &headers, &err_msg, 1).await;
+            let _ = self
+                .dlq
+                .save(&msg_id, &msg_type, &payload, &headers, &err_msg, 1)
+                .await;
             return Err(e);
         }
 
