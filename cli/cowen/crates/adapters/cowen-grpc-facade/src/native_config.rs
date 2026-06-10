@@ -14,50 +14,26 @@ pub struct NativeConfigController {
 #[tonic::async_trait]
 impl NativeConfigService for NativeConfigController {
     async fn list_config(&self, request: Request<ListConfigRequest>) -> Result<Response<ListConfigResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_config.list_config(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_config, list_config, request)
     }
 
     async fn get_config(&self, request: Request<GetConfigRequest>) -> Result<Response<GetConfigResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_config.get_config(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_config, get_config, request)
     }
 
     async fn set_config(&self, request: Request<SetConfigRequest>) -> Result<Response<SetConfigResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_config.set_config(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_config, set_config, request)
     }
 
     async fn rename_profile(&self, request: Request<RenameProfileRequest>) -> Result<Response<RenameProfileResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_config.rename_profile(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_config, rename_profile, request)
     }
 
     async fn get_global_config(&self, request: Request<GetGlobalConfigRequest>) -> Result<Response<GetGlobalConfigResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_config.get_global_config(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_config, get_global_config, request)
     }
 
     async fn set_global_config(&self, request: Request<SetGlobalConfigRequest>) -> Result<Response<SetGlobalConfigResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_config.set_global_config(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_config, set_global_config, request)
     }
 }

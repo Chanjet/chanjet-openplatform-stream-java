@@ -849,7 +849,7 @@ impl AuthProvider for OAuth2Provider {
         ctx: &cowen_common::status::StatusContext<'_>,
     ) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
         use cowen_common::status::{
-            collect_daemon_status, AsStatusUI, CommonTemplate, StatusEntry, StatusLevel,
+            collect_daemon_status, AsStatusUI, StatusEntry, StatusLevel,
         };
 
         enum OAuth2Template {
@@ -1006,29 +1006,8 @@ impl AuthProvider for OAuth2Provider {
         }
 
         // Wrap Authentication Summary
-        if !auth_entries.is_empty() {
-            let max_level = auth_entries
-                .iter()
-                .map(|e| e.level)
-                .max_by_key(|l| match l {
-                    StatusLevel::ERROR => 3,
-                    StatusLevel::WARN => 2,
-                    StatusLevel::OK => 1,
-                    _ => 0,
-                })
-                .unwrap_or(StatusLevel::OK);
-
-            results.push(
-                StatusEntry::new(
-                    CommonTemplate::ProviderSummary(
-                        "Authentication Status".to_string(),
-                        "🔐".to_string(),
-                    ),
-                    max_level,
-                    format!("Collected {} status indicators", auth_entries.len()),
-                )
-                .with_children(auth_entries),
-            );
+        if let Some(summary_entry) = crate::provider::utils::wrap_auth_entries(auth_entries) {
+            results.push(summary_entry);
         }
 
         // 2. Daemon Status

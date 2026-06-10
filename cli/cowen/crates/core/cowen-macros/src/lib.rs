@@ -122,39 +122,119 @@ pub fn rbac_controller(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// If `domain` and `action` are provided, it delegates the policy lookup dynamically
 /// to `crate::rbac::get_policy(domain, action)`.
+fn extract_profile_expr(profile: Option<String>) -> Result<proc_macro2::TokenStream, syn::Error> {
+    if let Some(p) = profile {
+        match syn::parse_str::<syn::Expr>(&p) {
+            Ok(expr) => Ok(quote! { Some(#expr) }),
+            Err(err) => Err(err),
+        }
+    } else {
+        Ok(quote! { None })
+    }
+}
+
+fn extract_claims_ident(input_fn: &ItemFn) -> Option<syn::Ident> {
+    for arg in &input_fn.sig.inputs {
+        if let syn::FnArg::Typed(pat_type) = arg {
+            if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
+                if pat_ident.ident == "claims" || pat_ident.ident == "_claims" {
+                    return Some(pat_ident.ident.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn is_tonic_result(output: &syn::ReturnType) -> bool {
+    if let syn::ReturnType::Type(_, ty) = output {
+        let ty_str = quote!(#ty).to_string().replace(" ", "");
+        ty_str.contains(",Status>") || ty_str.contains(",tonic::Status>") || ty_str.contains("tonic::Response<") || ty_str.contains("Response<")
+    } else {
+        false
+    }
+}
+
+fn generate_err_return(is_tonic: bool) -> proc_macro2::TokenStream {
+    if is_tonic {
+        quote! { return Box::pin(async move { Err(tonic::Status::permission_denied(e)) }); }
+    } else {
+        quote! { return Box::pin(async move { Err(cowen_common::CowenError::Auth(e).into()) }); }
+    }
+}
+
+fn generate_domain_check_block(
+    args: &RbacArgs,
+    domain: &str,
+    claims_expr: &proc_macro2::TokenStream,
+    profile_expr: &proc_macro2::TokenStream,
+    err_return: &proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    let mut actions_exprs = Vec::new();
+    for action in &args.actions {
+        actions_exprs.push(quote! { crate::rbac::get_policy(#domain, #action) });
+    }
+    for any_action in &args.any_actions {
+        actions_exprs.push(quote! { crate::rbac::get_policy(#domain, #any_action) });
+    }
+    
+    let scopes_iter = args.scopes.iter();
+    let any_scopes_iter = args.any_scopes.iter();
+    
+    quote! {
+        let mut all_scopes_dyn: Vec<&str> = Vec::new();
+        let mut any_scopes_dyn: Vec<&str> = Vec::new();
+        #(
+            let (all, any) = #actions_exprs;
+            all_scopes_dyn.extend(all);
+            any_scopes_dyn.extend(any);
+        )*
+        
+        let static_scopes: &[&str] = &[ #(#scopes_iter),* ];
+        all_scopes_dyn.extend(static_scopes);
+        
+        let static_any_scopes: &[&str] = &[ #(#any_scopes_iter),* ];
+        any_scopes_dyn.extend(static_any_scopes);
+        
+        let claims_opt = #claims_expr;
+        if let Err(e) = crate::rbac::verify_permission(claims_opt, #profile_expr, &all_scopes_dyn, &any_scopes_dyn) {
+            #err_return
+        }
+    }
+}
+
+fn generate_static_check_block(
+    args: &RbacArgs,
+    claims_expr: &proc_macro2::TokenStream,
+    profile_expr: &proc_macro2::TokenStream,
+    err_return: &proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    let scopes_iter = args.scopes.iter();
+    let all_scopes_expr = quote! { &[ #(#scopes_iter),* ] };
+
+    let any_scopes_iter = args.any_scopes.iter();
+    let any_scopes_expr = quote! { &[ #(#any_scopes_iter),* ] };
+    
+    quote! {
+        let claims_opt = #claims_expr;
+        if let Err(e) = crate::rbac::verify_permission(claims_opt, #profile_expr, #all_scopes_expr, #any_scopes_expr) {
+            #err_return
+        }
+    }
+}
+
 #[proc_macro_attribute]
 pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as RbacArgs);
     let mut input_fn = parse_macro_input!(item as ItemFn);
 
-    let profile_expr = if let Some(p) = args.profile {
-        let expr: syn::Expr = match syn::parse_str(&p) {
-            Ok(e) => e,
-            Err(err) => return err.to_compile_error().into(),
-        };
-        quote! { Some(#expr) }
-    } else {
-        quote! { None }
+    let profile_expr = match extract_profile_expr(args.profile.clone()) {
+        Ok(expr) => expr,
+        Err(err) => return err.to_compile_error().into(),
     };
 
-    let mut claims_ident = None;
-    for arg in &input_fn.sig.inputs {
-        if let syn::FnArg::Typed(pat_type) = arg {
-            if let syn::Pat::Ident(pat_ident) = &*pat_type.pat {
-                if pat_ident.ident == "claims" || pat_ident.ident == "_claims" {
-                    claims_ident = Some(pat_ident.ident.clone());
-                }
-            }
-        }
-    }
-
-    let is_tonic_result = match &input_fn.sig.output {
-        syn::ReturnType::Type(_, ty) => {
-            let ty_str = quote!(#ty).to_string().replace(" ", "");
-            ty_str.contains(",Status>") || ty_str.contains(",tonic::Status>") || ty_str.contains("tonic::Response<") || ty_str.contains("Response<")
-        },
-        _ => false,
-    };
+    let claims_ident = extract_claims_ident(&input_fn);
+    let is_tonic = is_tonic_result(&input_fn.sig.output);
 
     let claims_expr = if let Some(ident) = &claims_ident {
         quote! { #ident }
@@ -162,67 +242,15 @@ pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote! { claims }
     };
 
-    let check_block = if let Some(domain) = args.domain {
-        let mut actions_exprs = Vec::new();
-        for action in args.actions {
-            actions_exprs.push(quote! { crate::rbac::get_policy(#domain, #action) });
-        }
-        for any_action in args.any_actions {
-            actions_exprs.push(quote! { crate::rbac::get_policy(#domain, #any_action) });
-        }
-        
-        let scopes_iter = args.scopes.iter();
-        let any_scopes_iter = args.any_scopes.iter();
-        
-        let err_return = if is_tonic_result {
-            quote! { return Box::pin(async move { Err(tonic::Status::permission_denied(e)) }); }
-        } else {
-            quote! { return Box::pin(async move { Err(cowen_common::CowenError::Auth(e).into()) }); }
-        };
+    let err_return = generate_err_return(is_tonic);
 
-        quote! {
-            let mut all_scopes_dyn: Vec<&str> = Vec::new();
-            let mut any_scopes_dyn: Vec<&str> = Vec::new();
-            #(
-                let (all, any) = #actions_exprs;
-                all_scopes_dyn.extend(all);
-                any_scopes_dyn.extend(any);
-            )*
-            
-            let static_scopes: &[&str] = &[ #(#scopes_iter),* ];
-            all_scopes_dyn.extend(static_scopes);
-            
-            let static_any_scopes: &[&str] = &[ #(#any_scopes_iter),* ];
-            any_scopes_dyn.extend(static_any_scopes);
-            
-            let claims_opt = #claims_expr;
-            if let Err(e) = crate::rbac::verify_permission(claims_opt, #profile_expr, &all_scopes_dyn, &any_scopes_dyn) {
-                #err_return
-            }
-        }
+    let check_block = if let Some(domain) = &args.domain {
+        generate_domain_check_block(&args, domain, &claims_expr, &profile_expr, &err_return)
     } else {
-        let scopes_iter = args.scopes.iter();
-        let all_scopes_expr = quote! { &[ #(#scopes_iter),* ] };
-
-        let any_scopes_iter = args.any_scopes.iter();
-        let any_scopes_expr = quote! { &[ #(#any_scopes_iter),* ] };
-        
-        let err_return = if is_tonic_result {
-            quote! { return Box::pin(async move { Err(tonic::Status::permission_denied(e)) }); }
-        } else {
-            quote! { return Box::pin(async move { Err(cowen_common::CowenError::Auth(e).into()) }); }
-        };
-
-        quote! {
-            let claims_opt = #claims_expr;
-            if let Err(e) = crate::rbac::verify_permission(claims_opt, #profile_expr, #all_scopes_expr, #any_scopes_expr) {
-                #err_return
-            }
-        }
+        generate_static_check_block(&args, &claims_expr, &profile_expr, &err_return)
     };
 
     let original_block = &input_fn.block;
-
     let claims_let = if claims_ident.is_some() {
         quote! {}
     } else {
@@ -237,7 +265,7 @@ pub fn rbac(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    input_fn.block = Box::new(syn::parse2(new_block).expect("Failed to parse the injected block"));
+    *input_fn.block = syn::parse2(new_block).expect("Failed to parse the injected block");
 
     TokenStream::from(quote! {
         #input_fn

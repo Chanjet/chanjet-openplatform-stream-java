@@ -228,21 +228,24 @@ impl ConfigManager {
         }
     }
 
-    pub async fn load(&self, profile: &str) -> CowenResult<Config> {
-        let app_cfg = self.load_app_config().await?;
-        let is_db_mode = self.is_distributed_storage(&app_cfg);
-
-        {
-            let mut cache = self.manifest_cache.lock().await;
-            if let Some((cfg, timestamp)) = cache.get(profile) {
-                if timestamp.elapsed() < std::time::Duration::from_secs(3) {
-                    return Ok(cfg.clone());
-                } else {
-                    cache.remove(profile);
-                }
+    async fn check_manifest_cache(&self, profile: &str) -> Option<Config> {
+        let mut cache = self.manifest_cache.lock().await;
+        if let Some((cfg, timestamp)) = cache.get(profile) {
+            if timestamp.elapsed() < std::time::Duration::from_secs(3) {
+                return Some(cfg.clone());
+            } else {
+                cache.remove(profile);
             }
         }
+        None
+    }
 
+    async fn update_manifest_cache(&self, profile: &str, config: &Config) {
+        let mut cache = self.manifest_cache.lock().await;
+        cache.insert(profile.to_string(), (config.clone(), std::time::Instant::now()));
+    }
+
+    async fn try_load_from_vault(&self, profile: &str, is_db_mode: bool) -> CowenResult<Option<Config>> {
         if let Some(vault) = self.vault.get() {
             tracing::debug!(target: "sys", profile = %profile, "Attempting to load manifest from Vault");
             match vault.get_config_full(profile, "system:manifest").await {
@@ -254,38 +257,49 @@ impl ConfigManager {
                             let app_key = config.app_key.trim();
                             let global_profile = format!("app:{}", app_key);
 
-                        if let Ok(s) = vault.get_secret(profile, "app_secret").await { 
-                            let s: String = s;
-                            if !s.is_empty() { config.app_secret = s; } 
-                        }
-                        else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
+                            if let Ok(s) = vault.get_secret(profile, "app_secret").await { 
+                                let s: String = s;
+                                if !s.is_empty() { config.app_secret = s; } 
+                            }
+                            else if let Ok(s) = vault.get_secret(&global_profile, "app_secret").await { config.app_secret = s; }
 
-                        if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
-                        else if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
+                            if let Ok(cert) = vault.get_secret(profile, "certificate").await { config.certificate = cert; }
+                            else if let Ok(cert) = vault.get_secret(&global_profile, "certificate").await { config.certificate = cert; }
 
-                        if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
-                        else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { config.encrypt_key = ek; }
+                            if let Ok(ek) = vault.get_secret(profile, "encrypt_key").await { config.encrypt_key = ek; }
+                            else if let Ok(ek) = vault.get_secret(&global_profile, "encrypt_key").await { config.encrypt_key = ek; }
 
-                        if let Some(validator) = self.validator.get() {
-                            validator.validate_load(profile, &config, is_db_mode, true)?;
+                            if let Some(validator) = self.validator.get() {
+                                validator.validate_load(profile, &config, is_db_mode, true)?;
+                            }
+                            
+                            config.apply_env_overrides();
+                            self.update_manifest_cache(profile, &config).await;
+                            return Ok(Some(config));
+                        },
+                        Err(e) => {
+                            tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
                         }
-                        let mut config = config;
-                        config.apply_env_overrides();
-                        {
-                            let mut cache = self.manifest_cache.lock().await;
-                            cache.insert(profile.to_string(), (config.clone(), std::time::Instant::now()));
-                        }
-                        return Ok(config);
-                    },
-                    Err(e) => {
-                        tracing::error!(target: "sys", profile = %profile, error = %e, raw = %item.value, "Failed to parse manifest from Vault");
                     }
-                }
                 },
                 Err(e) => {
                     tracing::error!(target: "sys", profile = %profile, error = %e, "Manifest not found in Vault or Vault error");
                 }
             }
+        }
+        Ok(None)
+    }
+
+    pub async fn load(&self, profile: &str) -> CowenResult<Config> {
+        let app_cfg = self.load_app_config().await?;
+        let is_db_mode = self.is_distributed_storage(&app_cfg);
+
+        if let Some(cfg) = self.check_manifest_cache(profile).await {
+            return Ok(cfg);
+        }
+
+        if let Some(cfg) = self.try_load_from_vault(profile, is_db_mode).await? {
+            return Ok(cfg);
         }
 
         let (mut config, exists) = self.load_local_profile_with_status(profile).await?;
@@ -300,10 +314,7 @@ impl ConfigManager {
             config.exclusive = Some(val == "true" || val == "1");
         }
 
-        {
-            let mut cache = self.manifest_cache.lock().await;
-            cache.insert(profile.to_string(), (config.clone(), std::time::Instant::now()));
-        }
+        self.update_manifest_cache(profile, &config).await;
 
         Ok(config)
     }
@@ -394,6 +405,20 @@ impl ConfigManager {
         self.app_dir.join(format!("{}.yaml", profile))
     }
 
+    fn normalize_db_url(url: &str) -> String {
+        if url.starts_with("sqlite://") || url.starts_with("innerdb://") {
+            let scheme = if url.starts_with("sqlite://") { "sqlite://" } else { "innerdb://" };
+            let path_part = &url[scheme.len()..];
+            let path = std::path::Path::new(path_part.split('?').next().unwrap_or(path_part));
+            if path.is_relative() {
+                 if let Ok(cwd) = std::env::current_dir() {
+                     return format!("{}{}", scheme, cwd.join(path).to_string_lossy());
+                 }
+            }
+        }
+        url.to_string()
+    }
+
     pub fn is_distributed_storage(&self, app_cfg: &AppConfig) -> bool {
         match app_cfg.storage.store.as_str() {
             "local" => false,
@@ -405,22 +430,7 @@ impl ConfigManager {
                     let expected_sqlite = format!("sqlite://{}", db_path.to_string_lossy());
                     let expected_innerdb = format!("innerdb://{}", db_path.to_string_lossy());
                     
-                    let normalized_url = if url.starts_with("sqlite://") || url.starts_with("innerdb://") {
-                        let scheme = if url.starts_with("sqlite://") { "sqlite://" } else { "innerdb://" };
-                        let path_part = &url[scheme.len()..];
-                        let path = std::path::Path::new(path_part.split('?').next().unwrap_or(path_part));
-                        if path.is_relative() {
-                             if let Ok(cwd) = std::env::current_dir() {
-                                 format!("{}{}", scheme, cwd.join(path).to_string_lossy())
-                             } else {
-                                 url.to_string()
-                             }
-                        } else {
-                             url.to_string()
-                        }
-                    } else {
-                        url.to_string()
-                    };
+                    let normalized_url = Self::normalize_db_url(url);
 
                     let res = normalized_url != expected_sqlite && normalized_url != expected_innerdb 
                         && !normalized_url.starts_with(&format!("{}?", expected_sqlite))

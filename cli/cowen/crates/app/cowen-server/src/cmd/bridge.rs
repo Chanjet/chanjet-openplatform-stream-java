@@ -43,189 +43,243 @@ pub async fn run(
     let enable_webhook_forwarding = should_enable_webhooks(config, &auth);
     let requires_stream = auth.supports_webhooks(config);
 
-    if requires_stream {
-        let d = client.dispatcher();
-        let mut dispatcher = d.lock().unwrap_or_else(|e| e.into_inner());
-
-        if enable_webhook_forwarding {
-            let fwd = forwarder.clone();
-            let gate_for_fwd = shutdown_gate.clone();
-            dispatcher.set_fallback_handler(Arc::new(move |msg| {
-                let fwd_clone = fwd.clone();
-                let gate_guard = gate_for_fwd.enter();
-                tokio::spawn(async move {
-                    let _guard = gate_guard; // Keep guard alive until forwarding finishes
-                    let _ = fwd_clone.forward(msg).await;
-                });
-                true
-            }));
-        }
-
-        let t_pool = pool.clone();
-        let t_profile = profile.to_string();
-        let t_config = config.clone();
-        let gate_for_auth = shutdown_gate.clone();
-        dispatcher.on_ent_auth_code(move |msg| {
-            let temp_code = msg.biz_content.temp_auth_code.trim().to_string();
-            let state = msg.biz_content.state.clone();
-            let t_pool_inner = t_pool.clone();
-            let t_profile_inner = t_profile.clone();
-            let t_config_inner = t_config.clone();
-            let gate_guard = gate_for_auth.enter();
-            tokio::spawn(async move {
-                let _guard = gate_guard;
-                let auth = cowen_auth::create_auth_client(t_pool_inner);
-                let event = cowen_auth::provider::PlatformEvent::TempAuthCode {
-                    code: temp_code,
-                    state,
-                };
-                let _ = auth
-                    .handle_platform_event(&t_profile_inner, &t_config_inner, event)
-                    .await;
-            });
-            true
-        });
-
-        let pk_pool = pool.clone();
-        let pk_profile = profile.to_string();
-        let pk_config = config.clone();
-        let gate_for_ticket = shutdown_gate.clone();
-        dispatcher.on_app_ticket(move |msg| {
-            let ticket_val = msg.biz_content.app_ticket.trim().to_string();
-            let pk_pool_inner = pk_pool.clone();
-            let pk_profile_inner = pk_profile.clone();
-            let pk_config_inner = pk_config.clone();
-            let gate_guard = gate_for_ticket.enter();
-            tokio::spawn(async move {
-                let _guard = gate_guard;
-                let auth = cowen_auth::create_auth_client(pk_pool_inner);
-                let _ = auth
-                    .handle_platform_event(
-                        &pk_profile_inner,
-                        &pk_config_inner,
-                        cowen_auth::provider::PlatformEvent::AppTicket(ticket_val),
-                    )
-                    .await;
-            });
-            true
-        });
-    }
+    setup_dispatcher(
+        &client,
+        requires_stream,
+        enable_webhook_forwarding,
+        forwarder,
+        shutdown_gate.clone(),
+        pool.clone(),
+        profile,
+        config,
+    );
 
     let status_file = cowen_common::config::get_app_dir().join(format!("{}_status.json", profile));
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
-
-    let p_profile = profile.to_string();
-    let p_config = config.clone();
-    let p_vault = vault.clone();
-    let proxy_fut = async move {
-        if enable_proxy {
-            if let Err(e) = crate::daemon::proxy::start_proxy(
-                &p_profile,
-                &p_config,
-                p_vault,
-                proxy_port,
-                Some(port_tx),
-                cowen_common::config::get_app_dir(),
-            )
-            .await
-            {
-                return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
-            }
-        }
-        std::future::pending::<Result<()>>().await
-    };
-
     let connected_notify = Arc::new(tokio::sync::Notify::new());
     let client_ptr = Arc::new(client);
-    let client_for_stream = client_ptr.clone();
-    let stream_notify = connected_notify.clone();
-    let status_file_for_stream = status_file.clone();
-    let stream_fut = async move {
-        if requires_stream {
-            client_for_stream
-                .start_with_callback(move |state| {
-                    if state == connector_sdk::ConnectionState::Connected {
-                        stream_notify.notify_waiters();
-                    }
 
-                    let (state_str, error_msg) = match state {
-                        connector_sdk::ConnectionState::Connected => ("Connected", None),
-                        connector_sdk::ConnectionState::Connecting => ("Connecting", None),
-                        connector_sdk::ConnectionState::Disconnected => ("Disconnected", None),
-                        connector_sdk::ConnectionState::DisconnectedWithError(err) => {
-                            ("Disconnected", Some(err))
-                        }
+    spawn_status_writers(
+        requires_stream,
+        client_ptr.client_id().to_string(),
+        status_file.clone(),
+        port_rx,
+        cancel_token.clone(),
+    );
+
+    tokio::select! {
+        res = run_proxy_server(enable_proxy, profile.to_string(), config.clone(), vault.clone(), proxy_port, port_tx) => res,
+        res = run_stream_client(requires_stream, client_ptr.clone(), connected_notify.clone(), status_file) => res,
+        _ = run_maintenance_loop(requires_stream, pool, profile.to_string(), config.clone(), connected_notify) => Ok(()),
+        _ = cancel_token.cancelled() => {
+            execute_graceful_shutdown(profile, requires_stream, client_ptr, shutdown_gate, vault).await
+        }
+    }
+}
+
+fn setup_dispatcher(
+    client: &connector_sdk::GatewayClient,
+    requires_stream: bool,
+    enable_webhook_forwarding: bool,
+    forwarder: Arc<cowen_capabilities::internal::forwarder::Forwarder>,
+    shutdown_gate: ShutdownGate,
+    pool: Arc<VaultTokenPool>,
+    profile: &str,
+    config: &Config,
+) {
+    if !requires_stream {
+        return;
+    }
+    let d = client.dispatcher();
+    let mut dispatcher = d.lock().unwrap_or_else(|e| e.into_inner());
+
+    if enable_webhook_forwarding {
+        let fwd = forwarder.clone();
+        let gate_for_fwd = shutdown_gate.clone();
+        dispatcher.set_fallback_handler(Arc::new(move |msg| {
+            let fwd_clone = fwd.clone();
+            let gate_guard = gate_for_fwd.enter();
+            tokio::spawn(async move {
+                let _guard = gate_guard; // Keep guard alive until forwarding finishes
+                let _ = fwd_clone.forward(msg).await;
+            });
+            true
+        }));
+    }
+
+    let t_pool = pool.clone();
+    let t_profile = profile.to_string();
+    let t_config = config.clone();
+    let gate_for_auth = shutdown_gate.clone();
+    dispatcher.on_ent_auth_code(move |msg| {
+        let temp_code = msg.biz_content.temp_auth_code.trim().to_string();
+        let state = msg.biz_content.state.clone();
+        let t_pool_inner = t_pool.clone();
+        let t_profile_inner = t_profile.clone();
+        let t_config_inner = t_config.clone();
+        let gate_guard = gate_for_auth.enter();
+        tokio::spawn(async move {
+            let _guard = gate_guard;
+            let auth = cowen_auth::create_auth_client(t_pool_inner);
+            let event = cowen_auth::provider::PlatformEvent::TempAuthCode {
+                code: temp_code,
+                state,
+            };
+            let _ = auth
+                .handle_platform_event(&t_profile_inner, &t_config_inner, event)
+                .await;
+        });
+        true
+    });
+
+    let pk_pool = pool.clone();
+    let pk_profile = profile.to_string();
+    let pk_config = config.clone();
+    let gate_for_ticket = shutdown_gate.clone();
+    dispatcher.on_app_ticket(move |msg| {
+        let ticket_val = msg.biz_content.app_ticket.trim().to_string();
+        let pk_pool_inner = pk_pool.clone();
+        let pk_profile_inner = pk_profile.clone();
+        let pk_config_inner = pk_config.clone();
+        let gate_guard = gate_for_ticket.enter();
+        tokio::spawn(async move {
+            let _guard = gate_guard;
+            let auth = cowen_auth::create_auth_client(pk_pool_inner);
+            let _ = auth
+                .handle_platform_event(
+                    &pk_profile_inner,
+                    &pk_config_inner,
+                    cowen_auth::provider::PlatformEvent::AppTicket(ticket_val),
+                )
+                .await;
+        });
+        true
+    });
+}
+
+async fn run_proxy_server(
+    enable_proxy: bool,
+    profile: String,
+    config: Config,
+    vault: Arc<dyn Vault>,
+    proxy_port: u16,
+    port_tx: tokio::sync::oneshot::Sender<u16>,
+) -> Result<()> {
+    if enable_proxy {
+        if let Err(e) = crate::daemon::proxy::start_proxy(
+            &profile,
+            &config,
+            vault,
+            proxy_port,
+            Some(port_tx),
+            cowen_common::config::get_app_dir(),
+        )
+        .await
+        {
+            return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
+        }
+    }
+    std::future::pending::<Result<()>>().await
+}
+
+async fn run_stream_client(
+    requires_stream: bool,
+    client: Arc<connector_sdk::GatewayClient>,
+    connected_notify: Arc<tokio::sync::Notify>,
+    status_file: std::path::PathBuf,
+) -> Result<()> {
+    if requires_stream {
+        client
+            .start_with_callback(move |state| {
+                if state == connector_sdk::ConnectionState::Connected {
+                    connected_notify.notify_waiters();
+                }
+
+                let (state_str, error_msg) = match state {
+                    connector_sdk::ConnectionState::Connected => ("Connected", None),
+                    connector_sdk::ConnectionState::Connecting => ("Connecting", None),
+                    connector_sdk::ConnectionState::Disconnected => ("Disconnected", None),
+                    connector_sdk::ConnectionState::DisconnectedWithError(err) => {
+                        ("Disconnected", Some(err))
+                    }
+                };
+
+                let mut json =
+                    if let Ok(content) = std::fs::read_to_string(&status_file) {
+                        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+                    } else {
+                        serde_json::json!({})
                     };
 
-                    let mut json =
-                        if let Ok(content) = std::fs::read_to_string(&status_file_for_stream) {
-                            serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
-                        } else {
-                            serde_json::json!({})
-                        };
-
-                    json["state"] = serde_json::json!(state_str);
-                    if let Some(err) = error_msg {
-                        json["error"] = serde_json::json!(err);
-                    } else if let Some(obj) = json.as_object_mut() {
-                        obj.remove("error");
-                    }
-                    json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
-                    let _ = std::fs::write(
-                        &status_file_for_stream,
-                        serde_json::to_string(&json).unwrap_or_default(),
-                    );
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("{:?}", e))
-                .context("Stream client crashed during connection")
-        } else {
-            std::future::pending::<Result<()>>().await
-        }
-    };
-
-    let m_profile = profile.to_string();
-    let m_config = config.clone();
-    let m_pool = pool.clone();
-    let maintenance_notify = connected_notify.clone();
-    let maintenance_fut = async move {
-        let auth = cowen_auth::create_auth_client(m_pool);
-        if auth.requires_initial_push(&m_config).await && requires_stream {
-            maintenance_notify.notified().await;
-            let _ = auth.trigger_push(&m_profile, &m_config, true).await;
-        }
-        loop {
-            let mut next_delay = Duration::from_secs(600);
-            if let Err(_e) = auth.on_maintenance_tick(&m_profile, &m_config).await {
-                next_delay = Duration::from_secs(60);
-            } else {
-                if let Ok(token) = auth.get_app_access_token(&m_profile, &m_config).await {
-                    next_delay = crate::cmd::renewer::calculate_next_check_delay(
-                        token.expires_at,
-                        Utc::now(),
-                    );
+                json["state"] = serde_json::json!(state_str);
+                if let Some(err) = error_msg {
+                    json["error"] = serde_json::json!(err);
+                } else if let Some(obj) = json.as_object_mut() {
+                    obj.remove("error");
                 }
-                if m_config.app_mode != cowen_common::models::AuthMode::Oauth2 {
-                    match auth
-                        .get_token(&m_profile, &m_config, &reqwest::header::HeaderMap::new())
-                        .await
-                    {
-                        Ok(t) => {
-                            tracing::info!(target: "sys", profile = %m_profile, token = %t.value, "Bridge synced token successfully")
-                        }
-                        Err(e) => {
-                            tracing::warn!(target: "sys", profile = %m_profile, error = %e, "Bridge token sync failed")
-                        }
+                json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+                let _ = std::fs::write(
+                    &status_file,
+                    serde_json::to_string(&json).unwrap_or_default(),
+                );
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{:?}", e))
+            .context("Stream client crashed during connection")
+    } else {
+        std::future::pending::<Result<()>>().await
+    }
+}
+
+async fn run_maintenance_loop(
+    requires_stream: bool,
+    pool: Arc<VaultTokenPool>,
+    profile: String,
+    config: Config,
+    connected_notify: Arc<tokio::sync::Notify>,
+) -> Result<()> {
+    let auth = cowen_auth::create_auth_client(pool);
+    if auth.requires_initial_push(&config).await && requires_stream {
+        connected_notify.notified().await;
+        let _ = auth.trigger_push(&profile, &config, true).await;
+    }
+    loop {
+        let mut next_delay = Duration::from_secs(600);
+        if let Err(_e) = auth.on_maintenance_tick(&profile, &config).await {
+            next_delay = Duration::from_secs(60);
+        } else {
+            if let Ok(token) = auth.get_app_access_token(&profile, &config).await {
+                next_delay = crate::cmd::renewer::calculate_next_check_delay(
+                    token.expires_at,
+                    Utc::now(),
+                );
+            }
+            if config.app_mode != cowen_common::models::AuthMode::Oauth2 {
+                match auth
+                    .get_token(&profile, &config, &reqwest::header::HeaderMap::new())
+                    .await
+                {
+                    Ok(t) => {
+                        tracing::info!(target: "sys", profile = %profile, token = %t.value, "Bridge synced token successfully")
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: "sys", profile = %profile, error = %e, "Bridge token sync failed")
                     }
                 }
             }
-            sleep(next_delay).await;
         }
-    };
+        sleep(next_delay).await;
+    }
+}
 
-    let client_ptr_clone = client_ptr.clone();
+fn spawn_status_writers(
+    requires_stream: bool,
+    client_id: String,
+    status_file: std::path::PathBuf,
+    port_rx: tokio::sync::oneshot::Receiver<u16>,
+    cancel_token: CancellationToken,
+) {
     let status_file_for_port = status_file.clone();
-    let requires_stream_for_port = requires_stream;
     tokio::spawn(async move {
         if let Ok(p) = port_rx.await {
             let mut json = if let Ok(content) = std::fs::read_to_string(&status_file_for_port) {
@@ -234,13 +288,13 @@ pub async fn run(
                 serde_json::json!({})
             };
 
-            if !requires_stream_for_port {
+            if !requires_stream {
                 json["state"] = serde_json::json!("Active");
             } else if json.get("state").is_none() {
                 json["state"] = serde_json::json!("Connecting");
             }
 
-            json["client_id"] = serde_json::json!(client_ptr_clone.client_id());
+            json["client_id"] = serde_json::json!(client_id);
             json["proxy_port"] = serde_json::json!(p);
             json["updated_at"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
 
@@ -252,10 +306,8 @@ pub async fn run(
     });
 
     let status_file_for_heartbeat = status_file.clone();
-    let requires_stream_for_heartbeat = requires_stream;
-    let cancel_token_for_heartbeat = cancel_token.clone();
     tokio::spawn(async move {
-        if requires_stream_for_heartbeat {
+        if requires_stream {
             loop {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs(30)) => {
@@ -266,56 +318,57 @@ pub async fn run(
                             }
                         }
                     }
-                    _ = cancel_token_for_heartbeat.cancelled() => {
+                    _ = cancel_token.cancelled() => {
                         break;
                     }
                 }
             }
         }
     });
+}
 
-    tokio::select! {
-        res = proxy_fut => res,
-        res = stream_fut => res,
-        _ = maintenance_fut => Ok(()),
-        _ = cancel_token.cancelled() => {
-            tracing::info!(target: "sys", profile = %profile, "Shutdown signal received, initiating graceful shutdown sequence.");
+async fn execute_graceful_shutdown(
+    profile: &str,
+    requires_stream: bool,
+    client_ptr: Arc<connector_sdk::GatewayClient>,
+    shutdown_gate: ShutdownGate,
+    vault: Arc<dyn Vault>,
+) -> Result<()> {
+    tracing::info!(target: "sys", profile = %profile, "Shutdown signal received, initiating graceful shutdown sequence.");
 
-            // Phase 1: Stop accepting new streams/events
-            if requires_stream {
-                tracing::info!(target: "sys", profile = %profile, "Stopping stream client...");
-                client_ptr.stop();
-            }
-
-            // Phase 2: Draining active tasks
-            let active_count = shutdown_gate.active_count();
-            if active_count > 0 {
-                tracing::info!(target: "sys", profile = %profile, tasks = active_count, "Waiting for active tasks to complete (up to 10s)...");
-
-                let drain_timeout = tokio::time::timeout(
-                    Duration::from_secs(10),
-                    shutdown_gate.wait_for_zero()
-                );
-
-                match drain_timeout.await {
-                    Ok(_) => tracing::info!(target: "sys", profile = %profile, "All active tasks completed gracefully."),
-                    Err(_) => tracing::warn!(target: "sys", profile = %profile, "Timeout waiting for active tasks. Forcing shutdown."),
-                }
-            } else {
-                tracing::info!(target: "sys", profile = %profile, "No active tasks, proceeding with shutdown.");
-            }
-
-            // Phase 3: Storage layer safe recycle
-            tracing::info!(target: "sys", profile = %profile, "Shutting down storage connections...");
-            if let Err(e) = vault.shutdown().await {
-                tracing::error!(target: "sys", profile = %profile, error = %e, "Error shutting down storage");
-            } else {
-                tracing::info!(target: "sys", profile = %profile, "Storage connections closed gracefully.");
-            }
-
-            Ok(())
-        }
+    // Phase 1: Stop accepting new streams/events
+    if requires_stream {
+        tracing::info!(target: "sys", profile = %profile, "Stopping stream client...");
+        client_ptr.stop();
     }
+
+    // Phase 2: Draining active tasks
+    let active_count = shutdown_gate.active_count();
+    if active_count > 0 {
+        tracing::info!(target: "sys", profile = %profile, tasks = active_count, "Waiting for active tasks to complete (up to 10s)...");
+
+        let drain_timeout = tokio::time::timeout(
+            Duration::from_secs(10),
+            shutdown_gate.wait_for_zero()
+        );
+
+        match drain_timeout.await {
+            Ok(_) => tracing::info!(target: "sys", profile = %profile, "All active tasks completed gracefully."),
+            Err(_) => tracing::warn!(target: "sys", profile = %profile, "Timeout waiting for active tasks. Forcing shutdown."),
+        }
+    } else {
+        tracing::info!(target: "sys", profile = %profile, "No active tasks, proceeding with shutdown.");
+    }
+
+    // Phase 3: Storage layer safe recycle
+    tracing::info!(target: "sys", profile = %profile, "Shutting down storage connections...");
+    if let Err(e) = vault.shutdown().await {
+        tracing::error!(target: "sys", profile = %profile, error = %e, "Error shutting down storage");
+    } else {
+        tracing::info!(target: "sys", profile = %profile, "Storage connections closed gracefully.");
+    }
+
+    Ok(())
 }
 
 pub async fn build_client_options(

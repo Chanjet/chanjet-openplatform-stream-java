@@ -7,6 +7,7 @@ use cowen_common::models::Token;
 pub mod oauth2;
 pub mod self_built;
 pub mod store_app;
+pub mod utils;
 
 pub enum ProxyRequestAction {
     Forward { headers: reqwest::header::HeaderMap },

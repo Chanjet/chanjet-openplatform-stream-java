@@ -40,29 +40,37 @@ mod tests {
     use crate::protocol::EnabledTool;
     use serde_json::json;
 
-    #[tokio::test]
-    async fn test_dynamic_tool_structured_content_fallback() {
+    async fn setup_app_state_with_tool(protocol_version: &str, tool_name: &str, output_schema: Option<serde_json::Value>) -> AppState {
         let app_state = AppState::new("test_tenant".to_string());
-        
         let mut state = app_state.mcp_state.lock().await;
-        state.protocol_version = Some("2025-06-18".to_string());
+        state.protocol_version = Some(protocol_version.to_string());
         state.tools.insert(
-            "get__v1_test".to_string(),
+            tool_name.to_string(),
             EnabledTool {
                 method: "GET".to_string(),
-                path: "/v1/test".to_string(),
+                path: if tool_name == "get__v1_array" { "/v1/array".to_string() } else { "/v1/test".to_string() },
                 description: "Test description".to_string(),
                 input_schema: json!({ "type": "object", "properties": {} }),
-                output_schema: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "data": { "type": "string" }
-                    }
-                })),
+                output_schema,
                 body_params: vec![],
             },
         );
         drop(state);
+        app_state
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_tool_structured_content_fallback() {
+        let app_state = setup_app_state_with_tool(
+            "2025-06-18",
+            "get__v1_test",
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "data": { "type": "string" }
+                }
+            }))
+        ).await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -85,25 +93,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_list_wraps_non_object_schema() {
-        let app_state = AppState::new("test_tenant".to_string());
-        
-        let mut state = app_state.mcp_state.lock().await;
-        state.protocol_version = Some("2025-06-18".to_string());
-        state.tools.insert(
-            "get__v1_array".to_string(),
-            EnabledTool {
-                method: "GET".to_string(),
-                path: "/v1/array".to_string(),
-                description: "Test description".to_string(),
-                input_schema: json!({ "type": "object", "properties": {} }),
-                output_schema: Some(json!({
-                    "type": "array",
-                    "items": { "type": "string" }
-                })),
-                body_params: vec![],
-            },
-        );
-        drop(state);
+        let app_state = setup_app_state_with_tool(
+            "2025-06-18",
+            "get__v1_array",
+            Some(json!({
+                "type": "array",
+                "items": { "type": "string" }
+            }))
+        ).await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -176,22 +173,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_list_omits_output_schema_for_legacy_clients() {
-        let app_state = AppState::new("test_tenant".to_string());
-        
-        let mut state = app_state.mcp_state.lock().await;
-        state.protocol_version = Some("2024-10-01".to_string());
-        state.tools.insert(
-            "get__v1_test".to_string(),
-            EnabledTool {
-                method: "GET".to_string(),
-                path: "/v1/test".to_string(),
-                description: "Test description".to_string(),
-                input_schema: json!({ "type": "object", "properties": {} }),
-                output_schema: Some(json!({ "type": "object" })),
-                body_params: vec![],
-            },
-        );
-        drop(state);
+        let app_state = setup_app_state_with_tool(
+            "2024-10-01",
+            "get__v1_test",
+            Some(json!({ "type": "object" }))
+        ).await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -213,22 +199,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_list_includes_output_schema_for_modern_clients() {
-        let app_state = AppState::new("test_tenant".to_string());
-        
-        let mut state = app_state.mcp_state.lock().await;
-        state.protocol_version = Some("2025-06-18".to_string());
-        state.tools.insert(
-            "get__v1_test".to_string(),
-            EnabledTool {
-                method: "GET".to_string(),
-                path: "/v1/test".to_string(),
-                description: "Test description".to_string(),
-                input_schema: json!({ "type": "object", "properties": {} }),
-                output_schema: Some(json!({ "type": "object" })),
-                body_params: vec![],
-            },
-        );
-        drop(state);
+        let app_state = setup_app_state_with_tool(
+            "2025-06-18",
+            "get__v1_test",
+            Some(json!({ "type": "object" }))
+        ).await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -247,24 +222,14 @@ mod tests {
         let list_tool = tools.iter().find(|t| t.get("name").unwrap().as_str().unwrap() == "cowen_api_list").unwrap();
         assert!(list_tool.get("outputSchema").is_some());
     }
+
     #[tokio::test]
     async fn test_tools_list_omits_output_schema_for_legacy_version_2024_11_05() {
-        let app_state = AppState::new("test_tenant".to_string());
-        
-        let mut state = app_state.mcp_state.lock().await;
-        state.protocol_version = Some("2024-11-05".to_string());
-        state.tools.insert(
-            "get__v1_test".to_string(),
-            EnabledTool {
-                method: "GET".to_string(),
-                path: "/v1/test".to_string(),
-                description: "Test description".to_string(),
-                input_schema: json!({ "type": "object", "properties": {} }),
-                output_schema: Some(json!({ "type": "object" })),
-                body_params: vec![],
-            },
-        );
-        drop(state);
+        let app_state = setup_app_state_with_tool(
+            "2024-11-05",
+            "get__v1_test",
+            Some(json!({ "type": "object" }))
+        ).await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -282,22 +247,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_list_includes_output_schema_for_modern_version_2026_01_01() {
-        let app_state = AppState::new("test_tenant".to_string());
-        
-        let mut state = app_state.mcp_state.lock().await;
-        state.protocol_version = Some("2026-01-01".to_string());
-        state.tools.insert(
-            "get__v1_test".to_string(),
-            EnabledTool {
-                method: "GET".to_string(),
-                path: "/v1/test".to_string(),
-                description: "Test description".to_string(),
-                input_schema: json!({ "type": "object", "properties": {} }),
-                output_schema: Some(json!({ "type": "object" })),
-                body_params: vec![],
-            },
-        );
-        drop(state);
+        let app_state = setup_app_state_with_tool(
+            "2026-01-01",
+            "get__v1_test",
+            Some(json!({ "type": "object" }))
+        ).await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
@@ -315,22 +269,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_call_omits_structured_content_for_legacy_version_2024_11_05() {
-        let app_state = AppState::new("test_tenant".to_string());
-        
-        let mut state = app_state.mcp_state.lock().await;
-        state.protocol_version = Some("2024-11-05".to_string());
-        state.tools.insert(
-            "get__v1_test".to_string(),
-            EnabledTool {
-                method: "GET".to_string(),
-                path: "/v1/test".to_string(),
-                description: "Test description".to_string(),
-                input_schema: json!({ "type": "object", "properties": {} }),
-                output_schema: Some(json!({ "type": "object", "properties": { "data": { "type": "string" } } })),
-                body_params: vec![],
-            },
-        );
-        drop(state);
+        let app_state = setup_app_state_with_tool(
+            "2024-11-05",
+            "get__v1_test",
+            Some(json!({ "type": "object", "properties": { "data": { "type": "string" } } }))
+        ).await;
 
         let req = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),

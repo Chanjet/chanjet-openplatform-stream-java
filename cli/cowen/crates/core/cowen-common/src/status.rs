@@ -195,16 +195,12 @@ pub async fn is_port_responsive(port: u16) -> bool {
     )
 }
 
-pub async fn collect_daemon_status(
+fn evaluate_daemon_running_state(
     ctx: &StatusContext<'_>,
-    display_name: &str,
     efficiency_tip: &str,
-    supports_webhooks: bool,
-    daemon_info: Option<DaemonInfo>,
-) -> CowenResult<StatusEntry> {
-    let daemon_info = daemon_info.or_else(|| get_active_daemon_info(&ctx.profile));
-    
-    let (mut level, msg, mut children, port_conflict) = if let Some(info) = &daemon_info {
+    daemon_info: &Option<DaemonInfo>,
+) -> (StatusLevel, String, Vec<StatusEntry>, Option<String>) {
+    if let Some(info) = daemon_info {
         (
             StatusLevel::OK, 
             format!("[RUNNING] (PID: {})", info.pid),
@@ -221,7 +217,6 @@ pub async fn collect_daemon_status(
         let mut level = StatusLevel::WARN;
         let mut port_conflict = None;
         
-        // DIAGNOSTICS: Check if the configured port is stolen by another process
         if ctx.config.proxy_enabled {
             let bin_name = get_bin_name();
             if let Some((other_pid, other_name)) = check_port_occupancy(ctx.config.proxy_port, &bin_name) {
@@ -247,103 +242,123 @@ pub async fn collect_daemon_status(
             ],
             port_conflict
         )
-    };
+    }
+}
 
+fn inject_connection_state(
+    ctx: &StatusContext<'_>,
+    supports_webhooks: bool,
+    level: &mut StatusLevel,
+    children: &mut Vec<StatusEntry>,
+) -> Option<u64> {
     let mut captured_proxy_port = None;
+    let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
+    if let Ok(content) = std::fs::read_to_string(status_file) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(p) = json.get("proxy_port").and_then(|v| v.as_u64()) {
+                captured_proxy_port = Some(p);
+            }
+            
+            let conn_state = json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
+            let error_val = json.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
+            
+            let is_fresh = if let Some(ts_str) = json.get("updated_at").and_then(|v| v.as_str()) {
+                if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+                    chrono::Utc::now().signed_duration_since(ts).num_seconds() < 60
+                } else { false }
+            } else { false };
 
-    // Inject Connection State if running AND new version (status file exists)
-    if daemon_info.is_some() {
-        let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
-        if let Ok(content) = std::fs::read_to_string(status_file) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(p) = json.get("proxy_port").and_then(|v| v.as_u64()) {
-                    captured_proxy_port = Some(p);
+            let (mut conn_level, conn_icon_override, mut final_state) = if supports_webhooks && !is_fresh && conn_state == "Connected" {
+                (StatusLevel::ERROR, Some("💤"), format!("{} (Stale)", conn_state))
+            } else {
+                match conn_state.as_str() {
+                    "Connected" => (StatusLevel::OK, None, conn_state),
+                    "Connecting" => (StatusLevel::WARN, Some("⏳"), conn_state), 
+                    "Disconnected" => (StatusLevel::WARN, Some("💤"), conn_state),
+                    "Reconnecting" => (StatusLevel::ERROR, Some("📡"), conn_state),
+                    "Active" if !supports_webhooks => (StatusLevel::OK, None, conn_state),
+                    _ => (StatusLevel::WARN, Some("❓"), conn_state),
                 }
-                
-                let conn_state = json.get("state").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
-                let error_val = json.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
-                
-                // Freshness check: If the status file is older than 1 minute, it's considered stale
-                let is_fresh = if let Some(ts_str) = json.get("updated_at").and_then(|v| v.as_str()) {
-                    if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
-                        chrono::Utc::now().signed_duration_since(ts).num_seconds() < 60
-                    } else { false }
-                } else { false };
+            };
 
-                let (mut conn_level, conn_icon_override, mut final_state) = if supports_webhooks && !is_fresh && conn_state == "Connected" {
-                    (StatusLevel::ERROR, Some("💤"), format!("{} (Stale)", conn_state))
-                } else {
-                    match conn_state.as_str() {
-                        "Connected" => (StatusLevel::OK, None, conn_state),
-                        "Connecting" => (StatusLevel::WARN, Some("⏳"), conn_state), 
-                        "Disconnected" => (StatusLevel::WARN, Some("💤"), conn_state),
-                        "Reconnecting" => (StatusLevel::ERROR, Some("📡"), conn_state),
-                        "Active" if !supports_webhooks => (StatusLevel::OK, None, conn_state),
-                        _ => (StatusLevel::WARN, Some("❓"), conn_state),
-                    }
-                };
-
-                if let Some(ref err) = error_val {
-                    if err.contains("404") || err.contains("Nonce") || err.contains("401") || err.contains("403") {
-                        conn_level = StatusLevel::ERROR;
-                    }
-                    final_state = format!("{} (Error: {})", final_state, err);
+            if let Some(ref err) = error_val {
+                if err.contains("404") || err.contains("Nonce") || err.contains("401") || err.contains("403") {
+                    conn_level = StatusLevel::ERROR;
                 }
+                final_state = format!("{} (Error: {})", final_state, err);
+            }
 
-                if conn_level as i32 > level as i32 && conn_level != StatusLevel::WARN {
-                    level = conn_level;
-                }
+            if conn_level as i32 > *level as i32 && conn_level != StatusLevel::WARN {
+                *level = conn_level;
+            }
 
-                if supports_webhooks {
-                    let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state);
-                    if let Some(icon) = conn_icon_override {
-                        entry.icon = icon.to_string();
-                    }
-                    if let Some(err) = &error_val {
-                        entry.details.push(format!("Error Details: {}", err));
-                    }
-                    if let Some(cid) = json.get("client_id").and_then(|v| v.as_str()) {
-                        entry.details.push(format!("Client ID: {}", cid));
-                    }
-                    children.push(entry);
+            if supports_webhooks {
+                let mut entry = StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state);
+                if let Some(icon) = conn_icon_override {
+                    entry.icon = icon.to_string();
                 }
+                if let Some(err) = &error_val {
+                    entry.details.push(format!("Error Details: {}", err));
+                }
+                if let Some(cid) = json.get("client_id").and_then(|v| v.as_str()) {
+                    entry.details.push(format!("Client ID: {}", cid));
+                }
+                children.push(entry);
             }
         }
     }
+    captured_proxy_port
+}
 
+fn evaluate_daemon_details_and_version(
+    ctx: &StatusContext<'_>,
+    info: &DaemonInfo,
+    captured_proxy_port: Option<u64>,
+) -> (Vec<String>, bool) {
     let mut details = vec![];
     let mut outdated = false;
-    if let Some(info) = &daemon_info {
-        if let Some(bid) = &info.build_id {
-            details.push(format!("Daemon Build: {}", bid));
-        }
-        if let Some(bt) = &info.build_time {
-            details.push(format!("Daemon Time:  {}", bt));
-        }
-        if let Some(p) = captured_proxy_port {
-            details.push(format!("Proxy Port:   {}", p));
-        } else if ctx.config.proxy_enabled && ctx.config.proxy_port != 0 {
-            details.push(format!("Proxy Port:   {} (configured)", ctx.config.proxy_port));
-        }
 
-        // Version Sync Logic:
-        if let Some(bid) = &info.build_id {
-            if bid != crate::BUILD_ID {
-                outdated = true;
-            }
-        } else {
-            outdated = true; 
-        }
-
-        if !outdated
-            && (info.build_id.as_deref() != Some(crate::BUILD_ID)
-                || info.build_time.as_deref() != Some(crate::BUILD_TIME))
-        {
-            outdated = true;
-        }
+    if let Some(bid) = &info.build_id {
+        details.push(format!("Daemon Build: {}", bid));
+    }
+    if let Some(bt) = &info.build_time {
+        details.push(format!("Daemon Time:  {}", bt));
+    }
+    if let Some(p) = captured_proxy_port {
+        details.push(format!("Proxy Port:   {}", p));
+    } else if ctx.config.proxy_enabled && ctx.config.proxy_port != 0 {
+        details.push(format!("Proxy Port:   {} (configured)", ctx.config.proxy_port));
     }
 
-    let res = StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
+    if let Some(bid) = &info.build_id {
+        if bid != crate::BUILD_ID {
+            outdated = true;
+        }
+    } else {
+        outdated = true; 
+    }
+
+    if !outdated
+        && (info.build_id.as_deref() != Some(crate::BUILD_ID)
+            || info.build_time.as_deref() != Some(crate::BUILD_TIME))
+    {
+        outdated = true;
+    }
+
+    (details, outdated)
+}
+
+fn build_final_status_entry(
+    display_name: &str,
+    daemon_info: &Option<DaemonInfo>,
+    level: StatusLevel,
+    msg: String,
+    children: Vec<StatusEntry>,
+    details: Vec<String>,
+    port_conflict: Option<String>,
+    outdated: bool,
+) -> StatusEntry {
+    StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
         .with_reason(if daemon_info.is_none() { 
             if let Some(conflict) = port_conflict {
                 Some(conflict)
@@ -358,7 +373,44 @@ pub async fn collect_daemon_status(
             None 
         })
         .with_details(details)
-        .with_children(children);
+        .with_children(children)
+}
+
+pub async fn collect_daemon_status(
+    ctx: &StatusContext<'_>,
+    display_name: &str,
+    efficiency_tip: &str,
+    supports_webhooks: bool,
+    daemon_info: Option<DaemonInfo>,
+) -> CowenResult<StatusEntry> {
+    let daemon_info = daemon_info.or_else(|| get_active_daemon_info(&ctx.profile));
+    
+    let (mut level, msg, mut children, port_conflict) = evaluate_daemon_running_state(
+        ctx, efficiency_tip, &daemon_info
+    );
+
+    let mut captured_proxy_port = None;
+
+    if daemon_info.is_some() {
+        captured_proxy_port = inject_connection_state(
+            ctx, supports_webhooks, &mut level, &mut children
+        );
+    }
+
+    let mut details = vec![];
+    let mut outdated = false;
+    
+    if let Some(info) = &daemon_info {
+        let (d, o) = evaluate_daemon_details_and_version(
+            ctx, info, captured_proxy_port
+        );
+        details = d;
+        outdated = o;
+    }
+
+    let res = build_final_status_entry(
+        display_name, &daemon_info, level, msg, children, details, port_conflict, outdated
+    );
 
     Ok(res)
 }

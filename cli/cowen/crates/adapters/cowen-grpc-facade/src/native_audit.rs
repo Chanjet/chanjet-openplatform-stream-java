@@ -11,10 +11,6 @@ pub struct NativeAuditController {
 #[tonic::async_trait]
 impl NativeAuditService for NativeAuditController {
     async fn tail_audit(&self, request: Request<TailAuditRequest>) -> Result<Response<TailAuditResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_audit.tail_audit(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_audit, tail_audit, request)
     }
 }

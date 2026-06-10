@@ -1,3 +1,6 @@
+#[macro_use]
+pub mod macros;
+
 pub mod native_audit;
 pub mod native_auth;
 pub mod native_config;

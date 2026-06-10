@@ -19,50 +19,26 @@ impl NativeWorkerService for NativeWorkerController {
     }
 
     async fn start_worker(&self, request: Request<StartWorkerRequest>) -> Result<Response<StartWorkerResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_worker.start_worker(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_worker, start_worker, request)
     }
 
     async fn stop_worker(&self, request: Request<StopWorkerRequest>) -> Result<Response<StopWorkerResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_worker.stop_worker(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_worker, stop_worker, request)
     }
 
     async fn start_all_workers(&self, request: Request<StartAllWorkersRequest>) -> Result<Response<StartAllWorkersResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_worker.start_all_workers(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_worker, start_all_workers, request)
     }
 
     async fn stop_all_workers(&self, request: Request<StopAllWorkersRequest>) -> Result<Response<StopAllWorkersResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_worker.stop_all_workers(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_worker, stop_all_workers, request)
     }
 
     async fn reload_worker(&self, request: Request<ReloadWorkerRequest>) -> Result<Response<ReloadWorkerResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_worker.reload_worker(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_worker, reload_worker, request)
     }
 
     async fn get_status(&self, request: Request<GetStatusRequest>) -> Result<Response<GetStatusResponse>, Status> {
-        let claims = request.extensions().get::<cowen_common::jwt::IpcClaims>().cloned();
-        match self.capabilities.native_worker.get_status(claims.as_ref(), request.into_inner()).await {
-            Ok(resp) => Ok(Response::new(resp)),
-            Err(e) => Err(Status::internal(e.to_string())),
-        }
+        crate::grpc_forward!(self, native_worker, get_status, request)
     }
 }

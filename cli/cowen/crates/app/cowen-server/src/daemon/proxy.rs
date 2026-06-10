@@ -199,36 +199,15 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
 
     let provider = auth_cli.provider(&state.config.app_mode);
 
-    // Convert axum headers to std::collections::HashMap for Wasm
-    let mut wasm_headers = std::collections::HashMap::new();
-    for (k, v) in parts.headers.iter() {
-        if let Ok(val) = v.to_str() {
-            wasm_headers.insert(k.as_str().to_string(), val.to_string());
-        }
-    }
-
-    // 🚀 Execute Wasm Header Filter
-    let mut modified_bytes = bytes.to_vec();
-    if let Some(wasm_mgr) = &state.wasm_manager {
-        wasm_headers = wasm_mgr.filter_headers(
-            &req_path,
-            &method_str,
-            !modified_bytes.is_empty(),
-            wasm_headers,
-        );
-        modified_bytes = wasm_mgr.filter_request_body(&req_path, &method_str, modified_bytes);
-    }
+    // 🚀 Execute Wasm Filters
+    let (headers, modified_bytes) = apply_wasm_request_filters(
+        state.wasm_manager.as_ref(),
+        &req_path,
+        &method_str,
+        &parts,
+        bytes.to_vec(),
+    );
     let bytes = axum::body::Bytes::from(modified_bytes);
-
-    // Convert wasm headers back to reqwest headers
-    let mut headers = reqwest::header::HeaderMap::new();
-    for (k, v) in wasm_headers {
-        if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_bytes()) {
-            if let Ok(val) = reqwest::header::HeaderValue::from_bytes(v.as_bytes()) {
-                headers.insert(name, val);
-            }
-        }
-    }
 
     // 1.2. Pre-flight Interceptor
     let fallback_spec = serde_json::Value::Null;
@@ -300,12 +279,13 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
                 }
             }
             let out_headers = r.headers().clone();
-            let mut out_bytes = r.bytes().await.unwrap_or_default().to_vec();
-
-            if let Some(wasm_mgr) = &state.wasm_manager {
-                out_bytes =
-                    wasm_mgr.filter_response_body(&req_path, &method_str, status, out_bytes);
-            }
+            let out_bytes = apply_wasm_response_filters(
+                state.wasm_manager.as_ref(),
+                &req_path,
+                &method_str,
+                status,
+                r.bytes().await.unwrap_or_default().to_vec(),
+            );
 
             let out_bytes = axum::body::Bytes::from(out_bytes);
 
@@ -347,62 +327,79 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
     }
 }
 
+fn apply_wasm_request_filters(
+    wasm_manager: Option<&std::sync::Arc<crate::daemon::wasm_runtime::WasmPipelineManager>>,
+    req_path: &str,
+    method_str: &str,
+    parts: &axum::http::request::Parts,
+    body_bytes: Vec<u8>,
+) -> (reqwest::header::HeaderMap, Vec<u8>) {
+    let mut wasm_headers = std::collections::HashMap::new();
+    for (k, v) in parts.headers.iter() {
+        if let Ok(val) = v.to_str() {
+            wasm_headers.insert(k.as_str().to_string(), val.to_string());
+        }
+    }
+
+    let mut modified_bytes = body_bytes;
+    if let Some(wasm_mgr) = wasm_manager {
+        wasm_headers = wasm_mgr.filter_headers(
+            req_path,
+            method_str,
+            !modified_bytes.is_empty(),
+            wasm_headers,
+        );
+        modified_bytes = wasm_mgr.filter_request_body(req_path, method_str, modified_bytes);
+    }
+
+    let mut headers = reqwest::header::HeaderMap::new();
+    for (k, v) in wasm_headers {
+        if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_bytes()) {
+            if let Ok(val) = reqwest::header::HeaderValue::from_bytes(v.as_bytes()) {
+                headers.insert(name, val);
+            }
+        }
+    }
+    (headers, modified_bytes)
+}
+
+fn apply_wasm_response_filters(
+    wasm_manager: Option<&std::sync::Arc<crate::daemon::wasm_runtime::WasmPipelineManager>>,
+    req_path: &str,
+    method_str: &str,
+    status: u16,
+    body_bytes: Vec<u8>,
+) -> Vec<u8> {
+    if let Some(wasm_mgr) = wasm_manager {
+        wasm_mgr.filter_response_body(req_path, method_str, status, body_bytes)
+    } else {
+        body_bytes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use cowen_common::config::AppConfig;
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_proxy_concurrency_no_deadlock() {
-        // 1. Setup mock upstream server
-        let mock_app = Router::new().route(
-            "/hello",
-            any(|| async {
-                axum::response::Response::builder()
-                    .status(axum::http::StatusCode::OK)
-                    .header("Content-Type", "application/json")
-                    .body(axum::body::Body::from(r#"{"status":"ok"}"#))
-                    .unwrap()
-            }),
-        );
-        let mock_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let mock_addr = mock_listener.local_addr().unwrap();
-        let mock_server_handle = tokio::spawn(async move {
-            axum::serve(mock_listener, mock_app).await.unwrap();
-        });
-
-        // 2. Setup temp directory for local Vault using UUID to avoid dependency on tempfile
-        let temp_dir =
-            std::env::temp_dir().join(format!("cowen_proxy_test_{}", uuid::Uuid::new_v4()));
+    async fn setup_proxy_test_env(mock_addr: std::net::SocketAddr) -> (u16, std::path::PathBuf, tokio::task::JoinHandle<()>) {
+        let temp_dir = std::env::temp_dir().join(format!("cowen_proxy_test_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         let app_cfg = AppConfig::default();
-        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint")
-            .await
-            .unwrap();
+        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint").await.unwrap();
 
-        // Seed some configs
-        vault
-            .set_config("test_profile", "app_key", "test_key")
-            .await
-            .unwrap();
-        vault
-            .set_secret("test_profile", "app_secret", "test_secret")
-            .await
-            .unwrap();
-        vault
-            .save_app_access_token(
-                "test_key",
-                cowen_common::models::Token {
-                    value: "mock_at_sb_12345".to_string(),
-                    expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-                    created_at: chrono::Utc::now(),
-                },
-            )
-            .await
-            .unwrap();
+        vault.set_config("test_profile", "app_key", "test_key").await.unwrap();
+        vault.set_secret("test_profile", "app_secret", "test_secret").await.unwrap();
+        vault.save_app_access_token(
+            "test_key",
+            cowen_common::models::Token {
+                value: "mock_at_sb_12345".to_string(),
+                expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+                created_at: chrono::Utc::now(),
+            },
+        ).await.unwrap();
 
-        // 3. Start proxy
         let mut config = Config::default_with_profile("test_profile");
         config.app_key = "test_key".to_string();
         config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
@@ -428,12 +425,34 @@ mod tests {
                 0,
                 Some(port_tx),
                 p_temp_dir,
-            )
-            .await
-            .unwrap();
+            ).await.unwrap();
         });
 
         let proxy_port = port_rx.await.unwrap();
+        (proxy_port, temp_dir, proxy_task)
+    }
+
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_proxy_concurrency_no_deadlock() {
+        // 1. Setup mock upstream server
+        let mock_app = Router::new().route(
+            "/hello",
+            any(|| async {
+                axum::response::Response::builder()
+                    .status(axum::http::StatusCode::OK)
+                    .header("Content-Type", "application/json")
+                    .body(axum::body::Body::from(r#"{"status":"ok"}"#))
+                    .unwrap()
+            }),
+        );
+        let mock_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mock_addr = mock_listener.local_addr().unwrap();
+        let mock_server_handle = tokio::spawn(async move {
+            axum::serve(mock_listener, mock_app).await.unwrap();
+        });
+
+        let (proxy_port, temp_dir, proxy_task) = setup_proxy_test_env(mock_addr).await;
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
         // 4. Send concurrent requests to the proxy
@@ -509,69 +528,7 @@ mod tests {
             axum::serve(mock_listener, mock_app).await.unwrap();
         });
 
-        // 2. Setup temp directory for local Vault using UUID
-        let temp_dir =
-            std::env::temp_dir().join(format!("cowen_proxy_test_headers_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-
-        let app_cfg = AppConfig::default();
-        let vault = cowen_store::create_vault(&app_cfg, &temp_dir, "test_fingerprint")
-            .await
-            .unwrap();
-
-        // Seed some configs
-        vault
-            .set_config("test_profile", "app_key", "test_key")
-            .await
-            .unwrap();
-        vault
-            .set_secret("test_profile", "app_secret", "test_secret")
-            .await
-            .unwrap();
-        vault
-            .save_app_access_token(
-                "test_key",
-                cowen_common::models::Token {
-                    value: "mock_at_sb_12345".to_string(),
-                    expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-                    created_at: chrono::Utc::now(),
-                },
-            )
-            .await
-            .unwrap();
-
-        // 3. Start proxy
-        let mut config = Config::default_with_profile("test_profile");
-        config.app_key = "test_key".to_string();
-        config.app_mode = cowen_common::models::AuthMode::SelfBuilt;
-
-        let app_yaml_content = format!(
-            "openapi_url: http://{}\nstream_url: http://{}\n",
-            mock_addr, mock_addr
-        );
-        std::fs::write(temp_dir.join("app.yaml"), app_yaml_content).unwrap();
-
-        config.webhook_target = "http://localhost:8080".to_string();
-
-        let (port_tx, port_rx) = tokio::sync::oneshot::channel();
-        let p_vault = vault.clone();
-        let p_config = config.clone();
-        let p_temp_dir = temp_dir.clone();
-
-        let proxy_task = tokio::spawn(async move {
-            start_proxy(
-                "test_profile",
-                &p_config,
-                p_vault,
-                0,
-                Some(port_tx),
-                p_temp_dir,
-            )
-            .await
-            .unwrap();
-        });
-
-        let proxy_port = port_rx.await.unwrap();
+        let (proxy_port, temp_dir, proxy_task) = setup_proxy_test_env(mock_addr).await;
         let client = reqwest::Client::builder().no_proxy().build().unwrap();
 
         // 4. Test GET request WITH Content-Type but NO Body
