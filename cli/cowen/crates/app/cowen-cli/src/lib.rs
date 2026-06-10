@@ -845,20 +845,21 @@ pub async fn run(cli: Cli) -> Result<()> {
                     .await?;
                 match res {
                     cowen_common::grpc::client::DaemonResponse::ApiResponse(dto) => {
+                        let trace_id = dto
+                            .headers
+                            .get("x-b3-traceid")
+                            .or_else(|| dto.headers.get("x-msg-id"))
+                            .or_else(|| dto.headers.get("msgId"))
+                            .or_else(|| dto.headers.get("x-trace-id"));
+
                         if cli.format == "json" || cli.format == "yaml" {
                             let mut json_val: serde_json::Value = serde_json::from_str(&dto.body)
                                 .unwrap_or(serde_json::Value::String(dto.body));
-                            if let Some(trace_id) = dto
-                                .headers
-                                .get("x-b3-traceid")
-                                .or_else(|| dto.headers.get("x-msg-id"))
-                                .or_else(|| dto.headers.get("msgId"))
-                                .or_else(|| dto.headers.get("x-trace-id"))
-                            {
+                            if let Some(tid) = trace_id {
                                 if let serde_json::Value::Object(ref mut map) = json_val {
                                     map.insert(
                                         "_trace_id".to_string(),
-                                        serde_json::Value::String(trace_id.to_string()),
+                                        serde_json::Value::String(tid.to_string()),
                                     );
                                 }
                             }
@@ -866,14 +867,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                                 .map_err(|e| anyhow::anyhow!(e))?;
                         } else {
                             println!("\n🚀 API Response (Status: {})", dto.status);
-                            if let Some(trace_id) = dto
-                                .headers
-                                .get("x-b3-traceid")
-                                .or_else(|| dto.headers.get("x-msg-id"))
-                                .or_else(|| dto.headers.get("msgId"))
-                                .or_else(|| dto.headers.get("x-trace-id"))
-                            {
-                                println!("\x1b[1;30mTrace ID: {}\x1b[0m", trace_id);
+                            if let Some(tid) = trace_id {
+                                println!("\x1b[1;30mTrace ID: {}\x1b[0m", tid);
                             }
                             println!("--------------------------------------------------");
                             if let Ok(json_val) =

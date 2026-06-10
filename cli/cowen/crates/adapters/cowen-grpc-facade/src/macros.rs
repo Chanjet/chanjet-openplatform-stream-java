@@ -16,3 +16,15 @@ macro_rules! grpc_forward {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! get_claims_and_inner {
+    ($request:expr) => {{
+        let claims = $request
+            .extensions()
+            .get::<cowen_common::jwt::IpcClaims>()
+            .cloned();
+        let inner = $request.into_inner();
+        (claims, inner)
+    }};
+}

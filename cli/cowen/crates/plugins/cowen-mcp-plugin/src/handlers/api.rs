@@ -78,6 +78,7 @@ pub async fn handle_api_list(
 }
 
 pub async fn handle_enable_api(
+    // Enable the specified API as a dynamic tool
     args: &serde_json::Map<String, serde_json::Value>,
     app_state: &AppState,
 ) -> (String, bool, Option<serde_json::Value>) {
@@ -209,6 +210,7 @@ pub async fn handle_enable_api(
 }
 
 pub async fn handle_disable_api(
+    // Disable the specified API to remove it from the tool list
     args: &serde_json::Map<String, serde_json::Value>,
     app_state: &AppState,
 ) -> (String, bool, Option<serde_json::Value>) {

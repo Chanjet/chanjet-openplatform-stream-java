@@ -46,11 +46,7 @@ impl NativeSystemService for NativeSystemController {
         &self,
         request: Request<SystemStatusRequest>,
     ) -> Result<Response<SystemStatusResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_system::DomainSystemStatusRequest {
             profile: inner.profile,
             all: inner.all,
@@ -73,11 +69,7 @@ impl NativeSystemService for NativeSystemController {
         &self,
         request: Request<SystemResetRequest>,
     ) -> Result<Response<SystemResetResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_system::DomainSystemResetRequest {
             profile: inner.profile.filter(|p| !p.trim().is_empty()),
             dry_run: inner.dry_run,
@@ -100,11 +92,7 @@ impl NativeSystemService for NativeSystemController {
         &self,
         request: Request<DoctorRequest>,
     ) -> Result<Response<DoctorResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_system::DomainDoctorRequest {
             profile: inner.profile,
         };

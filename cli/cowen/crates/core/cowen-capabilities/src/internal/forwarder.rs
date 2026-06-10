@@ -47,22 +47,7 @@ impl Forwarder {
 
         let event: Value = serde_json::from_str(&entry.payload)?;
 
-        let msg_id = event
-            .get("msgId")
-            .or(event.get("id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown_id")
-            .to_string();
-        let msg_type = event
-            .get("msg_type")
-            .or(event.get("msgType"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("UNKNOWN")
-            .to_string();
-        let headers = event
-            .get("headers")
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| "{}".to_string());
+        let (msg_id, msg_type, headers) = Self::parse_event_meta(&event);
 
         let result = self.do_send(&entry.payload, &msg_type, &msg_id).await;
 
@@ -88,7 +73,7 @@ impl Forwarder {
         Ok(())
     }
 
-    pub async fn forward(&self, event: Value) -> CowenResult<()> {
+    fn parse_event_meta(event: &Value) -> (String, String, String) {
         let msg_id = event
             .get("msgId")
             .or(event.get("id"))
@@ -105,6 +90,11 @@ impl Forwarder {
             .get("headers")
             .map(|v| v.to_string())
             .unwrap_or_else(|| "{}".to_string());
+        (msg_id, msg_type, headers)
+    }
+
+    pub async fn forward(&self, event: Value) -> CowenResult<()> {
+        let (msg_id, msg_type, headers) = Self::parse_event_meta(&event);
         let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
 
         let topic = format!("{}:{}", msg_type, msg_id);

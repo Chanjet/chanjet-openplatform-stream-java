@@ -1,6 +1,24 @@
 use anyhow::Result;
 use std::process::Command;
 
+async fn configure_proxy(
+    ipc_client: &cowen_common::grpc::client::DaemonClient,
+    profile: &str,
+    proxy_port: Option<u16>,
+    enable_proxy: Option<bool>,
+) {
+    if let Some(p) = proxy_port {
+        let _ = ipc_client
+            .set_config(profile, "proxy_port", &p.to_string())
+            .await;
+    }
+    if let Some(e) = enable_proxy {
+        let _ = ipc_client
+            .set_config(profile, "proxy_enabled", if e { "true" } else { "false" })
+            .await;
+    }
+}
+
 async fn start_background(
     profile: &str,
     proxy_port: Option<u16>,
@@ -13,16 +31,7 @@ async fn start_background(
         .await?;
     let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path);
 
-    if let Some(p) = proxy_port {
-        let _ = ipc_client
-            .set_config(profile, "proxy_port", &p.to_string())
-            .await;
-    }
-    if let Some(e) = enable_proxy {
-        let _ = ipc_client
-            .set_config(profile, "proxy_enabled", if e { "true" } else { "false" })
-            .await;
-    }
+    configure_proxy(&ipc_client, profile, proxy_port, enable_proxy).await;
 
     if all {
         if let Err(e) = ipc_client.start_all().await {
@@ -98,16 +107,7 @@ async fn start_foreground(
         retries -= 1;
     }
 
-    if let Some(p) = proxy_port {
-        let _ = ipc_client
-            .set_config(profile, "proxy_port", &p.to_string())
-            .await;
-    }
-    if let Some(e) = enable_proxy {
-        let _ = ipc_client
-            .set_config(profile, "proxy_enabled", if e { "true" } else { "false" })
-            .await;
-    }
+    configure_proxy(&ipc_client, profile, proxy_port, enable_proxy).await;
 
     let target_profiles = if all {
         vec![]

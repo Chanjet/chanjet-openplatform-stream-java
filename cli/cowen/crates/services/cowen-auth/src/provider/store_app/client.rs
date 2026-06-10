@@ -148,21 +148,7 @@ pub(crate) async fn intercept_exchange(
     let token_resp: StoreAppTokenResponse = serde_json::from_str(&resp.body)?;
     let raw_json: serde_json::Value = serde_json::from_str(&resp.body)?;
 
-    let now = Utc::now();
-    let token = Token {
-        value: token_resp.access_token.clone(),
-        expires_at: now + Duration::seconds(token_resp.expires_in.unwrap_or(7200)),
-        created_at: now,
-    };
-
-    let pair = OAuth2TokenPair {
-        access_token: token_resp.access_token.clone(),
-        refresh_token: token_resp.refresh_token.clone().unwrap_or_default(),
-        expires_at: token.expires_at,
-        refresh_expires_at: now
-            + Duration::seconds(token_resp.refresh_expires_in.unwrap_or(604800)),
-        created_at: now,
-    };
+    let (token, pair) = parse_token_response(&token_resp);
 
     save_intercepted_identity(pool, profile, cfg, &token, &pair, &token_resp).await?;
 
@@ -186,13 +172,8 @@ async fn wait_for_app_ticket(
 
                 if retry_count == 0 {
                     tracing::info!(target: "sys", app_key = %cfg.app_key, "AppTicket missing for StoreApp. Proactively triggering a platform push...");
-                    let url = format!(
-                        "{}/auth/appTicket/resend",
-                        app_cfg.openapi_url.trim_end_matches('/')
-                    );
-                    let mut headers = reqwest::header::HeaderMap::new();
-                    headers.insert("appKey", cfg.app_key.trim().parse()?);
-                    headers.insert("appSecret", cfg.app_secret.trim().parse()?);
+                    let (url, headers) =
+                        build_store_api_request(app_cfg, cfg, "/auth/appTicket/resend")?;
                     let res = http_sender.post(&url, headers, serde_json::json!({})).await;
                     match res {
                         Ok(resp) => {
@@ -251,20 +232,14 @@ pub(crate) async fn exchange_permanent_code_by_temp_code(
     cfg: &Config,
     temp_auth_code: &str,
 ) -> CowenResult<String> {
-    let app_cfg = cowen_config::ConfigManager::new()?
-        .load_app_config()
-        .await?;
-    let app_at = get_app_access_token(pool, http_sender, profile, cfg)
-        .await?
-        .value;
-    let url = format!(
-        "{}/auth/orgAuth/getPermanentAuthCode",
-        app_cfg.openapi_url.trim_end_matches('/')
-    );
-
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("appKey", cfg.app_key.trim().parse()?);
-    headers.insert("appSecret", cfg.app_secret.trim().parse()?);
+    let (url, headers, app_at) = prepare_store_request(
+        pool,
+        http_sender,
+        profile,
+        cfg,
+        "/auth/orgAuth/getPermanentAuthCode",
+    )
+    .await?;
 
     let body = serde_json::json!({
         "tempAuthCode": temp_auth_code,
@@ -300,61 +275,30 @@ pub(crate) async fn get_org_access_token_by_permanent_code(
     org_id: &str,
     permanent_code: &str,
 ) -> CowenResult<cowen_common::models::Token> {
-    let app_cfg = cowen_config::ConfigManager::new()?
-        .load_app_config()
-        .await?;
-    let app_at = get_app_access_token(pool, http_sender, profile, cfg)
-        .await?
-        .value;
-    let url = format!(
-        "{}/auth/orgAuth/getOrgAccessToken",
-        app_cfg.openapi_url.trim_end_matches('/')
-    );
-
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("appKey", cfg.app_key.trim().parse()?);
-    headers.insert("appSecret", cfg.app_secret.trim().parse()?);
+    // Retrieve enterprise-level access token using permanent auth code
+    let (url, headers, app_at) = prepare_store_request(
+        pool,
+        http_sender,
+        profile,
+        cfg,
+        "/auth/orgAuth/getOrgAccessToken",
+    )
+    .await?;
 
     let body = serde_json::json!({
         "appAccessToken": app_at,
         "permanentAuthCode": permanent_code
     });
 
-    let resp = http_sender.post(&url, headers, body).await?;
-    if !resp.is_success() {
-        let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
-        return Err(CowenError::Api(format!(
-            "getOrgAccessToken failed (HTTP {}): {}",
-            resp.status, masked_body
-        )));
-    }
-
-    let val: serde_json::Value = serde_json::from_str(&resp.body)?;
-    let result = val
-        .get("result")
-        .ok_or_else(|| anyhow!("Invalid response: missing 'result' wrapper"))?;
-
-    let token_val = result
-        .get("accessToken")
-        .or_else(|| result.get("orgAccessToken"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            anyhow!(
-                "accessToken/orgAccessToken not found in result: {}",
-                resp.body
-            )
-        })?;
-
-    let expire_time = result
-        .get("expireTime")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(7200);
-
-    let token = Token {
-        value: token_val.to_string(),
-        expires_at: Utc::now() + Duration::seconds(expire_time),
-        created_at: Utc::now(),
-    };
+    let token = post_and_check_success(
+        http_sender,
+        &url,
+        headers,
+        body,
+        "getOrgAccessToken",
+        &["accessToken", "orgAccessToken"],
+    )
+    .await?;
 
     let custom_profile = storage::get_custom_profile(profile, cfg.app_key.trim(), org_id, None);
     pool.as_vault()
@@ -373,61 +317,30 @@ pub(crate) async fn get_user_access_token_by_permanent_code(
     user_id: &str,
     permanent_code: &str,
 ) -> CowenResult<cowen_common::models::Token> {
-    let app_cfg = cowen_config::ConfigManager::new()?
-        .load_app_config()
-        .await?;
-    let app_at = get_app_access_token(pool, http_sender, profile, cfg)
-        .await?
-        .value;
-    let url = format!(
-        "{}/auth/userAuth/getUserAccessToken",
-        app_cfg.openapi_url.trim_end_matches('/')
-    );
-
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("appKey", cfg.app_key.trim().parse()?);
-    headers.insert("appSecret", cfg.app_secret.trim().parse()?);
+    // Retrieve user-level access token using user permanent code
+    let (url, headers, app_at) = prepare_store_request(
+        pool,
+        http_sender,
+        profile,
+        cfg,
+        "/auth/userAuth/getUserAccessToken",
+    )
+    .await?;
 
     let body = serde_json::json!({
         "appAccessToken": app_at,
         "userPermanentCode": permanent_code
     });
 
-    let resp = http_sender.post(&url, headers, body).await?;
-    if !resp.is_success() {
-        let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
-        return Err(CowenError::Api(format!(
-            "getUserAccessToken failed (HTTP {}): {}",
-            resp.status, masked_body
-        )));
-    }
-
-    let val: serde_json::Value = serde_json::from_str(&resp.body)?;
-    let result = val
-        .get("result")
-        .ok_or_else(|| anyhow!("Invalid response: missing 'result' wrapper"))?;
-
-    let token_val = result
-        .get("accessToken")
-        .or_else(|| result.get("userAccessToken"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            anyhow!(
-                "accessToken/userAccessToken not found in result: {}",
-                resp.body
-            )
-        })?;
-
-    let expire_time = result
-        .get("expireTime")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(7200);
-
-    let token = Token {
-        value: token_val.to_string(),
-        expires_at: Utc::now() + Duration::seconds(expire_time),
-        created_at: Utc::now(),
-    };
+    let token = post_and_check_success(
+        http_sender,
+        &url,
+        headers,
+        body,
+        "getUserAccessToken",
+        &["accessToken", "userAccessToken"],
+    )
+    .await?;
 
     let custom_profile =
         storage::get_custom_profile(profile, cfg.app_key.trim(), org_id, Some(user_id));
@@ -470,22 +383,7 @@ pub(crate) async fn request_token(
     }
 
     let token_resp: StoreAppTokenResponse = resp.json().await?;
-    let now = Utc::now();
-
-    let token = Token {
-        value: token_resp.access_token.clone(),
-        expires_at: now + Duration::seconds(token_resp.expires_in.unwrap_or(7200)),
-        created_at: now,
-    };
-
-    let pair = OAuth2TokenPair {
-        access_token: token_resp.access_token.clone(),
-        refresh_token: token_resp.refresh_token.clone().unwrap_or_default(),
-        expires_at: token.expires_at,
-        refresh_expires_at: now
-            + Duration::seconds(token_resp.refresh_expires_in.unwrap_or(604800)),
-        created_at: now,
-    };
+    let (token, pair) = parse_token_response(&token_resp);
 
     // Save permanent codes if present
     if let Some(identity) = token.extract_identity() {
@@ -502,13 +400,7 @@ async fn exchange_app_ticket(
     app_cfg: &cowen_common::config::AppConfig,
     ticket: &cowen_common::models::Ticket,
 ) -> CowenResult<Option<Token>> {
-    let url = format!(
-        "{}/auth/appAuth/getAppAccessToken",
-        app_cfg.openapi_url.trim_end_matches('/')
-    );
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("appKey", cfg.app_key.trim().parse()?);
-    headers.insert("appSecret", cfg.app_secret.trim().parse()?);
+    let (url, headers) = build_store_api_request(app_cfg, cfg, "/auth/appAuth/getAppAccessToken")?;
 
     let body = serde_json::json!({
         "appTicket": ticket.value
@@ -668,4 +560,95 @@ fn extract_opc_and_org_id<'a>(
         .ok_or_else(|| anyhow!("orgId not found in platform response. Payload: {}", body))?;
 
     Ok((opc, final_org_id))
+}
+
+fn parse_token_response(token_resp: &StoreAppTokenResponse) -> (Token, OAuth2TokenPair) {
+    let now = Utc::now();
+    let token = Token {
+        value: token_resp.access_token.clone(),
+        expires_at: now + Duration::seconds(token_resp.expires_in.unwrap_or(7200)),
+        created_at: now,
+    };
+    let pair = OAuth2TokenPair {
+        access_token: token_resp.access_token.clone(),
+        refresh_token: token_resp.refresh_token.clone().unwrap_or_default(),
+        expires_at: token.expires_at,
+        refresh_expires_at: now
+            + Duration::seconds(token_resp.refresh_expires_in.unwrap_or(604800)),
+        created_at: now,
+    };
+    (token, pair)
+}
+
+fn build_store_api_request(
+    app_cfg: &cowen_common::config::AppConfig,
+    cfg: &Config,
+    path: &str,
+) -> CowenResult<(String, reqwest::header::HeaderMap)> {
+    let url = format!("{}{}", app_cfg.openapi_url.trim_end_matches('/'), path);
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("appKey", cfg.app_key.trim().parse()?);
+    headers.insert("appSecret", cfg.app_secret.trim().parse()?);
+    Ok((url, headers))
+}
+
+async fn post_and_check_success(
+    http_sender: &dyn HttpSender,
+    url: &str,
+    headers: reqwest::header::HeaderMap,
+    body: serde_json::Value,
+    api_name: &str,
+    token_keys: &[&str],
+) -> CowenResult<Token> {
+    let resp = http_sender.post(url, headers, body).await?;
+    if !resp.is_success() {
+        let masked_body = cowen_common::utils::mask_sensitive_json(&resp.body);
+        return Err(CowenError::Api(format!(
+            "{} failed (HTTP {}): {}",
+            api_name, resp.status, masked_body
+        )));
+    }
+
+    let val: serde_json::Value = serde_json::from_str(&resp.body)?;
+    let result = val
+        .get("result")
+        .ok_or_else(|| anyhow!("Invalid response: missing 'result' wrapper"))?;
+
+    let mut token_val = None;
+    for key in token_keys {
+        if let Some(v) = result.get(*key).and_then(|v| v.as_str()) {
+            token_val = Some(v);
+            break;
+        }
+    }
+    let token_val =
+        token_val.ok_or_else(|| anyhow!("Access token key not found in result: {}", resp.body))?;
+
+    let expire_time = result
+        .get("expireTime")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(7200);
+
+    Ok(Token {
+        value: token_val.to_string(),
+        expires_at: Utc::now() + Duration::seconds(expire_time),
+        created_at: Utc::now(),
+    })
+}
+
+async fn prepare_store_request(
+    pool: &(dyn TokenPool + Send + Sync),
+    http_sender: &dyn HttpSender,
+    profile: &str,
+    cfg: &Config,
+    path: &str,
+) -> CowenResult<(String, reqwest::header::HeaderMap, String)> {
+    let app_cfg = cowen_config::ConfigManager::new()?
+        .load_app_config()
+        .await?;
+    let app_at = get_app_access_token(pool, http_sender, profile, cfg)
+        .await?
+        .value;
+    let (url, headers) = build_store_api_request(&app_cfg, cfg, path)?;
+    Ok((url, headers, app_at))
 }

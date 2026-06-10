@@ -221,19 +221,25 @@ fn process_documents_for_index(
     index
 }
 
+fn parse_rpc_params<T: serde::de::DeserializeOwned>(
+    req_id: &Option<serde_json::Value>,
+    params: Option<serde_json::Value>,
+) -> Result<T, JsonRpcResponse> {
+    let params_val = match params {
+        Some(p) => p,
+        None => return Err(missing_params_error(req_id.clone())),
+    };
+    serde_json::from_value(params_val).map_err(|e| invalid_params_error(req_id.clone(), e))
+}
+
 fn handle_update_index(
     req_id: Option<serde_json::Value>,
     params: Option<serde_json::Value>,
     engine: &mut SidecarEngine,
 ) -> JsonRpcResponse {
-    let params_val = match params {
-        Some(p) => p,
-        None => return missing_params_error(req_id),
-    };
-
-    let params: UpdateIndexParams = match serde_json::from_value(params_val) {
+    let params: UpdateIndexParams = match parse_rpc_params(&req_id, params) {
         Ok(p) => p,
-        Err(e) => return invalid_params_error(req_id, e),
+        Err(e) => return e,
     };
 
     let cache_dir = get_app_dir().join("search").join("cache");
@@ -268,14 +274,9 @@ fn handle_query(
     params: Option<serde_json::Value>,
     engine: &mut SidecarEngine,
 ) -> JsonRpcResponse {
-    let params_val = match params {
-        Some(p) => p,
-        None => return missing_params_error(req_id),
-    };
-
-    let params: QueryParams = match serde_json::from_value(params_val) {
+    let params: QueryParams = match parse_rpc_params(&req_id, params) {
         Ok(p) => p,
-        Err(e) => return invalid_params_error(req_id, e),
+        Err(e) => return e,
     };
 
     // Lazily pre-load index from disk cache if not in memory

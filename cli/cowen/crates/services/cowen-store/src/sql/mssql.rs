@@ -17,7 +17,7 @@ macro_rules! get_conn {
     };
 }
 
-macro_rules! tiberius_get_string {
+macro_rules! tiberius_query_row {
     ($pool:expr, $sql:expr, $err_msg:expr $(, $p:expr)*) => {{
         let mut conn = $pool
             .get()
@@ -31,6 +31,13 @@ macro_rules! tiberius_get_string {
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?
             .ok_or_else(|| CowenError::NotFound($err_msg.to_string()))?;
+        row
+    }};
+}
+
+macro_rules! tiberius_get_string {
+    ($pool:expr, $sql:expr, $err_msg:expr $(, $p:expr)*) => {{
+        let row = tiberius_query_row!($pool, $sql, $err_msg $(, $p)*);
         let val: &str = row
             .get(0)
             .ok_or_else(|| CowenError::Store("Null value".to_string()))?;
@@ -40,6 +47,7 @@ macro_rules! tiberius_get_string {
 
 macro_rules! tiberius_execute {
     ($pool:expr, $sql:expr $(, $p:expr)*) => {{
+        // Execute a command on deadpool tiberius pool
         let mut conn = $pool
             .get()
             .await
@@ -51,20 +59,27 @@ macro_rules! tiberius_execute {
     }};
 }
 
+macro_rules! tiberius_query_rows {
+    ($conn:expr, $sql:expr, $params:expr) => {{
+        let stream = $conn
+            .query($sql, $params)
+            .await
+            .map_err(|e| CowenError::Store(e.to_string()))?;
+        stream
+            .into_first_result()
+            .await
+            .map_err(|e| CowenError::Store(e.to_string()))?
+    }};
+}
+
 macro_rules! tiberius_list_strings {
     ($pool:expr, $sql:expr $(, $p:expr)*) => {{
+        // Retrieve a list of strings from DB query
         let mut conn = $pool
             .get()
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;
-        let stream = conn
-            .query($sql, &[ $(&$p),* ])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let rows = stream
-            .into_first_result()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let rows = tiberius_query_rows!(conn, $sql, &[ $(&$p),* ]);
         Ok(rows
             .into_iter()
             .map(|r| r.get::<&str, _>(0).unwrap_or_default().to_string())
@@ -76,9 +91,45 @@ pub struct MssqlDriver {
     pool: Pool,
 }
 
+fn row_to_token(row: tiberius::Row) -> CowenResult<Token> {
+    Ok(Token {
+        value: row.get::<&str, _>(0).unwrap_or_default().to_string(),
+        expires_at: row.get::<DateTime<Utc>, _>(1).unwrap_or_else(Utc::now),
+        created_at: row.get::<DateTime<Utc>, _>(2).unwrap_or_else(Utc::now),
+    })
+}
+
+fn row_to_dlq(row: tiberius::Row) -> DlqMessage {
+    DlqMessage {
+        id: Some(row.get::<i64, _>(0).unwrap_or(0)),
+        profile: row.get::<&str, _>(1).unwrap_or_default().to_string(),
+        topic: row.get::<&str, _>(2).unwrap_or_default().to_string(),
+        payload: row.get::<&str, _>(3).unwrap_or_default().to_string(),
+        retry_count: row.get::<i32, _>(4).unwrap_or(0),
+        error: row.get::<&str, _>(5).map(|s| s.to_string()),
+        created_at: row.get::<DateTime<Utc>, _>(6).unwrap_or_else(Utc::now),
+    }
+}
+
 impl MssqlDriver {
     pub fn new(pool: Pool) -> Self {
         Self { pool }
+    }
+
+    async fn save_tenant_token(
+        &self,
+        profile: &str,
+        token: Token,
+        token_type: &str,
+    ) -> CowenResult<()> {
+        tiberius_execute!(self.pool, "MERGE cowen_tenant_token AS target
+                      USING (SELECT @p1, @p2, @p3, @p4, @p5) AS source (profile, token_type, token_value, expires_at, created_at)
+                      ON (target.profile = source.profile AND target.token_type = source.token_type)
+                      WHEN MATCHED THEN
+                          UPDATE SET token_value = source.token_value, expires_at = source.expires_at, created_at = source.created_at
+                      WHEN NOT MATCHED THEN
+                          INSERT (profile, token_type, token_value, expires_at, created_at) VALUES (source.profile, source.token_type, source.token_value, source.expires_at, source.created_at);",
+            profile, token_type, token.value.as_str(), token.expires_at, token.created_at)
     }
 }
 
@@ -87,11 +138,12 @@ impl crate::sql::migration_trait::SchemaMigration for MssqlDriver {
     async fn get_current_version(&self) -> CowenResult<u32> {
         let mut conn = get_conn!(self);
 
-        let stream = conn.query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'schema_migrations'", &[]).await.map_err(|e| CowenError::Store(e.to_string()))?;
-        let rows = stream
-            .into_first_result()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        // Query database schemas to verify schema migrations table existence
+        let rows = tiberius_query_rows!(
+            conn,
+            "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'schema_migrations'",
+            &[]
+        );
         if rows.is_empty() {
             conn.execute(
                 "CREATE TABLE schema_migrations (version INT PRIMARY KEY)",
@@ -102,14 +154,7 @@ impl crate::sql::migration_trait::SchemaMigration for MssqlDriver {
             return Ok(0);
         }
 
-        let stream = conn
-            .query("SELECT MAX(version) FROM schema_migrations", &[])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let rows = stream
-            .into_first_result()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let rows = tiberius_query_rows!(conn, "SELECT MAX(version) FROM schema_migrations", &[]);
         if let Some(row) = rows.first() {
             if let Some(version) = row.get::<i32, _>(0) {
                 return Ok(version as u32);
@@ -312,11 +357,13 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)> {
-        let mut conn = get_conn!(self);
-        let row = conn.query("SELECT version, updated_at FROM cowen_config WHERE profile = @p1 AND item_key = @p2", &[&profile, &key])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)))?;
+        let row = tiberius_query_row!(
+            self.pool,
+            "SELECT version, updated_at FROM cowen_config WHERE profile = @p1 AND item_key = @p2",
+            format!("Key '{}' not found in profile '{}'", key, profile),
+            profile,
+            key
+        );
 
         let version: i64 = row.get(0).unwrap_or(0);
         let updated_at: DateTime<Utc> = row.get(1).unwrap_or_else(Utc::now);
@@ -324,11 +371,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_config_full(&self, profile: &str, key: &str) -> CowenResult<Item> {
-        let mut conn = get_conn!(self);
-        let row = conn.query("SELECT profile, item_key, item_value, version, updated_at FROM cowen_config WHERE profile = @p1 AND item_key = @p2", &[&profile, &key])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound(format!("Key '{}' not found in profile '{}'", key, profile)))?;
+        let row = tiberius_query_row!(self.pool, "SELECT profile, item_key, item_value, version, updated_at FROM cowen_config WHERE profile = @p1 AND item_key = @p2", format!("Key '{}' not found in profile '{}'", key, profile), profile, key);
 
         Ok(Item {
             profile: row.get::<&str, _>(0).unwrap_or_default().to_string(),
@@ -429,28 +472,18 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_access_token(&self, profile: &str) -> CowenResult<Token> {
-        let mut conn = get_conn!(self);
-        let row = conn.query("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'access_token'", &[&profile])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound(format!("AccessToken not found for profile '{}'", profile)))?;
+        let row = tiberius_query_row!(
+            self.pool,
+            "SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'access_token'",
+            format!("AccessToken not found for profile '{}'", profile),
+            profile
+        );
 
-        Ok(Token {
-            value: row.get::<&str, _>(0).unwrap_or_default().to_string(),
-            expires_at: row.get::<DateTime<Utc>, _>(1).unwrap_or_else(Utc::now),
-            created_at: row.get::<DateTime<Utc>, _>(2).unwrap_or_else(Utc::now),
-        })
+        row_to_token(row)
     }
 
     async fn save_access_token(&self, profile: &str, token: Token) -> CowenResult<()> {
-        tiberius_execute!(self.pool, "MERGE cowen_tenant_token AS target
-                      USING (SELECT @p1, 'access_token', @p2, @p3, @p4) AS source (profile, token_type, token_value, expires_at, created_at)
-                      ON (target.profile = source.profile AND target.token_type = source.token_type)
-                      WHEN MATCHED THEN
-                          UPDATE SET token_value = source.token_value, expires_at = source.expires_at, created_at = source.created_at
-                      WHEN NOT MATCHED THEN
-                          INSERT (profile, token_type, token_value, expires_at, created_at) VALUES (source.profile, source.token_type, source.token_value, source.expires_at, source.created_at);",
-            profile, token.value.as_str(), token.expires_at, token.created_at)
+        self.save_tenant_token(profile, token, "access_token").await
     }
 
     async fn delete_access_token(&self, profile: &str) -> CowenResult<()> {
@@ -462,28 +495,19 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token> {
-        let mut conn = get_conn!(self);
-        let row = conn.query("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'refresh_token'", &[&profile])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound(format!("RefreshToken not found for profile '{}'", profile)))?;
+        let row = tiberius_query_row!(
+            self.pool,
+            "SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'refresh_token'",
+            format!("RefreshToken not found for profile '{}'", profile),
+            profile
+        );
 
-        Ok(Token {
-            value: row.get::<&str, _>(0).unwrap_or_default().to_string(),
-            expires_at: row.get::<DateTime<Utc>, _>(1).unwrap_or_else(Utc::now),
-            created_at: row.get::<DateTime<Utc>, _>(2).unwrap_or_else(Utc::now),
-        })
+        row_to_token(row)
     }
 
     async fn save_refresh_token(&self, profile: &str, token: Token) -> CowenResult<()> {
-        tiberius_execute!(self.pool, "MERGE cowen_tenant_token AS target
-                      USING (SELECT @p1, 'refresh_token', @p2, @p3, @p4) AS source (profile, token_type, token_value, expires_at, created_at)
-                      ON (target.profile = source.profile AND target.token_type = source.token_type)
-                      WHEN MATCHED THEN
-                          UPDATE SET token_value = source.token_value, expires_at = source.expires_at, created_at = source.created_at
-                      WHEN NOT MATCHED THEN
-                          INSERT (profile, token_type, token_value, expires_at, created_at) VALUES (source.profile, source.token_type, source.token_value, source.expires_at, source.created_at);",
-            profile, token.value.as_str(), token.expires_at, token.created_at)
+        self.save_tenant_token(profile, token, "refresh_token")
+            .await
     }
 
     async fn delete_refresh_token(&self, profile: &str) -> CowenResult<()> {
@@ -495,17 +519,14 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
-        let mut conn = get_conn!(self);
-        let row = conn.query("SELECT token_value, expires_at, created_at FROM cowen_app_token WHERE app_key = @p1", &[&app_key])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound(format!("AppToken not found for key '{}'", app_key)))?;
+        let row = tiberius_query_row!(
+            self.pool,
+            "SELECT token_value, expires_at, created_at FROM cowen_app_token WHERE app_key = @p1",
+            format!("AppToken not found for key '{}'", app_key),
+            app_key
+        );
 
-        Ok(Token {
-            value: row.get::<&str, _>(0).unwrap_or_default().to_string(),
-            expires_at: row.get::<DateTime<Utc>, _>(1).unwrap_or_else(Utc::now),
-            created_at: row.get::<DateTime<Utc>, _>(2).unwrap_or_else(Utc::now),
-        })
+        row_to_token(row)
     }
 
     async fn save_app_access_token(&self, app_key: &str, token: Token) -> CowenResult<()> {
@@ -528,20 +549,12 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {
-        let mut conn = get_conn!(self);
-        let row = conn
-            .query(
-                "SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = @p1",
-                &[&app_key],
-            )
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| {
-                CowenError::NotFound(format!("AppTicket not found for key '{}'", app_key))
-            })?;
+        let row = tiberius_query_row!(
+            self.pool,
+            "SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = @p1",
+            format!("AppTicket not found for key '{}'", app_key),
+            app_key
+        );
 
         Ok(Ticket {
             value: row.get::<&str, _>(0).unwrap_or_default().to_string(),
@@ -679,9 +692,11 @@ impl SqlDriver for MssqlDriver {
 
     async fn list_audit(&self, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>> {
         let mut conn = get_conn!(self);
-        let rows = conn.query("SELECT TOP (@p1) id, profile, [timestamp], level, target, message, fields FROM cowen_audit WHERE profile = @p2 ORDER BY [timestamp] DESC", &[&(limit as i64), &profile])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let rows = tiberius_query_rows!(
+            conn,
+            "SELECT TOP (@p1) id, profile, [timestamp], level, target, message, fields FROM cowen_audit WHERE profile = @p2 ORDER BY [timestamp] DESC",
+            &[&(limit as i64), &profile]
+        );
 
         Ok(rows
             .into_iter()
@@ -718,15 +733,7 @@ impl SqlDriver for MssqlDriver {
                 .await
                 .map_err(|e| CowenError::Store(e.to_string()))?;
 
-            Ok(Some(DlqMessage {
-                id: Some(id),
-                profile: r.get::<&str, _>(1).unwrap_or_default().to_string(),
-                topic: r.get::<&str, _>(2).unwrap_or_default().to_string(),
-                payload: r.get::<&str, _>(3).unwrap_or_default().to_string(),
-                retry_count: r.get::<i32, _>(4).unwrap_or(0),
-                error: r.get::<&str, _>(5).map(|s| s.to_string()),
-                created_at: r.get::<DateTime<Utc>, _>(6).unwrap_or_else(Utc::now),
-            }))
+            Ok(Some(row_to_dlq(r)))
         } else {
             Ok(None)
         }
@@ -734,42 +741,24 @@ impl SqlDriver for MssqlDriver {
 
     async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>> {
         let mut conn = get_conn!(self);
-        let rows = conn.query("SELECT TOP (@p1) id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p2", &[&(limit as i64), &profile])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let rows = tiberius_query_rows!(
+            conn,
+            "SELECT TOP (@p1) id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p2",
+            &[&(limit as i64), &profile]
+        );
 
-        Ok(rows
-            .into_iter()
-            .map(|r| DlqMessage {
-                id: Some(r.get::<i64, _>(0).unwrap_or(0)),
-                profile: r.get::<&str, _>(1).unwrap_or_default().to_string(),
-                topic: r.get::<&str, _>(2).unwrap_or_default().to_string(),
-                payload: r.get::<&str, _>(3).unwrap_or_default().to_string(),
-                retry_count: r.get::<i32, _>(4).unwrap_or(0),
-                error: r.get::<&str, _>(5).map(|s| s.to_string()),
-                created_at: r.get::<DateTime<Utc>, _>(6).unwrap_or_else(Utc::now),
-            })
-            .collect())
+        Ok(rows.into_iter().map(row_to_dlq).collect())
     }
 
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>> {
         let mut conn = get_conn!(self);
-        let rows = conn.query("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p1", &[&profile])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let rows = tiberius_query_rows!(
+            conn,
+            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p1",
+            &[&profile]
+        );
 
-        Ok(rows
-            .into_iter()
-            .map(|r| DlqMessage {
-                id: Some(r.get::<i64, _>(0).unwrap_or(0)),
-                profile: r.get::<&str, _>(1).unwrap_or_default().to_string(),
-                topic: r.get::<&str, _>(2).unwrap_or_default().to_string(),
-                payload: r.get::<&str, _>(3).unwrap_or_default().to_string(),
-                retry_count: r.get::<i32, _>(4).unwrap_or(0),
-                error: r.get::<&str, _>(5).map(|s| s.to_string()),
-                created_at: r.get::<DateTime<Utc>, _>(6).unwrap_or_else(Utc::now),
-            })
-            .collect())
+        Ok(rows.into_iter().map(row_to_dlq).collect())
     }
 
     async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> {
@@ -778,15 +767,7 @@ impl SqlDriver for MssqlDriver {
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?;
 
-        Ok(row.map(|r| DlqMessage {
-            id: Some(r.get::<i64, _>(0).unwrap_or(0)),
-            profile: r.get::<&str, _>(1).unwrap_or_default().to_string(),
-            topic: r.get::<&str, _>(2).unwrap_or_default().to_string(),
-            payload: r.get::<&str, _>(3).unwrap_or_default().to_string(),
-            retry_count: r.get::<i32, _>(4).unwrap_or(0),
-            error: r.get::<&str, _>(5).map(|s| s.to_string()),
-            created_at: r.get::<DateTime<Utc>, _>(6).unwrap_or_else(Utc::now),
-        }))
+        Ok(row.map(row_to_dlq))
     }
 
     async fn list_dlq_paged(
@@ -798,22 +779,13 @@ impl SqlDriver for MssqlDriver {
         let mut conn = get_conn!(self);
         let offset_val = offset as i64;
         let limit_val = limit as i64;
-        let rows = conn.query("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p1 ORDER BY id OFFSET @p2 ROWS FETCH NEXT @p3 ROWS ONLY", &[&profile, &offset_val, &limit_val])
-            .await.map_err(|e| CowenError::Store(e.to_string()))?
-            .into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
+        let rows = tiberius_query_rows!(
+            conn,
+            "SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p1 ORDER BY id OFFSET @p2 ROWS FETCH NEXT @p3 ROWS ONLY",
+            &[&profile, &offset_val, &limit_val]
+        );
 
-        Ok(rows
-            .into_iter()
-            .map(|r| DlqMessage {
-                id: Some(r.get::<i64, _>(0).unwrap_or(0)),
-                profile: r.get::<&str, _>(1).unwrap_or_default().to_string(),
-                topic: r.get::<&str, _>(2).unwrap_or_default().to_string(),
-                payload: r.get::<&str, _>(3).unwrap_or_default().to_string(),
-                retry_count: r.get::<i32, _>(4).unwrap_or(0),
-                error: r.get::<&str, _>(5).map(|s| s.to_string()),
-                created_at: r.get::<DateTime<Utc>, _>(6).unwrap_or_else(Utc::now),
-            })
-            .collect())
+        Ok(rows.into_iter().map(row_to_dlq).collect())
     }
 
     async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> {
@@ -890,18 +862,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn list_all_profiles(&self) -> CowenResult<Vec<String>> {
-        let mut conn = get_conn!(self);
-        let rows = conn
-            .query("SELECT DISTINCT profile FROM cowen_config", &[])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_first_result()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(rows
-            .into_iter()
-            .map(|r| r.get::<&str, _>(0).unwrap_or_default().to_string())
-            .collect())
+        tiberius_list_strings!(self.pool, "SELECT DISTINCT profile FROM cowen_config")
     }
 
     async fn raw_del(&self, key: &str) -> CowenResult<()> {

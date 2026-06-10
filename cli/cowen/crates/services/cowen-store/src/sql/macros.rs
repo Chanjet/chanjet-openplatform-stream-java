@@ -134,6 +134,33 @@ macro_rules! sqlx_delete_token {
 }
 
 #[macro_export]
+macro_rules! sqlx_run_upsert {
+    ($pool:expr, $sql_template:expr, $is_postgres:expr, $profile:expr, $key:expr, $value:expr) => {{
+        let sql = $crate::sql::macros::adapt_sql($sql_template, $is_postgres);
+        sqlx::query(&sql)
+            .bind($profile)
+            .bind($key)
+            .bind($value)
+            .execute($pool)
+            .await
+            .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
+        Ok(())
+    }};
+}
+
+#[macro_export]
+macro_rules! sqlx_query_dlq {
+    ($pool:expr, $sql:expr, $($binds:expr),*) => {{
+        let rows: Vec<(i32, String, String, String, i32, Option<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(&$sql)
+            $(.bind($binds))*
+            .fetch_all($pool).await
+            .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
+
+        Ok(rows.into_iter().map($crate::sql::macros::map_dlq_row).collect())
+    }};
+}
+
+#[macro_export]
 macro_rules! define_sql_driver {
     (
         $driver_name:ident,
@@ -185,12 +212,7 @@ macro_rules! define_sql_driver {
             }
 
             async fn set_config(&self, profile: &str, key: &str, value: &str) -> cowen_common::CowenResult<()> {
-                let sql = $crate::sql::macros::adapt_sql($upsert_config, $is_postgres);
-                sqlx::query(&sql)
-                    .bind(profile).bind(key).bind(value)
-                    .execute(&self.pool).await
-                    .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-                Ok(())
+                $crate::sqlx_run_upsert!(&self.pool, $upsert_config, $is_postgres, profile, key, value)
             }
 
             async fn set_config_conditional(&self, profile: &str, key: &str, value: &str, expected_version: u64) -> cowen_common::CowenResult<()> {
@@ -219,12 +241,7 @@ macro_rules! define_sql_driver {
     }
 
             async fn set_secret(&self, profile: &str, key: &str, value: &str) -> cowen_common::CowenResult<()> {
-                let sql = $crate::sql::macros::adapt_sql($upsert_secret, $is_postgres);
-                sqlx::query(&sql)
-                    .bind(profile).bind(key).bind(value)
-                    .execute(&self.pool).await
-                    .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-                Ok(())
+                $crate::sqlx_run_upsert!(&self.pool, $upsert_secret, $is_postgres, profile, key, value)
             }
 
                 async fn delete_secret(&self, profile: &str, key: &str) -> cowen_common::CowenResult<()> {
@@ -288,12 +305,7 @@ macro_rules! define_sql_driver {
             }
 
             async fn delete_app_access_token(&self, app_key: &str) -> cowen_common::CowenResult<()> {
-                let sql = $crate::sql::macros::adapt_sql("DELETE FROM cowen_app_token WHERE app_key = ?", $is_postgres);
-                sqlx::query(&sql)
-                    .bind(app_key)
-                    .execute(&self.pool).await
-                    .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-                Ok(())
+                $crate::sqlx_delete_token!(&self.pool, "DELETE FROM cowen_app_token WHERE app_key = ?", $is_postgres, app_key)
             }
 
             async fn get_app_ticket(&self, app_key: &str) -> cowen_common::CowenResult<cowen_common::models::Ticket> {
@@ -315,12 +327,7 @@ macro_rules! define_sql_driver {
             }
 
             async fn delete_app_ticket(&self, app_key: &str) -> cowen_common::CowenResult<()> {
-                let sql = $crate::sql::macros::adapt_sql("DELETE FROM cowen_ticket WHERE app_key = ?", $is_postgres);
-                sqlx::query(&sql)
-                    .bind(app_key)
-                    .execute(&self.pool).await
-                    .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-                Ok(())
+                $crate::sqlx_delete_token!(&self.pool, "DELETE FROM cowen_ticket WHERE app_key = ?", $is_postgres, app_key)
             }
 
             async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> cowen_common::CowenResult<String> {
@@ -427,15 +434,7 @@ macro_rules! define_sql_driver {
                         .execute(&self.pool).await
                         .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
 
-                    Ok(Some(cowen_common::models::DlqMessage {
-                        id: Some(r.0 as i64),
-                        profile: r.1,
-                        topic: r.2,
-                        payload: r.3,
-                        retry_count: r.4,
-                        error: r.5,
-                        created_at: r.6,
-                    }))
+                    Ok(Some($crate::sql::macros::map_dlq_row(r)))
                 } else {
                     Ok(None)
                 }
@@ -443,22 +442,12 @@ macro_rules! define_sql_driver {
 
             async fn list_dlq(&self, profile: &str, limit: usize) -> cowen_common::CowenResult<Vec<cowen_common::models::DlqMessage>> {
                 let sql = $crate::sql::macros::adapt_sql("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = ? LIMIT ?", $is_postgres);
-                let rows: Vec<(i32, String, String, String, i32, Option<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(&sql)
-                    .bind(profile).bind(limit as i64)
-                    .fetch_all(&self.pool).await
-                    .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-
-                Ok(rows.into_iter().map($crate::sql::macros::map_dlq_row).collect())
+                $crate::sqlx_query_dlq!(&self.pool, sql, profile, limit as i64)
             }
 
             async fn list_all_dlq(&self, profile: &str) -> cowen_common::CowenResult<Vec<cowen_common::models::DlqMessage>> {
                 let sql = $crate::sql::macros::adapt_sql("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = ?", $is_postgres);
-                let rows: Vec<(i32, String, String, String, i32, Option<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(&sql)
-                    .bind(profile)
-                    .fetch_all(&self.pool).await
-                    .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-
-                Ok(rows.into_iter().map($crate::sql::macros::map_dlq_row).collect())
+                $crate::sqlx_query_dlq!(&self.pool, sql, profile)
             }
 
             async fn get_dlq_by_id(&self, id: i64) -> cowen_common::CowenResult<Option<cowen_common::models::DlqMessage>> {
@@ -468,19 +457,12 @@ macro_rules! define_sql_driver {
                     .fetch_optional(&self.pool).await
                     .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
 
-                Ok(row.map(|r| cowen_common::models::DlqMessage {
-                    id: Some(r.0 as i64), profile: r.1, topic: r.2, payload: r.3, retry_count: r.4, error: r.5, created_at: r.6
-                }))
+                Ok(row.map($crate::sql::macros::map_dlq_row))
             }
 
             async fn list_dlq_paged(&self, profile: &str, offset: usize, limit: usize) -> cowen_common::CowenResult<Vec<cowen_common::models::DlqMessage>> {
                 let sql = $crate::sql::macros::adapt_sql("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = ? LIMIT ? OFFSET ?", $is_postgres);
-                let rows: Vec<(i32, String, String, String, i32, Option<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(&sql)
-                    .bind(profile).bind(limit as i64).bind(offset as i64)
-                    .fetch_all(&self.pool).await
-                    .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-
-                Ok(rows.into_iter().map($crate::sql::macros::map_dlq_row).collect())
+                $crate::sqlx_query_dlq!(&self.pool, sql, profile, limit as i64, offset as i64)
             }
 
             async fn delete_dlq_by_id(&self, id: i64) -> cowen_common::CowenResult<()> {

@@ -63,18 +63,26 @@ define_diagnostic!(SystemInfoCheck, "系统与配置", |_self, _ctx, start| {
     }
 });
 
+async fn check_url_connectivity(url: &str, err_prefix: &str) -> DiagnosticStatus {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return DiagnosticStatus::Error(format!("{}: {}", err_prefix, e)),
+    };
+    match client.get(url).send().await {
+        Ok(_) => DiagnosticStatus::Ok,
+        Err(e) => DiagnosticStatus::Error(format!("{}: {}", err_prefix, e)),
+    }
+}
+
 define_diagnostic!(
     StreamUrlCheck,
     "网络连通性 (Stream)",
     |_self, ctx, start| {
         let app_cfg = ctx.cfg_mgr.load_app_config().await.unwrap_or_default();
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()?;
-        match client.get(&app_cfg.stream_url).send().await {
-            Ok(_) => DiagnosticStatus::Ok,
-            Err(e) => DiagnosticStatus::Error(format!("Stream URL 连接失败: {}", e)),
-        }
+        check_url_connectivity(&app_cfg.stream_url, "Stream URL 连接失败").await
     }
 );
 
@@ -83,13 +91,7 @@ define_diagnostic!(
     "网络连通性 (OpenAPI)",
     |_self, ctx, start| {
         let app_cfg = ctx.cfg_mgr.load_app_config().await.unwrap_or_default();
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()?;
-        match client.get(&app_cfg.openapi_url).send().await {
-            Ok(_) => DiagnosticStatus::Ok,
-            Err(e) => DiagnosticStatus::Error(format!("OpenAPI 连接失败: {}", e)),
-        }
+        check_url_connectivity(&app_cfg.openapi_url, "OpenAPI 连接失败").await
     }
 );
 

@@ -22,11 +22,7 @@ impl ApiRegistryService for ApiRegistryController {
         &self,
         request: Request<ApiSpecRequest>,
     ) -> Result<Response<ApiSpecResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_api_registry::DomainApiSpecRequest {
             profile: inner.profile,
             method: inner.method,
@@ -50,11 +46,7 @@ impl ApiRegistryService for ApiRegistryController {
         &self,
         request: Request<CallApiRequest>,
     ) -> Result<Response<CallApiResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_api_registry::DomainCallApiRequest {
             profile: inner.profile,
             method: inner.method,
@@ -82,11 +74,7 @@ impl ApiRegistryService for ApiRegistryController {
         &self,
         request: Request<ApiListRequest>,
     ) -> Result<Response<ApiListResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_api_registry::DomainApiListRequest {
             profile: inner.profile,
             search: inner.search,

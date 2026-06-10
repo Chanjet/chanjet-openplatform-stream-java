@@ -55,38 +55,31 @@ impl OAuth2CallbackListener {
                         Arc<String>,
                     )>| {
                         async move {
+                            let send_error = |err_name: &str, desc: &str| {
+                                if let Some(tx) = res_tx.lock().unwrap().take() {
+                                    let _ = tx.send(Err(format!("{}: {}", err_name, desc)));
+                                }
+                                if let Some(tx) = sdn_tx.lock().unwrap().take() {
+                                    let _ = tx.send(());
+                                }
+                                let html = include_str!("error.html")
+                                    .replace("{{ERROR}}", err_name)
+                                    .replace("{{DESCRIPTION}}", desc);
+                                Html(html)
+                            };
+
                             // 1. Handle Platform Errors (e.g. user denied)
                             if let Some(err) = &query.error {
                                 let desc = query.error_description.clone().unwrap_or_else(|| {
                                     "User denied authorization or request failed.".to_string()
                                 });
-                                if let Some(tx) = res_tx.lock().unwrap().take() {
-                                    let _ = tx.send(Err(format!("{}: {}", err, desc)));
-                                }
-                                if let Some(tx) = sdn_tx.lock().unwrap().take() {
-                                    let _ = tx.send(());
-                                }
-
-                                let html = include_str!("error.html")
-                                    .replace("{{ERROR}}", err)
-                                    .replace("{{DESCRIPTION}}", &desc);
-                                return Html(html);
+                                return send_error(err, &desc);
                             }
 
                             // 2. Handle missing parameters
                             if query.code.is_none() || query.state.is_none() {
-                                let desc = "Missing required parameters (code/state).".to_string();
-                                if let Some(tx) = res_tx.lock().unwrap().take() {
-                                    let _ = tx.send(Err(desc.clone()));
-                                }
-                                if let Some(tx) = sdn_tx.lock().unwrap().take() {
-                                    let _ = tx.send(());
-                                }
-
-                                let html = include_str!("error.html")
-                                    .replace("{{ERROR}}", "BAD_REQUEST")
-                                    .replace("{{DESCRIPTION}}", &desc);
-                                return Html(html);
+                                let desc = "Missing required parameters (code/state).";
+                                return send_error("BAD_REQUEST", desc);
                             }
 
                             let res = CallbackResult {

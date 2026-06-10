@@ -57,6 +57,30 @@ impl OAuth2Provider {
         Self { pool, http_sender }
     }
 
+    async fn get_token_url(&self) -> CowenResult<String> {
+        let app_cfg = cowen_config::ConfigManager::new()?
+            .load_app_config()
+            .await?;
+        Ok(format!(
+            "{}{}",
+            app_cfg.openapi_url.trim_end_matches('/'),
+            obfs!("/oauth2/token")
+        ))
+    }
+
+    async fn create_auth_session(
+        &self,
+        profile: &str,
+        vault: &std::sync::Arc<dyn cowen_common::vault::Vault>,
+        cfg_mgr: &cowen_config::ConfigManager,
+    ) -> CowenResult<cowen_common::models::AuthSession> {
+        let token_pool = crate::VaultTokenPool::new(vault.clone());
+        let session_manager = crate::lifecycle::AuthSessionManager::new(&token_pool);
+        let port = cfg_mgr.find_free_port().await;
+        let _ = session_manager.clear(profile).await;
+        session_manager.create_session(profile, port).await
+    }
+
     async fn exchange_code(
         &self,
         profile: &str,
@@ -65,14 +89,7 @@ impl OAuth2Provider {
         verifier: &str,
         redirect_uri: &str,
     ) -> CowenResult<cowen_common::models::Token> {
-        let app_cfg = cowen_config::ConfigManager::new()?
-            .load_app_config()
-            .await?;
-        let url = format!(
-            "{}{}",
-            app_cfg.openapi_url.trim_end_matches('/'),
-            obfs!("/oauth2/token")
-        );
+        let url = self.get_token_url().await?;
         let body = serde_json::json!({
             "grant_type": "authorization_code",
             "client_id": crate::models::BUILTIN_CLIENT_ID,
@@ -90,14 +107,7 @@ impl OAuth2Provider {
         cfg: &Config,
         refresh_token: &str,
     ) -> CowenResult<cowen_common::models::Token> {
-        let app_cfg = cowen_config::ConfigManager::new()?
-            .load_app_config()
-            .await?;
-        let url = format!(
-            "{}{}",
-            app_cfg.openapi_url.trim_end_matches('/'),
-            obfs!("/oauth2/token")
-        );
+        let url = self.get_token_url().await?;
         let body = serde_json::json!({
             "grant_type": "refresh_token",
             "client_id": crate::models::BUILTIN_CLIENT_ID,
@@ -249,24 +259,25 @@ impl OAuth2Provider {
         match vault.get_refresh_token(profile).await {
             Ok(t) => Ok(t),
             Err(_) => {
+                let parse_pair = |pair_str: String| -> CowenResult<cowen_common::models::Token> {
+                    let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
+                    Ok(cowen_common::models::Token {
+                        value: pair.refresh_token,
+                        expires_at: pair.refresh_expires_at,
+                        created_at: pair.created_at,
+                    })
+                };
                 // LEGACY FALLBACK: Try to recover from old JSON blob
-                match vault.get_config(profile, "oauth2_token_pair").await { Ok(pair_str) => {
-                    let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
-                    Ok(cowen_common::models::Token {
-                        value: pair.refresh_token,
-                        expires_at: pair.refresh_expires_at,
-                        created_at: pair.created_at,
-                    })
-                } _ => { match vault.get_secret(profile, "oauth2_token_pair").await { Ok(pair_str) => {
-                    let pair: OAuth2TokenPair = serde_json::from_str(&pair_str)?;
-                    Ok(cowen_common::models::Token {
-                        value: pair.refresh_token,
-                        expires_at: pair.refresh_expires_at,
-                        created_at: pair.created_at,
-                    })
-                } _ => {
-                    Err(CowenError::Auth(format!("OAuth2 session missing or expired for profile '{}'. Please run 'owenc auth login'.", profile)))
-                }}}}
+                match vault.get_config(profile, "oauth2_token_pair").await {
+                    Ok(pair_str) => parse_pair(pair_str),
+                    _ => match vault.get_secret(profile, "oauth2_token_pair").await {
+                        Ok(pair_str) => parse_pair(pair_str),
+                        _ => Err(CowenError::Auth(format!(
+                            "OAuth2 session missing or expired for profile '{}'. Please run 'owenc auth login'.",
+                            profile
+                        ))),
+                    },
+                }
             }
         }
     }
@@ -365,10 +376,7 @@ impl AuthProvider for OAuth2Provider {
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
-        let _app_cfg = cowen_config::ConfigManager::new()?
-            .load_app_config()
-            .await?;
-        // 1. Fast path: check current memory/local cache
+        // Fast path: check current memory/local cache
         if let Ok(token) = self.pool.get_access_token(profile).await {
             if !token.is_expired() {
                 return Ok(token);
@@ -439,9 +447,7 @@ impl AuthProvider for OAuth2Provider {
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
-        let _app_cfg = cowen_config::ConfigManager::new()?
-            .load_app_config()
-            .await?;
+        // Perform forced refresh using token pair fallback
         let rt = self.get_refresh_token_with_fallback(profile).await?;
         self.refresh_token(profile, cfg, &rt.value).await
     }
@@ -496,6 +502,7 @@ impl AuthProvider for OAuth2Provider {
 
     async fn initialize(
         &self,
+        // The profile being initialized
         profile: &str,
         config: &mut Config,
         vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
@@ -511,12 +518,7 @@ impl AuthProvider for OAuth2Provider {
 
         println!("\n\x1b[1;34m🔒 Starting Authorization Flow...\x1b[0m");
 
-        let token_pool = crate::VaultTokenPool::new(vault.clone());
-        let session_manager = crate::lifecycle::AuthSessionManager::new(&token_pool);
-
-        let port = cfg_mgr.find_free_port().await;
-        let _ = session_manager.clear(profile).await;
-        let session = session_manager.create_session(profile, port).await?;
+        let session = self.create_auth_session(profile, &vault, cfg_mgr).await?;
 
         let auth_url = generate_oauth2_url(&session);
         println!(
@@ -561,6 +563,7 @@ impl AuthProvider for OAuth2Provider {
 
     async fn generate_auth_url(
         &self,
+        // Generate auth URL for manual flow
         profile: &str,
         config: &mut Config,
         vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
@@ -582,12 +585,7 @@ impl AuthProvider for OAuth2Provider {
         cfg_mgr.save(profile, config).await?;
 
         // 3. Start Flow
-        let token_pool = crate::VaultTokenPool::new(vault.clone());
-        let session_manager = crate::lifecycle::AuthSessionManager::new(&token_pool);
-
-        let port = cfg_mgr.find_free_port().await;
-        let _ = session_manager.clear(profile).await;
-        let session = session_manager.create_session(profile, port).await?;
+        let session = self.create_auth_session(profile, &vault, cfg_mgr).await?;
 
         let market_url = obfs!(cowen_common::config::DEF_MARKET_URL);
         let auth_url = format!(

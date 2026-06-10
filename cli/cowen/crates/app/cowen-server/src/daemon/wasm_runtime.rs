@@ -71,12 +71,8 @@ impl WasmPipelineManager {
             let wasm = Wasm::data(wasm_bytes);
             let manifest = Manifest::new([wasm]);
             let plugin_manifest = cowen_common::plugin::PluginManifest::load(&plugin_info.name)
-                .unwrap_or_else(|_| cowen_common::plugin::PluginManifest {
-                    name: plugin_info.name.clone(),
-                    requested_permissions: vec![],
-                    required_capabilities: HashMap::new(),
-                    allowed_commands: std::collections::HashSet::new(),
-                    wasm_interceptors: vec![],
+                .unwrap_or_else(|_| {
+                    cowen_common::plugin::PluginManifest::new_empty(&plugin_info.name)
                 });
 
             if !plugin_manifest.required_capabilities.is_empty() {
@@ -154,12 +150,8 @@ impl WasmPipelineManager {
 
                         let plugin_manifest =
                             cowen_common::plugin::PluginManifest::load_from_json(&name, &json_path)
-                                .unwrap_or_else(|_| cowen_common::plugin::PluginManifest {
-                                    name: name.clone(),
-                                    requested_permissions: vec![],
-                                    required_capabilities: HashMap::new(),
-                                    allowed_commands: std::collections::HashSet::new(),
-                                    wasm_interceptors: vec![],
+                                .unwrap_or_else(|_| {
+                                    cowen_common::plugin::PluginManifest::new_empty(&name)
                                 });
 
                         if !plugin_manifest.required_capabilities.is_empty() {

@@ -11,6 +11,7 @@ use tracing::info;
 
 #[tonic::async_trait]
 pub trait NativeAuthCapability: Send + Sync {
+    /// Resolves the token with scopes
     async fn get_resolved_token(
         &self,
         _claims: Option<&cowen_common::jwt::IpcClaims>,
@@ -18,6 +19,7 @@ pub trait NativeAuthCapability: Send + Sync {
         config: &cowen_common::config::Config,
         headers: &reqwest::header::HeaderMap,
     ) -> Result<cowen_common::models::Token, CowenError>;
+    /// Retrieve authentication keys
     async fn get_required_auth_keys(
         &self,
         _claims: Option<&cowen_common::jwt::IpcClaims>,
@@ -125,6 +127,7 @@ impl NativeAuthCapability for DefaultAuthCapability {
     #[rbac(action = "filter")]
     async fn get_resolved_token(
         &self,
+        // Active IPC claims
         _claims: Option<&cowen_common::jwt::IpcClaims>,
         profile: &str,
         config: &cowen_common::config::Config,
@@ -138,6 +141,7 @@ impl NativeAuthCapability for DefaultAuthCapability {
     #[rbac(action = "filter")]
     async fn get_required_auth_keys(
         &self,
+        // Active IPC claims for auth
         _claims: Option<&cowen_common::jwt::IpcClaims>,
         profile: &str,
         config: &cowen_common::config::Config,
@@ -211,19 +215,13 @@ impl NativeAuthCapability for DefaultAuthCapability {
             is_new: _is_new,
         };
 
-        if mode == cowen_common::models::AuthMode::Oauth2 {
-            match self.cfg_mgr.save(&req.profile, &mut config).await {
-                Ok(_) => {
-                    let _ = self.cfg_mgr.set_default_profile(&req.profile);
-                    Ok(InitProfileResponse {
-                        success: true,
-                        message: format!("Profile {} initialized", req.profile),
-                    })
-                }
-                Err(e) => Err(CowenError::config(e.to_string())),
-            }
+        let init_result = if mode == cowen_common::models::AuthMode::Oauth2 {
+            self.cfg_mgr
+                .save(&req.profile, &mut config)
+                .await
+                .map_err(|e| CowenError::config(e.to_string()))
         } else {
-            match provider
+            provider
                 .initialize(
                     &req.profile,
                     &mut config,
@@ -233,16 +231,18 @@ impl NativeAuthCapability for DefaultAuthCapability {
                     Some(self.service.clone()),
                 )
                 .await
-            {
-                Ok(_) => {
-                    let _ = self.cfg_mgr.set_default_profile(&req.profile);
-                    Ok(InitProfileResponse {
-                        success: true,
-                        message: format!("Profile {} initialized", req.profile),
-                    })
-                }
-                Err(e) => Err(CowenError::config(e.to_string())),
+                .map_err(|e| CowenError::config(e.to_string()))
+        };
+
+        match init_result {
+            Ok(_) => {
+                let _ = self.cfg_mgr.set_default_profile(&req.profile);
+                Ok(InitProfileResponse {
+                    success: true,
+                    message: format!("Profile {} initialized", req.profile),
+                })
             }
+            Err(e) => Err(e),
         }
     }
 
@@ -262,8 +262,8 @@ impl NativeAuthCapability for DefaultAuthCapability {
             Err(e) => {
                 return Ok(GetAuthUrlResponse {
                     success: false,
-                    url: "".to_string(),
-                    state: "".to_string(),
+                    url: String::new(),
+                    state: String::new(),
                     error_message: Some(format!("Profile not found: {}", e)),
                 })
             }
@@ -362,11 +362,11 @@ impl NativeAuthCapability for DefaultAuthCapability {
     ) -> Result<WaitForAuthResponse, CowenError> {
         let config = match self.cfg_mgr.load(&req.profile).await {
             Ok(c) => c,
-            Err(e) => {
+            Err(err) => {
                 return Ok(WaitForAuthResponse {
                     success: false,
-                    token: "".to_string(),
-                    error_message: Some(format!("Profile not found: {}", e)),
+                    token: String::new(),
+                    error_message: Some(format!("Profile not found: {}", err)),
                 })
             }
         };

@@ -44,6 +44,32 @@ final_parallel_cleanup() {
     CLEANUP_DONE="true"
     echo -e "\n${BLUE}🧹 Performing final cleanup...${NC}"
     
+    # Merge telemetry data
+    if [ -f "$RESULTS_DIR/job_stats.csv" ] && command -v python3 >/dev/null 2>&1; then
+        cat << 'EOF_MERGE' > "$RESULTS_DIR/merge_telemetry.py"
+import os, csv
+TELEMETRY_FILE = "crates/app/cowen-cli/tests/runners/test_telemetry.csv"
+stats = {}
+if os.path.exists(TELEMETRY_FILE):
+    with open(TELEMETRY_FILE, 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) >= 3:
+                stats[row[0]] = row
+with open("target/cowen_tests/results/job_stats.csv", 'r') as f:
+    reader = csv.reader(f)
+    for row in reader:
+        if len(row) >= 3:
+            stats[row[0]] = row
+with open(TELEMETRY_FILE, 'w') as f:
+    writer = csv.writer(f)
+    for row in stats.values():
+        writer.writerow(row)
+EOF_MERGE
+        python3 "$RESULTS_DIR/merge_telemetry.py"
+        echo -e "${GREEN}📊 Test telemetry updated.${NC}"
+    fi
+
     # Try to cleanup workspaces if helper exists
     if command -v cleanup_all_workspaces >/dev/null 2>&1; then
         cleanup_all_workspaces
@@ -141,55 +167,52 @@ declare -a PARALLEL_SUITES
 if [ $# -gt 0 ]; then
     PARALLEL_SUITES=("$@")
 else
-    # Hardcoded list of slow/heavy jobs based on CPU and Time (LPT Scheduling)
-    # This maximizes concurrency utilization and prevents trailing stragglers.
-    HEAVY_JOBS=(
-        "case_13_distributed_lb.sh"
-        "case_60_monitor_port_fallback.sh"
-        "case_27_store_app_multi_org_stress.sh"
-        "case_79_status_selfbuilt_heartbeat.sh"
-        "case_09_dlq_retries.sh"
-        "case_39_profile_rename_comprehensive.sh"
-        "case_15_store_app_shared_storage.sh"
-        "case_63_daemon_startup_optimization.sh"
-        "case_18_redis_fault_tolerance.sh"
-        "case_50_graceful_shutdown.sh"
-        "case_14_shared_storage.sh"
-        "case_52_dlq_paging.sh"
-        "case_25_cluster_idempotency.sh"
-        "case_46_robustness_check.sh"
-        "case_20_oauth2_refresh.sh"
-        "case_36_store_app_activation.sh"
-        "case_19_ticket_auto_resend.sh"
-        "case_29_sidecar_scaling_stress.sh"
-        "case_30_sidecar_self_built_stress.sh"
-        "case_26_hybrid_data_drift.sh"
-        "case_53_chaos_stress.sh"
-        "case_68_slow_ping_recovery.sh"
-        "case_17_redis_shared_storage.sh"
-        "case_33_exclusive_connection.sh"
-    )
-    
-    for heavy in "${HEAVY_JOBS[@]}"; do
-        suite_path="crates/app/cowen-cli/tests/e2e/scripts/$heavy"
-        if [ -f "$suite_path" ]; then
+    # Dynamic Longest Processing Time (LPT) Scheduling
+    # We use python to read telemetry data and sort the suites descending by expected ms.
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo -e "${YELLOW}python3 not found, falling back to basic glob sorting.${NC}"
+        for suite_path in crates/app/cowen-cli/tests/e2e/scripts/case_*.sh; do
             PARALLEL_SUITES+=("$suite_path")
-        fi
-    done
-    
-    for suite_path in crates/app/cowen-cli/tests/e2e/scripts/case_*.sh; do
-        basename_suite=$(basename "$suite_path")
-        is_heavy=false
-        for heavy in "${HEAVY_JOBS[@]}"; do
-            if [ "$heavy" == "$basename_suite" ]; then
-                is_heavy=true
-                break
-            fi
         done
-        if [ "$is_heavy" = false ]; then
+    else
+        cat << 'EOF_SCHED' > "$RESULTS_DIR/telemetry.py"
+import sys, os, csv, glob
+
+TELEMETRY_FILE = "crates/app/cowen-cli/tests/runners/test_telemetry.csv"
+
+def schedule():
+    stats = {}
+    if os.path.exists(TELEMETRY_FILE):
+        with open(TELEMETRY_FILE, 'r') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) >= 3:
+                    stats[row[0]] = {'ms': int(row[1]), 'cpu': float(row[2])}
+    
+    scripts = glob.glob("crates/app/cowen-cli/tests/e2e/scripts/case_*.sh")
+    scored = []
+    for s in scripts:
+        basename = os.path.basename(s)
+        ms = stats[basename]['ms'] if basename in stats else 5000
+        scored.append((ms, s))
+    
+    scored.sort(key=lambda x: x[0], reverse=True)
+    
+    total_ms = sum([x[0] for x in scored])
+    with open("target/cowen_tests/results/total_expected_ms.txt", "w") as f:
+        f.write(str(total_ms))
+        
+    for ms, s in scored:
+        print(s)
+
+if __name__ == "__main__":
+    schedule()
+EOF_SCHED
+        sorted_suites=$(python3 "$RESULTS_DIR/telemetry.py")
+        for suite_path in $sorted_suites; do
             PARALLEL_SUITES+=("$suite_path")
-        fi
-    done
+        done
+    fi
 fi
 SEQUENTIAL_SUITES=()
 
@@ -223,10 +246,21 @@ EOF
     local exit_code=$?
     
     local time_output=$(cat "$time_file" 2>/dev/null | tr -d '\n')
-    local elapsed_ms=$(echo "$time_output" | cut -d',' -f1)
+    local elapsed_sec=$(echo "$time_output" | cut -d',' -f1)
     local cpu_usage=$(echo "$time_output" | cut -d',' -f2)
-    [ -z "$elapsed_ms" ] && elapsed_ms="N/A"
+    
+    # Extract precise ms using awk
+    local elapsed_ms="N/A"
+    if [ -n "$elapsed_sec" ]; then
+        elapsed_ms=$(awk "BEGIN {print int($elapsed_sec * 1000)}")
+    fi
     [ -z "$cpu_usage" ] && cpu_usage="0.00"
+    
+    # Save telemetry asynchronously
+    if [ "$elapsed_ms" != "N/A" ]; then
+                real_name=$(basename "$suite" | sed -E 's/\.[0-9]+$//')
+        echo "${real_name},${elapsed_ms},${cpu_usage}" >> "$RESULTS_DIR/job_stats.csv"
+    fi
     
     echo "1" >> "$RESULTS_DIR/completed_jobs.txt"
     local completed=$(wc -l < "$RESULTS_DIR/completed_jobs.txt" | tr -d ' ' | awk '{print $1}')
@@ -234,20 +268,42 @@ EOF
     
     local eta_str=""
     if [ "$completed" -gt 0 ] && [ "$TOTAL_PARALLEL" -gt 0 ]; then
-        local remain=$(( TOTAL_PARALLEL - completed ))
-        local avg_ms=$(( overall_elapsed * 1000 / completed ))
-        local remain_s=$(( avg_ms * remain / 1000 ))
+        local pct=$(( completed * 100 / TOTAL_PARALLEL ))
+        local remain_s=0
+        
+        if [ -f "$RESULTS_DIR/total_expected_ms.txt" ] && command -v python3 >/dev/null 2>&1; then
+            cat << 'EOF_ETA' > "$RESULTS_DIR/eta.py"
+import sys, os, csv
+MAX_PARALLEL = int(os.environ.get("MAX_PARALLEL", "32"))
+completed_ms = 0
+if os.path.exists("target/cowen_tests/results/job_stats.csv"):
+    with open("target/cowen_tests/results/job_stats.csv") as f:
+        for row in csv.reader(f):
+            if len(row) >= 2:
+                completed_ms += int(row[1])
+total_expected_ms = 0
+with open("target/cowen_tests/results/total_expected_ms.txt") as f:
+    total_expected_ms = int(f.read().strip())
+remaining_ms_total = max(0, total_expected_ms - completed_ms)
+# Add some buffer for un-parallelizable overhead or final serial tests
+print(int((remaining_ms_total / MAX_PARALLEL) / 1000))
+EOF_ETA
+            remain_s=$(python3 "$RESULTS_DIR/eta.py")
+        else
+            local remain=$(( TOTAL_PARALLEL - completed ))
+            local avg_ms=$(( overall_elapsed * 1000 / completed ))
+            remain_s=$(( avg_ms * remain / 1000 ))
+        fi
         
         local m=$(( remain_s / 60 ))
         local s=$(( remain_s % 60 ))
-        local pct=$(( completed * 100 / TOTAL_PARALLEL ))
         eta_str="[${pct}% | ETA: ${m}m ${s}s]"
     fi
     
     if [ $exit_code -eq 0 ]; then
-        echo -e "  [JOB $job_id] ${GREEN}✅ $(basename "$suite") PASSED${NC} (${elapsed_ms}s, CPU: ${cpu_usage}%) ${eta_str}"
+        echo -e "  [JOB $job_id] ${GREEN}✅ ${real_name} PASSED${NC} (${elapsed_ms}ms, CPU: ${cpu_usage}%) ${eta_str}"
     else
-        echo -e "  [JOB $job_id] ${RED}❌ $(basename "$suite") FAILED${NC} (${elapsed_ms}s, CPU: ${cpu_usage}%) ${eta_str}"
+        echo -e "  [JOB $job_id] ${RED}❌ ${real_name} FAILED${NC} (${elapsed_ms}ms, CPU: ${cpu_usage}%) ${eta_str}"
     fi
 
     # Bulletproof process teardown: kill all daemons belonging to this job's isolated workspace

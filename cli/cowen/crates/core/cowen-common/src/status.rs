@@ -524,6 +524,15 @@ impl MonitorClient {
         }
     }
 
+    async fn handle_response(resp: reqwest::Response, fail_msg: &str) -> CowenResult<()> {
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            let err = resp.text().await.unwrap_or_default();
+            Err(crate::CowenError::api(format!("{}: {}", fail_msg, err)))
+        }
+    }
+
     pub async fn reload_worker(&self, profile: &str) -> CowenResult<()> {
         let url = format!("{}/daemon/reload?profile={}", self.base_url, profile);
         let resp =
@@ -531,15 +540,7 @@ impl MonitorClient {
                 crate::CowenError::api(format!("Failed to connect to monitor: {}", e))
             })?;
 
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            let err = resp.text().await.unwrap_or_default();
-            Err(crate::CowenError::api(format!(
-                "Monitor reload failed: {}",
-                err
-            )))
-        }
+        Self::handle_response(resp, "Monitor reload failed").await
     }
 
     pub async fn finalize_auth(
@@ -564,15 +565,7 @@ impl MonitorClient {
             ))
         })?;
 
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            let err = resp.text().await.unwrap_or_default();
-            Err(crate::CowenError::api(format!(
-                "Auth finalization failed: {}",
-                err
-            )))
-        }
+        Self::handle_response(resp, "Auth finalization failed").await
     }
 
     pub async fn get_auth_progress(&self, profile: &str) -> CowenResult<AuthProgressInfo> {

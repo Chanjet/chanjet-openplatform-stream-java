@@ -40,15 +40,45 @@ else
     fi
 fi
 
-# 4. Check Rust Code Duplication <= 5%
+# 4. Check Rust Code Duplication (<= 5% overall, and no >5 lines duplicate in the same file)
 echo ""
-echo "[4/6] Checking code duplication with jscpd (Threshold: 5%)..."
-if ! npx -y jscpd@latest crates/ --format rust --threshold 5 --reporters console --ignore-pattern "**/tests/**"; then
+echo "[4/6] Checking code duplication with jscpd (Threshold: 5% overall, max 5 lines within same file)..."
+mkdir -p target/jscpd
+if ! npx -y jscpd@latest crates/ --format rust --threshold 5 --reporters console,json --output target/jscpd --ignore "**/tests/**,**/*test*.rs,**/*_test.rs" --ignore-pattern "#\\[cfg\\(test\\)\\][\\s\\S]*" --min-lines 6; then
     echo "❌ Code duplication check failed! Rust duplication rate > 5%."
     exit 1
-else
-    echo "✅ Code duplication check passed."
 fi
+
+# Run python script to enforce "No duplication > 5 lines in the same file"
+if ! python3 -c "
+import json, sys
+try:
+    with open('target/jscpd/jscpd-report.json') as f:
+        data = json.load(f)
+except Exception as e:
+    print('Failed to parse jscpd report:', e)
+    sys.exit(1)
+
+same_file_clones = []
+for clone in data.get('duplicates', []):
+    f1 = clone.get('firstFile', {}).get('name')
+    f2 = clone.get('secondFile', {}).get('name')
+    lines = clone.get('lines', 0)
+    if f1 == f2 and lines > 5:
+        same_file_clones.append(f'{f1} lines {clone[\"firstFile\"][\"start\"]}-{clone[\"firstFile\"][\"end\"]} and {clone[\"secondFile\"][\"start\"]}-{clone[\"secondFile\"][\"end\"]} ({lines} lines)')
+
+if same_file_clones:
+    print('❌ Code duplication check failed! Same-file duplication of >5 lines is not allowed.')
+    for c in same_file_clones:
+        print('  -', c)
+    sys.exit(1)
+else:
+    print('✅ No same-file duplications of >5 lines found.')
+"; then
+    exit 1
+fi
+echo "✅ Code duplication check passed."
+
 
 # 5. Check Cyclomatic Complexity <= 15
 echo ""

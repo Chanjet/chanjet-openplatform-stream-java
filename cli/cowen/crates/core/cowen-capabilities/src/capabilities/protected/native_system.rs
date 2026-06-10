@@ -353,6 +353,27 @@ impl DefaultSystem {
             }
         });
     }
+
+    fn get_reset_tasks(
+        &self,
+        profile: &Option<String>,
+    ) -> Vec<Box<dyn cowen_common::reset::ResetTask>> {
+        let app_dir = cowen_common::config::get_app_dir();
+        vec![
+            Box::new(cowen_config::reset::ConfigResetTask::new(
+                app_dir.clone(),
+                profile.clone(),
+            )),
+            Box::new(cowen_monitor::reset::TelemetryResetTask::new(
+                app_dir.clone(),
+                profile.clone(),
+            )),
+            Box::new(cowen_store::reset::StorageResetTask::new(
+                app_dir,
+                profile.clone(),
+            )),
+        ]
+    }
 }
 
 #[rbac_controller(domain = "native.system")]
@@ -475,24 +496,13 @@ impl NativeSystemCapability for DefaultSystem {
         let profile = req.profile.filter(|p| !p.trim().is_empty());
         let dry_run = req.dry_run;
 
-        if dry_run {
-            use cowen_common::reset::ResetTask;
-            let app_dir = cowen_common::config::get_app_dir();
-            let config_task =
-                cowen_config::reset::ConfigResetTask::new(app_dir.clone(), profile.clone());
-            let telemetry_task =
-                cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), profile.clone());
-            let storage_task =
-                cowen_store::reset::StorageResetTask::new(app_dir.clone(), profile.clone());
+        let tasks = self.get_reset_tasks(&profile);
 
+        if dry_run {
             let mut out = String::new();
             out.push_str("🔍 [DRY RUN] Reset Execution Plan:\n");
 
-            for task in [
-                Box::new(config_task) as Box<dyn ResetTask>,
-                Box::new(telemetry_task),
-                Box::new(storage_task),
-            ] {
+            for task in tasks {
                 out.push_str(&format!("\n  📦 Module: {}\n", task.name()));
                 out.push_str(&format!("  ℹ️  {}\n", task.description()));
                 if let Ok(actions) = task.dry_run().await {
@@ -511,20 +521,8 @@ impl NativeSystemCapability for DefaultSystem {
                 error_message: None,
             })
         } else {
-            let app_dir = cowen_common::config::get_app_dir();
-            let config_task =
-                cowen_config::reset::ConfigResetTask::new(app_dir.clone(), profile.clone());
-            let telemetry_task =
-                cowen_monitor::reset::TelemetryResetTask::new(app_dir.clone(), profile.clone());
-            let storage_task =
-                cowen_store::reset::StorageResetTask::new(app_dir.clone(), profile.clone());
-
             let mut errors = vec![];
-            for task in [
-                Box::new(config_task) as Box<dyn cowen_common::reset::ResetTask>,
-                Box::new(telemetry_task),
-                Box::new(storage_task),
-            ] {
+            for task in tasks {
                 if let Err(e) = task.execute().await {
                     errors.push(format!("{}: {}", task.name(), e));
                 }

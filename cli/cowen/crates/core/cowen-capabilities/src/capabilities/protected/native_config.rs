@@ -169,28 +169,27 @@ impl NativeConfigCapability for DefaultConfigCapability {
         _claims: Option<&cowen_common::jwt::IpcClaims>,
         req: ListConfigRequest,
     ) -> Result<ListConfigResponse, CowenError> {
-        if req.all {
-            match self.cfg_mgr.list_all_values().await {
-                Ok(v) => Ok(ListConfigResponse {
-                    config_json: serde_json::to_string(&v).unwrap_or_default(),
-                    error_message: None,
-                }),
-                Err(e) => Ok(ListConfigResponse {
-                    config_json: "".to_string(),
-                    error_message: Some(e.to_string()),
-                }),
-            }
+        let res = if req.all {
+            self.cfg_mgr
+                .list_all_values()
+                .await
+                .map(|v| serde_json::to_string(&v).unwrap_or_default())
         } else {
-            match self.cfg_mgr.list_values(&req.profile).await {
-                Ok(v) => Ok(ListConfigResponse {
-                    config_json: serde_json::to_string_pretty(&v).unwrap_or_default(),
-                    error_message: None,
-                }),
-                Err(e) => Ok(ListConfigResponse {
-                    config_json: "".to_string(),
-                    error_message: Some(e.to_string()),
-                }),
-            }
+            self.cfg_mgr
+                .list_values(&req.profile)
+                .await
+                .map(|v| serde_json::to_string_pretty(&v).unwrap_or_default())
+        };
+
+        match res {
+            Ok(json) => Ok(ListConfigResponse {
+                config_json: json,
+                error_message: None,
+            }),
+            Err(e) => Ok(ListConfigResponse {
+                config_json: "".to_string(),
+                error_message: Some(e.to_string()),
+            }),
         }
     }
 

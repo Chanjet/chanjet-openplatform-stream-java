@@ -51,6 +51,44 @@ impl SelfBuiltProvider {
         }
     }
 
+    async fn trigger_push_and_wait(&self, profile: &str, cfg: &Config) {
+        let push_fut = self.trigger_push_internal(profile, cfg, true);
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), push_fut).await;
+        tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 3s)...");
+        let mut waited = 0;
+        while waited < 3 {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if self
+                .pool
+                .as_vault()
+                .get_app_ticket(cfg.app_key.trim())
+                .await
+                .is_ok()
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                break;
+            }
+            waited += 1;
+        }
+    }
+
+    fn insert_app_credentials(&self, headers: &mut HeaderMap, cfg: &Config) {
+        headers.insert(
+            "appKey",
+            cfg.app_key
+                .trim()
+                .parse()
+                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+        );
+        headers.insert(
+            "appSecret",
+            cfg.app_secret
+                .trim()
+                .parse()
+                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
+        );
+    }
+
     async fn perform_network_refresh(
         &self,
         profile: &str,
@@ -160,24 +198,7 @@ impl SelfBuiltProvider {
 
         if *retry_count < 3 {
             tracing::warn!(target: "sys", profile = %profile, "Missing appTicket. Triggering push... (Attempt {}/3)", *retry_count + 1);
-            let push_fut = self.trigger_push_internal(profile, cfg, true);
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), push_fut).await;
-            tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 3s)...");
-            let mut waited = 0;
-            while waited < 3 {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                if self
-                    .pool
-                    .as_vault()
-                    .get_app_ticket(cfg.app_key.trim())
-                    .await
-                    .is_ok()
-                {
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    break;
-                }
-                waited += 1;
-            }
+            self.trigger_push_and_wait(profile, cfg).await;
             *retry_count += 1;
             return Ok(None);
         }
@@ -202,20 +223,7 @@ impl SelfBuiltProvider {
             urlencoding::encode(app_ticket)
         );
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "appKey",
-            cfg.app_key
-                .trim()
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
-        headers.insert(
-            "appSecret",
-            cfg.app_secret
-                .trim()
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
+        self.insert_app_credentials(&mut headers, cfg);
 
         let mut body_map = serde_json::Map::new();
         if !cfg.certificate.trim().is_empty() {
@@ -257,25 +265,15 @@ impl SelfBuiltProvider {
                 .await;
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-            let push_fut = self.trigger_push_internal(profile, cfg, true);
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), push_fut).await;
-
-            tracing::info!(target: "sys", profile = %profile, "Waiting for new AppTicket dispatch (up to 3s)...");
-            let mut waited = 0;
-            while waited < 3 {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                if self
-                    .pool
-                    .as_vault()
-                    .get_app_ticket(cfg.app_key.trim())
-                    .await
-                    .is_ok()
-                {
-                    tracing::info!(target: "sys", profile = %profile, "Received new AppTicket.");
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    break;
-                }
-                waited += 1;
+            self.trigger_push_and_wait(profile, cfg).await;
+            if self
+                .pool
+                .as_vault()
+                .get_app_ticket(cfg.app_key.trim())
+                .await
+                .is_ok()
+            {
+                tracing::info!(target: "sys", profile = %profile, "Received new AppTicket.");
             }
             *retry_count += 1;
             return Ok(true);
@@ -347,20 +345,7 @@ impl SelfBuiltProvider {
             obfs!("/auth/appTicket/resend")
         );
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "appKey",
-            cfg.app_key
-                .trim()
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
-        headers.insert(
-            "appSecret",
-            cfg.app_secret
-                .trim()
-                .parse()
-                .unwrap_or(reqwest::header::HeaderValue::from_static("")),
-        );
+        self.insert_app_credentials(&mut headers, cfg);
 
         let mut body_map = serde_json::Map::new();
         if force {
@@ -867,6 +852,7 @@ async fn start_self_built_daemon(
 
 async fn check_self_built_security_vault(
     ctx: &cowen_common::status::StatusContext<'_>,
+    // Verify secret storage in the local system vault
     vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
     entries: &mut Vec<cowen_common::status::StatusEntry>,
 ) {
@@ -905,6 +891,7 @@ async fn check_self_built_security_vault(
 
 async fn check_self_built_app_ticket(
     ctx: &cowen_common::status::StatusContext<'_>,
+    // Verify presence of a valid app ticket in the vault
     vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
     entries: &mut Vec<cowen_common::status::StatusEntry>,
 ) {

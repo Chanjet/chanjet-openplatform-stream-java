@@ -39,6 +39,63 @@ use tonic::transport::Channel;
 use tonic::service::Interceptor;
 use tonic::{Request, Status};
 
+macro_rules! handle_success_res {
+    ($res:expr) => {
+        if $res.success {
+            Ok(DaemonResponse::Success {
+                message: $res.message,
+            })
+        } else {
+            Ok(DaemonResponse::Error {
+                code: 500,
+                message: $res.message,
+            })
+        }
+    };
+}
+
+macro_rules! handle_json_res {
+    ($res:expr, $variant:ident) => {
+        handle_generic_field_res!($res, json, $variant)
+    };
+}
+
+macro_rules! handle_generic_field_res {
+    ($res:expr, $field:ident, $variant:ident) => {
+        if $res.$field.is_empty() && $res.error_message.is_some() {
+            Ok(DaemonResponse::Error {
+                code: 500,
+                message: $res.error_message.unwrap(),
+            })
+        } else {
+            Ok(DaemonResponse::$variant {
+                $field: $res.$field,
+            })
+        }
+    };
+}
+
+macro_rules! handle_config_update_res {
+    ($res:expr, $msg:expr) => {
+        if $res.success {
+            Ok(DaemonResponse::Success {
+                message: $msg.to_string(),
+            })
+        } else {
+            Ok(DaemonResponse::Error {
+                code: 500,
+                message: $res.error_message.unwrap_or_default(),
+            })
+        }
+    };
+}
+macro_rules! build_grpc_client {
+    ($self:expr, $client_struct:ident) => {{
+        let (channel, interceptor) = $self.ensure_daemon().await?;
+        Ok($client_struct::with_interceptor(channel, interceptor))
+    }};
+}
+
 #[derive(Clone)]
 pub struct AuthInterceptor {
     pub token: String,
@@ -292,53 +349,33 @@ impl DaemonClient {
     ) -> Result<
         NativeAuditServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>,
     > {
-        let (channel, interceptor) = self.ensure_daemon().await?;
-        Ok(NativeAuditServiceClient::with_interceptor(
-            channel,
-            interceptor,
-        ))
+        build_grpc_client!(self, NativeAuditServiceClient)
     }
     async fn build_native_auth_client(
         &self,
     ) -> Result<NativeAuthServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>>
     {
-        let (channel, interceptor) = self.ensure_daemon().await?;
-        Ok(NativeAuthServiceClient::with_interceptor(
-            channel,
-            interceptor,
-        ))
+        build_grpc_client!(self, NativeAuthServiceClient)
     }
     async fn build_native_config_client(
         &self,
     ) -> Result<
         NativeConfigServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>,
     > {
-        let (channel, interceptor) = self.ensure_daemon().await?;
-        Ok(NativeConfigServiceClient::with_interceptor(
-            channel,
-            interceptor,
-        ))
+        build_grpc_client!(self, NativeConfigServiceClient)
     }
     async fn build_native_dlq_client(
         &self,
     ) -> Result<NativeDlqServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>>
     {
-        let (channel, interceptor) = self.ensure_daemon().await?;
-        Ok(NativeDlqServiceClient::with_interceptor(
-            channel,
-            interceptor,
-        ))
+        build_grpc_client!(self, NativeDlqServiceClient)
     }
     async fn build_native_system_client(
         &self,
     ) -> Result<
         NativeSystemServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>,
     > {
-        let (channel, interceptor) = self.ensure_daemon().await?;
-        Ok(NativeSystemServiceClient::with_interceptor(
-            channel,
-            interceptor,
-        ))
+        build_grpc_client!(self, NativeSystemServiceClient)
     }
 
     async fn build_api_registry_client(
@@ -346,22 +383,14 @@ impl DaemonClient {
     ) -> Result<
         ApiRegistryServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>,
     > {
-        let (channel, interceptor) = self.ensure_daemon().await?;
-        Ok(ApiRegistryServiceClient::with_interceptor(
-            channel,
-            interceptor,
-        ))
+        build_grpc_client!(self, ApiRegistryServiceClient)
     }
     async fn build_native_worker_client(
         &self,
     ) -> Result<
         NativeWorkerServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>,
     > {
-        let (channel, interceptor) = self.ensure_daemon().await?;
-        Ok(NativeWorkerServiceClient::with_interceptor(
-            channel,
-            interceptor,
-        ))
+        build_grpc_client!(self, NativeWorkerServiceClient)
     }
 
     pub async fn init_profile(
@@ -393,16 +422,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn start_daemon(&self, profile: &str) -> Result<DaemonResponse> {
@@ -414,16 +434,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn start_all(&self) -> Result<DaemonResponse> {
@@ -432,28 +443,32 @@ impl DaemonClient {
             .start_all_workers(tonic::Request::new(grpc_proto::StartAllWorkersRequest {}))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
+        handle_success_res!(res)
+    }
+
+    async fn get_worker_client_or_success(
+        &self,
+    ) -> Result<
+        std::result::Result<
+            NativeWorkerServiceClient<tonic::codegen::InterceptedService<Channel, AuthInterceptor>>,
+            DaemonResponse,
+        >,
+    > {
+        match self.connect_to_daemon().await {
+            Ok((channel, interceptor)) => Ok(Ok(NativeWorkerServiceClient::with_interceptor(
+                channel,
+                interceptor,
+            ))),
+            Err(_) => Ok(Err(DaemonResponse::Success {
+                message: "Daemon is not running.".to_string(),
+            })),
         }
     }
 
     pub async fn stop_daemon(&self, profile: &str) -> Result<DaemonResponse> {
-        let mut client = match self.connect_to_daemon().await {
-            Ok((channel, interceptor)) => {
-                NativeWorkerServiceClient::with_interceptor(channel, interceptor)
-            }
-            Err(_) => {
-                return Ok(DaemonResponse::Success {
-                    message: "Daemon is not running.".to_string(),
-                })
-            }
+        let mut client = match self.get_worker_client_or_success().await? {
+            Ok(c) => c,
+            Err(res) => return Ok(res),
         };
         let res = client
             .stop_worker(tonic::Request::new(grpc_proto::StopWorkerRequest {
@@ -461,43 +476,19 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn stop_all(&self) -> Result<DaemonResponse> {
-        let mut client = match self.connect_to_daemon().await {
-            Ok((channel, interceptor)) => {
-                NativeWorkerServiceClient::with_interceptor(channel, interceptor)
-            }
-            Err(_) => {
-                return Ok(DaemonResponse::Success {
-                    message: "Daemon is not running.".to_string(),
-                })
-            }
+        let mut client = match self.get_worker_client_or_success().await? {
+            Ok(c) => c,
+            Err(res) => return Ok(res),
         };
         let res = client
             .stop_all_workers(tonic::Request::new(grpc_proto::StopAllWorkersRequest {}))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn ping(&self) -> Result<DaemonResponse> {
@@ -517,16 +508,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn system_reset(
@@ -542,16 +524,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn get_auth_url(&self, profile: &str, force: bool) -> Result<DaemonResponse> {
@@ -630,16 +603,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn dlq_list(
@@ -657,14 +621,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.json.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::DlqData { json: res.json })
-        }
+        handle_json_res!(res, DlqData)
     }
 
     pub async fn dlq_view(&self, profile: &str, id: &str) -> Result<DaemonResponse> {
@@ -676,14 +633,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.json.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::DlqData { json: res.json })
-        }
+        handle_json_res!(res, DlqData)
     }
 
     pub async fn dlq_retry(&self, profile: &str, id: &str) -> Result<DaemonResponse> {
@@ -695,16 +645,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: "Retry triggered".to_string(),
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap_or_default(),
-            })
-        }
+        handle_config_update_res!(res, "Retry triggered")
     }
 
     pub async fn dlq_purge(&self, profile: &str) -> Result<DaemonResponse> {
@@ -715,16 +656,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap_or_default(),
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn api_list(
@@ -775,14 +707,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.json.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::ApiSpecData { json: res.json })
-        }
+        handle_json_res!(res, ApiSpecData)
     }
 
     pub async fn doctor(&self, profile: &str) -> Result<DaemonResponse> {
@@ -793,14 +718,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.report.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::DoctorReport { report: res.report })
-        }
+        handle_generic_field_res!(res, report, DoctorReport)
     }
 
     pub async fn system_status(&self, profile: &str, all: bool) -> Result<DaemonResponse> {
@@ -812,14 +730,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.json.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::SystemStatusData { json: res.json })
-        }
+        handle_json_res!(res, SystemStatusData)
     }
 
     pub async fn list_config(
@@ -837,16 +748,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.config_json.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::ConfigData {
-                config_json: res.config_json,
-            })
-        }
+        handle_generic_field_res!(res, config_json, ConfigData)
     }
 
     pub async fn rename_profile(&self, old_name: &str, new_name: &str) -> Result<DaemonResponse> {
@@ -858,16 +760,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: res.message,
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.message,
-            })
-        }
+        handle_success_res!(res)
     }
 
     pub async fn set_global_config(&self, key: &str, value: &str) -> Result<DaemonResponse> {
@@ -879,16 +772,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: "Updated global config".to_string(),
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap_or_default(),
-            })
-        }
+        handle_config_update_res!(res, "Updated global config")
     }
 
     pub async fn store_status(&self) -> Result<DaemonResponse> {
@@ -897,14 +781,7 @@ impl DaemonClient {
             .store_status(tonic::Request::new(grpc_proto::StoreStatusRequest {}))
             .await?
             .into_inner();
-        if res.json.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::StoreStatusData { json: res.json })
-        }
+        handle_json_res!(res, StoreStatusData)
     }
 
     pub async fn tail_audit(&self, profile: &str, lines: usize) -> Result<DaemonResponse> {
@@ -916,16 +793,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.content.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::AuditData {
-                content: res.content,
-            })
-        }
+        handle_generic_field_res!(res, content, AuditData)
     }
 
     pub async fn call_api(
@@ -970,16 +838,7 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.config_json.is_empty() && res.error_message.is_some() {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap(),
-            })
-        } else {
-            Ok(DaemonResponse::ConfigData {
-                config_json: res.config_json,
-            })
-        }
+        handle_generic_field_res!(res, config_json, ConfigData)
     }
 
     pub async fn set_config(
@@ -997,15 +856,6 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.success {
-            Ok(DaemonResponse::Success {
-                message: "Config updated".to_string(),
-            })
-        } else {
-            Ok(DaemonResponse::Error {
-                code: 500,
-                message: res.error_message.unwrap_or_default(),
-            })
-        }
+        handle_config_update_res!(res, "Config updated")
     }
 }

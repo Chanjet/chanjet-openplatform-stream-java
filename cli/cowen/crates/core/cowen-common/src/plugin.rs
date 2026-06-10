@@ -22,6 +22,16 @@ pub struct PluginManifest {
 }
 
 impl PluginManifest {
+    pub fn new_empty(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            requested_permissions: vec![],
+            required_capabilities: std::collections::HashMap::new(),
+            allowed_commands: HashSet::new(),
+            wasm_interceptors: vec![],
+        }
+    }
+
     pub fn load_from_json(plugin_name: &str, json_path: &std::path::Path) -> anyhow::Result<Self> {
         let mut manifest_val: Option<serde_json::Value> = None;
         if json_path.exists() {

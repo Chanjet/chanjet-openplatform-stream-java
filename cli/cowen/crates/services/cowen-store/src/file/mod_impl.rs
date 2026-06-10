@@ -46,22 +46,10 @@ impl cowen_common::store::Store for FileStore {
         self.save_raw("sec", p, k, v)
     }
     async fn delete_secret(&self, p: &str, k: &str) -> CowenResult<()> {
-        let path = self.get_path(p, "sec", k, false);
-        if path.exists() {
-            std::fs::remove_file(path)
-                .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-        }
-        Ok(())
+        self.delete_raw_file(p, "sec", k)
     }
     async fn list_secrets(&self, p: &str) -> CowenResult<Vec<String>> {
-        let dir = self.root_dir().join(p).join("sec");
-        if !dir.exists() {
-            return Ok(vec![]);
-        }
-        Ok(std::fs::read_dir(dir)
-            .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?
-            .filter_map(|e| e.ok().map(|x| x.file_name().to_string_lossy().into_owned()))
-            .collect())
+        self.list_raw_files(p, "sec")
     }
 
     async fn get_access_token(&self, p: &str) -> CowenResult<Token> {
@@ -128,22 +116,10 @@ impl cowen_common::store::Store for FileStore {
         self.save_raw("tokens_legacy", p, k, v)
     }
     async fn delete_token(&self, p: &str, k: &str) -> CowenResult<()> {
-        let path = self.get_path(p, "tokens_legacy", k, false);
-        if path.exists() {
-            std::fs::remove_file(path)
-                .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-        }
-        Ok(())
+        self.delete_raw_file(p, "tokens_legacy", k)
     }
     async fn list_tokens(&self, p: &str) -> CowenResult<Vec<String>> {
-        let dir = self.root_dir().join(p).join("tokens_legacy");
-        if !dir.exists() {
-            return Ok(vec![]);
-        }
-        Ok(std::fs::read_dir(dir)
-            .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?
-            .filter_map(|e| e.ok().map(|x| x.file_name().to_string_lossy().into_owned()))
-            .collect())
+        self.list_raw_files(p, "tokens_legacy")
     }
 
     async fn save_audit(&self, e: &AuditEntry) -> CowenResult<()> {
@@ -266,6 +242,26 @@ impl cowen_common::store::Store for FileStore {
 }
 
 impl FileStore {
+    fn delete_raw_file(&self, p: &str, folder: &str, k: &str) -> CowenResult<()> {
+        let path = self.get_path(p, folder, k, false);
+        if path.exists() {
+            std::fs::remove_file(path)
+                .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn list_raw_files(&self, p: &str, folder: &str) -> CowenResult<Vec<String>> {
+        let dir = self.root_dir().join(p).join(folder);
+        if !dir.exists() {
+            return Ok(vec![]);
+        }
+        Ok(std::fs::read_dir(dir)
+            .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?
+            .filter_map(|e| e.ok().map(|x| x.file_name().to_string_lossy().into_owned()))
+            .collect())
+    }
+
     fn load_raw(&self, prefix: &str, profile: &str, id: &str) -> CowenResult<String> {
         let path = self.get_path(profile, prefix, id, false);
         if !path.exists() {

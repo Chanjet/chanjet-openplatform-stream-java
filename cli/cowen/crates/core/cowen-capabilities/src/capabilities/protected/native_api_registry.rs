@@ -87,6 +87,26 @@ impl DefaultApiRegistry {
         }
     }
 
+    async fn load_config(&self, profile: &str) -> Result<cowen_common::config::Config, CowenError> {
+        self.cfg_mgr
+            .load(profile)
+            .await
+            .map_err(|e| CowenError::NotFound(e.to_string()))
+    }
+
+    async fn get_openapi_spec(
+        &self,
+        profile: &str,
+        config: &cowen_common::config::Config,
+        refresh: bool,
+    ) -> Result<serde_json::Value, CowenError> {
+        let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
+        auth_cli
+            .get_openapi_spec(profile, config, refresh)
+            .await
+            .map_err(|e| CowenError::Internal(e.to_string()))
+    }
+
     async fn validate_api_call(
         &self,
         profile: &str,
@@ -104,29 +124,21 @@ impl DefaultApiRegistry {
         }
 
         if !req.force {
-            let spec_str = match auth_cli.get_openapi_spec(profile, config, false).await {
-                Ok(spec) => spec.to_string(),
-                Err(e) => return Err(CowenError::Internal(e.to_string())),
-            };
-            if let Ok(spec) = serde_json::from_str::<serde_json::Value>(&spec_str) {
-                if let Err(e) = cowen_common::openapi::validate_request(
-                    &spec,
-                    method_upper,
-                    &req.path,
-                    body_option,
-                ) {
-                    return Err(CowenError::Validation(format!(
-                        "OpenAPI validation failed: {}",
-                        e
-                    )));
-                }
-                let path_no_query = req.path.split('?').next().unwrap_or(&req.path);
-                if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
-                    return Err(CowenError::Auth(format!(
-                        "CLI Rejected: Target path {} is not in the OpenAPI whitelist.",
-                        path_no_query
-                    )));
-                }
+            let spec = self.get_openapi_spec(profile, config, false).await?;
+            if let Err(e) =
+                cowen_common::openapi::validate_request(&spec, method_upper, &req.path, body_option)
+            {
+                return Err(CowenError::Validation(format!(
+                    "OpenAPI validation failed: {}",
+                    e
+                )));
+            }
+            let path_no_query = req.path.split('?').next().unwrap_or(&req.path);
+            if !cowen_auth::client::is_path_in_whitelist(path_no_query, &spec) {
+                return Err(CowenError::Auth(format!(
+                    "CLI Rejected: Target path {} is not in the OpenAPI whitelist.",
+                    path_no_query
+                )));
             }
         }
         Ok(())
@@ -226,50 +238,30 @@ impl NativeApiRegistryCapability for DefaultApiRegistry {
         _claims: Option<&cowen_common::jwt::IpcClaims>,
         req: DomainApiSpecRequest,
     ) -> Result<DomainApiSpecResponse, CowenError> {
-        let config = match self.cfg_mgr.load(&req.profile).await {
-            Ok(c) => c,
-            Err(e) => return Err(CowenError::NotFound(e.to_string())),
-        };
-        let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
-        match auth_cli
-            .get_openapi_spec(&req.profile, &config, false)
-            .await
+        let config = self.load_config(&req.profile).await?;
+        let spec = self.get_openapi_spec(&req.profile, &config, false).await?;
+        let method_lower = req.method.to_lowercase();
+        if let Some(op) = spec
+            .get("paths")
+            .and_then(|p| p.as_object())
+            .and_then(|p| p.get(&req.path))
+            .and_then(|p| p.get(&method_lower))
         {
-            Ok(spec) => {
-                let spec_str = spec.to_string();
-                match serde_json::from_str::<serde_json::Value>(&spec_str) {
-                    Ok(spec) => {
-                        let method_lower = req.method.to_lowercase();
-                        if let Some(op) = spec
-                            .get("paths")
-                            .and_then(|p| p.as_object())
-                            .and_then(|p| p.get(&req.path))
-                            .and_then(|p| p.get(&method_lower))
-                        {
-                            let mut result = serde_json::Map::new();
-                            result.insert("operation".to_string(), op.clone());
-                            if let Some(components) = spec.get("components") {
-                                result.insert("components".to_string(), components.clone());
-                            }
-                            let json = serde_json::to_string(&result).unwrap_or_default();
-                            Ok(DomainApiSpecResponse {
-                                json,
-                                error_message: None,
-                            })
-                        } else {
-                            Ok(DomainApiSpecResponse {
-                                json: "".to_string(),
-                                error_message: Some("Operation not found".to_string()),
-                            })
-                        }
-                    }
-                    Err(_) => Ok(DomainApiSpecResponse {
-                        json: spec_str,
-                        error_message: None,
-                    }),
-                }
+            let mut result = serde_json::Map::new();
+            result.insert("operation".to_string(), op.clone());
+            if let Some(components) = spec.get("components") {
+                result.insert("components".to_string(), components.clone());
             }
-            Err(e) => Err(CowenError::Internal(e.to_string())),
+            let json = serde_json::to_string(&result).unwrap_or_default();
+            Ok(DomainApiSpecResponse {
+                json,
+                error_message: None,
+            })
+        } else {
+            Ok(DomainApiSpecResponse {
+                json: "".to_string(),
+                error_message: Some("Operation not found".to_string()),
+            })
         }
     }
 
@@ -285,10 +277,7 @@ impl NativeApiRegistryCapability for DefaultApiRegistry {
             profile, req.method, req.path
         );
 
-        let config = match self.cfg_mgr.load(&profile).await {
-            Ok(c) => c,
-            Err(e) => return Err(CowenError::NotFound(e.to_string())),
-        };
+        let config = self.load_config(&profile).await?;
 
         let app_cfg = match self.cfg_mgr.load_app_config().await {
             Ok(c) => c,
@@ -334,49 +323,39 @@ impl NativeApiRegistryCapability for DefaultApiRegistry {
     ) -> Result<DomainApiListResponse, CowenError> {
         let profile = req.profile.clone();
 
-        let config = match self.cfg_mgr.load(&profile).await {
-            Ok(c) => c,
-            Err(e) => return Err(CowenError::NotFound(e.to_string())),
+        let config = self.load_config(&profile).await?;
+        let spec = self
+            .get_openapi_spec(&req.profile, &config, req.refresh)
+            .await?;
+
+        let mut ops = crate::internal::openapi_parser::OpenApiParser::parse_operations(&spec);
+
+        let (filtered_ops, used_plugin_name) = self
+            .native_search
+            .search_if_needed(&req.profile, ops, &req.search)
+            .await;
+
+        ops = filtered_ops;
+
+        let total = ops.len() as u32;
+
+        let page = req.page.max(1) as usize;
+        let page_size = req.page_size.max(1) as usize;
+        let start = (page - 1) * page_size;
+        let end = (start + page_size).min(ops.len());
+
+        let paged_ops = if start < ops.len() {
+            ops[start..end].to_vec()
+        } else {
+            Vec::new()
         };
 
-        let auth_cli = cowen_auth::create_auth_client_with_vault(self.vault.clone());
-        match auth_cli
-            .get_openapi_spec(&req.profile, &config, req.refresh)
-            .await
-        {
-            Ok(spec) => {
-                let mut ops =
-                    crate::internal::openapi_parser::OpenApiParser::parse_operations(&spec);
-
-                let (filtered_ops, used_plugin_name) = self
-                    .native_search
-                    .search_if_needed(&req.profile, ops, &req.search)
-                    .await;
-
-                ops = filtered_ops;
-
-                let total = ops.len() as u32;
-
-                let page = req.page.max(1) as usize;
-                let page_size = req.page_size.max(1) as usize;
-                let start = (page - 1) * page_size;
-                let end = (start + page_size).min(ops.len());
-
-                let paged_ops = if start < ops.len() {
-                    ops[start..end].to_vec()
-                } else {
-                    Vec::new()
-                };
-
-                let json = serde_json::to_string(&paged_ops).unwrap_or_default();
-                Ok(DomainApiListResponse {
-                    total,
-                    json,
-                    plugin_used: used_plugin_name,
-                    error_message: None,
-                })
-            }
-            Err(e) => Err(CowenError::Internal(e.to_string())),
-        }
+        let json = serde_json::to_string(&paged_ops).unwrap_or_default();
+        Ok(DomainApiListResponse {
+            total,
+            json,
+            plugin_used: used_plugin_name,
+            error_message: None,
+        })
     }
 }

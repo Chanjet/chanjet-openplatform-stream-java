@@ -17,11 +17,7 @@ impl NativeDlqService for NativeDlqController {
         &self,
         request: Request<DlqListRequest>,
     ) -> Result<Response<DlqListResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_dlq::DomainDlqListRequest {
             profile: inner.profile,
             page_size: inner.page_size,
@@ -44,11 +40,7 @@ impl NativeDlqService for NativeDlqController {
         &self,
         request: Request<DlqViewRequest>,
     ) -> Result<Response<DlqViewResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_dlq::DomainDlqViewRequest {
             profile: inner.profile,
             id: inner.id,
@@ -71,11 +63,7 @@ impl NativeDlqService for NativeDlqController {
         &self,
         request: Request<DlqRetryRequest>,
     ) -> Result<Response<DlqRetryResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_dlq::DomainDlqRetryRequest {
             profile: inner.profile,
             id: inner.id,
@@ -99,11 +87,7 @@ impl NativeDlqService for NativeDlqController {
         &self,
         request: Request<DlqPurgeRequest>,
     ) -> Result<Response<DlqPurgeResponse>, Status> {
-        let claims = request
-            .extensions()
-            .get::<cowen_common::jwt::IpcClaims>()
-            .cloned();
-        let inner = request.into_inner();
+        let (claims, inner) = crate::get_claims_and_inner!(request);
         let domain_req = cowen_capabilities::native_dlq::DomainDlqPurgeRequest {
             profile: inner.profile,
         };

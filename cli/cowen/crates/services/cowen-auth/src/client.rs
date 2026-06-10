@@ -103,6 +103,12 @@ impl HttpSender for MockHttpSender {
     }
 }
 
+async fn parse_response(resp: reqwest::Response) -> CowenResult<SimpleResponse> {
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    Ok(SimpleResponse { status, body })
+}
+
 #[async_trait]
 impl HttpSender for ReqwestSender {
     async fn post(
@@ -111,6 +117,7 @@ impl HttpSender for ReqwestSender {
         headers: reqwest::header::HeaderMap,
         body: serde_json::Value,
     ) -> CowenResult<SimpleResponse> {
+        // HTTP POST with JSON body
         let resp = self
             .client
             .post(url)
@@ -118,9 +125,7 @@ impl HttpSender for ReqwestSender {
             .json(&body)
             .send()
             .await?;
-        let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
-        Ok(SimpleResponse { status, body })
+        parse_response(resp).await
     }
 
     async fn post_form(
@@ -129,6 +134,7 @@ impl HttpSender for ReqwestSender {
         headers: reqwest::header::HeaderMap,
         body: serde_json::Value,
     ) -> CowenResult<SimpleResponse> {
+        // HTTP POST with form body
         let resp = self
             .client
             .post(url)
@@ -136,9 +142,7 @@ impl HttpSender for ReqwestSender {
             .form(&body)
             .send()
             .await?;
-        let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
-        Ok(SimpleResponse { status, body })
+        parse_response(resp).await
     }
 
     async fn get(
@@ -227,6 +231,7 @@ pub trait Client: Send + Sync {
     fn supports_api_call(&self, cfg: &Config) -> bool;
     async fn perform_login(
         &self,
+        // The profile name to login for
         profile: &str,
         cfg: &Config,
         force: bool,
@@ -348,6 +353,7 @@ impl Client for AuthClient {
 
     async fn perform_login(
         &self,
+        // Delegate login execution to the underlying auth provider
         profile: &str,
         cfg: &Config,
         force: bool,

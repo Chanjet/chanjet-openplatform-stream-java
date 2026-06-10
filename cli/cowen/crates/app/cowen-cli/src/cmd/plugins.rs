@@ -10,18 +10,46 @@ use std::os::unix::fs::PermissionsExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::wrappers::ReceiverStream;
 
-fn get_enabled_plugins() -> Vec<String> {
+fn load_enabled_plugins() -> (std::path::PathBuf, serde_yaml::Value, Vec<String>) {
     let app_yaml_path = get_app_dir().join("app.yaml");
     let content = std::fs::read_to_string(&app_yaml_path).unwrap_or_else(|_| "{}".to_string());
-    if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
-        if let Some(plugins) = val.get("plugins").and_then(|v| v.as_sequence()) {
-            return plugins
-                .iter()
+    let val = serde_yaml::from_str::<serde_yaml::Value>(&content)
+        .unwrap_or_else(|_| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
+
+    let enabled_plugins = val
+        .get("plugins")
+        .and_then(|v| v.as_sequence())
+        .map(|seq| {
+            seq.iter()
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect();
-        }
+                .collect()
+        })
+        .unwrap_or_default();
+    (app_yaml_path, val, enabled_plugins)
+}
+
+fn save_enabled_plugins(
+    app_yaml_path: &std::path::Path,
+    mut val: serde_yaml::Value,
+    enabled_plugins: Vec<String>,
+) -> Result<()> {
+    if let serde_yaml::Value::Mapping(ref mut map) = val {
+        let seq = enabled_plugins
+            .into_iter()
+            .map(serde_yaml::Value::String)
+            .collect();
+        map.insert(
+            serde_yaml::Value::String("plugins".to_string()),
+            serde_yaml::Value::Sequence(seq),
+        );
     }
-    vec![]
+    std::fs::write(app_yaml_path, serde_yaml::to_string(&val)?)?;
+    Ok(())
+}
+
+fn get_enabled_plugins() -> Vec<String> {
+    let (_, _, plugins) = load_enabled_plugins();
+    plugins
 }
 
 fn parse_capabilities_and_transport(m: &serde_json::Value, display_trait: &mut String) {
@@ -182,36 +210,11 @@ pub async fn enable(name: &String) -> Result<()> {
     if expected_path.exists() {
         let port_path = crate::get_ipc_port_path();
         let _ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
-        // Instead of writing app.yaml, tell daemon to set it?
-        // Wait, Daemon has SetGlobalConfig but plugins is a list.
-        // We will just read/write locally using serde_yaml.
-        let app_yaml_path = get_app_dir().join("app.yaml");
-        let content = std::fs::read_to_string(&app_yaml_path).unwrap_or_else(|_| "{}".to_string());
-        let mut val = serde_yaml::from_str::<serde_yaml::Value>(&content)
-            .unwrap_or_else(|_| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
 
-        let mut enabled_plugins: Vec<String> = val
-            .get("plugins")
-            .and_then(|v| v.as_sequence())
-            .map(|seq| {
-                seq.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let (app_yaml_path, val, mut enabled_plugins) = load_enabled_plugins();
         if !enabled_plugins.contains(name) {
             enabled_plugins.push(name.to_string());
-            if let serde_yaml::Value::Mapping(ref mut map) = val {
-                let seq = enabled_plugins
-                    .into_iter()
-                    .map(serde_yaml::Value::String)
-                    .collect();
-                map.insert(
-                    serde_yaml::Value::String("plugins".to_string()),
-                    serde_yaml::Value::Sequence(seq),
-                );
-            }
-            std::fs::write(&app_yaml_path, serde_yaml::to_string(&val)?)?;
+            save_enabled_plugins(&app_yaml_path, val, enabled_plugins)?;
             println!("✅ Enabled plugin '{}'.", name);
             println!(
                 "🚀 Plugin configuration updated. Restart daemon to take effect if necessary."
@@ -227,33 +230,10 @@ pub async fn enable(name: &String) -> Result<()> {
 }
 
 pub async fn disable(name: &String) -> Result<()> {
-    let app_yaml_path = get_app_dir().join("app.yaml");
-    let content = std::fs::read_to_string(&app_yaml_path).unwrap_or_else(|_| "{}".to_string());
-    let mut val = serde_yaml::from_str::<serde_yaml::Value>(&content)
-        .unwrap_or_else(|_| serde_yaml::Value::Mapping(serde_yaml::Mapping::new()));
-
-    let mut enabled_plugins: Vec<String> = val
-        .get("plugins")
-        .and_then(|v| v.as_sequence())
-        .map(|seq| {
-            seq.iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default();
+    let (app_yaml_path, val, mut enabled_plugins) = load_enabled_plugins();
     if enabled_plugins.contains(name) {
         enabled_plugins.retain(|n| n != name);
-        if let serde_yaml::Value::Mapping(ref mut map) = val {
-            let seq = enabled_plugins
-                .into_iter()
-                .map(serde_yaml::Value::String)
-                .collect();
-            map.insert(
-                serde_yaml::Value::String("plugins".to_string()),
-                serde_yaml::Value::Sequence(seq),
-            );
-        }
-        std::fs::write(&app_yaml_path, serde_yaml::to_string(&val)?)?;
+        save_enabled_plugins(&app_yaml_path, val, enabled_plugins)?;
         println!("✅ Disabled plugin '{}'.", name);
         println!("🚀 Plugin configuration updated. Restart daemon to take effect if necessary.");
     } else {
