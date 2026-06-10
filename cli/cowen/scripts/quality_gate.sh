@@ -86,30 +86,43 @@ fi
 echo ""
 
 echo ""
-echo "[Bonus] Checking unused dependencies (cargo machete)..."
-if command -v cargo-machete &> /dev/null; then
-    if ! cargo machete; then
-        echo "⚠️  Unused dependencies found! (Non-blocking for now)"
-    fi
+echo "[7/8] Checking unused dependencies (cargo machete)..."
+if ! command -v cargo-machete &> /dev/null; then
+    echo "cargo-machete not found globally, installing..."
+    cargo install cargo-machete
+fi
+
+if ! cargo machete; then
+    echo "❌ Unused dependencies found! Please remove them from Cargo.toml."
+    exit 1
 else
-    echo "cargo-machete not installed. Skipping..."
+    echo "✅ Unused dependencies check passed."
 fi
 
 echo ""
-echo "[Bonus] Checking dependency sorting (cargo sort)..."
-if command -v cargo-sort &> /dev/null; then
-    if ! cargo sort --workspace --check; then
-        echo "⚠️  Cargo.toml dependencies are not sorted! (Non-blocking for now)"
-    fi
-else
-    echo "cargo-sort not installed. Skipping..."
+echo "[8/8] Checking dependency sorting (cargo sort)..."
+if ! command -v cargo-sort &> /dev/null; then
+    echo "cargo-sort not found globally, installing..."
+    cargo install cargo-sort
 fi
 
-echo "[Bonus] Checking security and dependencies (Warn only)..."
+if ! cargo sort --workspace --check; then
+    echo "❌ Cargo.toml dependencies are not sorted! Please run 'cargo sort --workspace'."
+    exit 1
+else
+    echo "✅ Dependency sorting check passed."
+fi
+
+echo "[Bonus] Checking security and dependencies..."
 if command -v cargo-audit &> /dev/null; then
     if ! cargo audit; then
-        echo "⚠️  Cargo audit found vulnerabilities! (Non-blocking for now)"
+        echo "⚠️  cargo audit failed (likely a network fetch error). Retrying offline with --no-fetch..."
+        if ! cargo audit --no-fetch; then
+            echo "❌ Cargo audit found vulnerabilities! Please fix them or add to .cargo/audit.toml ignores."
+            exit 1
+        fi
     fi
+    echo "✅ Cargo audit check passed."
 else
     echo "cargo-audit not installed. Skipping..."
 fi

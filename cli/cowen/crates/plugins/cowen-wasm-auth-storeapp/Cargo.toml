@@ -3,6 +3,9 @@ name = "cowen-wasm-auth-storeapp"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.cargo-machete]
+ignored = ["extism-pdk", "serde", "serde_json"]
+
 [lib]
 crate-type = ["cdylib"]
 

@@ -1,13 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/adapters/cowen-grpc-facade",
+    "crates/adapters/cowen-wasm-facade",
+    "crates/app/*",
     "crates/core/*",
-    "crates/services/*",
     "crates/plugins/*",
     "crates/plugins/cowen-search-embedding/crates/*",
-    "crates/app/*",
-    "crates/tools/*"
-, "crates/adapters/cowen-grpc-facade", "crates/adapters/cowen-wasm-facade"]
+    "crates/services/*",
+    "crates/tools/*",
+]
 
 [profile.release]
 strip = true

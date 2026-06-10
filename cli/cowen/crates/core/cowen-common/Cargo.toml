@@ -3,36 +3,8 @@ name = "cowen-common"
 version = "0.4.0"
 edition = "2021"
 
-[dependencies]
-cowen-infra = { path = "../../core/cowen-infra" }
-cowen-sys = { path = "../../core/cowen-sys" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-anyhow = "1.0"
-tracing = "0.1"
-chrono = { version = "0.4", features = ["serde", "clock"] }
-async-trait = "0.1"
-base64 = "0.22"
-sha2 = "0.10"
-aes-gcm = "0.10"
-rand = "0.8"
-
-hostname = "0.4"
-thiserror = "2.0"
-uuid = { version = "1.12", features = ["v4"] }
-serde_yaml = "0.9"
-inventory = "0.3"
-tokio = { version = "1.0", features = ["sync"] }
-sysinfo = "0.38"
-ipnet = "2.12"
-url = "2.5"
-reqwest = { version = "0.12", optional = true }
-sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "tls-rustls"] }
-redis = { version = "0.27", optional = true }
-jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
-ring = "0.17.14"
-tonic = "0.12"
-prost = "0.13"
+[package.metadata.cargo-machete]
+ignored = ["prost"]
 
 [features]
 reqwest = ["dep:reqwest"]
@@ -42,6 +14,36 @@ sqlite = ["sqlx", "sqlx/sqlite"]
 postgres = ["sqlx", "sqlx/postgres"]
 mysql = ["sqlx", "sqlx/mysql"]
 mssql = []
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow = "1.0"
+async-trait = "0.1"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+cowen-infra = { path = "../../core/cowen-infra" }
+cowen-sys = { path = "../../core/cowen-sys" }
+inventory = "0.3"
+ipnet = "2.12"
+jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
+prost = "0.13"
+rand = "0.8"
+redis = { version = "0.27", optional = true }
+reqwest = { version = "0.12", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# uuid = { version = "1.12", features = ["v4"] }
+serde_yaml = "0.9"
+sha2 = "0.10"
+sqlx = { version = "0.8", optional = true, features = ["runtime-tokio", "tls-rustls"] }
+sysinfo = "0.38"
+# hostname = "0.4"
+thiserror = "2.0"
+tokio = { version = "1.0", features = ["sync"] }
+# ring = "0.17.14"
+tonic = "0.12"
+tracing = "0.1"
+url = "2.5"
 
 [build-dependencies]
 chrono = "0.4"
