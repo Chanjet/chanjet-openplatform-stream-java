@@ -69,9 +69,10 @@ impl ConfigManager {
         let initial_app_cfg = Self::load_app_config_sync(&app_dir).unwrap_or_default();
         let (app_config_tx, _) = tokio::sync::watch::channel(initial_app_cfg);
 
-        let mut default_interceptors: Vec<Arc<dyn ConfigInterceptor>> = Vec::new();
-        default_interceptors.push(Arc::new(crate::interceptors::PortInterceptor));
-        default_interceptors.push(Arc::new(crate::interceptors::UrlInterceptor));
+        let default_interceptors: Vec<Arc<dyn ConfigInterceptor>> = vec![
+            Arc::new(crate::interceptors::PortInterceptor),
+            Arc::new(crate::interceptors::UrlInterceptor),
+        ];
 
         let strategies: Vec<Box<dyn ConfigStrategy>> = vec![
             Box::new(GlobalAppConfigStrategy),

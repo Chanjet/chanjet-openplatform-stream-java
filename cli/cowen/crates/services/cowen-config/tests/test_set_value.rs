@@ -1,3 +1,5 @@
+#![allow(clippy::await_holding_lock)]
+
 use cowen_config::ConfigManager;
 use std::fs;
 use std::sync::{Mutex, OnceLock};

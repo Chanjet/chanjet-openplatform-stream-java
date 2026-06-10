@@ -1,4 +1,3 @@
-#![cfg(feature = "redis")]
 use async_trait::async_trait;
 use cowen_common::{CowenError, CowenResult};
 
@@ -12,6 +11,50 @@ pub struct RedisStore {
 }
 
 impl RedisStore {
+    async fn _get_dlq_list(
+        &self,
+        pattern: &str,
+        limit: Option<usize>,
+    ) -> CowenResult<Vec<DlqMessage>> {
+        let mut conn = self.conn.clone();
+        let keys: Vec<String> = redis::cmd("KEYS")
+            .arg(pattern)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut msgs = Vec::new();
+        for k in keys {
+            let end = if let Some(lim) = limit {
+                lim as isize - 1
+            } else {
+                -1
+            };
+            let list: Vec<String> = redis::cmd("LRANGE")
+                .arg(&k)
+                .arg(0)
+                .arg(end)
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| CowenError::Store(e.to_string()))?;
+            for json in list {
+                if let Ok(m) = serde_json::from_str::<DlqMessage>(&json) {
+                    msgs.push(m);
+                }
+                if let Some(lim) = limit {
+                    if msgs.len() >= lim {
+                        break;
+                    }
+                }
+            }
+            if let Some(lim) = limit {
+                if msgs.len() >= lim {
+                    break;
+                }
+            }
+        }
+        Ok(msgs)
+    }
+
     pub fn new(conn: MultiplexedConnection, url: String) -> Self {
         Self { conn, url }
     }
@@ -386,89 +429,20 @@ impl Store for RedisStore {
     }
 
     async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>> {
-        let mut conn = self.conn.clone();
-        let pattern = format!("{}:dlq:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS")
-            .arg(&pattern)
-            .query_async(&mut conn)
+        self._get_dlq_list(&format!("{}:dlq:*", profile), Some(limit))
             .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let mut msgs = Vec::new();
-        for k in keys {
-            let list: Vec<String> = redis::cmd("LRANGE")
-                .arg(&k)
-                .arg(0)
-                .arg(limit as isize - 1)
-                .query_async(&mut conn)
-                .await
-                .map_err(|e| CowenError::Store(e.to_string()))?;
-            for json in list {
-                if let Ok(m) = serde_json::from_str::<DlqMessage>(&json) {
-                    msgs.push(m);
-                }
-                if msgs.len() >= limit {
-                    break;
-                }
-            }
-            if msgs.len() >= limit {
-                break;
-            }
-        }
-        Ok(msgs)
     }
 
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>> {
-        let mut conn = self.conn.clone();
-        let pattern = format!("{}:dlq:*", profile);
-        let keys: Vec<String> = redis::cmd("KEYS")
-            .arg(&pattern)
-            .query_async(&mut conn)
+        self._get_dlq_list(&format!("{}:dlq:*", profile), None)
             .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let mut msgs = Vec::new();
-        for k in keys {
-            let list: Vec<String> = redis::cmd("LRANGE")
-                .arg(&k)
-                .arg(0)
-                .arg(-1)
-                .query_async(&mut conn)
-                .await
-                .map_err(|e| CowenError::Store(e.to_string()))?;
-            for json in list {
-                if let Ok(m) = serde_json::from_str::<DlqMessage>(&json) {
-                    msgs.push(m);
-                }
-            }
-        }
-        Ok(msgs)
     }
 
     async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> {
         // Redis implementation is list-based per topic, so we have to scan
         // This is inefficient but Redis is not the primary target for this large-scale DLQ optimization
-        let mut conn = self.conn.clone();
-        let keys: Vec<String> = redis::cmd("KEYS")
-            .arg("*:dlq:*")
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        for k in keys {
-            let list: Vec<String> = redis::cmd("LRANGE")
-                .arg(&k)
-                .arg(0)
-                .arg(-1)
-                .query_async(&mut conn)
-                .await
-                .map_err(|e| CowenError::Store(e.to_string()))?;
-            for json in list {
-                if let Ok(m) = serde_json::from_str::<DlqMessage>(&json) {
-                    if m.id == Some(id) {
-                        return Ok(Some(m));
-                    }
-                }
-            }
-        }
-        Ok(None)
+        let msgs = self._get_dlq_list("*:dlq:*", None).await?;
+        Ok(msgs.into_iter().find(|m| m.id == Some(id)))
     }
 
     async fn list_dlq_paged(

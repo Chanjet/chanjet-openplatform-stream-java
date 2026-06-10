@@ -1140,10 +1140,10 @@ async fn wait_for_daemon_ipc_auth(
         }
         _ = tokio::signal::ctrl_c() => {
             println!("\n🛑 Authorization cancelled by user.");
-            return Err(CowenError::Auth("Authorization cancelled".to_string()));
+            Err(CowenError::Auth("Authorization cancelled".to_string()))
         }
         _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-            return Err(CowenError::Auth("Timeout waiting for browser redirect (5 mins)".to_string()));
+            Err(CowenError::Auth("Timeout waiting for browser redirect (5 mins)".to_string()))
         }
     }
 }

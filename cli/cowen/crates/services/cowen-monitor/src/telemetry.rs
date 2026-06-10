@@ -248,10 +248,11 @@ mod tests {
     #[tokio::test]
     async fn test_report_event_timeout_and_spin_prevention() {
         let config = cowen_common::Config::default_with_profile("testprof");
-        let mut app_cfg = cowen_common::config::AppConfig::default();
-        app_cfg.telemetry_enabled = true;
-        // Use an unroutable IP to simulate a network blackhole / connection block
-        app_cfg.stream_url = "http://10.255.255.1:9999".to_string();
+        let app_cfg = cowen_common::config::AppConfig {
+            telemetry_enabled: true,
+            stream_url: "http://10.255.255.1:9999".to_string(),
+            ..Default::default()
+        };
 
         let start = std::time::Instant::now();
 

@@ -1,4 +1,3 @@
-#![cfg(feature = "mssql")]
 use async_trait::async_trait;
 use cowen_common::{CowenError, CowenResult};
 
@@ -8,50 +7,24 @@ use cowen_common::models::{AuditEntry, DlqMessage, Item, Ticket, Token};
 use deadpool_tiberius::Pool;
 use std::sync::Arc;
 
+macro_rules! get_conn {
+    ($self:expr) => {
+        $self
+            .pool
+            .get()
+            .await
+            .map_err(|e| CowenError::Store(e.to_string()))?
+    };
+}
+
 macro_rules! tiberius_get_string {
-    ($pool:expr, $sql:expr, $p1:expr, $p2:expr, $err_msg:expr) => {{
+    ($pool:expr, $sql:expr, $err_msg:expr $(, $p:expr)*) => {{
         let mut conn = $pool
             .get()
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;
         let row = conn
-            .query($sql, &[&$p1, &$p2])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound($err_msg.to_string()))?;
-        let val: &str = row
-            .get(0)
-            .ok_or_else(|| CowenError::Store("Null value".to_string()))?;
-        Ok(val.to_string())
-    }};
-    ($pool:expr, $sql:expr, $p1:expr, $err_msg:expr) => {{
-        let mut conn = $pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let row = conn
-            .query($sql, &[&$p1])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .into_row()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?
-            .ok_or_else(|| CowenError::NotFound($err_msg.to_string()))?;
-        let val: &str = row
-            .get(0)
-            .ok_or_else(|| CowenError::Store("Null value".to_string()))?;
-        Ok(val.to_string())
-    }};
-    ($pool:expr, $sql:expr, $p1:expr, $p2:expr, $p3:expr, $err_msg:expr) => {{
-        let mut conn = $pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        let row = conn
-            .query($sql, &[&$p1, &$p2, &$p3])
+            .query($sql, &[ $(&$p),* ])
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?
             .into_row()
@@ -66,42 +39,12 @@ macro_rules! tiberius_get_string {
 }
 
 macro_rules! tiberius_execute {
-    ($pool:expr, $sql:expr, $p1:expr) => {{
+    ($pool:expr, $sql:expr $(, $p:expr)*) => {{
         let mut conn = $pool
             .get()
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute($sql, &[&$p1])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
-    }};
-    ($pool:expr, $sql:expr, $p1:expr, $p2:expr) => {{
-        let mut conn = $pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute($sql, &[&$p1, &$p2])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
-    }};
-    ($pool:expr, $sql:expr, $p1:expr, $p2:expr, $p3:expr) => {{
-        let mut conn = $pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute($sql, &[&$p1, &$p2, &$p3])
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        Ok(())
-    }};
-    ($pool:expr, $sql:expr, $p1:expr, $p2:expr, $p3:expr, $p4:expr) => {{
-        let mut conn = $pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
-        conn.execute($sql, &[&$p1, &$p2, &$p3, &$p4])
+        conn.execute($sql, &[ $(&$p),* ])
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;
         Ok(())
@@ -109,13 +52,13 @@ macro_rules! tiberius_execute {
 }
 
 macro_rules! tiberius_list_strings {
-    ($pool:expr, $sql:expr, $p1:expr) => {{
+    ($pool:expr, $sql:expr $(, $p:expr)*) => {{
         let mut conn = $pool
             .get()
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;
         let stream = conn
-            .query($sql, &[&$p1])
+            .query($sql, &[ $(&$p),* ])
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;
         let rows = stream
@@ -142,11 +85,7 @@ impl MssqlDriver {
 #[async_trait]
 impl crate::sql::migration_trait::SchemaMigration for MssqlDriver {
     async fn get_current_version(&self) -> CowenResult<u32> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
 
         let stream = conn.query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'schema_migrations'", &[]).await.map_err(|e| CowenError::Store(e.to_string()))?;
         let rows = stream
@@ -180,11 +119,7 @@ impl crate::sql::migration_trait::SchemaMigration for MssqlDriver {
     }
 
     async fn apply_sql(&self, sql: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         conn.execute(sql, &[])
             .await
             .map_err(|e| CowenError::Store(format!("SQL apply error: {} ({})", e, sql)))?;
@@ -192,11 +127,7 @@ impl crate::sql::migration_trait::SchemaMigration for MssqlDriver {
     }
 
     async fn set_version(&self, version: u32) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let ver = version as i32;
         conn.execute(
             "INSERT INTO schema_migrations (version) VALUES (@p1)",
@@ -374,18 +305,14 @@ impl SqlDriver for MssqlDriver {
         tiberius_get_string!(
             self.pool,
             "SELECT item_value FROM cowen_config WHERE profile = @p1 AND item_key = @p2",
+            format!("Key '{}' not found in profile '{}'", key, profile),
             profile,
-            key,
-            format!("Key '{}' not found in profile '{}'", key, profile)
+            key
         )
     }
 
     async fn get_config_metadata(&self, profile: &str, key: &str) -> CowenResult<(u64, i64)> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let row = conn.query("SELECT version, updated_at FROM cowen_config WHERE profile = @p1 AND item_key = @p2", &[&profile, &key])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
@@ -397,11 +324,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_config_full(&self, profile: &str, key: &str) -> CowenResult<Item> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let row = conn.query("SELECT profile, item_key, item_value, version, updated_at FROM cowen_config WHERE profile = @p1 AND item_key = @p2", &[&profile, &key])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
@@ -437,11 +360,7 @@ impl SqlDriver for MssqlDriver {
         value: &str,
         expected_version: u64,
     ) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let res = conn.execute("UPDATE cowen_config SET item_value = @p1, version = version + 1, updated_at = GETUTCDATE() WHERE profile = @p2 AND item_key = @p3 AND version = @p4",
             &[&value, &profile, &key, &(expected_version as i64)]
         ).await.map_err(|e| CowenError::Store(e.to_string()))?;
@@ -475,9 +394,9 @@ impl SqlDriver for MssqlDriver {
         tiberius_get_string!(
             self.pool,
             "SELECT item_value FROM cowen_secret WHERE profile = @p1 AND item_key = @p2",
+            format!("Key '{}' not found in profile '{}'", key, profile),
             profile,
-            key,
-            format!("Key '{}' not found in profile '{}'", key, profile)
+            key
         )
     }
 
@@ -510,11 +429,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_access_token(&self, profile: &str) -> CowenResult<Token> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let row = conn.query("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'access_token'", &[&profile])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
@@ -547,11 +462,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_refresh_token(&self, profile: &str) -> CowenResult<Token> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let row = conn.query("SELECT token_value, expires_at, created_at FROM cowen_tenant_token WHERE profile = @p1 AND token_type = 'refresh_token'", &[&profile])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
@@ -584,11 +495,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_app_access_token(&self, app_key: &str) -> CowenResult<Token> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let row = conn.query("SELECT token_value, expires_at, created_at FROM cowen_app_token WHERE app_key = @p1", &[&app_key])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?
@@ -621,11 +528,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_app_ticket(&self, app_key: &str) -> CowenResult<Ticket> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let row = conn
             .query(
                 "SELECT ticket_value, created_at FROM cowen_ticket WHERE app_key = @p1",
@@ -666,7 +569,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_org_permanent_code(&self, app_key: &str, org_id: &str) -> CowenResult<String> {
-        tiberius_get_string!(self.pool, "SELECT item_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND code_type = 'org_permanent'", app_key, org_id, format!("OrgPermanentCode not found for app '{}' and org '{}'", app_key, org_id))
+        tiberius_get_string!(self.pool, "SELECT item_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND code_type = 'org_permanent'", format!("OrgPermanentCode not found for app '{}' and org '{}'", app_key, org_id), app_key, org_id)
     }
 
     async fn save_org_permanent_code(
@@ -675,11 +578,7 @@ impl SqlDriver for MssqlDriver {
         org_id: &str,
         code: &str,
     ) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         conn.execute("MERGE cowen_permanent_code AS target
                       USING (SELECT @p1, @p2, 'org_permanent', @p3) AS source (app_key, org_id, code_type, code_value)
                       ON (target.app_key = source.app_key AND target.org_id = source.org_id AND target.code_type = source.code_type)
@@ -698,7 +597,7 @@ impl SqlDriver for MssqlDriver {
         org_id: &str,
         user_id: &str,
     ) -> CowenResult<String> {
-        tiberius_get_string!(self.pool, "SELECT code_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND user_id = @p3 AND code_type = 'user_permanent'", app_key, org_id, user_id, format!("UserPermanentCode not found for app '{}', org '{}' and user '{}'", app_key, org_id, user_id))
+        tiberius_get_string!(self.pool, "SELECT code_value FROM cowen_permanent_code WHERE app_key = @p1 AND org_id = @p2 AND user_id = @p3 AND code_type = 'user_permanent'", format!("UserPermanentCode not found for app '{}', org '{}' and user '{}'", app_key, org_id, user_id), app_key, org_id, user_id)
     }
 
     async fn save_user_permanent_code(
@@ -708,11 +607,7 @@ impl SqlDriver for MssqlDriver {
         user_id: &str,
         code: &str,
     ) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         conn.execute("MERGE cowen_permanent_code AS target
                       USING (SELECT @p1, @p2, @p3, 'user_permanent', @p4) AS source (app_key, org_id, user_id, code_type, code_value)
                       ON (target.app_key = source.app_key AND target.org_id = source.org_id AND target.user_id = source.user_id AND target.code_type = source.code_type)
@@ -729,9 +624,9 @@ impl SqlDriver for MssqlDriver {
         tiberius_get_string!(
             self.pool,
             "SELECT item_value FROM cowen_token WHERE profile = @p1 AND item_key = @p2",
+            format!("Key '{}' not found in profile '{}'", key, profile),
             profile,
-            key,
-            format!("Key '{}' not found in profile '{}'", key, profile)
+            key
         )
     }
 
@@ -742,11 +637,7 @@ impl SqlDriver for MssqlDriver {
         value: &str,
         expires_in_secs: u64,
     ) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let exp = Utc::now() + chrono::Duration::seconds(expires_in_secs as i64);
         conn.execute("MERGE cowen_token AS target
                       USING (SELECT @p1, @p2, @p3, @p4) AS source (profile, item_key, item_value, expires_at)
@@ -778,11 +669,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn save_audit(&self, entry: &AuditEntry) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let fields_json = serde_json::to_string(&entry.fields).unwrap_or_default();
         conn.execute("INSERT INTO cowen_audit (id, profile, [timestamp], level, target, message, fields) VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7)",
             &[&entry.id.as_str(), &entry.profile.as_str(), &entry.timestamp, &entry.level.as_str(), &entry.target.as_str(), &entry.message.as_str(), &fields_json.as_str()]
@@ -791,11 +678,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn list_audit(&self, profile: &str, limit: usize) -> CowenResult<Vec<AuditEntry>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let rows = conn.query("SELECT TOP (@p1) id, profile, [timestamp], level, target, message, fields FROM cowen_audit WHERE profile = @p2 ORDER BY [timestamp] DESC", &[&(limit as i64), &profile])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
@@ -816,11 +699,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn push_dlq(&self, msg: &DlqMessage) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         conn.execute("INSERT INTO cowen_dlq (profile, topic, payload, retry_count, error, created_at) VALUES (@p1, @p2, @p3, @p4, @p5, @p6)",
             &[&msg.profile.as_str(), &msg.topic.as_str(), &msg.payload.as_str(), &msg.retry_count, &msg.error, &msg.created_at]
         ).await.map_err(|e| CowenError::Store(e.to_string()))?;
@@ -828,11 +707,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn pop_dlq(&self, profile: &str, topic: &str) -> CowenResult<Option<DlqMessage>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let row = conn.query("SELECT TOP (1) id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p1 AND topic = @p2", &[&profile, &topic])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?;
@@ -858,11 +733,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn list_dlq(&self, profile: &str, limit: usize) -> CowenResult<Vec<DlqMessage>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let rows = conn.query("SELECT TOP (@p1) id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p2", &[&(limit as i64), &profile])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
@@ -882,11 +753,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn list_all_dlq(&self, profile: &str) -> CowenResult<Vec<DlqMessage>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let rows = conn.query("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p1", &[&profile])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_first_result().await.map_err(|e| CowenError::Store(e.to_string()))?;
@@ -906,11 +773,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn get_dlq_by_id(&self, id: i64) -> CowenResult<Option<DlqMessage>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let row = conn.query("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE id = @p1", &[&id])
             .await.map_err(|e| CowenError::Store(e.to_string()))?
             .into_row().await.map_err(|e| CowenError::Store(e.to_string()))?;
@@ -932,11 +795,7 @@ impl SqlDriver for MssqlDriver {
         offset: usize,
         limit: usize,
     ) -> CowenResult<Vec<DlqMessage>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let offset_val = offset as i64;
         let limit_val = limit as i64;
         let rows = conn.query("SELECT id, profile, topic, payload, retry_count, error, created_at FROM cowen_dlq WHERE profile = @p1 ORDER BY id OFFSET @p2 ROWS FETCH NEXT @p3 ROWS ONLY", &[&profile, &offset_val, &limit_val])
@@ -958,11 +817,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn delete_dlq_by_id(&self, id: i64) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         conn.execute("DELETE FROM cowen_dlq WHERE id = @p1", &[&id])
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;
@@ -974,11 +829,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn clear_profile(&self, profile: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         conn.execute("DELETE FROM cowen_config WHERE profile = @p1", &[&profile])
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;
@@ -998,11 +849,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn rename_profile(&self, old_name: &str, new_name: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         conn.execute(
             "UPDATE cowen_config SET profile = @p1 WHERE profile = @p2",
             &[&new_name, &old_name],
@@ -1043,11 +890,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn list_all_profiles(&self) -> CowenResult<Vec<String>> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         let rows = conn
             .query("SELECT DISTINCT profile FROM cowen_config", &[])
             .await
@@ -1062,11 +905,7 @@ impl SqlDriver for MssqlDriver {
     }
 
     async fn raw_del(&self, key: &str) -> CowenResult<()> {
-        let mut conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| CowenError::Store(e.to_string()))?;
+        let mut conn = get_conn!(self);
         conn.execute("DELETE FROM cowen_config WHERE item_key = @p1", &[&key])
             .await
             .map_err(|e| CowenError::Store(e.to_string()))?;

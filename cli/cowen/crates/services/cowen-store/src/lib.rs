@@ -112,10 +112,10 @@ fn resolve_innerdb_url(url: &str, app_dir: &std::path::Path) -> String {
 
 fn normalize_sqlite_url(mut actual_url: String, app_dir: &std::path::Path) -> String {
     if actual_url.starts_with("sqlite:") {
-        let path_part = if actual_url.starts_with("sqlite://") {
-            actual_url[9..].to_string()
-        } else if actual_url.starts_with("sqlite:") {
-            actual_url[7..].to_string()
+        let path_part = if let Some(stripped) = actual_url.strip_prefix("sqlite://") {
+            stripped.to_string()
+        } else if let Some(stripped) = actual_url.strip_prefix("sqlite:") {
+            stripped.to_string()
         } else {
             actual_url.clone()
         };

@@ -23,7 +23,15 @@ impl ShutdownGate {
             zero_notify: Arc::new(Notify::new()),
         }
     }
+}
 
+impl Default for ShutdownGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ShutdownGate {
     /// Enters the gate, indicating that a new task has started.
     /// This should be called before an asynchronous task begins its core logic.
     /// Returns a `GateGuard` which will automatically decrement the count when dropped.

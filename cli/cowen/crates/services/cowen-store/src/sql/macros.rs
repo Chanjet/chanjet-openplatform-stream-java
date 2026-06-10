@@ -174,7 +174,7 @@ macro_rules! define_sql_driver {
                     .bind(profile)
                     .bind(key)
                     .fetch_one(&self.pool).await
-                    .map_err(|e| crate::sql::macros::map_not_found(e, &format!("Key '{}' not found in profile '{}'", key, profile)))?;
+                    .map_err(|e| $crate::sql::macros::map_not_found(e, &format!("Key '{}' not found in profile '{}'", key, profile)))?;
                 Ok(cowen_common::models::Item {
                     profile: row.0,
                     key: row.1,
@@ -274,7 +274,7 @@ macro_rules! define_sql_driver {
                 let row: (String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) = sqlx::query_as(&sql)
                     .bind(app_key)
                     .fetch_one(&self.pool).await
-                    .map_err(|e| crate::sql::macros::map_not_found(e, &format!("AppToken not found for key '{}'", app_key)))?;
+                    .map_err(|e| $crate::sql::macros::map_not_found(e, &format!("AppToken not found for key '{}'", app_key)))?;
                 Ok(cowen_common::models::Token { value: row.0, expires_at: row.1, created_at: row.2 })
             }
 
@@ -301,7 +301,7 @@ macro_rules! define_sql_driver {
                 let row: (String, chrono::DateTime<chrono::Utc>) = sqlx::query_as(&sql)
                     .bind(app_key)
                     .fetch_one(&self.pool).await
-                    .map_err(|e| crate::sql::macros::map_not_found(e, &format!("AppTicket not found for key '{}'", app_key)))?;
+                    .map_err(|e| $crate::sql::macros::map_not_found(e, &format!("AppTicket not found for key '{}'", app_key)))?;
                 Ok(cowen_common::models::Ticket { value: row.0, created_at: row.1 })
             }
 
@@ -328,7 +328,7 @@ macro_rules! define_sql_driver {
                 let row: (String,) = sqlx::query_as(&sql)
                     .bind(app_key).bind(org_id)
                     .fetch_one(&self.pool).await
-                    .map_err(|e| crate::sql::macros::map_not_found(e, &format!("OrgPermanentCode not found for app '{}' and org '{}'", app_key, org_id)))?;
+                    .map_err(|e| $crate::sql::macros::map_not_found(e, &format!("OrgPermanentCode not found for app '{}' and org '{}'", app_key, org_id)))?;
                 Ok(row.0)
             }
 
@@ -346,7 +346,7 @@ macro_rules! define_sql_driver {
                 let row: (String,) = sqlx::query_as(&sql)
                     .bind(app_key).bind(org_id).bind(user_id)
                     .fetch_one(&self.pool).await
-                    .map_err(|e| crate::sql::macros::map_not_found(e, &format!("UserPermanentCode not found for app '{}', org '{}' and user '{}'", app_key, org_id, user_id)))?;
+                    .map_err(|e| $crate::sql::macros::map_not_found(e, &format!("UserPermanentCode not found for app '{}', org '{}' and user '{}'", app_key, org_id, user_id)))?;
                 Ok(row.0)
             }
 
@@ -448,7 +448,7 @@ macro_rules! define_sql_driver {
                     .fetch_all(&self.pool).await
                     .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
 
-                Ok(rows.into_iter().map(crate::sql::macros::map_dlq_row).collect())
+                Ok(rows.into_iter().map($crate::sql::macros::map_dlq_row).collect())
             }
 
             async fn list_all_dlq(&self, profile: &str) -> cowen_common::CowenResult<Vec<cowen_common::models::DlqMessage>> {
@@ -458,7 +458,7 @@ macro_rules! define_sql_driver {
                     .fetch_all(&self.pool).await
                     .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
 
-                Ok(rows.into_iter().map(crate::sql::macros::map_dlq_row).collect())
+                Ok(rows.into_iter().map($crate::sql::macros::map_dlq_row).collect())
             }
 
             async fn get_dlq_by_id(&self, id: i64) -> cowen_common::CowenResult<Option<cowen_common::models::DlqMessage>> {
@@ -480,7 +480,7 @@ macro_rules! define_sql_driver {
                     .fetch_all(&self.pool).await
                     .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
 
-                Ok(rows.into_iter().map(crate::sql::macros::map_dlq_row).collect())
+                Ok(rows.into_iter().map($crate::sql::macros::map_dlq_row).collect())
             }
 
             async fn delete_dlq_by_id(&self, id: i64) -> cowen_common::CowenResult<()> {
@@ -493,7 +493,7 @@ macro_rules! define_sql_driver {
             }
 
             async fn migrate(&self) -> cowen_common::CowenResult<()> {
-                use crate::sql::migration_trait::SchemaMigration;
+                use $crate::sql::migration_trait::SchemaMigration;
                 self.run_migration().await
             }
 

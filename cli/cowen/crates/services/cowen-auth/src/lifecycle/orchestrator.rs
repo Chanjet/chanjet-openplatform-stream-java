@@ -172,7 +172,7 @@ fn check_failure_log_growth(
         .seek(std::io::SeekFrom::Start(*last_log_size))
         .map_err(CowenError::from)?;
 
-    for l in reader.lines().flatten() {
+    for l in reader.lines().map_while(Result::ok) {
         if l.contains("ERROR") {
             println!("\n❌ 令牌交换失败！");
             println!("\x1b[31m🔍 错误原因: {}\x1b[0m", l);
@@ -244,7 +244,7 @@ pub fn render_last_auth_error(profile: &str) -> CowenResult<()> {
     let reader = std::io::BufReader::new(file);
     let mut errors = Vec::new();
 
-    for l in reader.lines().flatten() {
+    for l in reader.lines().map_while(Result::ok) {
         if l.contains("ERROR") {
             errors.push(l);
         }
