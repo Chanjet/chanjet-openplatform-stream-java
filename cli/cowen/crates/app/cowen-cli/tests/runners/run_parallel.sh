@@ -136,11 +136,60 @@ fi
 cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"
 export COWEN_BIN="$(pwd)/$(dirname "$BINARY_PATH")/cowen-test"
 
-# Collect suites (All suites are parallelized)
+# --- Suite Discovery & LPT (Longest Processing Time) Sorting ---
+declare -a PARALLEL_SUITES
 if [ $# -gt 0 ]; then
     PARALLEL_SUITES=("$@")
 else
-    PARALLEL_SUITES=($(ls crates/app/cowen-cli/tests/e2e/scripts/case_*.sh ))
+    # Hardcoded list of slow/heavy jobs based on CPU and Time (LPT Scheduling)
+    # This maximizes concurrency utilization and prevents trailing stragglers.
+    HEAVY_JOBS=(
+        "case_13_distributed_lb.sh"
+        "case_60_monitor_port_fallback.sh"
+        "case_27_store_app_multi_org_stress.sh"
+        "case_79_status_selfbuilt_heartbeat.sh"
+        "case_09_dlq_retries.sh"
+        "case_39_profile_rename_comprehensive.sh"
+        "case_15_store_app_shared_storage.sh"
+        "case_63_daemon_startup_optimization.sh"
+        "case_18_redis_fault_tolerance.sh"
+        "case_50_graceful_shutdown.sh"
+        "case_14_shared_storage.sh"
+        "case_52_dlq_paging.sh"
+        "case_25_cluster_idempotency.sh"
+        "case_46_robustness_check.sh"
+        "case_20_oauth2_refresh.sh"
+        "case_36_store_app_activation.sh"
+        "case_19_ticket_auto_resend.sh"
+        "case_29_sidecar_scaling_stress.sh"
+        "case_30_sidecar_self_built_stress.sh"
+        "case_26_hybrid_data_drift.sh"
+        "case_53_chaos_stress.sh"
+        "case_68_slow_ping_recovery.sh"
+        "case_17_redis_shared_storage.sh"
+        "case_33_exclusive_connection.sh"
+    )
+    
+    for heavy in "${HEAVY_JOBS[@]}"; do
+        suite_path="crates/app/cowen-cli/tests/e2e/scripts/$heavy"
+        if [ -f "$suite_path" ]; then
+            PARALLEL_SUITES+=("$suite_path")
+        fi
+    done
+    
+    for suite_path in crates/app/cowen-cli/tests/e2e/scripts/case_*.sh; do
+        basename_suite=$(basename "$suite_path")
+        is_heavy=false
+        for heavy in "${HEAVY_JOBS[@]}"; do
+            if [ "$heavy" == "$basename_suite" ]; then
+                is_heavy=true
+                break
+            fi
+        done
+        if [ "$is_heavy" = false ]; then
+            PARALLEL_SUITES+=("$suite_path")
+        fi
+    done
 fi
 SEQUENTIAL_SUITES=()
 
@@ -218,10 +267,14 @@ if [ "$TOTAL_PARALLEL" -gt 0 ]; then
         run_job "$tmp_suite" "$case_id" "$base_port" &
         started_count=$((started_count + 1))
         
-        # 🚀 Fix: Staggered start to reduce DB contention
-        sleep 0.2
+        # 🚀 Fix: Dynamic Concurrency Queue (keeps exactly MAX_PARALLEL jobs running without idle batch waiting)
+        # 统计当前正在运行的后台任务数，如果达到 MAX_PARALLEL 则等待，实现真实的并行限流
+        while [ $(jobs -pr | wc -l) -ge $MAX_PARALLEL ]; do
+            sleep 0.2
+        done
         
-        [ $((started_count % MAX_PARALLEL)) -eq 0 ] && wait
+        # 稍微错峰启动，减少 DB 和 I/O 拥堵
+        sleep 0.2
     done
 fi
 wait
