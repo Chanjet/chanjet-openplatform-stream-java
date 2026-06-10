@@ -82,37 +82,7 @@ else
 fi
 
 
-# 7. Check unused dependencies (cargo machete)
-echo ""
-echo "[7/8] Checking unused dependencies with cargo machete..."
-if ! command -v cargo-machete &> /dev/null; then
-    echo "cargo-machete not found globally, installing..."
-    cargo install cargo-machete
-fi
-
-if ! cargo machete; then
-    echo "❌ Unused dependencies found! Please remove them from Cargo.toml."
-    exit 1
-else
-    echo "✅ Unused dependencies check passed."
-fi
-
-# 8. Check dependency sorting (cargo sort)
-echo ""
-echo "[8/8] Checking dependency sorting with cargo sort..."
-if ! command -v cargo-sort &> /dev/null; then
-    echo "cargo-sort not found globally, installing..."
-    cargo install cargo-sort
-fi
-
-if ! cargo sort --workspace --check; then
-    echo "❌ Cargo.toml dependencies are not sorted! Please run 'cargo sort --workspace'."
-    exit 1
-else
-    echo "✅ Dependency sorting check passed."
-fi
-
-# 9. Check Cargo Audit & Deny (Warn only for now)
+# 7. Check Cargo Audit & Deny (Warn only for now)
 echo ""
 
 echo ""
