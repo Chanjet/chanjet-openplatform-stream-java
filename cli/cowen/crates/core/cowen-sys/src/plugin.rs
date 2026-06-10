@@ -140,13 +140,12 @@ impl PluginLoader {
             return true;
         }
         // Standard privilege auto-grant for SearchProvider in dev/legacy modes
-        if privilege == "sys.fs:cache_access"
+        if (privilege == "sys.fs:cache_access"
             || privilege == "sys.network:fetch_asset"
-            || privilege == "sys.cpu:compute_heavy"
+            || privilege == "sys.cpu:compute_heavy")
+            && self.supports_trait("SearchProvider")
         {
-            if self.supports_trait("SearchProvider") {
-                return true;
-            }
+            return true;
         }
         false
     }

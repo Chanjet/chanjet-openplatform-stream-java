@@ -309,8 +309,6 @@ impl AuthClient {
                 panic!("No provider registered for mode: {:?}", mode);
             })
     }
-
-
 }
 
 #[async_trait]
@@ -517,7 +515,10 @@ impl Client for AuthClient {
 
         // 2. Fetch fresh spec from Platform
         if !app_cfg.openapi_url.is_empty() {
-            if let Some(spec) = self.try_fetch_openapi_spec(&app_cfg, profile, cfg, &token, &cache_path).await {
+            if let Some(spec) = self
+                .try_fetch_openapi_spec(&app_cfg, profile, cfg, &token, &cache_path)
+                .await
+            {
                 return Ok(spec);
             }
         }
@@ -639,8 +640,9 @@ impl Client for AuthClient {
 }
 
 impl AuthClient {
-
-    fn try_load_fresh_cache(cache_path: &std::path::Path) -> CowenResult<Option<serde_json::Value>> {
+    fn try_load_fresh_cache(
+        cache_path: &std::path::Path,
+    ) -> CowenResult<Option<serde_json::Value>> {
         if cache_path.exists() {
             if let Ok(data) = std::fs::read_to_string(cache_path) {
                 if let Ok(spec) = serde_yaml::from_str::<serde_json::Value>(&data) {
@@ -753,7 +755,10 @@ impl AuthClient {
         }
     }
 
-    fn merge_paths_from_item(item: &serde_json::Value, combined_paths: &mut serde_json::Map<String, serde_json::Value>) {
+    fn merge_paths_from_item(
+        item: &serde_json::Value,
+        combined_paths: &mut serde_json::Map<String, serde_json::Value>,
+    ) {
         let mut parsed_paths = None;
 
         // 1. Try to extract paths from openApi field
@@ -766,9 +771,7 @@ impl AuthClient {
                 };
 
                 Self::clean_non_standard_fields(&mut item_spec);
-                if let Some(item_paths) =
-                    item_spec.get("paths").and_then(|p| p.as_object())
-                {
+                if let Some(item_paths) = item_spec.get("paths").and_then(|p| p.as_object()) {
                     parsed_paths = Some(item_paths.clone());
                 }
             }
@@ -818,16 +821,10 @@ impl AuthClient {
 
                 if let Some(existing) = combined_paths.get_mut(path) {
                     if let Some(e_obj) = existing.as_object_mut() {
-                        e_obj.insert(
-                            method.clone(),
-                            methods_obj.get(&method).unwrap().clone(),
-                        );
+                        e_obj.insert(method.clone(), methods_obj.get(&method).unwrap().clone());
                     }
                 } else {
-                    combined_paths.insert(
-                        path.to_string(),
-                        serde_json::Value::Object(methods_obj),
-                    );
+                    combined_paths.insert(path.to_string(), serde_json::Value::Object(methods_obj));
                 }
             }
         }

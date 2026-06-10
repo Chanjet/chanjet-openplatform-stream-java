@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
+use cowen_ai::{ONNXEmbedder, SearchDocument as AiDocument, SearchIndex};
 use serde::Deserialize;
-use serde_json::json;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use cowen_ai::{ONNXEmbedder, SearchIndex, SearchDocument as AiDocument};
 use serde::Serialize;
+use serde_json::json;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SearchDocument {
@@ -42,10 +42,11 @@ fn get_app_dir() -> PathBuf {
     if let Ok(p) = std::env::var("COWEN_HOME") {
         PathBuf::from(p)
     } else {
-        dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".cowen")
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".cowen")
     }
 }
-
 
 #[derive(Deserialize)]
 struct UpdateIndexParams {
@@ -71,14 +72,20 @@ static ENGINE: Mutex<Option<SidecarEngine>> = Mutex::new(None);
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_dir = get_app_dir();
-    let default_model = app_dir.join("search").join("models").join("model_quantized.onnx");
+    let default_model = app_dir
+        .join("search")
+        .join("models")
+        .join("model_quantized.onnx");
     let default_tokenizer = app_dir.join("search").join("models").join("tokenizer.json");
 
     // Proactively download/verify ONNX assets
     let _ = cowen_ai::SearchIndex::ensure_assets(&app_dir);
 
     // Warm up the ONNX inference model
-    if let Ok(embedder) = ONNXEmbedder::new(&default_model.to_string_lossy(), &default_tokenizer.to_string_lossy()) {
+    if let Ok(embedder) = ONNXEmbedder::new(
+        &default_model.to_string_lossy(),
+        &default_tokenizer.to_string_lossy(),
+    ) {
         let engine = SidecarEngine {
             embedder,
             indexes: HashMap::new(),
@@ -164,15 +171,16 @@ fn process_line(line: &str) -> JsonRpcResponse {
     }
 }
 
-fn load_search_cache(cache_file: &std::path::PathBuf) -> std::collections::HashMap<String, AiDocument> {
+fn load_search_cache(
+    cache_file: &std::path::PathBuf,
+) -> std::collections::HashMap<String, AiDocument> {
     let mut cached_map = std::collections::HashMap::new();
-    if cache_file.exists() {
-        if let Ok(content) = std::fs::read_to_string(cache_file) {
-            if let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content) {
-                for doc in cached_index.docs {
-                    cached_map.insert(doc.id.clone(), doc);
-                }
-            }
+    if cache_file.exists()
+        && let Ok(content) = std::fs::read_to_string(cache_file)
+        && let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content)
+    {
+        for doc in cached_index.docs {
+            cached_map.insert(doc.id.clone(), doc);
         }
     }
     cached_map
@@ -181,15 +189,17 @@ fn load_search_cache(cache_file: &std::path::PathBuf) -> std::collections::HashM
 fn process_documents_for_index(
     documents: Vec<SearchDocument>,
     cached_map: &std::collections::HashMap<String, AiDocument>,
-    engine: &mut SidecarEngine
+    engine: &mut SidecarEngine,
 ) -> SearchIndex {
     let mut index = SearchIndex::default();
     for doc in documents {
         let mut vector = None;
-        if let Some(cached_doc) = cached_map.get(&doc.id) {
-            if cached_doc.summary == doc.summary && cached_doc.description == doc.description && !cached_doc.vector.is_empty() {
-                vector = Some(cached_doc.vector.clone());
-            }
+        if let Some(cached_doc) = cached_map.get(&doc.id)
+            && cached_doc.summary == doc.summary
+            && cached_doc.description == doc.description
+            && !cached_doc.vector.is_empty()
+        {
+            vector = Some(cached_doc.vector.clone());
         }
 
         if vector.is_none() {
@@ -211,7 +221,11 @@ fn process_documents_for_index(
     index
 }
 
-fn handle_update_index(req_id: Option<serde_json::Value>, params: Option<serde_json::Value>, engine: &mut SidecarEngine) -> JsonRpcResponse {
+fn handle_update_index(
+    req_id: Option<serde_json::Value>,
+    params: Option<serde_json::Value>,
+    engine: &mut SidecarEngine,
+) -> JsonRpcResponse {
     let params_val = match params {
         Some(p) => p,
         None => return missing_params_error(req_id),
@@ -231,7 +245,9 @@ fn handle_update_index(req_id: Option<serde_json::Value>, params: Option<serde_j
     let index = process_documents_for_index(params.documents, &cached_map, engine);
 
     // Update memory index
-    engine.indexes.insert(params.tenant_id.clone(), index.clone());
+    engine
+        .indexes
+        .insert(params.tenant_id.clone(), index.clone());
 
     // Write back to disk cache
     let _ = std::fs::create_dir_all(&cache_dir);
@@ -247,7 +263,11 @@ fn handle_update_index(req_id: Option<serde_json::Value>, params: Option<serde_j
     }
 }
 
-fn handle_query(req_id: Option<serde_json::Value>, params: Option<serde_json::Value>, engine: &mut SidecarEngine) -> JsonRpcResponse {
+fn handle_query(
+    req_id: Option<serde_json::Value>,
+    params: Option<serde_json::Value>,
+    engine: &mut SidecarEngine,
+) -> JsonRpcResponse {
     let params_val = match params {
         Some(p) => p,
         None => return missing_params_error(req_id),
@@ -267,7 +287,9 @@ fn handle_query(req_id: Option<serde_json::Value>, params: Option<serde_json::Va
         if cache_file.exists() {
             if let Ok(content) = std::fs::read_to_string(&cache_file) {
                 if let Ok(cached_index) = serde_json::from_str::<SearchIndex>(&content) {
-                    engine.indexes.insert(params.tenant_id.clone(), cached_index);
+                    engine
+                        .indexes
+                        .insert(params.tenant_id.clone(), cached_index);
                     true
                 } else {
                     false
@@ -284,14 +306,20 @@ fn handle_query(req_id: Option<serde_json::Value>, params: Option<serde_json::Va
         let index = engine.indexes.get(&params.tenant_id).unwrap();
         if let Ok(query_vector) = engine.embedder.embed(&params.query) {
             let raw_results = index.search(&query_vector, &params.query, params.top);
-            raw_results.into_iter().map(|(score, ai_doc)| {
-                (score, SearchDocument {
-                    id: ai_doc.id.clone(),
-                    summary: ai_doc.summary.clone(),
-                    description: ai_doc.description.clone(),
-                    vector: ai_doc.vector.clone(),
+            raw_results
+                .into_iter()
+                .map(|(score, ai_doc)| {
+                    (
+                        score,
+                        SearchDocument {
+                            id: ai_doc.id.clone(),
+                            summary: ai_doc.summary.clone(),
+                            description: ai_doc.description.clone(),
+                            vector: ai_doc.vector.clone(),
+                        },
+                    )
                 })
-            }).collect::<Vec<_>>()
+                .collect::<Vec<_>>()
         } else {
             vec![]
         }
@@ -342,13 +370,19 @@ mod tests {
             std::env::set_var("COWEN_HOME", temp_dir.to_str().unwrap());
         }
         let app_dir = get_app_dir();
-        
+
         // Extract embedded ONNX models to sandbox
         let _ = cowen_ai::SearchIndex::ensure_assets(&app_dir);
-        let default_model = app_dir.join("search").join("models").join("model_quantized.onnx");
+        let default_model = app_dir
+            .join("search")
+            .join("models")
+            .join("model_quantized.onnx");
         let default_tokenizer = app_dir.join("search").join("models").join("tokenizer.json");
 
-        match ONNXEmbedder::new(&default_model.to_string_lossy(), &default_tokenizer.to_string_lossy()) {
+        match ONNXEmbedder::new(
+            &default_model.to_string_lossy(),
+            &default_tokenizer.to_string_lossy(),
+        ) {
             Ok(embedder) => {
                 let engine = SidecarEngine {
                     embedder,
@@ -368,7 +402,7 @@ mod tests {
         setup_test_engine(tmp.path());
 
         let tenant_id = "test_tenant_123";
-        
+
         let update_req = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -393,14 +427,18 @@ mod tests {
         assert!(resp1.error.is_none());
 
         // Verify cache file created on disk
-        let cache_file = tmp.path().join("search").join("cache").join(format!("{}.json", tenant_id));
+        let cache_file = tmp
+            .path()
+            .join("search")
+            .join("cache")
+            .join(format!("{}.json", tenant_id));
         assert!(cache_file.exists(), "Cache file should be created on disk");
 
         // Read vector from disk cache and inject a recognizable custom vector to prove cache hit reuse
         let cache_content = fs::read_to_string(&cache_file).unwrap();
         let mut index: SearchIndex = serde_json::from_str(&cache_content).unwrap();
         assert_eq!(index.docs.len(), 1);
-        
+
         // Inject mock vector
         let injected_vector = vec![42.0f32, 99.0f32];
         index.docs[0].vector = injected_vector.clone();
@@ -419,7 +457,10 @@ mod tests {
         let engine_guard = ENGINE.lock().unwrap();
         let engine = engine_guard.as_ref().unwrap();
         let stored_index = engine.indexes.get(tenant_id).unwrap();
-        assert_eq!(stored_index.docs[0].vector, injected_vector, "Should reuse cached vector without embedding again");
+        assert_eq!(
+            stored_index.docs[0].vector, injected_vector,
+            "Should reuse cached vector without embedding again"
+        );
         drop(engine_guard);
 
         // 3. Third update with modified content (Cache Miss / Invalidation, should re-embed and overwrite injected vector)
@@ -447,7 +488,9 @@ mod tests {
         let engine_guard = ENGINE.lock().unwrap();
         let engine = engine_guard.as_ref().unwrap();
         let stored_index = engine.indexes.get(tenant_id).unwrap();
-        assert_ne!(stored_index.docs[0].vector, injected_vector, "Should regenerate vector because content changed");
+        assert_ne!(
+            stored_index.docs[0].vector, injected_vector,
+            "Should regenerate vector because content changed"
+        );
     }
 }
-

@@ -39,15 +39,13 @@ async fn get_app_access_token_fallback(
 ) -> CowenResult<cowen_common::models::Token> {
     match pool.get_app_access_token(&cfg.app_key).await {
         Ok(t) if !t.is_expired() => Ok(t),
-        _ => {
-            match pool.as_vault().get_app_access_token(&cfg.app_key).await {
-                Ok(t) if !t.is_expired() => {
-                    pool.set_app_access_token(&cfg.app_key, &t).await?;
-                    Ok(t)
-                }
-                _ => handle_concurrent_app_token_fetch(pool, http_sender, profile, cfg).await,
+        _ => match pool.as_vault().get_app_access_token(&cfg.app_key).await {
+            Ok(t) if !t.is_expired() => {
+                pool.set_app_access_token(&cfg.app_key, &t).await?;
+                Ok(t)
             }
-        }
+            _ => handle_concurrent_app_token_fetch(pool, http_sender, profile, cfg).await,
+        },
     }
 }
 
@@ -113,7 +111,7 @@ async fn check_token_cache(
             return Ok(Some(token));
         }
     }
-    
+
     Ok(None)
 }
 

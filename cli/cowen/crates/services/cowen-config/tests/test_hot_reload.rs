@@ -38,11 +38,9 @@ async fn test_app_config_hot_reload() {
     // Wait for notify to pick up changes (might take a bit depending on OS)
     let mut found = false;
     for _ in 0..20 {
-        if rx.changed().await.is_ok() {
-            if rx.borrow().storage.store == "innerdb" {
-                found = true;
-                break;
-            }
+        if rx.changed().await.is_ok() && rx.borrow().storage.store == "innerdb" {
+            found = true;
+            break;
         }
         sleep(Duration::from_millis(100)).await;
     }

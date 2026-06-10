@@ -75,7 +75,10 @@ impl SelfBuiltProvider {
                 }
             }
 
-            if let Some(token) = self.do_network_request_for_token(profile, cfg, &mut retry_count).await? {
+            if let Some(token) = self
+                .do_network_request_for_token(profile, cfg, &mut retry_count)
+                .await?
+            {
                 return Ok(token);
             }
         }
@@ -87,10 +90,7 @@ impl SelfBuiltProvider {
         cfg: &Config,
         retry_count: &mut i32,
     ) -> CowenResult<Option<cowen_common::models::Token>> {
-        let app_ticket = match self
-            .obtain_app_ticket(profile, cfg, retry_count)
-            .await?
-        {
+        let app_ticket = match self.obtain_app_ticket(profile, cfg, retry_count).await? {
             Some(ticket) => ticket,
             None => return Ok(None),
         };
@@ -139,7 +139,6 @@ impl SelfBuiltProvider {
 
         Ok(Some(token))
     }
-
 
     async fn obtain_app_ticket(
         &self,

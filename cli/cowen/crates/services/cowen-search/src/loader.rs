@@ -93,42 +93,35 @@ impl SearchProviderFactory {
     pub fn create(tenant_id: &str) -> FallbackProvider {
         let app_yaml_path = cowen_infra::path::get_app_dir().join("app.yaml");
         let mut enabled_plugins: Vec<String> = vec![];
-        if let Ok(content) = std::fs::read_to_string(&app_yaml_path) {
-            if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
-                if let Some(plugins) = val.get("plugins").and_then(|v| v.as_sequence()) {
-                    enabled_plugins = plugins
-                        .iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect();
-                }
-            }
+        if let Ok(content) = std::fs::read_to_string(&app_yaml_path)
+            && let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content)
+            && let Some(plugins) = val.get("plugins").and_then(|v| v.as_sequence())
+        {
+            enabled_plugins = plugins
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect();
         }
 
         let plugins_dir = cowen_infra::path::get_app_dir().join("plugins");
         let mut search_plugin_name = None;
         for p in &enabled_plugins {
             let bundle_path = plugins_dir.join(p).with_extension("bundle");
-            if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path) {
-                if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
-                    if let Some(contributes) = bundle
-                        .get("manifest")
-                        .and_then(|m| m.get("contributes"))
-                        .and_then(|c| c.as_object())
-                    {
-                        if let Some(providers) =
-                            contributes.get("providers").and_then(|p| p.as_array())
-                        {
-                            let has_search = providers.iter().any(|p| {
-                                p.get("type").and_then(|t| t.as_str()) == Some("SearchEmbedding")
-                                    || p.get("type").and_then(|t| t.as_str())
-                                        == Some("SearchProvider")
-                            });
-                            if has_search {
-                                search_plugin_name = Some(p.clone());
-                                break;
-                            }
-                        }
-                    }
+            if let Ok(bundle_str) = std::fs::read_to_string(&bundle_path)
+                && let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str)
+                && let Some(contributes) = bundle
+                    .get("manifest")
+                    .and_then(|m| m.get("contributes"))
+                    .and_then(|c| c.as_object())
+                && let Some(providers) = contributes.get("providers").and_then(|p| p.as_array())
+            {
+                let has_search = providers.iter().any(|p| {
+                    p.get("type").and_then(|t| t.as_str()) == Some("SearchEmbedding")
+                        || p.get("type").and_then(|t| t.as_str()) == Some("SearchProvider")
+                });
+                if has_search {
+                    search_plugin_name = Some(p.clone());
+                    break;
                 }
             }
         }

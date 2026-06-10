@@ -1,11 +1,17 @@
 use anyhow::Result;
 use std::process::Command;
 
-async fn start_background(profile: &str, proxy_port: Option<u16>, enable_proxy: Option<bool>, all: bool, port_path: &str) -> Result<()> {
+async fn start_background(
+    profile: &str,
+    proxy_port: Option<u16>,
+    enable_proxy: Option<bool>,
+    all: bool,
+    port_path: &str,
+) -> Result<()> {
     let _ = cowen_common::grpc::client::DaemonClient::new(port_path)
         .ensure_daemon()
         .await?;
-    let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path.to_string());
+    let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path);
 
     if let Some(p) = proxy_port {
         let _ = ipc_client
@@ -22,17 +28,19 @@ async fn start_background(profile: &str, proxy_port: Option<u16>, enable_proxy: 
         if let Err(e) = ipc_client.start_all().await {
             eprintln!("⚠️ Failed to send start_all command to daemon: {}", e);
         }
-    } else {
-        if let Err(e) = ipc_client.start_daemon(profile).await {
-            eprintln!("⚠️ Failed to send start command to daemon: {}", e);
-        }
+    } else if let Err(e) = ipc_client.start_daemon(profile).await {
+        eprintln!("⚠️ Failed to send start command to daemon: {}", e);
     }
     println!("✅ Startup command sent to daemon.");
     Ok(())
 }
 
 fn resolve_daemon_path() -> std::path::PathBuf {
-    let exe_dir = std::env::current_exe().unwrap().parent().unwrap().to_path_buf();
+    let exe_dir = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
     let bin_name = if cfg!(windows) {
         "cowen-daemon.exe"
     } else {
@@ -55,7 +63,13 @@ fn resolve_daemon_path() -> std::path::PathBuf {
     daemon_path
 }
 
-async fn start_foreground(profile: &str, proxy_port: Option<u16>, enable_proxy: Option<bool>, all: bool, port_path: &str) -> Result<()> {
+async fn start_foreground(
+    profile: &str,
+    proxy_port: Option<u16>,
+    enable_proxy: Option<bool>,
+    all: bool,
+    port_path: &str,
+) -> Result<()> {
     let daemon_path = resolve_daemon_path();
     eprintln!("🔥 Trying to spawn daemon at: {:?}", daemon_path);
     eprintln!("🔥 Daemon exists? {}", daemon_path.exists());
@@ -77,7 +91,7 @@ async fn start_foreground(profile: &str, proxy_port: Option<u16>, enable_proxy: 
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path.to_string());
+    let ipc_client = cowen_common::grpc::client::DaemonClient::new(port_path);
     let mut retries = 30;
     while retries > 0 && ipc_client.ping().await.is_err() {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -143,9 +157,23 @@ pub async fn start(
     let port_path = crate::get_ipc_port_path();
 
     if !foreground {
-        start_background(profile, proxy_port, enable_proxy, all, &port_path.to_string_lossy()).await?;
+        start_background(
+            profile,
+            proxy_port,
+            enable_proxy,
+            all,
+            &port_path.to_string_lossy(),
+        )
+        .await?;
     } else {
-        start_foreground(profile, proxy_port, enable_proxy, all, &port_path.to_string_lossy()).await?;
+        start_foreground(
+            profile,
+            proxy_port,
+            enable_proxy,
+            all,
+            &port_path.to_string_lossy(),
+        )
+        .await?;
     }
 
     Ok(())

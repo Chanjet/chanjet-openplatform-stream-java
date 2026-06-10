@@ -6,6 +6,12 @@ pub struct UnixProcessManager {
     stop_tx: std::sync::Mutex<Option<Sender<()>>>,
 }
 
+impl Default for UnixProcessManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UnixProcessManager {
     pub fn new() -> Self {
         Self {
@@ -88,6 +94,12 @@ impl cowen_infra::sys::ProcessManager for UnixProcessManager {
 }
 
 pub struct UnixIpcBinder;
+
+impl Default for UnixIpcBinder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl UnixIpcBinder {
     pub fn new() -> Self {

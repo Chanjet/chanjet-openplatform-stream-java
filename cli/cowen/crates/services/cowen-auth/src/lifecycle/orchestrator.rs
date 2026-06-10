@@ -154,7 +154,10 @@ pub async fn wait_for_token_exchange(
     }
 }
 
-fn check_failure_log_growth(log_file: &std::path::Path, last_log_size: &mut u64) -> CowenResult<bool> {
+fn check_failure_log_growth(
+    log_file: &std::path::Path,
+    last_log_size: &mut u64,
+) -> CowenResult<bool> {
     if !log_file.exists() {
         return Ok(false);
     }
@@ -169,27 +172,27 @@ fn check_failure_log_growth(log_file: &std::path::Path, last_log_size: &mut u64)
         .seek(std::io::SeekFrom::Start(*last_log_size))
         .map_err(CowenError::from)?;
 
-    for line in reader.lines() {
-        if let Ok(l) = line {
-            if l.contains("ERROR") {
-                println!("\n❌ 令牌交换失败！");
-                println!("\x1b[31m🔍 错误原因: {}\x1b[0m", l);
-                return Ok(true);
-            }
+    for l in reader.lines().flatten() {
+        if l.contains("ERROR") {
+            println!("\n❌ 令牌交换失败！");
+            println!("\x1b[31m🔍 错误原因: {}\x1b[0m", l);
+            return Ok(true);
         }
     }
     *last_log_size = metadata.len();
     Ok(false)
 }
 
-async fn check_session_lost(vault: &Arc<dyn Vault>, session_id: &str, profile: &str) -> CowenResult<bool> {
+async fn check_session_lost(
+    vault: &Arc<dyn Vault>,
+    session_id: &str,
+    profile: &str,
+) -> CowenResult<bool> {
     if vault.get_session(session_id).await.is_err() {
         // Give it a tiny bit of time to persist the token if it just happened
         sleep(Duration::from_millis(500)).await;
         if vault.get_access_token(profile).await.is_err() {
-            println!(
-                "\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。"
-            );
+            println!("\n❌ 授权会话已失效且未获取到新令牌。授权过程可能已在其他地方中断或失败。");
             render_last_auth_error(profile)?;
             return Ok(true);
         }

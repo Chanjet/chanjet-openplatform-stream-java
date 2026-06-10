@@ -1,4 +1,3 @@
-
 use std::borrow::Cow;
 
 #[inline]
@@ -149,7 +148,7 @@ macro_rules! define_sql_driver {
         $upsert_permanent_code:expr
     ) => {
         #[async_trait::async_trait]
-        impl crate::sql::SqlDriver for $driver_name {
+        impl $crate::sql::SqlDriver for $driver_name {
             async fn shutdown(&self) -> cowen_common::CowenResult<()> {
                 self.pool.close().await;
                 Ok(())
@@ -165,7 +164,7 @@ macro_rules! define_sql_driver {
                     .bind(profile)
                     .bind(key)
                     .fetch_one(&self.pool).await
-                    .map_err(|e| crate::sql::macros::map_not_found(e, &format!("Key '{}' not found in profile '{}'", key, profile)))?;
+                    .map_err(|e| $crate::sql::macros::map_not_found(e, &format!("Key '{}' not found in profile '{}'", key, profile)))?;
                 Ok((row.0 as u64, row.1.timestamp()))
             }
 
@@ -550,8 +549,6 @@ macro_rules! define_sql_driver {
     };
 }
 
-
-
 #[macro_export]
 macro_rules! implement_schema_migration {
     ($driver:ident, $is_postgres:expr) => {
@@ -561,19 +558,19 @@ macro_rules! implement_schema_migration {
                 sqlx::query("CREATE TABLE IF NOT EXISTS schema_migrations (version INT PRIMARY KEY)")
                     .execute(&self.pool).await
                     .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-                    
+
                 let row: Option<(i32,)> = sqlx::query_as("SELECT MAX(version) FROM schema_migrations")
                     .fetch_optional(&self.pool).await
                     .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
-                    
+
                 Ok(row.map_or(0, |r| r.0 as u32))
             }
-            
+
             async fn apply_sql(&self, sql: &str) -> cowen_common::CowenResult<()> {
                 sqlx::query(sql).execute(&self.pool).await.map_err(|e| cowen_common::CowenError::Store(format!("SQL apply error: {} ({})", e, sql)))?;
                 Ok(())
             }
-            
+
             async fn set_version(&self, version: u32) -> cowen_common::CowenResult<()> {
                 let sql = if $is_postgres {
                     "INSERT INTO schema_migrations (version) VALUES ($1)"
@@ -586,7 +583,7 @@ macro_rules! implement_schema_migration {
                     .map_err(|e| cowen_common::CowenError::Store(e.to_string()))?;
                 Ok(())
             }
-            
+
             async fn run_migration(&self) -> cowen_common::CowenResult<()> {
                 let sql = if $is_postgres {
                     "SELECT column_name FROM information_schema.columns WHERE table_name = 'cowen_dlq' AND column_name = 'id'"
@@ -607,7 +604,7 @@ macro_rules! implement_schema_migration {
                     self.apply_sql(alter_sql).await?;
                     tracing::info!(target: "sys", "DLQ migration completed.");
                 }
-                
+
                 let current_version = self.get_current_version().await.unwrap_or(0);
                 for (version, sql) in self.get_migrations() {
                     if current_version < version {
@@ -619,7 +616,7 @@ macro_rules! implement_schema_migration {
                 }
                 Ok(())
             }
-            
+
             fn get_migrations(&self) -> Vec<(u32, &'static str)> {
                 vec![]
             }

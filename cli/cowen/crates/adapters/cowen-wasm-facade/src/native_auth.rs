@@ -12,7 +12,7 @@ impl NativeAuthProvider {
         let caps = context.capabilities.clone();
         let profile_clone_for_token = context.profile.clone();
         let config_clone_for_token = context.config.clone();
-        
+
         builder.register(
             "filter",
             "host_get_resolved_token",
@@ -31,16 +31,26 @@ impl NativeAuthProvider {
                 let result = tokio::task::block_in_place(move || {
                     tokio::runtime::Handle::current().block_on(async {
                         let mut reqwest_headers = reqwest::header::HeaderMap::new();
-                        if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&headers_json) {
+                        if let Ok(map) = serde_json::from_str::<
+                            std::collections::HashMap<String, String>,
+                        >(&headers_json)
+                        {
                             for (k, v) in map {
-                                if let Ok(name) = reqwest::header::HeaderName::from_bytes(k.as_bytes()) {
-                                    if let Ok(val) = reqwest::header::HeaderValue::from_bytes(v.as_bytes()) {
+                                if let Ok(name) =
+                                    reqwest::header::HeaderName::from_bytes(k.as_bytes())
+                                {
+                                    if let Ok(val) =
+                                        reqwest::header::HeaderValue::from_bytes(v.as_bytes())
+                                    {
                                         reqwest_headers.insert(name, val);
                                     }
                                 }
                             }
                         }
-                        caps_inner.native_auth.get_resolved_token(None, &prof, &cfg, &reqwest_headers).await
+                        caps_inner
+                            .native_auth
+                            .get_resolved_token(None, &prof, &cfg, &reqwest_headers)
+                            .await
                     })
                 });
 
@@ -64,7 +74,7 @@ impl NativeAuthProvider {
         let caps_for_spec = context.capabilities.clone();
         let profile_clone_for_spec = context.profile.clone();
         let config_clone_for_spec = context.config.clone();
-        
+
         builder.register(
             "filter",
             "host_get_required_auth_keys",
@@ -86,9 +96,13 @@ impl NativeAuthProvider {
 
                 let keys = tokio::task::block_in_place(move || {
                     tokio::runtime::Handle::current().block_on(async {
-                        caps_inner.native_auth.get_required_auth_keys(None, &prof, &cfg, &path, &method).await
+                        caps_inner
+                            .native_auth
+                            .get_required_auth_keys(None, &prof, &cfg, &path, &method)
+                            .await
                     })
-                }).unwrap_or_default();
+                })
+                .unwrap_or_default();
 
                 let out_str = serde_json::to_string(&keys).unwrap_or_default();
                 let mem = plugin.memory_new(out_str.as_bytes())?;

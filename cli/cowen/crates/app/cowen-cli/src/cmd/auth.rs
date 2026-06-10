@@ -19,10 +19,8 @@ pub async fn login(profile: &str, force: bool) -> Result<()> {
 
             if std::env::var("COWEN_SKIP_BROWSER").unwrap_or_default() == "true" {
                 println!("Browser mock triggered for URL: {}", url);
-            } else {
-                if let Err(_) = open::that(&url) {
-                    println!("\x1b[33m(Failed to open browser automatically.)\x1b[0m");
-                }
+            } else if open::that(&url).is_err() {
+                println!("\x1b[33m(Failed to open browser automatically.)\x1b[0m");
             }
 
             println!("\x1b[33m💡 Tip: If you are in an SSH or Headless environment:\x1b[0m");
@@ -112,7 +110,7 @@ pub async fn logout(profile: &str) -> Result<()> {
         }
         Err(e) => {
             eprintln!("❌ IPC Error: {}", e);
-            return Err(e.into());
+            return Err(e);
         }
         _ => {
             eprintln!("❌ Unexpected response");

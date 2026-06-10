@@ -86,7 +86,7 @@ pub async fn execute(profile: &str, ctx: InitContext) -> anyhow::Result<()> {
         }
         Err(e) => {
             eprintln!("❌ IPC Error: {}", e);
-            Err(e.into())
+            Err(e)
         }
         _ => {
             eprintln!("❌ Unexpected response from daemon");

@@ -1,4 +1,4 @@
-use connector_sdk::{GatewayClient, ClientOptions};
+use connector_sdk::{ClientOptions, GatewayClient};
 
 #[tokio::test]
 async fn test_empty_app_key_fails_fast() {
@@ -12,7 +12,7 @@ async fn test_empty_app_key_fails_fast() {
 
     let client = GatewayClient::new(options);
     let result = client.start().await;
-    
+
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.to_string().contains("AppKey cannot be empty"));
@@ -30,7 +30,7 @@ async fn test_empty_app_secret_fails_fast() {
 
     let client = GatewayClient::new(options);
     let result = client.start().await;
-    
+
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.to_string().contains("AppSecret cannot be empty"));

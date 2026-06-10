@@ -4,9 +4,9 @@ use serde_json::Value;
 fn apply_leaf_segment(current: &mut Value, part: &str, value: &str) -> CowenResult<()> {
     let json_val = parse_value(value);
     if part == "+" {
-        let arr = current.as_array_mut().ok_or_else(|| {
-            CowenError::Config("Target is not an array for append".into())
-        })?;
+        let arr = current
+            .as_array_mut()
+            .ok_or_else(|| CowenError::Config("Target is not an array for append".into()))?;
         arr.push(json_val);
     } else if part.contains(':') {
         return Err(CowenError::Config(
@@ -19,7 +19,8 @@ fn apply_leaf_segment(current: &mut Value, part: &str, value: &str) -> CowenResu
         if idx >= arr.len() {
             return Err(CowenError::Config(format!(
                 "Index {} out of bounds (length: {})",
-                idx, arr.len()
+                idx,
+                arr.len()
             )));
         }
         arr[idx] = json_val;
@@ -139,7 +140,6 @@ fn resolve_segment_immutable<'a>(current: &'a Value, segment: &str) -> Option<&'
     }
 }
 
-
 fn get_array_index_mut(current: &mut Value, idx: usize) -> CowenResult<&mut Value> {
     let arr = current
         .as_array_mut()
@@ -148,7 +148,10 @@ fn get_array_index_mut(current: &mut Value, idx: usize) -> CowenResult<&mut Valu
         .ok_or_else(|| CowenError::Config(format!("Index {} out of bounds", idx)))
 }
 
-fn get_locator_index_mut<'a>(current: &'a mut Value, segment: &str) -> CowenResult<(usize, &'a mut Vec<Value>)> {
+fn get_locator_index_mut<'a>(
+    current: &'a mut Value,
+    segment: &str,
+) -> CowenResult<(usize, &'a mut Vec<Value>)> {
     let (key, val) = parse_locator(segment)?;
     let arr = current
         .as_array_mut()

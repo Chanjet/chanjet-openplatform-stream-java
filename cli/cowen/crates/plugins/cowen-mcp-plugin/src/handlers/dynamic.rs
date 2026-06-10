@@ -143,10 +143,8 @@ pub fn process_api_response(
                     is_err = true;
                 }
             }
-        } else {
-            if json_val.is_object() {
-                structured_content = Some(json_val);
-            }
+        } else if json_val.is_object() {
+            structured_content = Some(json_val);
         }
     }
 
@@ -171,7 +169,7 @@ mod tests {
             process_api_response(status, body, &output_schema);
 
         assert_eq!(result_text, "Status: 200\n{\"data\": \"not an array\"}");
-        assert_eq!(is_err, true);
+        assert!(is_err);
         assert!(structured.is_none());
         assert!(schema_err.is_some());
         assert_eq!(

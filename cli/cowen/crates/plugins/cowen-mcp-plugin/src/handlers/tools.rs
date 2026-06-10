@@ -192,7 +192,7 @@ pub async fn handle_tools_call(
         }
     } else {
         if let Some(structured) = &structured_content {
-            final_text = serde_json::to_string_pretty(structured).unwrap_or_else(|_| final_text);
+            final_text = serde_json::to_string_pretty(structured).unwrap_or(final_text);
         }
         structured_content = None;
     }

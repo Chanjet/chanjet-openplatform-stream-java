@@ -1,13 +1,13 @@
 pub mod client;
-pub mod protocol;
 pub mod crypto;
 pub mod dispatcher;
 pub mod dlq;
+pub mod protocol;
 
-pub use client::{GatewayClient, ClientOptions, ConnectionState};
+pub use client::{ClientOptions, ConnectionState, GatewayClient};
+pub use dispatcher::MessageDispatcher;
 pub use dlq::DlqProvider;
 pub use protocol::{
-    EventFrame, AckFrame, BaseMessage, AppTicketMessage, 
-    EntAuthCodeMessage, OrderStatusMessage, AppNoticeMessage
+    AckFrame, AppNoticeMessage, AppTicketMessage, BaseMessage, EntAuthCodeMessage, EventFrame,
+    OrderStatusMessage,
 };
-pub use dispatcher::MessageDispatcher;

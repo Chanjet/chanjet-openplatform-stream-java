@@ -63,7 +63,7 @@ pub fn is_cowen_process_name(name: &str, current_exe_name: Option<&str>) -> bool
         || name_lower == get_bin_name().to_lowercase()
         || (name_lower.starts_with("cowen") && name_lower.contains("daemon"));
 
-    is_static_match || current_exe_name.map_or(false, |curr| name_lower == curr.to_lowercase())
+    is_static_match || current_exe_name.is_some_and(|curr| name_lower == curr.to_lowercase())
 }
 
 #[cfg(test)]

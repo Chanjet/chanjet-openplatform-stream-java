@@ -528,7 +528,9 @@ impl AuthProvider for OAuth2Provider {
         let daemon_info = cowen_common::status::get_active_daemon_info(profile);
         if let Some(info) = daemon_info {
             if let Some(m_port) = info.monitor_port {
-                if wait_for_daemon_ipc_auth(profile, m_port, &session.redirect_port, &session.state).await? {
+                if wait_for_daemon_ipc_auth(profile, m_port, &session.redirect_port, &session.state)
+                    .await?
+                {
                     return Ok(());
                 }
             }
@@ -777,7 +779,12 @@ impl AuthProvider for OAuth2Provider {
                 let ref_expired = rt.is_expired();
 
                 let token_children = build_oauth2_token_children(
-                    &at, &rt, is_expired, ref_expired, ref_revoked, refresh_error
+                    &at,
+                    &rt,
+                    is_expired,
+                    ref_expired,
+                    ref_revoked,
+                    refresh_error,
                 );
 
                 let mut details = vec![];
@@ -810,8 +817,8 @@ impl AuthProvider for OAuth2Provider {
             }
             _ => {
                 auth_entries.push(StatusEntry::new(
-                    OAuth2Template::Authentication, 
-                    StatusLevel::WARN, 
+                    OAuth2Template::Authentication,
+                    StatusLevel::WARN,
                     "Not logged in or session expired.".to_string()
                 ).with_reason(Some("本地未发现有效的 OAuth2 会话，或您已退出登录。请执行 `cowen auth login` 重新授权。".to_string())));
             }
@@ -1012,10 +1019,7 @@ fn build_oauth2_token_children(
             ),
         )
         .with_reason(if ref_revoked {
-            Some(
-                "关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。"
-                    .to_string(),
-            )
+            Some("关联的 RefreshToken 已失效，AccessToken 无法继续自动续约。".to_string())
         } else if is_expired {
             refresh_error
                 .as_ref()
@@ -1048,15 +1052,9 @@ fn build_oauth2_token_children(
             ),
         )
         .with_reason(if ref_revoked {
-            Some(
-                "令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。"
-                    .to_string(),
-            )
+            Some("令牌已于服务端吊销或失效，必须重新执行 `cowen auth login`。".to_string())
         } else if ref_expired {
-            Some(
-                "RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。"
-                    .to_string(),
-            )
+            Some("RefreshToken 已失效，必须重新运行 'cowen auth login' 或 'init'。".to_string())
         } else {
             None
         }),
@@ -1101,15 +1099,20 @@ fn open_browser_for_auth(auth_url: &str) {
 
     println!("\x1b[34m{}\x1b[0m", auth_url);
     println!("\x1b[33m💡 Tip: If you are in an SSH or Headless environment:\x1b[0m");
-    println!(
-        "\x1b[33m   1. Copy the URL above and open it in your local browser manually.\x1b[0m"
-    );
+    println!("\x1b[33m   1. Copy the URL above and open it in your local browser manually.\x1b[0m");
     println!("\x1b[33m   2. After authorization, your browser will redirect to a localhost URL (it may show 'Connection Refused').\x1b[0m");
     println!("\x1b[33m   3. Copy that redirected URL from your browser's address bar and run `curl \"<COPIED_URL>\"` in this terminal to complete the login.\x1b[0m");
 }
 
-async fn wait_for_daemon_ipc_auth(profile: &str, m_port: u16, redirect_port: &u16, session_state: &str) -> CowenResult<bool> {
-    println!("\n\x1b[34m🚀 Detected running Master Daemon. Using IPC-based authorization...\x1b[0m");
+async fn wait_for_daemon_ipc_auth(
+    profile: &str,
+    m_port: u16,
+    redirect_port: &u16,
+    session_state: &str,
+) -> CowenResult<bool> {
+    println!(
+        "\n\x1b[34m🚀 Detected running Master Daemon. Using IPC-based authorization...\x1b[0m"
+    );
 
     let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
         *redirect_port,
@@ -1130,9 +1133,9 @@ async fn wait_for_daemon_ipc_auth(profile: &str, m_port: u16, redirect_port: &u1
                     crate::lifecycle::orchestrator::wait_for_token_exchange_ipc(profile, m_port).await?;
 
                     // Successfully finished via IPC
-                    return Ok(true);
+                    Ok(true)
                 }
-                _ => return Err(CowenError::Auth("Failed to receive callback locally".to_string())),
+                _ => Err(CowenError::Auth("Failed to receive callback locally".to_string())),
             }
         }
         _ = tokio::signal::ctrl_c() => {

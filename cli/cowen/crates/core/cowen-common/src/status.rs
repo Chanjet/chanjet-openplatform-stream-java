@@ -254,15 +254,17 @@ fn evaluate_daemon_running_state(
     }
 }
 
-fn parse_connection_state_from_json(json: &serde_json::Value) -> (Option<u64>, String, Option<String>, bool) {
+fn parse_connection_state_from_json(
+    json: &serde_json::Value,
+) -> (Option<u64>, String, Option<String>, bool) {
     let proxy_port = json.get("proxy_port").and_then(|v| v.as_u64());
-    
+
     let conn_state = json
         .get("state")
         .and_then(|v| v.as_str())
         .unwrap_or("Unknown")
         .to_string();
-        
+
     let error_val = json
         .get("error")
         .and_then(|v| v.as_str())
@@ -285,7 +287,7 @@ fn determine_conn_level(
     conn_state: &str,
     is_fresh: bool,
     supports_webhooks: bool,
-    error_val: &Option<String>
+    error_val: &Option<String>,
 ) -> (StatusLevel, Option<&'static str>, String) {
     let (mut conn_level, conn_icon_override, mut final_state) =
         if supports_webhooks && !is_fresh && conn_state == "Connected" {
@@ -315,7 +317,7 @@ fn determine_conn_level(
         }
         final_state = format!("{} (Error: {})", final_state, err);
     }
-    
+
     (conn_level, conn_icon_override, final_state)
 }
 
@@ -329,17 +331,17 @@ fn inject_connection_state(
     let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
     if let Ok(content) = std::fs::read_to_string(status_file) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-            let (proxy_port, conn_state, error_val, is_fresh) = parse_connection_state_from_json(&json);
+            let (proxy_port, conn_state, error_val, is_fresh) =
+                parse_connection_state_from_json(&json);
             if let Some(p) = proxy_port {
                 captured_proxy_port = Some(p);
             }
 
-            let (conn_level, conn_icon_override, final_state) = determine_conn_level(
-                &conn_state, is_fresh, supports_webhooks, &error_val
-            );
+            let (conn_level, conn_icon_override, final_state) =
+                determine_conn_level(&conn_state, is_fresh, supports_webhooks, &error_val);
 
             if conn_level as i32 > *level as i32 && conn_level != StatusLevel::WARN {
-                *level = conn_level.clone();
+                *level = conn_level;
             }
 
             if supports_webhooks {

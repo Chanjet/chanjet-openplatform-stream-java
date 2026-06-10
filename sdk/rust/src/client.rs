@@ -102,7 +102,8 @@ impl GatewayClient {
             return Err(anyhow::anyhow!("AppSecret cannot be empty"));
         }
 
-        let decrypt_key_raw = self.options
+        let decrypt_key_raw = self
+            .options
             .encrypt_key
             .as_ref()
             .unwrap_or(&self.options.app_secret);
@@ -315,7 +316,7 @@ impl GatewayClient {
                                         };
 
                                         let msg_id_clone = frame.msg_id.clone();
-                                        
+
                                         // 1. Store in DLQ first
                                         let mut dlq_stored = false;
                                         if let Some(dlq) = &options.dlq_provider {

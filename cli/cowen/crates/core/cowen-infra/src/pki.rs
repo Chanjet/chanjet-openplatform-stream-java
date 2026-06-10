@@ -292,7 +292,7 @@ mod tests {
         };
 
         fs::write(
-            &dir.path().join("fake_plugin.bundle"),
+            dir.path().join("fake_plugin.bundle"),
             serde_json::to_string(&bundle).unwrap(),
         )
         .unwrap();

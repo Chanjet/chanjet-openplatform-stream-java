@@ -164,17 +164,14 @@ fn print_spec_request_body(op: &serde_json::Value) {
 fn print_response_schema(app_json: &serde_json::Map<String, serde_json::Value>) {
     if let Some(schema) = app_json.get("schema").and_then(|s| s.as_object()) {
         println!("    Schema:");
-        let is_array = app_json.get("type").and_then(|t| t.as_str())
-            == Some("array")
-            || schema.get("type").and_then(|t| t.as_str())
-                == Some("array");
+        let is_array = app_json.get("type").and_then(|t| t.as_str()) == Some("array")
+            || schema.get("type").and_then(|t| t.as_str()) == Some("array");
 
         if is_array {
             println!("      Type: array of object");
         }
 
-        let mut properties_opt =
-            schema.get("properties").and_then(|p| p.as_object());
+        let mut properties_opt = schema.get("properties").and_then(|p| p.as_object());
         if properties_opt.is_none() {
             properties_opt = schema
                 .get("items")
@@ -190,8 +187,7 @@ fn print_response_schema(app_json: &serde_json::Map<String, serde_json::Value>) 
         }
 
         if let Some(props) = properties_opt {
-            let base_indent =
-                if is_array { "        " } else { "      " };
+            let base_indent = if is_array { "        " } else { "      " };
             print_schema_properties(props, base_indent);
         }
     }

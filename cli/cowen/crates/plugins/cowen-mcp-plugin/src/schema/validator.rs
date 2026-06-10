@@ -31,7 +31,10 @@ pub fn validate_json_against_schema(
     Ok(())
 }
 
-fn validate_object(value: &serde_json::Value, schema_obj: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+fn validate_object(
+    value: &serde_json::Value,
+    schema_obj: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
     if !value.is_object() {
         return Err(format!("Expected object, found {}", get_type_name(value)));
     }
@@ -50,16 +53,18 @@ fn validate_object(value: &serde_json::Value, schema_obj: &serde_json::Map<Strin
     if let Some(properties_obj) = schema_obj.get("properties").and_then(|p| p.as_object()) {
         for (prop_name, prop_schema) in properties_obj {
             if let Some(prop_value) = val_obj.get(prop_name) {
-                validate_json_against_schema(prop_value, prop_schema).map_err(|e| {
-                    format!("Property '{}' failed validation: {}", prop_name, e)
-                })?;
+                validate_json_against_schema(prop_value, prop_schema)
+                    .map_err(|e| format!("Property '{}' failed validation: {}", prop_name, e))?;
             }
         }
     }
     Ok(())
 }
 
-fn validate_array(value: &serde_json::Value, schema_obj: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+fn validate_array(
+    value: &serde_json::Value,
+    schema_obj: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
     if !value.is_array() {
         return Err(format!("Expected array, found {}", get_type_name(value)));
     }
@@ -67,9 +72,8 @@ fn validate_array(value: &serde_json::Value, schema_obj: &serde_json::Map<String
 
     if let Some(items_schema) = schema_obj.get("items") {
         for (idx, item_val) in val_arr.iter().enumerate() {
-            validate_json_against_schema(item_val, items_schema).map_err(|e| {
-                format!("Item at index {} failed validation: {}", idx, e)
-            })?;
+            validate_json_against_schema(item_val, items_schema)
+                .map_err(|e| format!("Item at index {} failed validation: {}", idx, e))?;
         }
     }
     Ok(())

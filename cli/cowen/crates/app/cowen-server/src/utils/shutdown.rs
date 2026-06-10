@@ -113,7 +113,7 @@ mod tests {
         drop(guard);
 
         // wait_task should now complete
-        let _ = tokio::time::timeout(Duration::from_millis(100), wait_task)
+        tokio::time::timeout(Duration::from_millis(100), wait_task)
             .await
             .expect("Task did not complete in time")
             .expect("Join error");

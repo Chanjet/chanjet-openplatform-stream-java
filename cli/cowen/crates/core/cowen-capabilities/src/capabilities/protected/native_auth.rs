@@ -75,7 +75,7 @@ impl DefaultAuthCapability {
     async fn check_conflicting_profile(
         &self,
         req: &InitProfileRequest,
-        provider: &dyn cowen_auth::provider::AuthProvider
+        provider: &dyn cowen_auth::provider::AuthProvider,
     ) -> Option<InitProfileResponse> {
         if let Some(ak) = &req.app_key {
             if let Ok(Some(existing_profile)) =
@@ -93,8 +93,12 @@ impl DefaultAuthCapability {
         None
     }
 
-    fn apply_req_to_config(req: &InitProfileRequest, config: &mut cowen_common::Config, mode: &cowen_common::models::AuthMode) {
-        config.app_mode = mode.clone();
+    fn apply_req_to_config(
+        req: &InitProfileRequest,
+        config: &mut cowen_common::Config,
+        mode: &cowen_common::models::AuthMode,
+    ) {
+        config.app_mode = *mode;
         if *mode == cowen_common::models::AuthMode::Oauth2 {
             config.app_key = cowen_auth::models::BUILTIN_CLIENT_ID.to_string();
             config.app_secret = "".to_string();
@@ -155,7 +159,6 @@ impl NativeAuthCapability for DefaultAuthCapability {
             Err(_) => Ok(vec!["appKey".to_string(), "openToken".to_string()]),
         }
     }
-
 
     async fn init_profile(
         &self,

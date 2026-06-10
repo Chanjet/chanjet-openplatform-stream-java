@@ -71,7 +71,7 @@ use std::sync::OnceLock;
 
 pub fn get_global_registry() -> &'static CapabilityRegistry {
     static REGISTRY: OnceLock<CapabilityRegistry> = OnceLock::new();
-    REGISTRY.get_or_init(|| CapabilityRegistry::new())
+    REGISTRY.get_or_init(CapabilityRegistry::new)
 }
 
 #[cfg(test)]

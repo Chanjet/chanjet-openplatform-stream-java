@@ -381,7 +381,7 @@ impl AuthProvider for StoreAppProvider {
         vault
             .set_secret(&global_profile, "encrypt_key", &config.encrypt_key)
             .await?;
-            
+
         if let Some(target) = params.webhook_target {
             config.webhook_target = target;
         }
@@ -681,7 +681,10 @@ impl AuthProvider for StoreAppProvider {
     }
 }
 
-fn setup_store_app_credentials(config: &mut Config, params: &crate::provider::InitParams) -> CowenResult<()> {
+fn setup_store_app_credentials(
+    config: &mut Config,
+    params: &crate::provider::InitParams,
+) -> CowenResult<()> {
     if let Some(ak) = &params.app_key {
         config.app_key = cowen_common::utils::sanitize_credential(ak);
     }

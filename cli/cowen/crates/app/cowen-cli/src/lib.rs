@@ -1033,10 +1033,10 @@ pub async fn run(cli: Cli) -> Result<()> {
                             | "openapi_url"
                     );
                 let resp = if is_global {
-                    daemon_client.set_global_config(&key, &value).await?
+                    daemon_client.set_global_config(key, value).await?
                 } else {
                     daemon_client
-                        .set_config(&active_profile, &key, &value)
+                        .set_config(&active_profile, key, value)
                         .await?
                 };
                 match resp {
@@ -1059,7 +1059,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             Some(ConfigCommands::Get { key }) => {
                 let daemon_client =
                     cowen_common::grpc::client::DaemonClient::new(port_path.clone());
-                match daemon_client.get_config(&active_profile, &key).await? {
+                match daemon_client.get_config(&active_profile, key).await? {
                     cowen_common::grpc::client::DaemonResponse::ConfigData { config_json } => {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&config_json) {
                             match val {

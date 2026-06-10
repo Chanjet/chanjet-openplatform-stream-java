@@ -48,8 +48,8 @@ impl SearchIndex {
             .map(|doc| {
                 // 1. Vector cosine similarity
                 let mut similarity = 0.0;
-                for i in 0..doc.vector.len().min(query_vec.len()) {
-                    similarity += doc.vector[i] * query_vec[i];
+                for (v_doc, v_query) in doc.vector.iter().zip(query_vec.iter()) {
+                    similarity += v_doc * v_query;
                 }
 
                 // 2. Keyword boost (N-Gram match)

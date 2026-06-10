@@ -459,7 +459,14 @@ pub(crate) async fn request_token(
     if !resp.is_success() {
         let status = resp.status;
         let err_text = cowen_common::utils::mask_sensitive_json(&resp.text());
-        return handle_request_token_error(pool, profile, reqwest::StatusCode::from_u16(status).unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR), &err_text).await;
+        return handle_request_token_error(
+            pool,
+            profile,
+            reqwest::StatusCode::from_u16(status)
+                .unwrap_or(reqwest::StatusCode::INTERNAL_SERVER_ERROR),
+            &err_text,
+        )
+        .await;
     }
 
     let token_resp: StoreAppTokenResponse = resp.json().await?;
@@ -639,13 +646,14 @@ async fn save_token_identity(
         storage::get_custom_profile(profile, app_key, &identity.org_id, None)
     };
     pool.set_access_token(&custom_profile, token).await?;
-    
+
     Ok(())
 }
 
-
-
-fn extract_opc_and_org_id<'a>(val: &'a serde_json::Value, body: &str) -> CowenResult<(&'a str, String)> {
+fn extract_opc_and_org_id<'a>(
+    val: &'a serde_json::Value,
+    body: &str,
+) -> CowenResult<(&'a str, String)> {
     let opc = val
         .get("permanentAuthCode")
         .or_else(|| val.get("result").and_then(|r| r.get("permanentAuthCode")))

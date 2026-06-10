@@ -17,6 +17,12 @@ pub struct DefaultSearch {
         Arc<RwLock<HashMap<String, (u64, u64, Arc<cowen_search::loader::FallbackProvider>)>>>,
 }
 
+impl Default for DefaultSearch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultSearch {
     pub fn new() -> Self {
         Self {

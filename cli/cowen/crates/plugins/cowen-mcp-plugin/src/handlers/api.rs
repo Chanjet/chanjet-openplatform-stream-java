@@ -21,7 +21,7 @@ pub async fn fetch_apis(
     let resp = client
         .api_list(inject_auth(grpc_req))
         .await
-        .map_err(|e| crate::client::handle_grpc_status(e))?;
+        .map_err(crate::client::handle_grpc_status)?;
 
     let inner = resp.into_inner();
     if let Some(err) = inner.error_message {

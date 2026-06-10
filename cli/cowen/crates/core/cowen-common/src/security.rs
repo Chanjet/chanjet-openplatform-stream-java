@@ -89,10 +89,16 @@ pub mod ssrf {
                         if let Some(addr) = addrs.next() {
                             Ok(addr.ip())
                         } else {
-                            Err(CowenError::api(format!("SSRF Violation: Unable to resolve host {}", host)))
+                            Err(CowenError::api(format!(
+                                "SSRF Violation: Unable to resolve host {}",
+                                host
+                            )))
                         }
                     } else {
-                        Err(CowenError::api(format!("SSRF Violation: Unable to resolve host {}", host)))
+                        Err(CowenError::api(format!(
+                            "SSRF Violation: Unable to resolve host {}",
+                            host
+                        )))
                     }
                 }
             }
@@ -114,7 +120,10 @@ pub mod ssrf {
                 }
             }
         }
-        Err(CowenError::api(format!("SSRF Violation: IP {} is not in the whitelist.", ip)))
+        Err(CowenError::api(format!(
+            "SSRF Violation: IP {} is not in the whitelist.",
+            ip
+        )))
     }
 
     pub fn validate_ssrf(

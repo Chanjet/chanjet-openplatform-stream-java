@@ -130,7 +130,8 @@ impl DaemonClient {
                     interceptor.clone(),
                 );
                 let ping_fut = test_client.ping(tonic::Request::new(grpc_proto::PingRequest {}));
-                if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(1000), ping_fut).await {
+                if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(1000), ping_fut).await
+                {
                     return Ok(Some((channel, interceptor)));
                 }
                 retry_count += 1;
@@ -168,19 +169,33 @@ impl DaemonClient {
         let log_dir = app_dir.join("logs");
         if !log_dir.exists() {
             if let Err(e) = std::fs::create_dir_all(&log_dir) {
-                bail!("Failed to create daemon logs directory at {}: {}", log_dir.display(), e);
+                bail!(
+                    "Failed to create daemon logs directory at {}: {}",
+                    log_dir.display(),
+                    e
+                );
             }
         }
         let stdout_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_dir.join("daemon.stdout.log"))
-            .with_context(|| format!("Failed to open daemon stdout log at {}", log_dir.join("daemon.stdout.log").display()))?;
+            .with_context(|| {
+                format!(
+                    "Failed to open daemon stdout log at {}",
+                    log_dir.join("daemon.stdout.log").display()
+                )
+            })?;
         let stderr_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_dir.join("daemon.stderr.log"))
-            .with_context(|| format!("Failed to open daemon stderr log at {}", log_dir.join("daemon.stderr.log").display()))?;
+            .with_context(|| {
+                format!(
+                    "Failed to open daemon stderr log at {}",
+                    log_dir.join("daemon.stderr.log").display()
+                )
+            })?;
 
         std::process::Command::new(daemon_path)
             .stdin(std::process::Stdio::null())
@@ -192,7 +207,10 @@ impl DaemonClient {
         Ok(log_dir)
     }
 
-    async fn wait_for_daemon_start_and_ping(&self, log_dir: &PathBuf) -> Result<(Channel, AuthInterceptor)> {
+    async fn wait_for_daemon_start_and_ping(
+        &self,
+        log_dir: &PathBuf,
+    ) -> Result<(Channel, AuthInterceptor)> {
         for _ in 0..30 {
             tokio::time::sleep(Duration::from_millis(100)).await;
             if let Ok((channel, interceptor)) = self.connect_to_daemon().await {
@@ -201,12 +219,14 @@ impl DaemonClient {
                     interceptor.clone(),
                 );
                 let ping_fut = client.ping(tonic::Request::new(grpc_proto::PingRequest {}));
-                if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(300), ping_fut).await {
+                if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_millis(300), ping_fut).await
+                {
                     return Ok((channel, interceptor));
                 }
             }
         }
-        let mut err_msg = "Daemon process was spawned but failed to bind to port within timeout".to_string();
+        let mut err_msg =
+            "Daemon process was spawned but failed to bind to port within timeout".to_string();
         if let Ok(stderr) = std::fs::read_to_string(log_dir.join("daemon.stderr.log")) {
             let tail: Vec<&str> = stderr.lines().rev().take(10).collect();
             if !tail.is_empty() {
@@ -227,7 +247,7 @@ impl DaemonClient {
 
         let daemon_path = self.resolve_daemon_executable_path()?;
         let log_dir = self.setup_daemon_logs_and_spawn(&daemon_path)?;
-        
+
         eprintln!("🚀 Starting daemon...");
         self.wait_for_daemon_start_and_ping(&log_dir).await
     }

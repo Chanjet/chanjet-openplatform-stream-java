@@ -132,7 +132,7 @@ fn test_cli_config_set_global() {
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
-    cmd.args(&["config", "set", "log.level", "debug", "--global"]);
+    cmd.args(["config", "set", "log.level", "debug", "--global"]);
     cmd.assert().success();
 }
 
@@ -141,7 +141,7 @@ fn test_cli_dlq_list_page_size_short_n() {
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
     // 统一后的 DLQ 列表分页应该支持 -n 缩写（原来仅支持 -s，这在 TDD 中为“红灯”）
-    cmd.args(&["dlq", "list", "-n", "5"]);
+    cmd.args(["dlq", "list", "-n", "5"]);
     cmd.assert().success();
 }
 
@@ -185,7 +185,7 @@ fn test_reset_specific_profile_only() {
     let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
-    cmd.args(&["-p", "profile_reset", "reset"]);
+    cmd.args(["-p", "profile_reset", "reset"]);
     cmd.assert().success();
 
     assert!(
@@ -229,7 +229,7 @@ fn test_reset_all_profiles() {
     let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
-    cmd.args(&["reset", "-a"]);
+    cmd.args(["reset", "-a"]);
     cmd.assert().success();
 
     assert!(
@@ -276,7 +276,7 @@ fn test_reset_active_profile_by_default() {
     let mut cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "1");
-    cmd.args(&["reset"]);
+    cmd.args(["reset"]);
     cmd.assert().success();
 
     assert!(

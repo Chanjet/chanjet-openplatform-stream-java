@@ -25,7 +25,10 @@ pub fn generate_completion(shell: clap_complete::Shell, buf: &mut Vec<u8>) -> an
     Ok(())
 }
 
-fn resolve_shell(requested_shell: Option<clap_complete::Shell>, bin_name: &str) -> anyhow::Result<clap_complete::Shell> {
+fn resolve_shell(
+    requested_shell: Option<clap_complete::Shell>,
+    bin_name: &str,
+) -> anyhow::Result<clap_complete::Shell> {
     if let Some(s) = requested_shell {
         return Ok(s);
     }
@@ -45,7 +48,10 @@ fn resolve_shell(requested_shell: Option<clap_complete::Shell>, bin_name: &str) 
     }
 }
 
-fn inject_completion_to_profile(shell: clap_complete::Shell, script_path: &Path) -> anyhow::Result<()> {
+fn inject_completion_to_profile(
+    shell: clap_complete::Shell,
+    script_path: &Path,
+) -> anyhow::Result<()> {
     let bin_name = cowen_common::utils::get_bin_name();
     match shell {
         clap_complete::Shell::Zsh => {
@@ -189,8 +195,14 @@ fn get_rc_files(home: &Path) -> anyhow::Result<Vec<PathBuf>> {
         .and_then(|u| u.document_dir().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| home.join("Documents"));
 
-    rc_files.push(docs.join("WindowsPowerShell").join("Microsoft.PowerShell_profile.ps1"));
-    rc_files.push(docs.join("PowerShell").join("Microsoft.PowerShell_profile.ps1"));
+    rc_files.push(
+        docs.join("WindowsPowerShell")
+            .join("Microsoft.PowerShell_profile.ps1"),
+    );
+    rc_files.push(
+        docs.join("PowerShell")
+            .join("Microsoft.PowerShell_profile.ps1"),
+    );
 
     Ok(rc_files)
 }

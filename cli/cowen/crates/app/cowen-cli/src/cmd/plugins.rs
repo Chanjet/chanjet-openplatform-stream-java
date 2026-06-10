@@ -385,25 +385,28 @@ fn get_plugin_transport(path: &std::path::Path) -> Option<String> {
 
 fn list_stdio_plugins(plugins_dir: &std::path::Path) -> Result<()> {
     println!("The following installed plugins implement 'stdio' transport (MCP servers):\n");
-    println!("{:<30} | {}", "NAME", "TRANSPORT");
+    println!("{:<30} | TRANSPORT", "NAME");
     println!("{:-<30}-+-{:-<30}", "", "");
 
-    for entry in std::fs::read_dir(plugins_dir)? {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            if path.is_file() && path.extension().is_none() {
-                let transport = get_plugin_transport(&path);
-                if transport.as_deref() == Some("stdio") {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy();
-                    println!("{:<30} | stdio", name);
-                }
+    for entry in (std::fs::read_dir(plugins_dir)?).flatten() {
+        let path = entry.path();
+        if path.is_file() && path.extension().is_none() {
+            let transport = get_plugin_transport(&path);
+            if transport.as_deref() == Some("stdio") {
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                println!("{:<30} | stdio", name);
             }
         }
     }
     Ok(())
 }
 
-async fn run_stdio_plugin(name: &str, expected_path: &std::path::Path, profile: &str, args: &[String]) -> Result<()> {
+async fn run_stdio_plugin(
+    name: &str,
+    expected_path: &std::path::Path,
+    profile: &str,
+    args: &[String],
+) -> Result<()> {
     let transport = get_plugin_transport(expected_path);
     if transport.as_deref() != Some("stdio") {
         return Err(anyhow::anyhow!("❌ Permission Denied: Plugin '{}' does not declare 'stdio' transport in its metadata. Only MCP plugins can be directly run.", name));
@@ -478,7 +481,7 @@ async fn run_stdio_plugin(name: &str, expected_path: &std::path::Path, profile: 
             let _ = stderr.flush().await;
         }
     }
-    
+
     Ok(())
 }
 

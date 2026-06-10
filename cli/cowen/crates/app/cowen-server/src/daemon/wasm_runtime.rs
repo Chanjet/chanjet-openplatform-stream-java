@@ -385,7 +385,7 @@ impl WasmPipelineManager {
                             if old.contains_key(target_plugin_name) {
                                 return old.clone();
                             }
-                            let mut new_map = HashMap::clone(&old);
+                            let mut new_map = HashMap::clone(old);
                             new_map.insert(target_plugin_name.to_string(), plugin_arc.clone());
                             Arc::new(new_map)
                         });
@@ -403,7 +403,11 @@ impl WasmPipelineManager {
         None
     }
 
-    fn find_matched_plugins(&self, interceptor_name: &str, app_mode_str: &str) -> Vec<(String, i32)> {
+    fn find_matched_plugins(
+        &self,
+        interceptor_name: &str,
+        app_mode_str: &str,
+    ) -> Vec<(String, i32)> {
         let manifests_map = self.plugin_manifests.load();
         let mut matched_plugins = Vec::new();
 

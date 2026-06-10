@@ -2,7 +2,11 @@ use crate::Colorize;
 use anyhow::Result;
 
 fn validate_store_type(s: &str) -> Result<()> {
-    if !["local", "innerdb", "sqlite", "mysql", "postgres", "mssql", "redis"].contains(&s) {
+    if ![
+        "local", "innerdb", "sqlite", "mysql", "postgres", "mssql", "redis",
+    ]
+    .contains(&s)
+    {
         return Err(anyhow::anyhow!("Unsupported store type: {}. Supported: local, innerdb, sqlite, mysql, postgres, mssql, redis", s));
     }
     Ok(())

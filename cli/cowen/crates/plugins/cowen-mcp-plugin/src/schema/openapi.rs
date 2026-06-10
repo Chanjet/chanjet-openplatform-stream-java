@@ -182,7 +182,7 @@ fn process_scalar_body(
     let mut final_desc = String::from("JSON payload for the request body. ");
     if !req_desc.is_empty() {
         final_desc.push_str(req_desc);
-        final_desc.push_str(" ");
+        final_desc.push(' ');
     }
     if !schema_desc.is_empty() && schema_desc != req_desc {
         final_desc.push_str(schema_desc);
@@ -234,9 +234,22 @@ fn extract_request_body(
                 .is_some();
 
             if is_object && has_properties {
-                process_object_body(&body_schema, is_body_req, properties, required, &mut body_params);
+                process_object_body(
+                    &body_schema,
+                    is_body_req,
+                    properties,
+                    required,
+                    &mut body_params,
+                );
             } else {
-                process_scalar_body(body_schema, is_body_req, req_desc, properties, required, &mut body_params);
+                process_scalar_body(
+                    body_schema,
+                    is_body_req,
+                    req_desc,
+                    properties,
+                    required,
+                    &mut body_params,
+                );
             }
         }
     }
@@ -260,7 +273,9 @@ fn get_ok_response(operation: &serde_json::Value) -> Option<serde_json::Value> {
     None
 }
 
-fn find_json_schema(resp_obj: &serde_json::Value) -> Option<(serde_json::Value, serde_json::Value)> {
+fn find_json_schema(
+    resp_obj: &serde_json::Value,
+) -> Option<(serde_json::Value, serde_json::Value)> {
     if let Some(content) = resp_obj.get("content").and_then(|c| c.as_object()) {
         for (mime, media_type) in content {
             if mime.starts_with("application/json") || mime.contains("json") {
@@ -278,7 +293,10 @@ fn find_json_schema(resp_obj: &serde_json::Value) -> Option<(serde_json::Value, 
     None
 }
 
-fn ensure_array_schema(mut schema: serde_json::Value, media_type: &serde_json::Value) -> serde_json::Value {
+fn ensure_array_schema(
+    mut schema: serde_json::Value,
+    media_type: &serde_json::Value,
+) -> serde_json::Value {
     let has_array_type = media_type
         .get("type")
         .and_then(|t| t.as_str())
@@ -308,7 +326,7 @@ fn extract_response_schema(
 ) -> Option<serde_json::Value> {
     if let Some(mut resp_obj) = get_ok_response(operation) {
         resolve_refs(&mut resp_obj, components, 0);
-        
+
         if let Some((mut schema, media_type)) = find_json_schema(&resp_obj) {
             resolve_refs(&mut schema, components, 0);
             return Some(ensure_array_schema(schema, &media_type));

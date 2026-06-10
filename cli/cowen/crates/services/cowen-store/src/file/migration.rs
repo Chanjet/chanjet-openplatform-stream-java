@@ -1,7 +1,7 @@
-use cowen_common::{CowenResult, CowenError, security};
-use std::path::Path;
-use std::fs;
 use crate::file::core::FileStore;
+use cowen_common::{security, CowenError, CowenResult};
+use std::fs;
+use std::path::Path;
 
 fn read_monolithic_v2(path: &Path, fingerprint: Option<&str>) -> CowenResult<serde_json::Value> {
     let content = fs::read(path).map_err(|e| CowenError::Store(e.to_string()))?;
@@ -15,15 +15,22 @@ fn read_monolithic_v2(path: &Path, fingerprint: Option<&str>) -> CowenResult<ser
     serde_json::from_str(&json).map_err(|e| CowenError::Store(e.to_string()))
 }
 
-fn process_monolithic_items(store: &FileStore, profile: &str, fingerprint: Option<&str>, obj: &serde_json::Map<String, serde_json::Value>) -> CowenResult<()> {
+fn process_monolithic_items(
+    store: &FileStore,
+    profile: &str,
+    fingerprint: Option<&str>,
+    obj: &serde_json::Map<String, serde_json::Value>,
+) -> CowenResult<()> {
     for (prefix, items) in obj {
         if let Some(items_obj) = items.as_object() {
             for (id, val) in items_obj {
                 let path = store.get_path(profile, prefix, id, true);
-                let val_str = serde_json::to_string(val).map_err(|e| CowenError::Store(e.to_string()))?;
+                let val_str =
+                    serde_json::to_string(val).map_err(|e| CowenError::Store(e.to_string()))?;
                 let final_data = if let Some(fp) = fingerprint {
                     let key = security::derive_key(fp);
-                    security::encrypt(val_str.as_bytes(), &key).map_err(|e| CowenError::Store(e.to_string()))?
+                    security::encrypt(val_str.as_bytes(), &key)
+                        .map_err(|e| CowenError::Store(e.to_string()))?
                 } else {
                     val_str.into_bytes()
                 };
@@ -34,7 +41,11 @@ fn process_monolithic_items(store: &FileStore, profile: &str, fingerprint: Optio
     Ok(())
 }
 
-async fn migrate_monolithic_v2_to_v3(root_dir: &Path, profile: &str, fingerprint: Option<&str>) -> CowenResult<()> {
+async fn migrate_monolithic_v2_to_v3(
+    root_dir: &Path,
+    profile: &str,
+    fingerprint: Option<&str>,
+) -> CowenResult<()> {
     let old_monolithic = root_dir.join(format!("{}.json", profile));
     if !old_monolithic.exists() {
         return Ok(());
@@ -59,7 +70,7 @@ fn migrate_dlq_v2_to_v3(profile_dir: &Path) -> CowenResult<()> {
     if !dlq_old.is_dir() {
         return Ok(());
     }
-    
+
     let mut to_move = Vec::new();
     if let Ok(topics) = fs::read_dir(&dlq_old) {
         for topic in topics.flatten() {
@@ -72,7 +83,7 @@ fn migrate_dlq_v2_to_v3(profile_dir: &Path) -> CowenResult<()> {
             }
         }
     }
-    
+
     for (old, new) in to_move {
         if !new.exists() {
             let _ = fs::rename(old, new);
@@ -89,17 +100,21 @@ async fn migrate_directory_v2_to_v3(root_dir: &Path, profile: &str) -> CowenResu
 
     let tok_v2 = profile_dir.join("tok_v2");
     if tok_v2.is_dir() {
-         let tokens = profile_dir.join("tokens");
-         if !tokens.exists() {
-             fs::rename(tok_v2, tokens).map_err(|e| CowenError::Store(e.to_string()))?;
-         }
+        let tokens = profile_dir.join("tokens");
+        if !tokens.exists() {
+            fs::rename(tok_v2, tokens).map_err(|e| CowenError::Store(e.to_string()))?;
+        }
     }
-    
+
     migrate_dlq_v2_to_v3(&profile_dir)?;
     Ok(())
 }
 
-pub async fn migrate_v2_to_v3(root_dir: &Path, profile: &str, fingerprint: Option<&str>) -> CowenResult<()> {
+pub async fn migrate_v2_to_v3(
+    root_dir: &Path,
+    profile: &str,
+    fingerprint: Option<&str>,
+) -> CowenResult<()> {
     migrate_monolithic_v2_to_v3(root_dir, profile, fingerprint).await?;
     migrate_directory_v2_to_v3(root_dir, profile).await?;
     Ok(())

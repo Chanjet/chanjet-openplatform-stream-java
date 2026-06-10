@@ -10,7 +10,10 @@ pub struct TelemetryResetTask {
 
 impl TelemetryResetTask {
     pub fn new(app_dir: PathBuf, target_profile: Option<String>) -> Self {
-        Self { app_dir, target_profile }
+        Self {
+            app_dir,
+            target_profile,
+        }
     }
     fn find_pid_files(&self) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
@@ -42,22 +45,26 @@ impl ResetTask for TelemetryResetTask {
         "Clears telemetry databases, daemon PID files, and local log directories."
     }
 
-    
-
     async fn dry_run(&self) -> Result<Vec<String>> {
         let mut actions = Vec::new();
-        
+
         let telemetry_db = self.app_dir.join("telemetry.db");
         if telemetry_db.exists() {
             actions.push(format!("Delete Telemetry DB: {}", telemetry_db.display()));
         }
         let telemetry_wal = self.app_dir.join("telemetry.db-wal");
         if telemetry_wal.exists() {
-            actions.push(format!("Delete Telemetry DB WAL: {}", telemetry_wal.display()));
+            actions.push(format!(
+                "Delete Telemetry DB WAL: {}",
+                telemetry_wal.display()
+            ));
         }
         let telemetry_shm = self.app_dir.join("telemetry.db-shm");
         if telemetry_shm.exists() {
-            actions.push(format!("Delete Telemetry DB SHM: {}", telemetry_shm.display()));
+            actions.push(format!(
+                "Delete Telemetry DB SHM: {}",
+                telemetry_shm.display()
+            ));
         }
 
         let logs_dir = self.app_dir.join("logs");
@@ -68,7 +75,7 @@ impl ResetTask for TelemetryResetTask {
         for pid_file in self.find_pid_files()? {
             actions.push(format!("Delete Daemon PID: {}", pid_file.display()));
         }
-        
+
         Ok(actions)
     }
 
@@ -97,5 +104,4 @@ impl ResetTask for TelemetryResetTask {
 
         Ok(())
     }
-
 }

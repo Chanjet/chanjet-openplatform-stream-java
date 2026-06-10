@@ -17,6 +17,12 @@ impl MockWindowsSys {
     }
 }
 
+impl Default for MockWindowsSys {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait::async_trait]
 impl ProcessManager for MockWindowsSys {
     fn current_pid(&self) -> u32 {

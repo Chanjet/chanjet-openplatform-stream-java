@@ -31,18 +31,22 @@ pub(crate) async fn get_diagnostics_entries(
     let vault = pool.as_vault();
 
     entries.push(check_security_vault(vault.clone(), profile, config).await);
-    
+
     if let Some(entry) = check_app_access_token(vault.clone(), config).await {
         entries.push(entry);
     }
-    
+
     entries.push(check_app_ticket(vault.clone(), config).await);
     entries.push(check_decryption_key(vault.clone(), profile, config).await);
 
     Ok(entries)
 }
 
-async fn check_security_vault(vault: std::sync::Arc<dyn cowen_common::vault::Vault>, profile: &str, config: &Config) -> StatusEntry {
+async fn check_security_vault(
+    vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+    profile: &str,
+    config: &Config,
+) -> StatusEntry {
     let mut missing = Vec::new();
     let has_secret =
         vault.get_secret(profile, "app_secret").await.is_ok() || !config.app_secret.is_empty();
@@ -83,7 +87,10 @@ async fn check_security_vault(vault: std::sync::Arc<dyn cowen_common::vault::Vau
     )
 }
 
-async fn check_app_access_token(vault: std::sync::Arc<dyn cowen_common::vault::Vault>, config: &Config) -> Option<StatusEntry> {
+async fn check_app_access_token(
+    vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+    config: &Config,
+) -> Option<StatusEntry> {
     if let Ok(token) = vault.get_app_access_token(&config.app_key).await {
         let is_expired = token.is_expired();
         let mut details = vec![];
@@ -93,33 +100,38 @@ async fn check_app_access_token(vault: std::sync::Arc<dyn cowen_common::vault::V
             details.push(format!("App ID:  {}", identity.app_id));
         }
 
-        return Some(StatusEntry::new(
-            StoreAppTemplate::SuiteAccessToken,
-            if is_expired {
-                StatusLevel::ERROR
+        return Some(
+            StatusEntry::new(
+                StoreAppTemplate::SuiteAccessToken,
+                if is_expired {
+                    StatusLevel::ERROR
+                } else {
+                    StatusLevel::OK
+                },
+                format!(
+                    "[{}] (Expires: {})",
+                    if is_expired { "EXPIRED" } else { "VALID" },
+                    token
+                        .expires_at
+                        .with_timezone(&Local)
+                        .format("%Y-%m-%d %H:%M:%S")
+                ),
+            )
+            .with_reason(if is_expired {
+                Some("套件令牌已过期。".to_string())
             } else {
-                StatusLevel::OK
-            },
-            format!(
-                "[{}] (Expires: {})",
-                if is_expired { "EXPIRED" } else { "VALID" },
-                token
-                    .expires_at
-                    .with_timezone(&Local)
-                    .format("%Y-%m-%d %H:%M:%S")
-            ),
-        )
-        .with_reason(if is_expired {
-            Some("套件令牌已过期。".to_string())
-        } else {
-            None
-        })
-        .with_details(details));
+                None
+            })
+            .with_details(details),
+        );
     }
     None
 }
 
-async fn check_app_ticket(vault: std::sync::Arc<dyn cowen_common::vault::Vault>, config: &Config) -> StatusEntry {
+async fn check_app_ticket(
+    vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+    config: &Config,
+) -> StatusEntry {
     match vault.get_app_ticket(&config.app_key).await {
         Ok(ticket) => {
             let created_at = ticket.created_at;
@@ -132,17 +144,19 @@ async fn check_app_ticket(vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
                 ),
             )
         }
-        _ => {
-            StatusEntry::new(
-                StoreAppTemplate::AppTicket,
-                StatusLevel::NONE,
-                "[NONE] (等待 Daemon 接收推送)".to_string(),
-            )
-        }
+        _ => StatusEntry::new(
+            StoreAppTemplate::AppTicket,
+            StatusLevel::NONE,
+            "[NONE] (等待 Daemon 接收推送)".to_string(),
+        ),
     }
 }
 
-async fn check_decryption_key(vault: std::sync::Arc<dyn cowen_common::vault::Vault>, profile: &str, config: &Config) -> StatusEntry {
+async fn check_decryption_key(
+    vault: std::sync::Arc<dyn cowen_common::vault::Vault>,
+    profile: &str,
+    config: &Config,
+) -> StatusEntry {
     let app_secret_val = vault
         .get_secret(profile, "app_secret")
         .await
@@ -155,9 +169,5 @@ async fn check_decryption_key(vault: std::sync::Arc<dyn cowen_common::vault::Vau
     let (dk_level, dk_msg) =
         crate::provider::utils::check_decryption_key_format(&encrypt_key_val, &app_secret_val);
 
-    StatusEntry::new(
-        StoreAppTemplate::DecryptionKey,
-        dk_level,
-        dk_msg,
-    )
+    StatusEntry::new(StoreAppTemplate::DecryptionKey, dk_level, dk_msg)
 }

@@ -66,13 +66,20 @@ async fn fetch_audit_logs(profile: &str, lines: usize, follow: bool) -> anyhow::
     }
 }
 
-fn check_local_log_file(profile: &str, domain: &str, log_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+fn check_local_log_file(
+    profile: &str,
+    domain: &str,
+    log_dir: &std::path::Path,
+) -> Option<std::path::PathBuf> {
     let log_path = log_dir.join(format!("{}_{}.log", profile, domain));
     if log_path.exists() {
         return Some(log_path);
     }
 
-    println!("❌ Log file not found for profile '{}': {}_{}.log", profile, profile, domain);
+    println!(
+        "❌ Log file not found for profile '{}': {}_{}.log",
+        profile, profile, domain
+    );
     let prefix = format!("{}_", profile);
     if let Ok(entries) = std::fs::read_dir(log_dir) {
         let available: Vec<String> = entries
@@ -92,7 +99,11 @@ fn check_local_log_file(profile: &str, domain: &str, log_dir: &std::path::Path) 
             .collect();
 
         if !available.is_empty() {
-            println!("💡 Available domains for profile '{}': {}", profile, available.join(", "));
+            println!(
+                "💡 Available domains for profile '{}': {}",
+                profile,
+                available.join(", ")
+            );
         }
     }
     None
@@ -118,11 +129,15 @@ fn print_last_lines(log_path: &std::path::PathBuf, lines: usize) -> anyhow::Resu
     for l in &last_lines[start_idx..] {
         print!("{}", l);
     }
-    
+
     Ok(reader.get_ref().metadata()?.len())
 }
 
-async fn follow_log(log_path: std::path::PathBuf, domain: &str, mut pos: u64) -> anyhow::Result<()> {
+async fn follow_log(
+    log_path: std::path::PathBuf,
+    domain: &str,
+    mut pos: u64,
+) -> anyhow::Result<()> {
     println!("\n👀 Following log [{}]... (Ctrl+C to stop)", domain);
     let mut line = String::new();
     loop {
@@ -146,7 +161,12 @@ async fn follow_log(log_path: std::path::PathBuf, domain: &str, mut pos: u64) ->
     }
 }
 
-async fn tail_local_file(log_path: std::path::PathBuf, domain: &str, follow: bool, lines: usize) -> anyhow::Result<()> {
+async fn tail_local_file(
+    log_path: std::path::PathBuf,
+    domain: &str,
+    follow: bool,
+    lines: usize,
+) -> anyhow::Result<()> {
     let pos = print_last_lines(&log_path, lines)?;
 
     if !follow {
@@ -160,13 +180,13 @@ pub async fn view(profile: &str, domain: &str, follow: bool, lines: usize) -> an
     if domain == "audit" {
         return fetch_audit_logs(profile, lines, follow).await;
     }
-    
+
     let app_dir = cowen_common::config::get_app_dir();
     let log_dir = app_dir.join("logs");
 
     if let Some(log_path) = check_local_log_file(profile, domain, &log_dir) {
         tail_local_file(log_path, domain, follow, lines).await?;
     }
-    
+
     Ok(())
 }

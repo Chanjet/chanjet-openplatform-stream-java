@@ -9,7 +9,7 @@ fn test_proper_url_construction() {
     let client_id = "app&key@host space";
 
     let mut url = Url::parse(ws_url_str).unwrap();
-    
+
     // 模拟 client.rs 中的逻辑
     if url.path() == "/" || url.path().is_empty() {
         url.set_path("/connect");
@@ -29,19 +29,22 @@ fn test_proper_url_construction() {
 
     // 验证路径
     assert_eq!(url.path(), "/base/connect");
-    
+
     // 验证参数
     let query_map: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
     assert_eq!(query_map.get("app_key").unwrap(), "app&key");
     assert_eq!(query_map.get("nonce").unwrap(), "nonce#1");
     assert_eq!(query_map.get("sign").unwrap(), "sign=2");
     assert_eq!(query_map.get("client_id").unwrap(), "app&key@host space");
-    
+
     // 验证转义
     assert!(final_url.contains("app%26key"));
     assert!(final_url.contains("nonce%231"));
     assert!(final_url.contains("sign%3D2"));
-    assert!(final_url.contains("app%26key%40host+space") || final_url.contains("app%26key%40host%20space"));
+    assert!(
+        final_url.contains("app%26key%40host+space")
+            || final_url.contains("app%26key%40host%20space")
+    );
 }
 
 #[test]
@@ -61,13 +64,20 @@ fn test_aes_decrypt_key_length_validation() {
     let res = connector_sdk::crypto::aes_decrypt("ZW5jcnlwdGVkX3N0dWZm", key_32);
     assert!(res.is_err());
     let err_msg = res.err().unwrap().to_string();
-    assert!(err_msg.contains("AES-128 key must be 16 bytes") || err_msg.contains("Failed to decode 32-character decryption key as hex"));
+    assert!(
+        err_msg.contains("AES-128 key must be 16 bytes")
+            || err_msg.contains("Failed to decode 32-character decryption key as hex")
+    );
 
     // 16-character key should check base64 decode first
     let key_16 = "1234567890123456";
     let res_16 = connector_sdk::crypto::aes_decrypt("invalid_base64_stuff!!!", key_16);
     assert!(res_16.is_err());
-    assert!(res_16.err().unwrap().to_string().contains("Base64 decode failed"));
+    assert!(res_16
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("Base64 decode failed"));
 }
 
 #[test]
@@ -81,7 +91,7 @@ fn test_aes_decrypt_key_trimming() {
     assert!(res.is_err());
     let err_msg = res.err().unwrap().to_string();
     assert!(!err_msg.contains("AES-128 key must be 16 bytes"));
-    
+
     // Also test 32-character hex key with whitespaces and zero-width non-joiners (\u{200c}, \u{feff})
     let key_32_with_whitespace = "  \u{200c}12345678901234561234567890123456 \n\u{feff}";
     let res_32 = connector_sdk::crypto::aes_decrypt("ZW5jcnlwdGVkX3N0dWZm", key_32_with_whitespace);
@@ -103,7 +113,8 @@ async fn test_client_start_fails_early_with_invalid_key_length() {
     let res = client.start().await;
     assert!(res.is_err());
     let err_msg = res.err().unwrap().to_string();
-    assert!(err_msg.contains("Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes"));
+    assert!(err_msg
+        .contains("Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes"));
 }
 
 #[tokio::test]
@@ -119,7 +130,8 @@ async fn test_client_start_fails_early_with_invalid_encrypt_key_length() {
     let res = client.start().await;
     assert!(res.is_err());
     let err_msg = res.err().unwrap().to_string();
-    assert!(err_msg.contains("Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes"));
+    assert!(err_msg
+        .contains("Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes"));
 }
 
 #[test]
@@ -193,21 +205,28 @@ fn test_ent_auth_code_message_deserialization_with_state() {
     }"#;
 
     let msg: Result<connector_sdk::EntAuthCodeMessage, _> = serde_json::from_str(json_data);
-    assert!(msg.is_ok(), "Expected EntAuthCodeMessage to be successfully deserialized with state, but got: {:?}", msg.err());
+    assert!(
+        msg.is_ok(),
+        "Expected EntAuthCodeMessage to be successfully deserialized with state, but got: {:?}",
+        msg.err()
+    );
     let parsed = msg.unwrap();
     assert_eq!(parsed.biz_content.temp_auth_code, "test_temp_auth_code");
-    assert_eq!(parsed.biz_content.state, Some("my_custom_state".to_string()));
+    assert_eq!(
+        parsed.biz_content.state,
+        Some("my_custom_state".to_string())
+    );
 }
 
 fn aes_encrypt(plaintext: &str, key: &[u8]) -> String {
     use aes::cipher::generic_array::GenericArray;
-    use aes::cipher::{KeyInit, BlockEncrypt};
+    use aes::cipher::{BlockEncrypt, KeyInit};
     use aes::Aes128;
     use base64::{engine::general_purpose, Engine as _};
 
     let cipher = Aes128::new(GenericArray::from_slice(key));
     let mut data = plaintext.as_bytes().to_vec();
-    
+
     // PKCS7 padding
     let block_size = 16;
     let padding_len = block_size - (data.len() % block_size);
@@ -233,7 +252,11 @@ fn test_aes_decrypt_with_dirty_16_byte_key() {
 
     // 3. Perform decryption using the dirty key. It MUST successfully sanitize, decode, and match the original plaintext.
     let decrypted = connector_sdk::crypto::aes_decrypt(&encrypted_base64, dirty_key);
-    assert!(decrypted.is_ok(), "Expected successful decryption with sanitized 16-byte key, but got: {:?}", decrypted.err());
+    assert!(
+        decrypted.is_ok(),
+        "Expected successful decryption with sanitized 16-byte key, but got: {:?}",
+        decrypted.err()
+    );
     assert_eq!(decrypted.unwrap(), plaintext);
 }
 
@@ -250,10 +273,10 @@ fn test_aes_decrypt_with_dirty_32_char_hex_key() {
 
     // 3. Perform decryption using the dirty hex key. It MUST successfully sanitize, hex-decode to 16 bytes, decrypt, and match.
     let decrypted = connector_sdk::crypto::aes_decrypt(&encrypted_base64, dirty_hex_key);
-    assert!(decrypted.is_ok(), "Expected successful decryption with sanitized 32-character hex key, but got: {:?}", decrypted.err());
+    assert!(
+        decrypted.is_ok(),
+        "Expected successful decryption with sanitized 32-character hex key, but got: {:?}",
+        decrypted.err()
+    );
     assert_eq!(decrypted.unwrap(), plaintext);
 }
-
-
-
-

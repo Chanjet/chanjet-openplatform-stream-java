@@ -16,7 +16,7 @@ impl SysFingerprint for MacFingerprint {
     fn get_machine_id(&self) -> anyhow::Result<String> {
         // macOS Hardware UUID extraction
         if let Ok(output) = std::process::Command::new("ioreg")
-            .args(&["-rd1", "-c", "IOPlatformExpertDevice"])
+            .args(["-rd1", "-c", "IOPlatformExpertDevice"])
             .output()
         {
             let stdout = String::from_utf8_lossy(&output.stdout);

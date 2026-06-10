@@ -78,7 +78,10 @@ impl PluginManifest {
         }
     }
 
-    fn parse_capabilities(m: &serde_json::Value, required_capabilities: &mut std::collections::HashMap<String, String>) {
+    fn parse_capabilities(
+        m: &serde_json::Value,
+        required_capabilities: &mut std::collections::HashMap<String, String>,
+    ) {
         if let Some(caps) = m.get("required_capabilities").and_then(|c| c.as_object()) {
             for (k, v) in caps {
                 if let Some(s) = v.as_str() {
@@ -106,9 +109,8 @@ impl PluginManifest {
                 .and_then(|c| c.as_array())
             {
                 for interceptor in interceptors {
-                    if let Ok(contribution) = serde_json::from_value::<
-                        WasmInterceptorContribution,
-                    >(interceptor.clone())
+                    if let Ok(contribution) =
+                        serde_json::from_value::<WasmInterceptorContribution>(interceptor.clone())
                     {
                         wasm_interceptors.push(contribution);
                     }

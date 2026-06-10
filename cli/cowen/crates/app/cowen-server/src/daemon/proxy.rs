@@ -219,15 +219,7 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
 
     let res = fwd_req.send().await;
 
-    handle_upstream_response(
-        res,
-        &state,
-        &*provider,
-        &req_path,
-        &method_str,
-        &allow_origin,
-    )
-    .await
+    handle_upstream_response(res, &state, provider, &req_path, &method_str, &allow_origin).await
 }
 
 fn get_allow_origin(req: &Request) -> String {

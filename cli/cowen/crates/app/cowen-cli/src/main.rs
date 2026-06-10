@@ -37,7 +37,7 @@ async fn main() {
         tracing::error!(target: "sys", error = %err_msg, "CLI execution failed");
 
         if format == "json" {
-            let _ = cowen_common::utils::print_error_json(&err_msg);
+            cowen_common::utils::print_error_json(&err_msg);
         } else {
             eprintln!("❌ Error: {}", err_msg);
         }
