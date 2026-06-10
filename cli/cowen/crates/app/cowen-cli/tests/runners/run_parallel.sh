@@ -167,13 +167,16 @@ EOF
     export MOCK_PORT=$mock_port
     export COWEN_PORT_RANGE_START=$((mock_port + 10))
     
+    local start_time=$(date +%s)
     bash "$suite" > "$log_file" 2>&1
-    
     local exit_code=$?
+    local end_time=$(date +%s)
+    local elapsed=$((end_time - start_time))
+    
     if [ $exit_code -eq 0 ]; then
-        echo -e "  [JOB $job_id] ${GREEN}✅ $(basename "$suite") PASSED${NC}"
+        echo -e "  [JOB $job_id] ${GREEN}✅ $(basename "$suite") PASSED${NC} (${elapsed}s)"
     else
-        echo -e "  [JOB $job_id] ${RED}❌ $(basename "$suite") FAILED${NC}"
+        echo -e "  [JOB $job_id] ${RED}❌ $(basename "$suite") FAILED${NC} (${elapsed}s)"
     fi
 
     # Bulletproof process teardown: kill all daemons belonging to this job's isolated workspace
