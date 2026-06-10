@@ -1313,6 +1313,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "clap",
+ "cowen-common",
  "cowen-infra",
  "hex",
  "ring",

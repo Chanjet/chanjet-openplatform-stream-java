@@ -539,7 +539,10 @@ impl-package-linux-x86_64:
 
 # --- 测试目标 (Test Targets) ---
 
-test-rust:
+quality-gate:
+	@bash scripts/quality_gate.sh
+
+test-rust: quality-gate
 	@echo "🧪 Running Rust internal and integration tests..."
 	RUSTFLAGS="-D warnings" cargo build -p cowen-cli -p cowen-daemon
 	COWEN_SKIP_BROWSER=true RUSTFLAGS="-D warnings" cargo test
