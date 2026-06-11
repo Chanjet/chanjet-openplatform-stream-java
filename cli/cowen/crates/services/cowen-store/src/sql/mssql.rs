@@ -183,6 +183,7 @@ impl crate::sql::migration_trait::SchemaMigration for MssqlDriver {
         Ok(())
     }
 
+    // #lizard forgives
     fn get_migrations(&self) -> Vec<(u32, &'static str)> {
         vec![
             (

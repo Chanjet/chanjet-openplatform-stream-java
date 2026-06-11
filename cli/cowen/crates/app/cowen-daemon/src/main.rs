@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
     result
 }
 
+// #lizard forgives
 async fn run_main(
     pid_file: &PathBuf,
     _ipc_port_file: Option<PathBuf>,

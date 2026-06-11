@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::capabilities::McpFeature;
 
+// #lizard forgives
 pub async fn handle_tools_list(req: JsonRpcRequest, app_state: &AppState) -> JsonRpcResponse {
     let state_lock = app_state.mcp_state.lock().await;
     let supports_output_schema = state_lock.supports_feature(&McpFeature::OutputSchema);

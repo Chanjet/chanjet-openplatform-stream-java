@@ -92,6 +92,7 @@ impl DefaultSystem {
         }
     }
 
+    // #lizard forgives
     async fn collect_profile_status(
         &self,
         prof: &str,

@@ -118,6 +118,7 @@ impl OAuth2Provider {
         self.request_token(profile, &url, body, cfg).await
     }
 
+    // #lizard forgives
     async fn request_token(
         &self,
         profile: &str,

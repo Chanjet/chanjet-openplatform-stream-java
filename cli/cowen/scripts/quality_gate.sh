@@ -56,9 +56,9 @@ fi
 echo "✅ Code duplication checks passed."
 
 
-# 5. Check Cyclomatic Complexity <= 15
+# 5. Check Cyclomatic Complexity <= 15 and Method Lines of Code <= 100
 echo ""
-echo "[5/6] Checking cyclomatic complexity with lizard (Threshold: 15)..."
+echo "[5/6] Checking cyclomatic complexity and method length with lizard (CCN <= 15, LOC <= 100)..."
 # Check if lizard is available
 if ! command -v lizard &> /dev/null; then
     echo "lizard not found globally, setting up local venv to run lizard..."
@@ -71,11 +71,11 @@ if ! command -v lizard &> /dev/null; then
     fi
 fi
 
-if ! lizard crates/ -C 15 -w -x "**/tests/**"; then
-    echo "❌ Cyclomatic complexity check failed! Found functions with CCN > 15."
+if ! lizard crates/ -C 15 -T nloc=100 -w -x "**/tests/**"; then
+    echo "❌ Complexity or function length check failed! Found functions with CCN > 15 or NLOC > 100."
     exit 1
 else
-    echo "✅ Cyclomatic complexity check passed."
+    echo "✅ Cyclomatic complexity and function length checks passed."
 fi
 
 # 6. Check Cargo Doc (Warn only for now, since it might fail immediately)
