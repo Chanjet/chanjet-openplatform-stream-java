@@ -19,6 +19,17 @@ foreach ($file in $files_to_copy) {
     }
 }
 
+# 拷贝 system_plugins 到 ~/.cowen/system_plugins
+$system_plugins_src = Join-Path $current_dir "system_plugins"
+if (Test-Path $system_plugins_src) {
+    $system_plugins_dest = Join-Path $env:USERPROFILE ".cowen\system_plugins"
+    if (!(Test-Path $system_plugins_dest)) {
+        New-Item -ItemType Directory -Force -Path $system_plugins_dest | Out-Null
+    }
+    Copy-Item -Path "$system_plugins_src\*" -Destination $system_plugins_dest -Force -Recurse
+    Write-Host "✅ Installed system plugins to $system_plugins_dest" -ForegroundColor Green
+}
+
 # 2. 自动添加持久安装目录到用户的 PATH 环境变量
 $user_path = [Environment]::GetEnvironmentVariable('Path', 'User')
 if (!$user_path.Contains($install_dir)) {

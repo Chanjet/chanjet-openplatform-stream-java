@@ -32,7 +32,9 @@ Thumbs.db
 services/gateway-java/connector-server/src/main/resources/application-local-private.yml
 
 # AI Assets
+assets/search/models/*.onnx
 assets/search/models/*.onnx_data
+!assets/search/models/chunks/
 cli/cjtCli/lib/*.a
 cli/cjtCli/pkg/search/assets/lib/
 cli/cjtCli/pkg/search/assets/models/
@@ -42,7 +44,6 @@ cli/cjtCli/pkg/search/assets/models/
 # Compiled Binaries
 cli/cjtCli/cjtCli
 cli/cjtCli/cjtCli-test
-/assets/search/models/
 
 .gemini/
 dump.rdb

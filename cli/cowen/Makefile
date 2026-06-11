@@ -264,7 +264,7 @@ linux-aarch64: build-plugins
 	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 
-windows-x86_64: build-plugins
+windows-x86_64: build-plugins build-system-plugins
 	@echo "🪟 Building Windows x86_64 v$(VERSION)..."
 	powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path $(OUTPUT_DIR)/windows-x86_64"
 	powershell -NoProfile -Command "$$env:CARGO_BIN_NAME_OVERRIDE='$(BINARY)'; $$env:APP_DIR_NAME='.$(BINARY)'; $$env:DEF_OPENAPI_URL='$(PROD_OPENAPI)'; $$env:DEF_STREAM_URL='$(PROD_STREAM)'; $$env:BUILTIN_CLIENT_ID='$(OFFICIAL_APP_KEY)'; cargo build --release --target x86_64-pc-windows-msvc -p cowen-cli -p cowen-daemon"
@@ -275,7 +275,7 @@ windows-x86_64: build-plugins
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 
-windows-x86-cross:
+windows-x86-cross: build-system-plugins
 	@echo "🪟 Cross-compiling Windows x86 (32-bit) v$(VERSION) via cargo-zigbuild..."
 	mkdir -p $(OUTPUT_DIR)/windows-x86
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
@@ -287,7 +287,7 @@ windows-x86-cross:
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86/$(BINARY).exe)
 	@$(call SHA1,$(OUTPUT_DIR)/windows-x86/$(BINARY).exe)
 
-windows-x86_64-cross:
+windows-x86_64-cross: build-system-plugins
 	@echo "🪟 Cross-compiling Windows x86_64 (64-bit) v$(VERSION) via cargo-zigbuild..."
 	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross
 	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
@@ -321,14 +321,24 @@ build-system-plugins:
 	@echo "🛠️ Building builtin Wasm system plugins (Release)..."
 	rustup target add wasm32-wasip1 || true
 	cargo build --release -p cowen-wasm-auth-selfbuilt -p cowen-wasm-auth-storeapp --target wasm32-wasip1
+	@echo "🔐 Signing Wasm system plugins..."
+ifeq ($(OS),Windows_NT)
+	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm --name cowen-wasm-auth-selfbuilt --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle --manifest-file crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json } }"
+	@powershell -NoProfile -Command "if (Test-Path 'dist_assets/keys/official_dev.pk8') { if (Test-Path 'target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm') { cargo run --release -p cowen-signer -- sign-plugin --dylib target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm --name cowen-wasm-auth-storeapp --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle --manifest-file crates/plugins/cowen-wasm-auth-storeapp/plugin.json } }"
+else
+	@if [ -f "dist_assets/keys/official_dev.pk8" ]; then \
+		if [ -f "target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm --name cowen-wasm-auth-selfbuilt --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle --manifest-file crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json; fi; \
+		if [ -f "target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm" ]; then cargo run --release -p cowen-signer -- sign-plugin --dylib target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm --name cowen-wasm-auth-storeapp --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle --manifest-file crates/plugins/cowen-wasm-auth-storeapp/plugin.json; fi; \
+	fi
+endif
 
 dev-setup: build-system-plugins
 	@echo "🛠️ Copying system plugins for local development..."
 	mkdir -p ~/.cowen/system_plugins
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm ~/.cowen/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json ~/.cowen/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle ~/.cowen/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm ~/.cowen/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json ~/.cowen/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle ~/.cowen/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm ~/.cowen/system_plugins/ || true
 	@echo "✅ System plugins ready in ~/.cowen/system_plugins/"
 # --- 打包目标 ---
@@ -348,9 +358,9 @@ impl-package-macos: build-system-plugins
 	cp CHANGELOG.md pkg_core_root/usr/local/share/doc/cowen/
 	cp -r dist_assets/usage pkg_core_root/usr/local/share/doc/cowen/usage
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm pkg_core_root/usr/local/share/cowen/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json pkg_core_root/usr/local/share/cowen/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle pkg_core_root/usr/local/share/cowen/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm pkg_core_root/usr/local/share/cowen/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json pkg_core_root/usr/local/share/cowen/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle pkg_core_root/usr/local/share/cowen/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm pkg_core_root/usr/local/share/cowen/system_plugins/ || true
 	cp target/release/libcowen_search_embedding pkg_plugin_ai_root/usr/local/share/cowen/staging/ || true
 	if [ -f "pkg_plugin_ai_root/usr/local/share/cowen/staging/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_plugin_ai_root/usr/local/share/cowen/staging/ || exit 1; fi
@@ -385,7 +395,7 @@ package-linux-x86_64-with-podman: clean linux-x86_64-with-podman
 	@echo "📦 Packaging Linux x86_64 (Podman Build)..."
 	@$(MAKE) impl-package-linux-x86_64
 
-package-linux-aarch64: clean linux-aarch64
+package-linux-aarch64: clean linux-aarch64 build-system-plugins
 	@echo "📦 Packaging Linux aarch64..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
 	cp target/release/libcowen_search_embedding pkg_root_aarch64/lib/ || true
@@ -398,9 +408,9 @@ package-linux-aarch64: clean linux-aarch64
 	cp -r dist_assets/usage $(OUTPUT_DIR)/linux-aarch64/
 	mkdir -p pkg_root_aarch64/system_plugins
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm pkg_root_aarch64/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json pkg_root_aarch64/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle pkg_root_aarch64/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm pkg_root_aarch64/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json pkg_root_aarch64/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle pkg_root_aarch64/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm pkg_root_aarch64/system_plugins/ || true
 	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY) cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root_aarch64 lib system_plugins
 	rm -rf pkg_root_aarch64
@@ -458,9 +468,9 @@ package-windows-x86_64-cross: windows-x86_64-cross
 	@echo "🗜️ Zipping Windows package..."
 	mkdir -p $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg/system_plugins/ || true
 	cd $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86_64.zip .
 	rm -rf $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg
@@ -505,9 +515,9 @@ package-windows-x86-cross: windows-x86-cross
 	@echo "🗜️ Zipping Windows package..."
 	mkdir -p $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
 	cd $(OUTPUT_DIR)/windows-x86/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86.zip .
 	rm -rf $(OUTPUT_DIR)/windows-x86/tmp_pkg
@@ -516,7 +526,7 @@ package-windows-x86-cross: windows-x86-cross
 	@echo "✅ Cross-packaging completed: $(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip"
 
 # 内部复用的 Linux 打包逻辑
-impl-package-linux-x86_64:
+impl-package-linux-x86_64: build-system-plugins
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
 	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding pkg_root/lib/ || true
 	if [ -f "pkg_root/lib/libcowen_search_embedding" ]; then cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.bundle pkg_root/lib/ || exit 1; fi
@@ -528,9 +538,9 @@ impl-package-linux-x86_64:
 	cp -r dist_assets/usage $(OUTPUT_DIR)/linux-x86_64/
 	mkdir -p pkg_root/system_plugins
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm pkg_root/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-selfbuilt/plugin.json pkg_root/system_plugins/cowen-wasm-auth-selfbuilt.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle pkg_root/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm pkg_root/system_plugins/ || true
-	cp crates/plugins/cowen-wasm-auth-storeapp/plugin.json pkg_root/system_plugins/cowen-wasm-auth-storeapp.json || true
+	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle pkg_root/system_plugins/ || true
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm pkg_root/system_plugins/ || true
 	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY) cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root lib system_plugins
 	rm -rf pkg_root

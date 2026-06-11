@@ -19,6 +19,12 @@ fn main() {
     #[cfg(not(has_ai_plugin))]
     let bundle_bytes: &[u8] = &[];
     
+    // Embed system plugins
+    let selfbuilt_wasm_bytes = include_bytes!(r#"..\..\cowen\target\wasm32-wasip1\release\cowen_wasm_auth_selfbuilt.wasm"#);
+    let selfbuilt_bundle_bytes = include_bytes!(r#"..\..\cowen\target\wasm32-wasip1\release\cowen_wasm_auth_selfbuilt.bundle"#);
+    let storeapp_wasm_bytes = include_bytes!(r#"..\..\cowen\target\wasm32-wasip1\release\cowen_wasm_auth_storeapp.wasm"#);
+    let storeapp_bundle_bytes = include_bytes!(r#"..\..\cowen\target\wasm32-wasip1\release\cowen_wasm_auth_storeapp.bundle"#);
+    
     let home = std::env::var("USERPROFILE").expect("Failed to find USERPROFILE");
     let install_dir = PathBuf::from(&home).join(".cowen").join("bin");
     
@@ -33,6 +39,21 @@ fn main() {
     let daemon_dest = install_dir.join("cowen-daemon.exe");
     fs::write(&daemon_dest, daemon_bytes).expect("Failed to write cowen-daemon.exe");
     println!("✅ Copied cowen-daemon.exe to {}", install_dir.display());
+    
+    // Install system plugins
+    let system_plugins_dir = PathBuf::from(&home).join(".cowen").join("system_plugins");
+    if !system_plugins_dir.exists() {
+        fs::create_dir_all(&system_plugins_dir).expect("Failed to create system_plugins directory");
+    }
+    fs::write(system_plugins_dir.join("cowen_wasm_auth_selfbuilt.wasm"), selfbuilt_wasm_bytes)
+        .expect("Failed to write cowen_wasm_auth_selfbuilt.wasm");
+    fs::write(system_plugins_dir.join("cowen_wasm_auth_selfbuilt.bundle"), selfbuilt_bundle_bytes)
+        .expect("Failed to write cowen_wasm_auth_selfbuilt.bundle");
+    fs::write(system_plugins_dir.join("cowen_wasm_auth_storeapp.wasm"), storeapp_wasm_bytes)
+        .expect("Failed to write cowen_wasm_auth_storeapp.wasm");
+    fs::write(system_plugins_dir.join("cowen_wasm_auth_storeapp.bundle"), storeapp_bundle_bytes)
+        .expect("Failed to write cowen_wasm_auth_storeapp.bundle");
+    println!("📦 Installed Wasm system plugins to {}", system_plugins_dir.display());
     
     if !dll_bytes.is_empty() {
         let plugins_dir = PathBuf::from(&home).join(".cowen").join("plugins");

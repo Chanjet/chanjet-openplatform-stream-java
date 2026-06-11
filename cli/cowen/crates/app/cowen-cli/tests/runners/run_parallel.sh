@@ -36,7 +36,7 @@ TEST_BASE="${TEST_BASE:-target/cowen_tests}"
 if [[ "$TEST_BASE" != /* ]]; then
     TEST_BASE="$(pwd)/$TEST_BASE"
 fi
-RESULTS_DIR="$TEST_BASE/results"
+export RESULTS_DIR="$TEST_BASE/results"
 BASE_PORT_START="${BASE_PORT_START:-16000}"
 
 final_parallel_cleanup() {
@@ -49,6 +49,7 @@ final_parallel_cleanup() {
         cat << 'EOF_MERGE' > "$RESULTS_DIR/merge_telemetry.py"
 import os, csv
 TELEMETRY_FILE = "crates/app/cowen-cli/tests/runners/test_telemetry.csv"
+RESULTS_DIR = os.environ.get("RESULTS_DIR", "target/cowen_tests/results")
 stats = {}
 if os.path.exists(TELEMETRY_FILE):
     with open(TELEMETRY_FILE, 'r') as f:
@@ -56,11 +57,13 @@ if os.path.exists(TELEMETRY_FILE):
         for row in reader:
             if len(row) >= 3:
                 stats[row[0]] = row
-with open("target/cowen_tests/results/job_stats.csv", 'r') as f:
-    reader = csv.reader(f)
-    for row in reader:
-        if len(row) >= 3:
-            stats[row[0]] = row
+job_stats_path = os.path.join(RESULTS_DIR, "job_stats.csv")
+if os.path.exists(job_stats_path):
+    with open(job_stats_path, 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) >= 3:
+                stats[row[0]] = row
 with open(TELEMETRY_FILE, 'w') as f:
     writer = csv.writer(f)
     for row in stats.values():
@@ -199,7 +202,9 @@ def schedule():
     scored.sort(key=lambda x: x[0], reverse=True)
     
     total_ms = sum([x[0] for x in scored])
-    with open("target/cowen_tests/results/total_expected_ms.txt", "w") as f:
+    results_dir = os.environ.get("RESULTS_DIR", "target/cowen_tests/results")
+    expected_ms_file = os.path.join(results_dir, "total_expected_ms.txt")
+    with open(expected_ms_file, "w") as f:
         f.write(str(total_ms))
         
     for ms, s in scored:
@@ -275,15 +280,19 @@ EOF
             cat << 'EOF_ETA' > "$RESULTS_DIR/eta.py"
 import sys, os, csv
 MAX_PARALLEL = int(os.environ.get("MAX_PARALLEL", "32"))
+RESULTS_DIR = os.environ.get("RESULTS_DIR", "target/cowen_tests/results")
 completed_ms = 0
-if os.path.exists("target/cowen_tests/results/job_stats.csv"):
-    with open("target/cowen_tests/results/job_stats.csv") as f:
+job_stats_path = os.path.join(RESULTS_DIR, "job_stats.csv")
+if os.path.exists(job_stats_path):
+    with open(job_stats_path) as f:
         for row in csv.reader(f):
             if len(row) >= 2:
                 completed_ms += int(row[1])
 total_expected_ms = 0
-with open("target/cowen_tests/results/total_expected_ms.txt") as f:
-    total_expected_ms = int(f.read().strip())
+expected_ms_path = os.path.join(RESULTS_DIR, "total_expected_ms.txt")
+if os.path.exists(expected_ms_path):
+    with open(expected_ms_path) as f:
+        total_expected_ms = int(f.read().strip())
 remaining_ms_total = max(0, total_expected_ms - completed_ms)
 # Add some buffer for un-parallelizable overhead or final serial tests
 print(int((remaining_ms_total / MAX_PARALLEL) / 1000))

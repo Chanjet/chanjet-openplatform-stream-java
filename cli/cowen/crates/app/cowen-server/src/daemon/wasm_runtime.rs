@@ -112,25 +112,44 @@ impl WasmPipelineManager {
         Ok(())
     }
 
+    fn get_system_plugin_search_paths() -> Vec<std::path::PathBuf> {
+        let mut paths = vec![cowen_common::config::get_app_dir().join("system_plugins")];
+        if cfg!(unix) {
+            paths.push(std::path::PathBuf::from(
+                "/usr/local/share/cowen/system_plugins",
+            ));
+        } else if cfg!(windows) {
+            if let Ok(exe_path) = std::env::current_exe() {
+                if let Some(parent) = exe_path.parent() {
+                    paths.push(parent.join("system_plugins"));
+                }
+            }
+        }
+        paths
+    }
+
+    fn load_system_plugin_manifest(
+        name: &str,
+        path: &std::path::Path,
+    ) -> cowen_common::plugin::PluginManifest {
+        let bundle_path = path.with_extension("bundle");
+        if bundle_path.exists() {
+            cowen_common::plugin::PluginManifest::load_from_bundle(name, &bundle_path)
+                .unwrap_or_else(|_| cowen_common::plugin::PluginManifest::new_empty(name))
+        } else {
+            let json_path = path.with_extension("json");
+            cowen_common::plugin::PluginManifest::load_from_json(name, &json_path)
+                .unwrap_or_else(|_| cowen_common::plugin::PluginManifest::new_empty(name))
+        }
+    }
+
     fn load_system_plugins(
         &self,
         loaded_plugins: &mut HashMap<String, Arc<Mutex<Plugin>>>,
         loaded_manifests: &mut HashMap<String, cowen_common::plugin::PluginManifest>,
         lazy_plugins: &mut HashMap<String, std::path::PathBuf>,
     ) {
-        let mut paths_to_try = vec![cowen_common::config::get_app_dir().join("system_plugins")];
-
-        if cfg!(unix) {
-            paths_to_try.push(std::path::PathBuf::from(
-                "/usr/local/share/cowen/system_plugins",
-            ));
-        } else if cfg!(windows) {
-            if let Ok(exe_path) = std::env::current_exe() {
-                if let Some(parent) = exe_path.parent() {
-                    paths_to_try.push(parent.join("system_plugins"));
-                }
-            }
-        }
+        let paths_to_try = Self::get_system_plugin_search_paths();
 
         for base_dir in paths_to_try {
             if !base_dir.exists() {
@@ -142,17 +161,21 @@ impl WasmPipelineManager {
                     let path = entry.path();
                     if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
                         let name = path.file_stem().unwrap().to_string_lossy().to_string();
-                        let json_path = base_dir.join(format!("{}.json", name));
 
                         if loaded_plugins.contains_key(&name) || lazy_plugins.contains_key(&name) {
                             continue; // Avoid overriding if loaded previously or via pipeline.yaml
                         }
 
-                        let plugin_manifest =
-                            cowen_common::plugin::PluginManifest::load_from_json(&name, &json_path)
-                                .unwrap_or_else(|_| {
-                                    cowen_common::plugin::PluginManifest::new_empty(&name)
-                                });
+                        if let Err(e) = cowen_infra::pki::verify_plugin_bundle(&path) {
+                            tracing::error!(
+                                "System Wasm plugin {} failed signature verification: {}",
+                                name,
+                                e
+                            );
+                            continue;
+                        }
+
+                        let plugin_manifest = Self::load_system_plugin_manifest(&name, &path);
 
                         if !plugin_manifest.required_capabilities.is_empty() {
                             if let Err(e) = crate::daemon::facade_manifest::FacadeManifest::check_plugin_compatibility(&plugin_manifest.required_capabilities) {

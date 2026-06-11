@@ -42,6 +42,21 @@ impl PluginManifest {
         Self::parse_manifest(plugin_name, manifest_val)
     }
 
+    pub fn load_from_bundle(
+        plugin_name: &str,
+        bundle_path: &std::path::Path,
+    ) -> anyhow::Result<Self> {
+        let mut manifest_val: Option<serde_json::Value> = None;
+        if bundle_path.exists() {
+            if let Ok(bundle_str) = std::fs::read_to_string(bundle_path) {
+                if let Ok(bundle) = serde_json::from_str::<serde_json::Value>(&bundle_str) {
+                    manifest_val = bundle.get("manifest").cloned();
+                }
+            }
+        }
+        Self::parse_manifest(plugin_name, manifest_val)
+    }
+
     pub fn load(plugin_name: &str) -> anyhow::Result<Self> {
         let plugins_dir = crate::config::get_app_dir().join("plugins");
         let expected_path = if cfg!(target_os = "windows") {
