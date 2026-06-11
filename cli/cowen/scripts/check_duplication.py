@@ -153,5 +153,78 @@ def check_duplication():
     if failed:
         sys.exit(1)
 
+def check_wasm_sizes():
+    import os
+    limit_bytes = 2 * 1024 * 1024
+    wasm_dirs = [
+        'target/wasm32-unknown-unknown/release',
+        'target/wasm32-unknown-unknown/debug'
+    ]
+    
+    found_any = False
+    failed = False
+    
+    for wasm_dir in wasm_dirs:
+        if os.path.exists(wasm_dir):
+            for root, _, files in os.walk(wasm_dir):
+                for file in files:
+                    if file.endswith('.wasm'):
+                        found_any = True
+                        path = os.path.join(root, file)
+                        size = os.path.getsize(path)
+                        if size > limit_bytes:
+                            print(f"❌ WASM size check failed! {file} is {size / 1024 / 1024:.2f}MB, which exceeds the 2MB limit.")
+                            failed = True
+                        else:
+                            print(f"✅ WASM size check passed for {file} ({size / 1024 / 1024:.2f}MB).")
+    
+    if failed:
+        sys.exit(1)
+    elif found_any:
+        print("✅ WASM size checks complete.")
+
+def check_unsafe_code():
+    import os
+    import re
+    failed = False
+    unsafe_pattern = re.compile(r'\bunsafe\b')
+    
+    for root, _, files in os.walk('crates'):
+        if 'cowen-sys' in root or 'wasm' in root or 'tests' in root:
+            continue
+            
+        for file in files:
+            if file.endswith('.rs'):
+                path = os.path.join(root, file)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                except Exception:
+                    continue
+                
+                in_test_mod = False
+                for line_idx, line in enumerate(lines):
+                    if 'mod tests' in line or '#[cfg(test)]' in line:
+                        in_test_mod = True
+                    
+                    if 'unsafe-allowed' in line:
+                        continue
+                        
+                    clean_line = line.split('//')[0]
+                    if '/*' in clean_line:
+                        clean_line = clean_line.split('/*')[0]
+                    
+                    if not in_test_mod and unsafe_pattern.search(clean_line):
+                        if clean_line.count('"') % 2 == 0:
+                            print(f"❌ Unsafe code check failed! Found 'unsafe' block at {path}:{line_idx + 1}: {line.strip()}")
+                            failed = True
+                            
+    if failed:
+        sys.exit(1)
+    else:
+        print("✅ Unsafe code check passed (no raw unsafe code outside cowen-sys, wasm adapters, and test modules).")
+
 if __name__ == '__main__':
     check_duplication()
+    check_wasm_sizes()
+    check_unsafe_code()

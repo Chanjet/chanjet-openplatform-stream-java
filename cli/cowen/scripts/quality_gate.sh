@@ -140,6 +140,37 @@ if command -v gitleaks &> /dev/null; then
 else
     echo "gitleaks not installed. Skipping..."
 fi
+# 9. Check Code Coverage (cargo llvm-cov)
+echo ""
+echo "[9/10] Checking code coverage (cargo llvm-cov)..."
+if ! command -v cargo-llvm-cov &> /dev/null; then
+    echo "⚠️  cargo-llvm-cov not found. Skipping coverage check."
+else
+    # Enforce minimum 8% total coverage on cowen-auth package (due to workspace dependency dilution)
+    if ! cargo llvm-cov test --package cowen-auth --fail-under-lines 8; then
+        echo "❌ Code coverage check failed for cowen-auth (Target: >=8%)!"
+        exit 1
+    else
+        echo "✅ Code coverage check passed."
+    fi
+fi
+
+# 10. Check Dependency License & Compliance (cargo-deny)
+echo ""
+echo "[10/10] Checking dependency licenses & bans (cargo-deny)..."
+if ! command -v cargo-deny &> /dev/null; then
+    echo "cargo-deny not found, attempting to install..."
+    cargo install --locked cargo-deny || echo "⚠️  Failed to install cargo-deny. Skipping check."
+fi
+
+if command -v cargo-deny &> /dev/null; then
+    if ! cargo deny check licenses bans; then
+        echo "❌ Dependency license or compliance check failed!"
+        exit 1
+    else
+        echo "✅ Dependency license & bans check passed."
+    fi
+fi
 
 echo ""
 echo "======================================"
