@@ -121,8 +121,32 @@ fi
 
 echo "[Bonus] Checking security and dependencies..."
 if command -v cargo-audit &> /dev/null; then
-    if ! cargo audit; then
-        echo "⚠️  cargo audit failed (likely a network fetch error). Retrying offline with --no-fetch..."
+    CACHE_MARKER="$HOME/.cargo/.advisory-db-last-fetch"
+    CACHE_TTL=$((7 * 24 * 3600))
+    NOW=$(date +%s)
+    FETCH_NEEDED=1
+
+    if [ -f "$CACHE_MARKER" ] && [ -d "$HOME/.cargo/advisory-db" ]; then
+        LAST_FETCH=$(cat "$CACHE_MARKER" 2>/dev/null || echo 0)
+        AGE=$((NOW - LAST_FETCH))
+        if [ "$AGE" -lt "$CACHE_TTL" ]; then
+            FETCH_NEEDED=0
+            echo "ℹ️  Advisory DB cache is valid ($((AGE / 86400)) days old). Using --no-fetch to speed up..."
+        fi
+    fi
+
+    if [ "$FETCH_NEEDED" -eq 1 ]; then
+        if ! cargo audit; then
+            echo "⚠️  cargo audit fetch failed (likely a network error). Retrying offline with --no-fetch..."
+            if ! cargo audit --no-fetch; then
+                echo "❌ Cargo audit found vulnerabilities! Please fix them or add to .cargo/audit.toml ignores."
+                exit 1
+            fi
+        else
+            mkdir -p "$HOME/.cargo"
+            echo "$NOW" > "$CACHE_MARKER"
+        fi
+    else
         if ! cargo audit --no-fetch; then
             echo "❌ Cargo audit found vulnerabilities! Please fix them or add to .cargo/audit.toml ignores."
             exit 1
@@ -147,7 +171,8 @@ if ! command -v cargo-llvm-cov &> /dev/null; then
     echo "⚠️  cargo-llvm-cov not found. Skipping coverage check."
 else
     # Enforce minimum 8% total coverage on cowen-auth package (due to workspace dependency dilution)
-    if ! cargo llvm-cov test --package cowen-auth --fail-under-lines 8; then
+    # NOTE: sccache interferes with llvm-cov by stripping profiling data, so we must explicitly disable it.
+    if ! RUSTC_WRAPPER="" cargo llvm-cov test --package cowen-auth --fail-under-lines 8; then
         echo "❌ Code coverage check failed for cowen-auth (Target: >=8%)!"
         exit 1
     else

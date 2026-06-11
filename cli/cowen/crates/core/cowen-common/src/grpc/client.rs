@@ -221,7 +221,10 @@ impl DaemonClient {
         Ok(daemon_path)
     }
 
-    fn setup_daemon_logs_and_spawn(&self, daemon_path: &PathBuf) -> Result<PathBuf> {
+    fn setup_daemon_logs_and_spawn(
+        &self,
+        daemon_path: &PathBuf,
+    ) -> Result<(PathBuf, std::process::Child)> {
         let app_dir = crate::config::get_app_dir();
         let log_dir = app_dir.join("logs");
         if !log_dir.exists() {
@@ -254,21 +257,41 @@ impl DaemonClient {
                 )
             })?;
 
-        std::process::Command::new(daemon_path)
+        let child = std::process::Command::new(daemon_path)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::from(stdout_file))
             .stderr(std::process::Stdio::from(stderr_file))
             .spawn()
             .context(format!("Failed to spawn cowen-daemon process from '{}'. Please ensure cowen-daemon is installed.", daemon_path.display()))?;
 
-        Ok(log_dir)
+        Ok((log_dir, child))
     }
 
     async fn wait_for_daemon_start_and_ping(
         &self,
         log_dir: &PathBuf,
+        mut child: std::process::Child,
     ) -> Result<(Channel, AuthInterceptor)> {
-        for _ in 0..30 {
+        let append_stderr_tail = |mut err_msg: String| -> String {
+            if let Ok(stderr) = std::fs::read_to_string(log_dir.join("daemon.stderr.log")) {
+                let tail: Vec<&str> = stderr.lines().rev().take(10).collect();
+                if !tail.is_empty() {
+                    err_msg.push_str("\nDaemon stderr tail:\n");
+                    for line in tail.into_iter().rev() {
+                        err_msg.push_str(line);
+                        err_msg.push('\n');
+                    }
+                }
+            }
+            err_msg
+        };
+
+        for _ in 0..150 {
+            if let Ok(Some(status)) = child.try_wait() {
+                let err_msg = format!("Daemon process exited prematurely with status: {}", status);
+                bail!("{}", append_stderr_tail(err_msg));
+            }
+
             tokio::time::sleep(Duration::from_millis(100)).await;
             if let Ok((channel, interceptor)) = self.connect_to_daemon().await {
                 let mut client = NativeWorkerServiceClient::with_interceptor(
@@ -282,19 +305,9 @@ impl DaemonClient {
                 }
             }
         }
-        let mut err_msg =
+        let err_msg =
             "Daemon process was spawned but failed to bind to port within timeout".to_string();
-        if let Ok(stderr) = std::fs::read_to_string(log_dir.join("daemon.stderr.log")) {
-            let tail: Vec<&str> = stderr.lines().rev().take(10).collect();
-            if !tail.is_empty() {
-                err_msg.push_str("\nDaemon stderr tail:\n");
-                for line in tail.into_iter().rev() {
-                    err_msg.push_str(line);
-                    err_msg.push('\n');
-                }
-            }
-        }
-        bail!("{}", err_msg)
+        bail!("{}", append_stderr_tail(err_msg));
     }
 
     pub async fn ensure_daemon(&self) -> Result<(Channel, AuthInterceptor)> {
@@ -303,10 +316,10 @@ impl DaemonClient {
         }
 
         let daemon_path = self.resolve_daemon_executable_path()?;
-        let log_dir = self.setup_daemon_logs_and_spawn(&daemon_path)?;
+        let (log_dir, child) = self.setup_daemon_logs_and_spawn(&daemon_path)?;
 
         eprintln!("🚀 Starting daemon...");
-        self.wait_for_daemon_start_and_ping(&log_dir).await
+        self.wait_for_daemon_start_and_ping(&log_dir, child).await
     }
 
     pub async fn connect_to_daemon(&self) -> Result<(Channel, AuthInterceptor)> {
