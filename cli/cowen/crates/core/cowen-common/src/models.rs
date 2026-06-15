@@ -59,23 +59,47 @@ impl Token {
     }
 
     pub fn extract_identity(&self) -> Option<TokenIdentity> {
-        let claims = self.extract_jwt_claims().ok()?;
+        let claims = match self.extract_jwt_claims() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(target: "sys", error = %e, "Failed to extract JWT claims");
+                return None;
+            }
+        };
 
-        let user_id = claims
+        let user_id = match claims
             .get("userId")
-            .or(claims.get("user_id"))?
-            .as_str()?
-            .to_string();
-        let org_id = claims
+            .or(claims.get("user_id"))
+            .and_then(|v| v.as_str())
+        {
+            Some(v) => v.to_string(),
+            None => {
+                tracing::warn!(target: "sys", "Failed to extract user_id from token");
+                return None;
+            }
+        };
+        let org_id = match claims
             .get("orgId")
-            .or(claims.get("org_id"))?
-            .as_str()?
-            .to_string();
-        let app_id = claims
+            .or(claims.get("org_id"))
+            .and_then(|v| v.as_str())
+        {
+            Some(v) => v.to_string(),
+            None => {
+                tracing::warn!(target: "sys", "Failed to extract org_id from token");
+                return None;
+            }
+        };
+        let app_id = match claims
             .get("appId")
-            .or(claims.get("app_id"))?
-            .as_str()?
-            .to_string();
+            .or(claims.get("app_id"))
+            .and_then(|v| v.as_str())
+        {
+            Some(v) => v.to_string(),
+            None => {
+                tracing::warn!(target: "sys", "Failed to extract app_id from token");
+                return None;
+            }
+        };
 
         Some(TokenIdentity {
             user_id,

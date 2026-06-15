@@ -296,6 +296,12 @@ async fn run_profile_worker(
     ready_tx: tokio::sync::oneshot::Sender<()>,
     cancel_token: tokio_util::sync::CancellationToken,
 ) -> CowenResult<()> {
+    // PRD v0.5.0: Gateway mode validation guard
+    if let Err(e) = config.validate_gateway_compatibility() {
+        tracing::error!(target: "sys", profile = %profile, "Gateway configuration error: {}", e);
+        return Err(CowenError::Config(e));
+    }
+
     let app_dir = cowen_common::config::get_app_dir();
     let app_cfg = cfg_mgr.load_app_config().await?;
     let fingerprint = cowen_common::security::get_machine_fingerprint().unwrap_or_default();

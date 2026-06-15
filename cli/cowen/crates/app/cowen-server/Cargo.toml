@@ -15,7 +15,9 @@ cowen-auth = { path = "../../services/cowen-auth" }
 
 cowen-capabilities = { path = "../../core/cowen-capabilities" }
 cowen-common = { path = "../../core/cowen-common", features = ["reqwest"] }
+
 cowen-config = { path = "../../services/cowen-config" }
+cowen-gateway = { path = "../../core/cowen-gateway" }
 cowen-grpc-facade = { path = "../../adapters/cowen-grpc-facade" }
 cowen-infra = { path = "../../core/cowen-infra" }
 cowen-store = { path = "../../services/cowen-store" }

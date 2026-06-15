@@ -3,6 +3,104 @@ use serde::{Deserialize, Serialize};
 pub const BUILTIN_CLIENT_ID: &str = env!("BUILTIN_CLIENT_ID");
 pub const DEF_MARKET_URL: &str = env!("DEF_MARKET_URL");
 
+// ============================================================================
+// Gateway Configuration (PRD v0.5.0 Identity-Aware Gateway)
+// ============================================================================
+
+/// Auth routing mode for the Identity-Aware Gateway.
+///
+/// - `STRICT`: Default-deny. All requests require auth unless matched by `bypass_rules`.
+/// - `PERMISSIVE`: Default-allow. Only requests matching `require_rules` require auth.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum AuthRoutingMode {
+    #[serde(rename = "STRICT")]
+    #[default]
+    Strict,
+    #[serde(rename = "PERMISSIVE")]
+    Permissive,
+}
+
+impl std::fmt::Display for AuthRoutingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthRoutingMode::Strict => write!(f, "STRICT"),
+            AuthRoutingMode::Permissive => write!(f, "PERMISSIVE"),
+        }
+    }
+}
+
+impl std::str::FromStr for AuthRoutingMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "STRICT" => Ok(AuthRoutingMode::Strict),
+            "PERMISSIVE" => Ok(AuthRoutingMode::Permissive),
+            _ => Err(format!(
+                "Invalid auth routing mode: '{}'. Supported: STRICT, PERMISSIVE",
+                s
+            )),
+        }
+    }
+}
+
+/// Routing rules for the Identity-Aware Gateway's auth enforcement.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct AuthRoutingConfig {
+    /// The interception mode: STRICT (default-deny) or PERMISSIVE (default-allow).
+    #[serde(default)]
+    pub mode: AuthRoutingMode,
+
+    /// Glob patterns for paths that REQUIRE authentication (used in PERMISSIVE mode).
+    /// Example: `["/api/**", "/user/invoice/**"]`
+    #[serde(default)]
+    pub require_rules: Vec<String>,
+
+    /// Glob patterns for paths that BYPASS authentication (used in STRICT mode).
+    /// Example: `["/health", "/static/**"]`
+    #[serde(default)]
+    pub bypass_rules: Vec<String>,
+}
+
+/// Configuration for the Identity-Aware Gateway (Ingress reverse proxy).
+///
+/// This configuration block, when present on a `store-app` profile, enables
+/// the Cowen Sidecar to act as an Identity-Aware Proxy that intercepts
+/// browser traffic, handles OAuth code exchange, manages encrypted JWE
+/// sessions, and reverse-proxies to the ISV backend with identity headers.
+///
+/// **Constraint**: Gateway is ONLY valid for `store-app` mode. If present
+/// on a non-store-app profile, the daemon will refuse to start.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GatewayConfig {
+    /// The address the gateway listens on. Default: "127.0.0.1:8080".
+    /// For cloud-native sidecar mode, bind to loopback.
+    /// For VM/centralized gateway mode, can bind to "0.0.0.0:<port>".
+    #[serde(default = "default_gateway_bind_address")]
+    pub bind_address: String,
+
+    /// The ISV backend URL to reverse-proxy authenticated requests to.
+    /// Example: "http://127.0.0.1:3000" or "https://remote-isv.com"
+    pub upstream_url: String,
+
+    /// Optional synchronous webhook URL called during code exchange.
+    /// When set, Cowen blocks the 302 redirect until this hook returns 200.
+    /// The ISV can return Set-Cookie headers that are merged into the 302 response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_sync_hook: Option<String>,
+
+    /// Auth routing rules controlling which paths require authentication.
+    #[serde(default)]
+    pub auth_routing: AuthRoutingConfig,
+}
+
+fn default_gateway_bind_address() -> String {
+    "127.0.0.1:8080".to_string()
+}
+
+// ============================================================================
+// App-level Configuration (app.yaml)
+// ============================================================================
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppConfig {
     #[serde(default)]
@@ -132,6 +230,11 @@ pub struct Config {
     pub version: u64,
     #[serde(default)]
     pub exclusive: Option<bool>,
+    /// Identity-Aware Gateway configuration (PRD v0.5.0).
+    /// When present, enables Ingress reverse proxy with OAuth code interception.
+    /// **Only valid for `store-app` mode.**
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<GatewayConfig>,
 }
 
 fn default_true() -> bool {
@@ -188,6 +291,7 @@ impl Config {
             encrypt_key: "".to_string(),
             version: 0,
             exclusive: None,
+            gateway: None,
         }
     }
 
@@ -216,6 +320,54 @@ impl Config {
                 _ => crate::models::AuthMode::Oauth2,
             };
         }
+        self.apply_gateway_env_overrides();
+    }
+
+    /// Apply gateway-specific environment variable overrides (PRD v0.5.0).
+    fn apply_gateway_env_overrides(&mut self) {
+        if let Ok(val) = std::env::var("COWEN_GATEWAY_ENABLED") {
+            let enabled = val == "true" || val == "1";
+            if enabled && self.gateway.is_none() {
+                self.gateway = Some(GatewayConfig {
+                    bind_address: default_gateway_bind_address(),
+                    upstream_url: String::new(),
+                    auth_sync_hook: None,
+                    auth_routing: AuthRoutingConfig::default(),
+                });
+            } else if !enabled {
+                self.gateway = None;
+            }
+        }
+        if let Ok(bind) = std::env::var("COWEN_GATEWAY_BIND") {
+            if let Some(ref mut gw) = self.gateway {
+                gw.bind_address = bind;
+            }
+        }
+        if let Ok(upstream) = std::env::var("COWEN_GATEWAY_UPSTREAM") {
+            if let Some(ref mut gw) = self.gateway {
+                gw.upstream_url = upstream;
+            }
+        }
+        if let Ok(mode) = std::env::var("COWEN_GATEWAY_MODE") {
+            if let Some(ref mut gw) = self.gateway {
+                if let Ok(m) = mode.parse::<AuthRoutingMode>() {
+                    gw.auth_routing.mode = m;
+                }
+            }
+        }
+    }
+
+    /// Validates that the gateway configuration is compatible with the app mode.
+    /// Gateway is ONLY valid for `store-app` mode.
+    pub fn validate_gateway_compatibility(&self) -> Result<(), String> {
+        if self.gateway.is_some() && self.app_mode != crate::models::AuthMode::StoreApp {
+            return Err(format!(
+                "Gateway configuration is only supported in 'store-app' mode. \
+                 Current mode: '{}'. Remove the gateway configuration or switch to store-app mode.",
+                self.app_mode
+            ));
+        }
+        Ok(())
     }
 }
 

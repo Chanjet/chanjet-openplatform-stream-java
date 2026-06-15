@@ -50,11 +50,25 @@ Cowen 支持极致轻量的 **Sidecar (边车) 部署模式** 与 集中式 Gate
   - **主动登出**：仅负责在浏览器侧响应 `Set-Cookie` 删除指令，清理客户端凭证。
   - **最大暴露敞口控制**：依托 ADR-007 的 `idle_exp` 机制，将 Token 物理泄漏后的理论最大暴露窗口（Blast Radius）严格控制在 **30 分钟**以内。
   - **架构收益**：在”无状态可扩展性”与”安全吊销能力”之间做出了明确的取舍，以极低概率事件换取极致的水平扩展能力。
-- **ADR-009 [Native Proxy Dual-Mode Deployment]**: Cowen 内置 Egress 代理根据不同部署拓扑采取差异化的网络绑定与安全策略：
-  - **Sidecar 模式（默认）**：Egress 端口强制绑定 `127.0.0.1`（Loopback），依赖物理网络绝对隔离。仅同 Pod/主机的 ISV 进程可访问，无需额外认证，实现零配置的透明正向代理。
-  - **远端集中式模式**：Egress 端口绑定 `0.0.0.0`，允许跨网络访问。在此模式下，Cowen 摒弃应用层 IP 白名单配置，**全权交由基础设施级防火墙（Security Group）管控**，实现”零认知摩擦”。
-  - **模式切换**：通过 `bind_address` 字段自动识别——前缀为 `127.` 则启用 Sidecar 模式，否则启用远端模式并输出安全警告日志。
-  - **架构收益**：以最低的配置复杂度覆盖两种典型部署拓扑，在安全性与灵活性之间取得平衡。
+- **ADR-009 [Egress 代理复用 Store-App Proxy]**: Gateway 的 Egress（出口代理）能力**完全复用现有的 `store-app` 模式 HTTP Proxy (`daemon/proxy.rs`)**，无需另行开发独立的 Gateway Egress 服务器。
+
+  **架构依据**：
+  - 现有 Proxy 已具备完整的多租户 Token 寻址能力：ISV 后端通过 `127.0.0.1:proxy_port` 发起请求时，携带 `x-org-id` + `x-user-id` Header；`StoreAppProvider::intercept_request()` 读取这两个 Header，从 Vault 中按 `{app_key}:{org_id}` 查找对应 Token，自动注入 `openToken` + `appKey` Header 后转发至开放平台。
+  - Token 持久化链路已打通：Ingress 网关换票成功后，Token 通过 `StoreAppProvider` 持久化到 Vault（按 `{app_key}:{org_id}:{user_id}` 存储），现有 Proxy 可直接读取，无需额外缓存。
+  - Token 自动刷新能力已内置：`StoreAppProvider` 支持永久授权码恢复机制（Fire Seed），当 Token 过期时自动使用永久授权码重新换取，无需独立的 refresh_token 流程。
+
+  **对比 LLD 原始设计**（已废弃）：
+  | 维度 | LLD 原方案（Gateway 专用 Egress） | 实际方案（复用 Store-App Proxy） |
+  |:---|:---|:---|
+  | Token 寻址 | LRU 内存缓存，`hash(x-org-id + x-user-id)` 为 Key | Vault 持久化存储，`{app_key}:{org_id}` 为 Key |
+  | Token 注入 | 解密 JWE 取 `open_token`，注入 `Authorization: Bearer` | Vault 直接读取，注入 `openToken` + `appKey` |
+  | Token 刷新 | 401 自动 refresh_token 重放（最多 1 次） | 永久授权码自动恢复（Fire Seed 机制） |
+  | 跨 Pod 同步 | 需处理 LRU 缓存跨 Pod 不一致 | Vault 天然支持分布式共享（Redis/MySQL/PostgreSQL） |
+  | 额外开发量 | 需开发 Egress 服务器 + LRU 缓存 + 连接池 | **零额外开发**，直接复用 |
+
+  **配置要求**：Gateway profile 中需确保 `proxy_enabled: true`（默认值），bridge.rs 中的 `run_proxy_server` 分支会正常启动 Egress 代理。
+
+  **架构收益**：以零额外代码实现 Gateway Egress 能力，避免维护两套 Token 注入链路，且 Vault 存储方案天然支持多 Pod 分布式部署，优于 LRU 内存缓存方案。
 - **ADR-010 [Bypass-Aware Identity Injection]**: 当请求命中白名单路由（免认证）但浏览器已持有合法 `cowen_sess_id` 时，网关不强制校验身份，但会**顺手将明文身份注入 HTTP Header (`x-org-id`, `x-user-id`)** 后透传给 ISV 后端。此决策确保：
   - 白名单页面的 ISV 业务代码仍可**按需读取**平台身份（如用于”已登录则显示用户头像”的体验优化）。
   - 若白名单路由携带了 `code`，ADR-004 的全局拦截优先权先于本规则执行（洗白跳转后下发 Session，再回到本规则注入身份）。
@@ -162,19 +176,15 @@ flowchart TD
     NeedAPI -->|”否”| Done([“返回页面给用户”])
     NeedAPI -->|”是”| EgressCall[“通过本地 Egress 代理<br/>127.0.0.1:8081<br/>Header 携带:<br/>x-org-id + x-user-id”]
 
-    EgressCall --> EgressLookup[“hash(x-org-id + x-user-id)<br/>查 LRU 内存缓存<br/>定位 JWE 会话”]
-    EgressLookup -->|”命中”| EgressDecrypt[“解密 JWE<br/>获取 open_token”]
-    EgressLookup -->|”未命中”| EgressFail[“HTTP 502<br/>GW_NO_SESSION_FOR_EGRESS”]
+    EgressCall --> EgressLookup[“StoreAppProvider::intercept_request()<br/>从 Vault 按 {app_key}:{org_id}<br/>查找对应 Token”]
+    EgressLookup -->|”命中”| EgressInject[“组装请求:<br/>注入 openToken + appKey<br/>转发至 openapi_url”]
+    EgressLookup -->|”Token 过期”| EgressRecover[“永久授权码恢复<br/>(Fire Seed 机制)”]
 
-    EgressDecrypt --> EgressInject[“组装请求:<br/>Authorization: Bearer open_token<br/>改写 Host → 开放平台网关”]
-    EgressInject --> EgressSend[“通过连接池发送请求”]
-
-    EgressSend -->|”响应 401”| EgressRefresh{“尝试 refresh_token<br/>同步刷新”}
-    EgressRefresh -->|”刷新成功”| EgressRetry[“以新 Token<br/>重放请求 (最多 1 次)”]
-    EgressRefresh -->|”刷新失败”| Egress401[“返回 HTTP 401<br/>GW_EGRESS_TOKEN_EXPIRED”]
-    EgressRetry --> EgressSend
+    EgressInject --> EgressSend[“通过 reqwest 发送请求”]
+    EgressRecover --> EgressInject
 
     EgressSend -->|”成功”| EgressReturn[“原样返回<br/>Status Code + Headers + Body”]
+    EgressSend -->|”失败”| EgressFail[“返回上游错误”]
     EgressReturn --> Done
 
     %% ========== 样式 ==========

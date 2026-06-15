@@ -115,6 +115,28 @@ async fn check_token_cache(
     Ok(None)
 }
 
+async fn try_refresh_token_recovery(
+    pool: &(dyn TokenPool + Send + Sync),
+    http_sender: &dyn HttpSender,
+    profile: &str,
+    cfg: &Config,
+    secret_key: &str,
+) -> Option<cowen_common::models::Token> {
+    if let Ok(pair_str) = pool.as_vault().get_secret(profile, secret_key).await {
+        if let Ok(pair) = serde_json::from_str::<cowen_common::models::OAuth2TokenPair>(&pair_str) {
+            if !pair.refresh_token.is_empty() && pair.refresh_expires_at > chrono::Utc::now() {
+                if let Ok(new_token) =
+                    client::refresh_token(pool, http_sender, profile, cfg, &pair.refresh_token)
+                        .await
+                {
+                    return Some(new_token);
+                }
+            }
+        }
+    }
+    None
+}
+
 pub(crate) async fn get_user_token(
     pool: &(dyn TokenPool + Send + Sync),
     http_sender: &dyn HttpSender,
@@ -131,7 +153,17 @@ pub(crate) async fn get_user_token(
         return Ok(token);
     }
 
-    // 🚀 Fallback to User Permanent Auth Code ("Fire Seed")
+    // 🚀 2. Fallback to Refresh Token (from Vault secret)
+    tracing::info!(target: "sys", userId = %uid, orgId = %org_id, "Attempting recovery via Refresh Token...");
+    let secret_key = storage::get_user_token_key(app_key, org_id, uid);
+    if let Some(new_token) =
+        try_refresh_token_recovery(pool, http_sender, profile, cfg, &secret_key).await
+    {
+        tracing::info!(target: "audit", userId = %uid, "Successfully recovered user token via Refresh Token");
+        return Ok(new_token);
+    }
+
+    // 🚀 3. Fallback to User Permanent Auth Code ("Fire Seed")
     tracing::info!(target: "sys", userId = %uid, orgId = %org_id, "Attempting recovery via Permanent Auth Code...");
 
     match try_permanent_code_recovery(pool, http_sender, profile, cfg, org_id, Some(uid)).await {
@@ -166,8 +198,17 @@ pub(crate) async fn get_org_token(
         return Ok(token);
     }
 
-    // 4. Permanent code recovery
+    // 🚀 2. Fallback to Refresh Token (from Vault secret)
+    tracing::info!(target: "sys", orgId = %org_id, "Attempting recovery via Refresh Token...");
+    let secret_key = storage::get_org_token_key(app_key, org_id);
+    if let Some(new_token) =
+        try_refresh_token_recovery(pool, http_sender, profile, cfg, &secret_key).await
+    {
+        tracing::info!(target: "audit", orgId = %org_id, "Successfully recovered org token via Refresh Token");
+        return Ok(new_token);
+    }
 
+    // 🚀 3. Permanent code recovery
     match try_permanent_code_recovery(pool, http_sender, profile, cfg, org_id, None).await {
         Ok(t) => {
             pool.set_access_token(&custom_profile, &t).await?;

@@ -41,6 +41,8 @@ async fn save_intercepted_identity(
         let app_key = cfg.app_key.trim();
         let vault = pool.as_vault();
 
+        tracing::info!(target: "sys", org_id = %identity.org_id, user_id = %identity.user_id, opc_present = token_resp.org_permanent_code.is_some(), "Extracted identity from intercepted token");
+
         // Save OAuth2 pair (containing refresh_token) to vault
         let key_pair = if !identity.user_id.is_empty() && identity.user_id != "0" {
             storage::get_user_token_key(app_key, &identity.org_id, &identity.user_id)
@@ -50,6 +52,13 @@ async fn save_intercepted_identity(
         vault
             .set_secret(profile, &key_pair, &serde_json::to_string(&pair)?)
             .await?;
+
+        // 🚀 Always persist Org Permanent Code if available, even for user-level tokens
+        if let Some(opc) = &token_resp.org_permanent_code {
+            vault
+                .save_org_permanent_code(app_key, &identity.org_id, opc)
+                .await?;
+        }
 
         if !identity.user_id.is_empty() && identity.user_id != "0" {
             // User-level token path
@@ -71,11 +80,6 @@ async fn save_intercepted_identity(
             }
         } else {
             // Org-level token path
-            if let Some(opc) = &token_resp.org_permanent_code {
-                vault
-                    .save_org_permanent_code(app_key, &identity.org_id, opc)
-                    .await?;
-            }
             let custom_profile =
                 storage::get_custom_profile(profile, app_key, &identity.org_id, None);
             vault

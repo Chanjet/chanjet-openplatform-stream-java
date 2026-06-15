@@ -65,8 +65,7 @@ sequenceDiagram
     Note over User, ISV: 【阶段二】本地鉴权与按需 Pull 建立业务 Session
     User->>Cowen: 携带 cowen_sess_id 重新访问 /invoice
     Cowen->>ISV: 校验有效，注入 Header(x-org-id, x-user-id) 放行至后端
-    ISV->>ISV: 拦截器直接读取 Header 身份（或按需请求 /v1/auth/me）
-    Cowen-->>ISV: (若请求 /v1/auth/me) 返回详细身份信息
+    ISV->>ISV: 拦截器直接读取 Header 身份并签发 isv_session
     ISV->>ISV: 关联历史账号，建立本地 isv_session 状态
     ISV-->>User: 返回业务页面，并下发 Set-Cookie: isv_session
 
@@ -118,7 +117,7 @@ sequenceDiagram
 ### 4.2 双 Session 共存与网关 Header 注入鉴权
 彻底改变过去通过网关强塞状态的思维，让身份生命周期独立运转：
 - **Cowen Session（平台态）**：由网关通过上述 302 过程种在浏览器端，代表“畅捷通开放平台”的身份合法性。在后续的每一次业务请求中，**Cowen 作为 Ingress 网关拦截到请求后，会自动从本地 DB 中解析出会话对应的明文身份，并以 `x-org-id`, `x-user-id` 等 HTTP Header 的形式强制装载，随后才将请求透明代理给 ISV 后端。**
-- **ISV Session（业务态）**：由业务侧自主维护。当请求来到 ISV 后端时，ISV 拦截器若发现缺乏本地 Session，可以直接从 HTTP Header 中读取 `x-org-id`, `x-user-id` 获取平台身份（若需更详尽信息也可按需请求 `/v1/auth/me`）。一旦确认为合法存量用户，ISV 立即下发专属的 `isv_session`。两套身份生命周期完全解耦，互不干涉。
+- **ISV Session（业务态）**：由业务侧自主维护。当请求来到 ISV 后端时，ISV 拦截器若发现缺乏本地 Session，可以直接从 HTTP Header 中读取 `x-org-id`, `x-user-id` 获取平台身份。一旦确认为合法存量用户，ISV 立即下发专属的 `isv_session`。两套身份生命周期完全解耦，互不干涉。
 
 ### 4.3 种 Session 的双轨制 (Dual-Track) 自由裁量权
 为了应对各类开发偏好，Cowen 在入口拦截时提供“双轨制”的身份通知模式，把业务控制权彻底交还 ISV：

@@ -51,17 +51,46 @@ async def handle_generic_success(request):
 
 async def handle_oauth2_token(request):
     """OAuth2 mode token exchange - Non-deterministic to support fast rotation tests"""
-    data = await request.post()
+    try:
+        data = await request.json()
+    except:
+        data = await request.post()
+    
     grant_type = data.get("grant_type", "authorization_code")
     client_id = data.get("client_id", "unknown")
     token_suffix = uuid.uuid4().hex[:8]
-    print(f"📥 [MOCK] OAuth2 Token Request: grant_type={grant_type}, client_id={client_id}")
+    code = data.get("code", "")
+    app_key_header = request.headers.get("appKey", "")
+    print(f"📥 [MOCK] OAuth2 Token Request: grant_type={grant_type}, client_id={client_id}, code={code}")
+    org_id = code.replace("code_", "") if code.startswith("code_") else "mock_org_456"
+    
+    # In StoreApp mode, the gateway intercepts the exchange and requires a valid JWT.
+    # Standard OAuth2 tests assert that the token starts with "mock_at_oa2".
+    oauth2_client_ids = {
+        "unknown", "dummy-client-id", "dummy", "dummy-parallel-client-id",
+        "3NWdEbmu", "RjP3LPoI"
+    }
+    if client_id in oauth2_client_ids and app_key_header in oauth2_client_ids | {""}:
+        access_token = f"mock_at_oa2_{grant_type}_{token_suffix}"
+    else:
+        import base64
+        import json
+        header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').decode('utf-8').rstrip('=')
+        claims = {
+            "userId": "mock_user_123",
+            "orgId": org_id,
+            "appId": "mock_app_789"
+        }
+        payload = base64.urlsafe_b64encode(json.dumps(claims).encode('utf-8')).decode('utf-8').rstrip('=')
+        access_token = f"{header}.{payload}.fakesignature"
     
     return web.json_response({
-        "access_token": f"mock_at_oa2_{grant_type}_{token_suffix}",
+        "access_token": access_token,
         "refresh_token": f"mock_rt_oa2_{token_suffix}",
         "expires_in": MOCK_STATE["token_expires_in"],
-        "refresh_expires_in": 86400
+        "refresh_expires_in": 86400,
+        "user_auth_permanent_code": "mock_upc_from_exchange",
+        "permanent_auth_code": "mock_opc_from_exchange"
     })
 
 async def handle_store_app_token(request):
@@ -242,6 +271,24 @@ async def handle_secure(request):
     token = request.headers.get("openToken") or request.headers.get("Authorization", "none")
     print(f"📥 [MOCK] Received SECURE request with token: {token[:10]}...")
     return web.json_response({"status": "verified", "token_used": token})
+
+async def handle_auth_sync_hook(request):
+    org_id = request.headers.get("x-org-id", "")
+    user_id = request.headers.get("x-user-id", "")
+    print(f"📥 [MOCK] Auth Sync Hook called for org_id={org_id}, user_id={user_id}")
+    
+    # Extract delay and status code
+    delay_ms = MOCK_STATE.get("webhook_delay_ms", 0)
+    if delay_ms > 0:
+        await asyncio.sleep(delay_ms / 1000.0)
+        
+    status = MOCK_STATE.get("auth_sync_hook_status", 200)
+    if status != 200:
+        return web.Response(status=status)
+        
+    response = web.json_response({"status": "synced", "org_id": org_id, "user_id": user_id})
+    response.set_cookie("isv_session", f"mock_isv_{uuid.uuid4().hex[:8]}")
+    return response
 
 # --- WebSocket Handlers ---
 
@@ -496,6 +543,7 @@ async def run_server():
     
     app.router.add_get("/v1/mock/ping", handle_ping)
     app.router.add_get("/v1/mock/secure", handle_secure)
+    app.router.add_post("/mock_isv/auth_sync_hook", handle_auth_sync_hook)
     
     # WebSocket Endpoints
     app.router.add_get("/v1/ws/challenge", handle_nonce)

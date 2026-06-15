@@ -18,6 +18,7 @@ pub mod vault;
 
 pub use config::{AppConfig, Config};
 pub use error::{CowenError, CowenResult};
+
 pub mod plugin;
 pub mod status;
 pub mod store;

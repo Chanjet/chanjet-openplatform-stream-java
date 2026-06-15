@@ -69,6 +69,7 @@ pub async fn run(
 
     tokio::select! {
         res = run_proxy_server(enable_proxy, profile.to_string(), config.clone(), vault.clone(), proxy_port, port_tx) => res,
+        res = run_gateway_server(profile.to_string(), config.clone(), vault.clone(), app_cfg.clone()) => res,
         res = run_stream_client(requires_stream, client_ptr.clone(), connected_notify.clone(), status_file) => res,
         _ = run_maintenance_loop(requires_stream, pool, profile.to_string(), config.clone(), connected_notify) => Ok(()),
         _ = cancel_token.cancelled() => {
@@ -179,6 +180,49 @@ async fn run_proxy_server(
             return Err(anyhow::anyhow!("Proxy server crashed: {}", e));
         }
     }
+    std::future::pending::<Result<()>>().await
+}
+
+/// PRD v0.5.0 — Identity-Aware Gateway (Ingress reverse proxy) runner.
+///
+/// If the config has a `gateway` block AND the app_mode is `store-app`,
+/// starts the gateway server. Otherwise, returns an error or hangs.
+async fn run_gateway_server(
+    profile: String,
+    config: Config,
+    vault: Arc<dyn Vault>,
+    app_cfg: cowen_common::config::AppConfig,
+) -> Result<()> {
+    if let Some(ref gw_config) = config.gateway {
+        // Mode validation guard (PRD §2): Gateway is ONLY for store-app
+        if config.app_mode != cowen_common::models::AuthMode::StoreApp {
+            return Err(anyhow::anyhow!(
+                "Gateway configuration is only supported in 'store-app' mode. \
+                 Current mode: '{}'. Cowen refuses to start.",
+                config.app_mode
+            ));
+        }
+
+        let pool = Arc::new(VaultTokenPool::new(vault.clone()));
+        let auth_client: Arc<dyn Client> = Arc::new(cowen_auth::create_auth_client(pool));
+
+        let (gw_port_tx, _gw_port_rx) = tokio::sync::oneshot::channel();
+
+        if let Err(e) = cowen_gateway::start_gateway(
+            &profile,
+            &config,
+            gw_config,
+            &app_cfg,
+            auth_client,
+            vault.clone(),
+            Some(gw_port_tx),
+        )
+        .await
+        {
+            return Err(anyhow::anyhow!("Gateway server crashed: {}", e));
+        }
+    }
+    // No gateway configured — hang indefinitely (select! will cancel us)
     std::future::pending::<Result<()>>().await
 }
 

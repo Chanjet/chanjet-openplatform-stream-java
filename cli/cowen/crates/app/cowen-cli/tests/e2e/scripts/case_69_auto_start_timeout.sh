@@ -2,9 +2,8 @@
 set -e
 source "$(dirname "$0")/common.sh"
 
-export COWEN_HOME="$(mktemp -d)"
 export COWEN_PROFILE="default"
-trap 'rm -rf "$COWEN_HOME"' EXIT
+setup_workspace "case_69"
 
 # Initialize a dummy profile so it gets listed in auto_start_all
 "$COWEN_BIN" init --app-mode store_app --app-key dummy --app-secret dummy --encrypt-key dummy
