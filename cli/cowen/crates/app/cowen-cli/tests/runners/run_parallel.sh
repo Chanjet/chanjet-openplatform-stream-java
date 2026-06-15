@@ -142,7 +142,7 @@ if [ -f "$PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
     cargo run --quiet $BUILD_ARGS -p cowen-signer -- sign-plugin \
         --dylib "$PLUGIN_SRC" \
         --name cowen-search-embedding \
-        --version "0.4.0" \
+        --version "0.5.0" \
         --dev-key dist_assets/keys/official_dev.pk8 \
         --dev-cert dist_assets/keys/official_dev_cert.json \
         --out-bundle "$BUILD_DIR/libcowen_search_embedding.bundle" \
@@ -154,7 +154,7 @@ if [ -f "$MCP_PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
     cargo run --quiet $BUILD_ARGS -p cowen-signer -- sign-plugin \
         --dylib "$MCP_PLUGIN_SRC" \
         --name cowen-mcp-plugin \
-        --version "0.4.0" \
+        --version "0.5.0" \
         --dev-key dist_assets/keys/official_dev.pk8 \
         --dev-cert dist_assets/keys/official_dev_cert.json \
         --out-bundle "$BUILD_DIR/cowen-mcp-plugin.bundle" \

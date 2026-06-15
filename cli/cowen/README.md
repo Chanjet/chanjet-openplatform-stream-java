@@ -1,7 +1,7 @@
 # 畅捷通 Stream Connector CLI (Rust 版) - cowen
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 `cowen` 是畅捷通开放平台（Chanjet Open Platform）官方推出的高性能、安全且智能的 API 治理与侧车 (Sidecar) 代理底座。基于严谨的 Crate 分层架构与 Thin CLI 交互设计，它深度融合了 WebAssembly 插件隔离、纯 Rust 原生独立 AI 检索引擎与云原生存储底座，为各类终端与 SaaS 应用提供极简、高扩展的全生命周期接入体验。
@@ -62,7 +62,7 @@ cowen daemon start --proxy-port 8080
 
 ## 📚 架构与模块导读 (Architecture & Modules)
 
-在 `0.4.0` 版本中，Cowen 采用严格的分层重构（Thin CLI + Daemon + Sidecar Plugins）。以下是核心 Crate 矩阵，点击链接查看各自的详细职能边界：
+在 `0.5.0` 版本中，Cowen 采用严格的分层重构（Thin CLI + Daemon + Sidecar Plugins）。以下是核心 Crate 矩阵，点击链接查看各自的详细职能边界：
 
 ### 1. App 接入层 (`crates/app`)
 *Thin CLI 交互前端与守护进程入口*
@@ -88,6 +88,7 @@ cowen daemon start --proxy-port 8080
 *跨平台基建与接口契约*
 - [`cowen-capabilities`](crates/core/cowen-capabilities/README.md) - 最高级 Trait 契约，解耦所有强依赖关系的抽象池。
 - [`cowen-common`](crates/core/cowen-common/README.md) - 错误枚举、全局常量及共享模型。
+- [`cowen-gateway`](crates/core/cowen-gateway/README.md) - 负责零信任应用网关（Identity-Aware Gateway）的路由匹配、会话校验与凭证 wash。
 - [`cowen-infra`](crates/core/cowen-infra/README.md) - 底层网络组件、HTTP 客户端池与并发队列编排。
 - [`cowen-macros`](crates/core/cowen-macros/README.md) - 内部专用的元编程及编译期校验宏集合。
 - [`cowen-plugin`](crates/core/cowen-plugin/README.md) - 侧车 (Sidecar) 进程与标准流 IPC 生命周期引擎。
