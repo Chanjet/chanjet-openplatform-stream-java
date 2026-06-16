@@ -211,10 +211,25 @@ cowen store migrate --to "mysql://user:pass@host:3306/db"
 
 ## 🏗️ 最佳实践：部署为 Sidecar (侧车)
 
-在生产环境下，推荐将 `cowen` 与您的主应用部署在同一个 Pod (K8s) 或 Task (ECS) 中。
+在生产环境下，推荐将 `cowen` 与您的主应用部署在同一个 Pod (K8s) 或 Task (ECS) 中。根据您的业务架构，Sidecar 有两种典型的部署模型：
 
-### 1. Kubernetes (K8s) 最佳实践
-在 K8s 中，通过 `Deployment` 的多容器定义实现。由于 `cowen` 依赖本地持久化配置，建议使用 **Startup Script** 模式。
+### 1. 部署架构选型
+
+#### 模型 A：Inbound 身份网关 + Egress 代理混合模式 (v0.5.0+ 推荐)
+* **流量流向**：外部流量（客户端浏览器） -> 负载均衡/Ingress -> **`cowen` 网关端口（如 `8090`）** -> 验证 Session 并匹配路由 -> 路由给**业务主应用（如 `127.0.0.1:5000`）**。
+* **安全性**：业务主应用容器只监听本地回环地址（`127.0.0.1`），完全处于网关的安全保护伞之下，不需要自己做 OAuth 和 Session 解密。
+* **业务调用**：业务主应用调用外部 OpenAPI 时，仍可以通过 `cowen` 侧车代理端口（如 `8080`）做 Egress 加签。
+
+#### 模型 B：纯 Egress 代理侧车模式 (传统模式)
+* **流量流向**：外部流量 -> Ingress -> **业务主应用（暴露公网，如 `5000`）**。
+* **业务调用**：业务主应用在需要调用开放平台 API 时，将代理设置指向 `cowen` 侧车端口（如 `8080`），由 `cowen` 代理完成多租户 Token 注入。
+
+---
+
+### 2. Kubernetes (K8s) 最佳实践
+
+以下是启用 **Inbound 身份网关 + Egress 代理混合模式** 时的 Pod 编排配置。
+我们将网关绑定在 `0.0.0.0:8090` 承接外部 Ingress 流量，把 Egress 代理绑定在 `127.0.0.1:8080` 供业务系统内调用。
 
 ```yaml
 apiVersion: apps/v1
@@ -225,18 +240,25 @@ spec:
   template:
     spec:
       containers:
+      # 1. ISV 主业务容器
       - name: main-app
         image: my-saas-app:latest
+        ports:
+        - containerPort: 5000                  # 主业务服务端口，仅监听 127.0.0.1:5000
         env:
+        # 主应用向外调用 OpenAPI 时，指定 Proxy 地址指向 sidecar
         - name: COWEN_PROXY
           value: "http://127.0.0.1:8080"
+          
+      # 2. Cowen 侧车容器
       - name: cowen-sidecar
         image: chanjet/cowen:latest
-        # 使用环境变量驱动的一键启动模式 (One-Liner)
-        # 侧车启动时会自动检测环境变量并完成隐式初始化
         command: ["cowen"]
         args: ["--profile", "isv-sidecar", "daemon", "start", "--foreground"]
+        ports:
+        - containerPort: 8090                  # Inbound 网关端口，对外暴露
         env:
+        # A. 凭据与模式驱动
         - name: COWEN_APP_MODE
           value: "store-app"
         - name: COWEN_APP_KEY
@@ -245,10 +267,22 @@ spec:
           valueFrom: { secretKeyRef: { name: cowen-secret, key: app-secret } }
         - name: COWEN_ENCRYPT_KEY
           valueFrom: { secretKeyRef: { name: cowen-secret, key: encrypt-key } }
+          
+        # B. Inbound 网关与路由引擎配置 (v0.5.0+)
+        - name: COWEN_GATEWAY_ENABLED
+          value: "true"
+        - name: COWEN_GATEWAY_BIND
+          value: "0.0.0.0:8090"                # 网关必须监听 0.0.0.0 才能接收 Pod 外流量
+        - name: COWEN_GATEWAY_UPSTREAM
+          value: "http://127.0.0.1:5000"       # 默认兜底转发至 ISV 主容器
+        - name: COWEN_GATEWAY_MODE
+          value: "STRICT"                      # 强制所有请求均需 Session 校验
         - name: COWEN_WEBHOOK_TARGET
-          value: "http://127.0.0.1:5000/callback"
+          value: "http://127.0.0.1:5000/callback" # 登录成功后的 auth sync Webhook 目标
+          
+        # C. Egress 代理及持久化配置
         - name: COWEN_PROXY_PORT
-          value: "8080"
+          value: "8080"                        # 本地主应用调用的代理端口
         - name: COWEN_STORE_TYPE
           value: "mysql"
         - name: COWEN_DB_URL
@@ -259,33 +293,50 @@ spec:
           value: "redis://redis-service:6379"
 ```
 
-### 2. Docker Compose 最佳实践
+---
+
+### 3. Docker Compose 最佳实践
+
+在 Compose 共享网络栈的环境中，我们同时配置了主服务、多 Upstream 路由对应的微服务容器，以及 Cowen 侧车网关。
+
 ```yaml
 services:
+  # 主业务服务
   app:
     image: my-app
-    ports:
-      - "5000:5000" # Webhook 接收端口
     environment:
-      COWEN_URL: http://127.0.0.1:8080 # 共享网络栈，直接访问 localhost
+      COWEN_URL: http://127.0.0.1:8080         # 指向 Proxy 端口
+    # 无需暴露 5000 端口，只接受本地侧车转发
+
+  # 订单微服务
+  order-service:
+    image: my-order-service
+    # 供网关进行多微服务分发，绑定在 localhost:8081
+
+  # Cowen 侧车网关
   cowen:
     image: chanjet/cowen:latest
-    network_mode: "service:app" # 【关键】共享 app 的网络命名空间以绕过 SSRF 限制
+    network_mode: "service:app"                 # 共享 app 容器的网络命名空间
+    ports:
+      - "8090:8090"                             # 暴露 Inbound 网关端口
     command: daemon start --foreground
+    volumes:
+      # 可以挂载外部 default.yaml 路由表，或者使用环境变量定义
+      - ./default.yaml:/root/.cowen/default.yaml
     environment:
       - COWEN_APP_MODE=store-app
       - COWEN_APP_KEY=${APP_KEY}
       - COWEN_APP_SECRET=${APP_SECRET}
       - COWEN_ENCRYPT_KEY=${ENCRYPT_KEY}
-      - COWEN_WEBHOOK_TARGET=http://127.0.0.1:5000/callback
       - COWEN_STORE_TYPE=redis
       - COWEN_DB_URL=redis://redis:6379
-```
 
-### 3. AWS ECS (Fargate) 最佳实践
-- **容器编排**: 在同一个 Task Definition 中定义主应用和 `cowen` 容器。
-- **共享命名空间**: ECS Fargate 默认在同一个任务内的容器共享 `localhost` 网络。
-- **日志路由**: 建议将 `cowen` 的 `sys` 和 `audit` 日志通过 `awslogs` 驱动发送至 CloudWatch。
+---
+
+### 4. AWS ECS (Fargate) 最佳实践
+* **任务定义 (Task Definition)**：主业务应用和 `cowen` 容器部署在同一个 Task Definition 中。
+* **Awsvpc 网络模式**：ECS Fargate 会为 Task分配一个独立的 ENI，容器之间共享 `localhost` 网络栈，内部转发极速且完全隔离。
+* **端口划分**：设置 Inbound 端口映射为 `8090` 作为 ALB 的 Target Group 后端，设置 `cowen` 的 `sys` 与 `audit` 日志接入 CloudWatch 统一收集。
 
 ---
 
