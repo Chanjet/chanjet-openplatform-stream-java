@@ -607,7 +607,7 @@ app.get('/api/books', async (req, res) => {
 // Clear session cookie and redirect to root to trigger gateway auth re-login
 app.get('/logout', (req, res) => {
   res.clearCookie('cowen_sess_id', { path: '/' });
-  res.redirect('/');
+  res.redirect('/public/logout.html');
 });
 
 // Start Node.js application
