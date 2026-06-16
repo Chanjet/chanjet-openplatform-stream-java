@@ -375,9 +375,14 @@ app.get('/', (req, res) => {
         <div class="dashboard">
           <div class="header">
             <h1>ISV Dashboard</h1>
-            <div class="status-badge">
-              <span class="status-dot"></span>
-              网关鉴权已通过 (Active)
+            <div style="display: flex; align-items: center; gap: 15px;">
+              <div class="status-badge">
+                <span class="status-dot"></span>
+                网关鉴权已通过 (Active)
+              </div>
+              <a href="/logout" style="text-decoration: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #f87171; padding: 6px 14px; border-radius: 50px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.3s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.2)'" onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'">
+                退出登录 (Logout)
+              </a>
             </div>
           </div>
           
@@ -597,6 +602,12 @@ app.get('/api/books', async (req, res) => {
       details: errorData
     });
   }
+});
+
+// Clear session cookie and redirect to root to trigger gateway auth re-login
+app.get('/logout', (req, res) => {
+  res.clearCookie('cowen_sess_id', { path: '/' });
+  res.redirect('/');
 });
 
 // Start Node.js application
