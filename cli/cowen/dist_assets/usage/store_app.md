@@ -86,6 +86,71 @@ ISV 需要引导企业管理员访问畅捷通开放平台的授权页面。
 
 ---
 
+## 🌐 身份感知网关与统一路由引擎 (Inbound Gateway & Routing)
+
+在 **v0.5.0** 中，`cowen` 引入了内置的 **Inbound 身份感知网关**。该网关作为客户端和您业务系统的第一道屏障，自动托管了用户的登录鉴权（CORS/302 重定向）、Session 状态以及多 Upstream 路由转发。
+
+### 1. 为什么使用 Inbound Gateway？
+* **零侵入登录对接**：无需在业务系统（Upstream）中编写复杂的 OAuth 回调拦截与 Cookie 读写逻辑，网关全自动搞定。
+* **旁挂直连 OpenAPI**：通过统一匹配逻辑，允许客户端直连网关发送 `/open-api/**` 请求，网关在进程内自动完成加签与 3-Tier 换票自愈，免去业务系统代理中转的多跳开销。
+* **多微服务分发**：支持根据 Path 分发至不同的后端微服务，并自动向后端透传已登录的租户身份（`x-org-id`、`x-user-id`、`x-app-id`）。
+
+### 2. 网关与路由配置说明
+您可以在配置文件（如 `default.yaml`）中定义网关行为及路由表：
+
+```yaml
+gateway:
+  bind_address: "127.0.0.1:8080"         # 网关监听地址
+  upstream_url: "http://localhost:8080"   # 兜底默认后端（向前兼容）
+  
+  # OAuth 登录成功后的同步 Webhook（可选）
+  auth_sync_hook: "http://localhost:8080/mock_isv/auth_sync_hook"
+  
+  # 鉴权路由模式（STRICT-全保护 | PERMISSIVE-全放行）
+  auth_routing:
+    mode: "STRICT"
+    bypass_rules:                         # 免登录放行白名单路径（支持 Glob）
+      - "/v1/mock/ping"
+      - "/static/**"
+    require_rules: []
+    
+  # 统一路由分发规则表（从上到下匹配）
+  routes:
+    # 场景 A：客户端直连/旁挂 OpenAPI，网关在进程内洗刷签名并一跳直达开放平台
+    - path: "/open-api/**"
+      upstream: "openapi"                 # 使用 "openapi" 关键字启用旁挂直连
+      strip_prefix: "/open-api"           # 转发时剥离的前缀
+      
+    # 场景 B：将特定前缀路由至独立的业务微服务（如订单系统）
+    - path: "/order/**"
+      upstream: "http://localhost:8081"
+      strip_prefix: "/order"
+```
+
+### 3. 三大核心路由模式
+
+#### 模式一：普通业务分发（ISV 微服务分发）
+当请求匹配到普通 HTTP 路由规则（如 `/order/**`）时：
+1. 网关验证客户端 Session 状态（不满足则根据配置返回 401 JSON 或 302 重定向到登录页）。
+2. 网关剥离指定前缀后，将请求转发给指定的子微服务。
+3. 网关在转发头中**自动注入租户上下文**：
+   * `x-org-id`：当前会话对应的企业 ID。
+   * `x-user-id`：当前会话对应的用户 ID。
+   * `x-app-id`：当前应用 ID。
+4. 业务微服务接收到请求后，**无需自己校验 Cookie**，直接通过 `x-org-id` 等标头即可安全地识别当前请求属于哪个租户。
+
+#### 模式二：旁挂直连 OpenAPI（Direct OpenAPI Mode）
+当请求匹配到 upstream 为 `"openapi"` 的规则（如 `/open-api/**`）时：
+1. 网关拦截请求，根据当前会话自动在进程内实例化 `AuthProvider`。
+2. 自动检索该租户存在 Vault 或存储中的凭据，在网关进程内直接完成请求参数的多租户加签洗刷。
+3. **3-Tier 自愈换票**：网关检测到 Access Token 已失效时，会自动在进程内利用永久授权码（Permanent Code）或 Refresh Token 向开放平台静默请求新 Token，更新存储后重新完成签名，期间客户端无感知。
+4. 网关将剥离前缀后的请求一跳直连真正的公网/云内开放平台接口，返回结果。
+
+#### 模式三：兜底默认转发
+对于不匹配任何 `routes` 的请求，网关将其透明反向代理至 `upstream_url` 兜底地址，并同步透传 `x-*` 租户标头。
+
+---
+
 ## ⚠️ 能力边界
 
 | 特性 | 支持状态 | 备注 |
