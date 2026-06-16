@@ -20,6 +20,7 @@ message InitProfileRequest {
     optional string stream_url = 8;
     optional string app_mode = 9;
     optional uint32 proxy_port = 10;
+    optional string config_json = 11;
 }
 message InitProfileResponse {
     bool success = 1;

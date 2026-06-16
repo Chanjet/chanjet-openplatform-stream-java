@@ -1,5 +1,8 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 // Config specific capability
+use crate::internal::config_utils::{
+    deep_merge, merge_and_save_global_config, validate_port_conflicts,
+};
 use cowen_auth::client::Client;
 use cowen_common::daemon::DaemonService;
 use cowen_common::grpc::proto::*;
@@ -51,6 +54,11 @@ pub trait NativeConfigCapability: Send + Sync {
         claims: Option<&cowen_common::jwt::IpcClaims>,
         req: RenameProfileRequest,
     ) -> Result<RenameProfileResponse, CowenError>;
+    async fn import_config(
+        &self,
+        claims: Option<&cowen_common::jwt::IpcClaims>,
+        req: ImportConfigRequest,
+    ) -> Result<ImportConfigResponse, CowenError>;
 }
 
 pub struct DefaultConfigCapability {
@@ -234,5 +242,125 @@ impl NativeConfigCapability for DefaultConfigCapability {
                 message: e.to_string(),
             }),
         }
+    }
+
+    #[rbac(profile = "req.profile.as_str()")]
+    async fn import_config(
+        &self,
+        _claims: Option<&cowen_common::jwt::IpcClaims>,
+        req: ImportConfigRequest,
+    ) -> Result<ImportConfigResponse, CowenError> {
+        info!("ImportConfig requested for profile: {}", req.profile);
+
+        let json_val: serde_json::Value = match serde_json::from_str(&req.config_json) {
+            Ok(v) => v,
+            Err(e) => {
+                return Ok(ImportConfigResponse {
+                    success: false,
+                    error_message: Some(format!("Invalid config JSON: {}", e)),
+                })
+            }
+        };
+
+        // 1. AppConfig merging
+        if let Err(e) =
+            merge_and_save_global_config(&self.cfg_mgr, &Some(json_val.clone()), None, None).await
+        {
+            return Ok(ImportConfigResponse {
+                success: false,
+                error_message: Some(format!("Failed to merge global config: {}", e)),
+            });
+        }
+
+        // 2. Profile-level config merging
+        let config = match self.cfg_mgr.load(&req.profile).await {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(ImportConfigResponse {
+                    success: false,
+                    error_message: Some(format!("Profile not found: {}", e)),
+                })
+            }
+        };
+
+        let old_config = config.clone();
+
+        // Convert current config to json Value
+        let mut target_val = serde_json::to_value(&config).unwrap_or_default();
+
+        // Deep merge json_val into target_val
+        deep_merge(&mut target_val, &json_val);
+
+        // Deserialize back to config
+        let mut config: cowen_common::Config = match serde_json::from_value(target_val) {
+            Ok(c) => c,
+            Err(e) => {
+                return Ok(ImportConfigResponse {
+                    success: false,
+                    error_message: Some(format!("Failed to parse merged config: {}", e)),
+                })
+            }
+        };
+
+        // Extract sensitive fields and inherit from old if missing
+        merge_and_inherit_secrets(&mut config, &json_val, &old_config);
+
+        // Port conflict check
+        let bind_addr = config.gateway.as_ref().map(|g| g.bind_address.as_str());
+        if let Err(e) =
+            validate_port_conflicts(&self.cfg_mgr, &req.profile, config.proxy_port, bind_addr).await
+        {
+            return Ok(ImportConfigResponse {
+                success: false,
+                error_message: Some(e.to_string()),
+            });
+        }
+
+        // 3. Save config
+        match self.cfg_mgr.save(&req.profile, &mut config).await {
+            Ok(_) => {
+                let _ = self.service.reload_daemon(&req.profile).await;
+                Ok(ImportConfigResponse {
+                    success: true,
+                    error_message: None,
+                })
+            }
+            Err(e) => Ok(ImportConfigResponse {
+                success: false,
+                error_message: Some(format!("Failed to save config: {}", e)),
+            }),
+        }
+    }
+}
+
+fn merge_and_inherit_secrets(
+    config: &mut cowen_common::Config,
+    json_val: &serde_json::Value,
+    old_config: &cowen_common::Config,
+) {
+    if let Some(as_) = json_val.get("app_secret").and_then(|v| v.as_str()) {
+        if !as_.is_empty() {
+            config.app_secret = as_.to_string();
+        }
+    }
+    if let Some(cert) = json_val.get("certificate").and_then(|v| v.as_str()) {
+        if !cert.is_empty() {
+            config.certificate = cert.to_string();
+        }
+    }
+    if let Some(ek) = json_val.get("encrypt_key").and_then(|v| v.as_str()) {
+        if !ek.is_empty() {
+            config.encrypt_key = ek.to_string();
+        }
+    }
+
+    if config.app_secret.is_empty() {
+        config.app_secret = old_config.app_secret.clone();
+    }
+    if config.certificate.is_empty() {
+        config.certificate = old_config.certificate.clone();
+    }
+    if config.encrypt_key.is_empty() {
+        config.encrypt_key = old_config.encrypt_key.clone();
     }
 }

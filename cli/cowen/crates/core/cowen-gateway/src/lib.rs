@@ -99,9 +99,8 @@ pub async fn start_gateway(
         .port();
     tracing::info!(
         target: "sys", profile = %profile,
-        "Identity-Aware Gateway listening on http://{} → upstream: {}",
-        listener.local_addr().unwrap(),
-        gateway_config.upstream_url
+        "Identity-Aware Gateway listening on http://{}",
+        listener.local_addr().unwrap()
     );
 
     if let Some(tx) = port_tx {
@@ -585,7 +584,7 @@ fn handle_unauthorized(
     }
 }
 
-fn match_and_route(state: &GatewayState, path: &str) -> (bool, String, String) {
+fn match_and_route(state: &GatewayState, path: &str) -> Option<(bool, String, String)> {
     let mut matched_route = None;
     for r in &state.gateway_config.routes {
         if routing::glob_match(&r.path, path) {
@@ -594,34 +593,22 @@ fn match_and_route(state: &GatewayState, path: &str) -> (bool, String, String) {
         }
     }
 
-    match matched_route {
-        Some(ref route) => {
-            let mut p = path.to_string();
-            if let Some(ref prefix) = route.strip_prefix {
-                if p.starts_with(prefix) {
-                    p = p.replacen(prefix, "", 1);
-                    if !p.starts_with('/') {
-                        p = format!("/{}", p);
-                    }
+    matched_route.map(|route| {
+        let mut p = path.to_string();
+        if let Some(ref prefix) = route.strip_prefix {
+            if p.starts_with(prefix) {
+                p = p.replacen(prefix, "", 1);
+                if !p.starts_with('/') {
+                    p = format!("/{}", p);
                 }
             }
-            if route.upstream == "openapi" {
-                (true, state.app_config.openapi_url.clone(), p)
-            } else {
-                (false, route.upstream.clone(), p)
-            }
         }
-        None => {
-            let is_direct = state.gateway_config.upstream_url == "openapi"
-                || state.gateway_config.upstream_url == state.app_config.openapi_url;
-            let target = if state.gateway_config.upstream_url == "openapi" {
-                state.app_config.openapi_url.clone()
-            } else {
-                state.gateway_config.upstream_url.clone()
-            };
-            (is_direct, target, path.to_string())
+        if route.upstream == "openapi" {
+            (true, state.app_config.openapi_url.clone(), p)
+        } else {
+            (false, route.upstream.clone(), p)
         }
-    }
+    })
 }
 
 fn create_request_builder(
@@ -808,7 +795,22 @@ async fn proxy_to_upstream(
     let query = parts.uri.query();
 
     // 1. Evaluate custom route rules for upstream matching and prefix stripping
-    let (is_direct_openapi, target_upstream, final_path) = match_and_route(state, path);
+    let route_result = match_and_route(state, path);
+    let (is_direct_openapi, target_upstream, final_path) = match route_result {
+        Some(res) => res,
+        None => {
+            tracing::warn!(
+                target: "audit",
+                profile = %state.profile,
+                path = %path,
+                "Request did not match any route, returning 502 Bad Gateway"
+            );
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                "Bad Gateway: No route matches the requested path",
+            );
+        }
+    };
 
     // 2. Prepare headers (copy incoming request headers, except Host)
     let mut req_headers = reqwest::header::HeaderMap::new();

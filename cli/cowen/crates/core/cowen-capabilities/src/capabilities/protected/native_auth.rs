@@ -1,5 +1,8 @@
 #![allow(dead_code, unused_imports, unused_variables)]
 // Auth specific capability
+use crate::internal::config_utils::{
+    deep_merge, merge_and_save_global_config, validate_port_conflicts,
+};
 use cowen_auth::client::Client;
 use cowen_common::daemon::DaemonService;
 use cowen_common::{grpc::proto::*, vault::Vault, CowenError};
@@ -171,7 +174,23 @@ impl NativeAuthCapability for DefaultAuthCapability {
         info!("InitProfile requested for {}", req.profile);
         let _is_new = !self.cfg_mgr.exists(&req.profile).await;
 
-        let mode_str = req.app_mode.clone().unwrap_or_else(|| "oauth2".to_string());
+        let mut json_val: Option<serde_json::Value> = None;
+        if let Some(ref json_str) = req.config_json {
+            if !json_str.is_empty() {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    json_val = Some(v);
+                }
+            }
+        }
+
+        let mode_str = json_val
+            .as_ref()
+            .and_then(|v| {
+                v.get("app_mode")
+                    .and_then(|m| m.as_str().map(|s| s.to_string()))
+            })
+            .or_else(|| req.app_mode.clone())
+            .unwrap_or_else(|| "oauth2".to_string());
         let mode = match mode_str.parse::<cowen_common::models::AuthMode>() {
             Ok(m) => m,
             Err(e) => return Err(CowenError::config(e.to_string())),
@@ -184,32 +203,34 @@ impl NativeAuthCapability for DefaultAuthCapability {
             return Ok(resp);
         }
 
-        let mut config = self
-            .cfg_mgr
-            .load(&req.profile)
-            .await
-            .unwrap_or_else(|_| cowen_common::Config::default_with_profile(&req.profile));
-        Self::apply_req_to_config(&req, &mut config, &mode);
+        let old_config = self.cfg_mgr.load(&req.profile).await.ok();
 
-        let mut app_config: cowen_common::config::AppConfig =
-            self.cfg_mgr.load_app_config().await.unwrap_or_default();
-        if let Some(url) = &req.openapi_url {
-            app_config.openapi_url = url.clone();
-        }
-        if let Some(url) = &req.stream_url {
-            app_config.stream_url = url.clone();
-        }
-        let _ = self.cfg_mgr.save_app_config(&app_config).await;
+        let mut config = parse_and_merge_config(&req.profile, &json_val, &old_config);
+        Self::apply_req_to_config(&req, &mut config, &mode);
+        extract_and_inherit_secrets(&mut config, &json_val, &old_config, &req);
+
+        // Port conflict check
+        let bind_addr = config.gateway.as_ref().map(|g| g.bind_address.as_str());
+        validate_port_conflicts(&self.cfg_mgr, &req.profile, config.proxy_port, bind_addr).await?;
+
+        // Global app config merging
+        let app_config = merge_and_save_global_config(
+            &self.cfg_mgr,
+            &json_val,
+            req.openapi_url.as_deref(),
+            req.stream_url.as_deref(),
+        )
+        .await?;
 
         let params = cowen_auth::provider::InitParams {
-            app_key: req.app_key.clone(),
-            app_secret: req.app_secret.clone(),
-            certificate: req.certificate.clone(),
-            encrypt_key: req.encrypt_key.clone(),
-            webhook_target: req.webhook_target.clone(),
-            openapi_url: req.openapi_url.clone(),
-            stream_url: req.stream_url.clone(),
-            proxy_port: req.proxy_port.map(|p| p as u16),
+            app_key: Some(config.app_key.clone()),
+            app_secret: Some(config.app_secret.clone()),
+            certificate: Some(config.certificate.clone()),
+            encrypt_key: Some(config.encrypt_key.clone()),
+            webhook_target: Some(config.webhook_target.clone()),
+            openapi_url: Some(app_config.openapi_url.clone()),
+            stream_url: Some(app_config.stream_url.clone()),
+            proxy_port: Some(config.proxy_port),
             auto_start: true,
             is_new: _is_new,
         };
@@ -457,6 +478,79 @@ impl NativeAuthCapability for DefaultAuthCapability {
                 success: false,
                 message: e.to_string(),
             }),
+        }
+    }
+}
+
+fn parse_and_merge_config(
+    profile: &str,
+    json_val: &Option<serde_json::Value>,
+    old_config: &Option<cowen_common::Config>,
+) -> cowen_common::Config {
+    let mut config = if let Some(ref old) = old_config {
+        let mut cfg = cowen_common::Config::default_with_profile(profile);
+        cfg.version = old.version;
+        cfg
+    } else {
+        cowen_common::Config::default_with_profile(profile)
+    };
+
+    if let Some(ref val) = json_val {
+        let mut target_val = serde_json::to_value(&config).unwrap_or_default();
+        deep_merge(&mut target_val, val);
+        if let Ok(mut parsed_config) = serde_json::from_value::<cowen_common::Config>(target_val) {
+            if let Some(ref old) = old_config {
+                parsed_config.version = old.version;
+            }
+            config = parsed_config;
+        }
+    } else if let Some(ref old) = old_config {
+        config = old.clone();
+    }
+    config
+}
+
+fn extract_and_inherit_secrets(
+    config: &mut cowen_common::Config,
+    json_val: &Option<serde_json::Value>,
+    old_config: &Option<cowen_common::Config>,
+    req: &InitProfileRequest,
+) {
+    if let Some(ref val) = json_val {
+        if let Some(as_) = val.get("app_secret").and_then(|v| v.as_str()) {
+            if !as_.is_empty() {
+                config.app_secret = as_.to_string();
+            }
+        }
+        if let Some(cert) = val.get("certificate").and_then(|v| v.as_str()) {
+            if !cert.is_empty() {
+                config.certificate = cert.to_string();
+            }
+        }
+        if let Some(ek) = val.get("encrypt_key").and_then(|v| v.as_str()) {
+            if !ek.is_empty() {
+                config.encrypt_key = ek.to_string();
+            }
+        }
+    }
+    if let Some(as_) = &req.app_secret {
+        config.app_secret = as_.clone();
+    }
+    if let Some(ek) = &req.encrypt_key {
+        config.encrypt_key = ek.clone();
+    }
+    if let Some(cert) = &req.certificate {
+        config.certificate = cert.clone();
+    }
+    if let Some(ref old) = old_config {
+        if config.app_secret.is_empty() {
+            config.app_secret = old.app_secret.clone();
+        }
+        if config.certificate.is_empty() {
+            config.certificate = old.certificate.clone();
+        }
+        if config.encrypt_key.is_empty() {
+            config.encrypt_key = old.encrypt_key.clone();
         }
     }
 }

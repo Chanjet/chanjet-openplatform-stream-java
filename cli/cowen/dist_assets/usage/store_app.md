@@ -101,7 +101,6 @@ ISV 需要引导企业管理员访问畅捷通开放平台的授权页面。
 ```yaml
 gateway:
   bind_address: "127.0.0.1:8080"         # 网关监听地址
-  upstream_url: "http://localhost:8080"   # 兜底默认后端（向前兼容）
   
   # OAuth 登录成功后的同步 Webhook（可选）
   auth_sync_hook: "http://localhost:8080/mock_isv/auth_sync_hook"
@@ -125,6 +124,10 @@ gateway:
     - path: "/order/**"
       upstream: "http://localhost:8081"
       strip_prefix: "/order"
+      
+    # 场景 C：全局默认兜底路由（若无其他路由匹配，转发给主业务应用）
+    - path: "/**"
+      upstream: "http://localhost:8080"
 ```
 
 ### 3. 三大核心路由模式
@@ -147,7 +150,7 @@ gateway:
 4. 网关将剥离前缀后的请求一跳直连真正的公网/云内开放平台接口，返回结果。
 
 #### 模式三：兜底默认转发
-对于不匹配任何 `routes` 的请求，网关将其透明反向代理至 `upstream_url` 兜底地址，并同步透传 `x-*` 租户标头。
+对于不匹配任何其他 `routes` 的请求，可以通过在路由表最底部声明通配规则（如 `path: "/**"`）来实现全局兜底代理。网关会将其反向代理至该规则指定的兜底地址，并同步透传 `x-*` 租户标头。若未定义任何兜底规则且请求未命中任何路由，网关将直接返回 `502 Bad Gateway`。
 
 ### 4. 双 Session 同步最佳实践 (通过 auth_sync_hook)
 
@@ -326,7 +329,6 @@ data:
     stream_url: "wss://stream.chanjet.com"
     gateway:
       bind_address: "0.0.0.0:8090"              # 绑定 0.0.0.0 供 Pod 外 Ingress 访问
-      upstream_url: "http://127.0.0.1:5000"     # 默认兜底后端指向主应用容器
       auth_routing:
         mode: "STRICT"
         bypass_rules:
@@ -339,6 +341,8 @@ data:
         - path: "/order/**"
           upstream: "http://127.0.0.1:8081"     # 多微服务分发（如订单微服务）
           strip_prefix: "/order"
+        - path: "/**"
+          upstream: "http://127.0.0.1:5000"     # 默认兜底后端指向主应用容器
     storage:
       type: "mysql"
       db_url: "mysql://user:pass@mysql-master:3306/cowen_db"

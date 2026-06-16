@@ -23,7 +23,9 @@ webhook_target: "$MOCK_URL"
 app_mode: "store-app"
 gateway:
   bind_address: "127.0.0.1:${COWEN_GATEWAY_PORT}"
-  upstream_url: "$MOCK_URL"
+  routes:
+    - path: "/**"
+      upstream: "$MOCK_URL"
   auth_sync_hook: "$MOCK_URL/mock_isv/auth_sync_hook"
   auth_routing:
     mode: "STRICT"

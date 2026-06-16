@@ -604,6 +604,15 @@ impl ConfigManager {
             strategy.handle_get(key, &val)
         } else {
             let config = self.load(profile).await?;
+            if key == "app_secret" {
+                return Ok(serde_json::Value::String(config.app_secret));
+            }
+            if key == "certificate" {
+                return Ok(serde_json::Value::String(config.certificate));
+            }
+            if key == "encrypt_key" {
+                return Ok(serde_json::Value::String(config.encrypt_key));
+            }
             let val = serde_json::to_value(config)?;
             strategy.handle_get(key, &val)
         }
@@ -642,6 +651,19 @@ impl ConfigManager {
         new_config.version = config.version;
     }
 
+    fn is_secret_key(key: &str) -> bool {
+        key == "app_secret" || key == "certificate" || key == "encrypt_key"
+    }
+
+    fn update_secret_key(config: &mut Config, key: &str, value: &str) {
+        match key {
+            "app_secret" => config.app_secret = value.to_string(),
+            "certificate" => config.certificate = value.to_string(),
+            "encrypt_key" => config.encrypt_key = value.to_string(),
+            _ => {}
+        }
+    }
+
     async fn set_profile_value(
         &self,
         profile: &str,
@@ -649,7 +671,12 @@ impl ConfigManager {
         value: &str,
         strategy: &dyn ConfigStrategy,
     ) -> CowenResult<()> {
-        let config = self.load(profile).await?;
+        let mut config = self.load(profile).await?;
+        if Self::is_secret_key(key) {
+            Self::update_secret_key(&mut config, key, value);
+            self.save(profile, &mut config).await?;
+            return Ok(());
+        }
         let mut val = serde_json::to_value(&config)?;
         strategy.handle_set(key, value, &mut val)?;
         let mut new_config: Config = serde_json::from_value(val)?;
@@ -693,7 +720,12 @@ impl ConfigManager {
             app_cfg = serde_json::from_value(val)?;
             self.save_app_config(&app_cfg).await?;
         } else {
-            let config = self.load(profile).await?;
+            let mut config = self.load(profile).await?;
+            if Self::is_secret_key(key) {
+                Self::update_secret_key(&mut config, key, "");
+                self.save(profile, &mut config).await?;
+                return Ok(());
+            }
             let mut val = serde_json::to_value(&config)?;
             strategy.handle_unset(key, &mut val)?;
             let mut new_config: Config = serde_json::from_value(val)?;

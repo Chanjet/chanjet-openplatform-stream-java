@@ -2,8 +2,9 @@ use cowen_capabilities::CapabilityRegistry;
 use cowen_common::grpc::proto::native_config_service_server::NativeConfigService;
 use cowen_common::grpc::proto::{
     GetConfigRequest, GetConfigResponse, GetGlobalConfigRequest, GetGlobalConfigResponse,
-    ListConfigRequest, ListConfigResponse, RenameProfileRequest, RenameProfileResponse,
-    SetConfigRequest, SetConfigResponse, SetGlobalConfigRequest, SetGlobalConfigResponse,
+    ImportConfigRequest, ImportConfigResponse, ListConfigRequest, ListConfigResponse,
+    RenameProfileRequest, RenameProfileResponse, SetConfigRequest, SetConfigResponse,
+    SetGlobalConfigRequest, SetGlobalConfigResponse,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -54,5 +55,12 @@ impl NativeConfigService for NativeConfigController {
         request: Request<SetGlobalConfigRequest>,
     ) -> Result<Response<SetGlobalConfigResponse>, Status> {
         crate::grpc_forward!(self, native_config, set_global_config, request)
+    }
+
+    async fn import_config(
+        &self,
+        request: Request<ImportConfigRequest>,
+    ) -> Result<Response<ImportConfigResponse>, Status> {
+        crate::grpc_forward!(self, native_config, import_config, request)
     }
 }

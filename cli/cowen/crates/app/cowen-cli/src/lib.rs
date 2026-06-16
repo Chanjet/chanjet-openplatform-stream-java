@@ -94,6 +94,8 @@ pub enum Commands {
         long_about = "初始化 CLI 的应用环境与安全凭据。这是治理工具的第一步。\nCLI 会引导您输入 AppKey, AppSecret 等核心参数，并将其加密存储在本地安全存储 (Vault) 中。\n\n支持基于 Profile 的多环境隔离 (default/inte/prod)。"
     )]
     Init {
+        #[arg(short = 'f', long = "file", help = "从 YAML 配置文件中加载初始化参数")]
+        file: Option<String>,
         #[arg(long, env = "COWEN_APP_KEY", help = "开放平台 AppKey")]
         app_key: Option<String>,
         #[arg(
@@ -291,6 +293,16 @@ pub enum ConfigCommands {
         long_about = "列出当前生效的所有配置项目。\n\nTips: 查看 'proxy_port' 可获取本地自动鉴权代理地址，实现 curl 无感调用。"
     )]
     List,
+    /// 导入外部 YAML 配置文件合并至当前 Profile (e.g., cowen config import -f patch.yaml)
+    Import {
+        #[arg(short = 'f', long = "file", help = "要导入的 YAML 配置文件路径")]
+        file: String,
+    },
+    /// 导出配置模板文件 (例如: cowen config template --output store_app_template.yaml)
+    Template {
+        #[arg(long = "output", help = "输出的目标文件路径，不指定则输出到标准输出")]
+        output: Option<String>,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -780,6 +792,7 @@ pub async fn run(cli: Cli) -> Result<()> {
             stream_url,
             app_mode,
             proxy_port,
+            file,
         } => {
             let ctx = cmd::init::InitContext {
                 app_key: app_key.clone(),
@@ -791,6 +804,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 stream_url: stream_url.clone(),
                 app_mode: app_mode.clone(),
                 proxy_port: *proxy_port,
+                file: file.clone(),
             };
             cmd::init::execute(&active_profile, ctx).await?;
         }
@@ -1090,6 +1104,61 @@ pub async fn run(cli: Cli) -> Result<()> {
                 };
                 cmd::system::config(&active_profile, list_format, *all).await?;
             }
+            Some(ConfigCommands::Import { file }) => {
+                let json_str = match read_config_file_to_json(file) {
+                    Ok(js) => js,
+                    Err(e) => {
+                        eprintln!("⚠️ Failed to read config file: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                let daemon_client =
+                    cowen_common::grpc::client::DaemonClient::new(port_path.clone());
+                match daemon_client
+                    .import_config(&active_profile, &json_str)
+                    .await?
+                {
+                    cowen_common::grpc::client::DaemonResponse::Success { message } => {
+                        println!("✅ {}", message);
+                    }
+                    cowen_common::grpc::client::DaemonResponse::Error { message, .. } => {
+                        eprintln!("⚠️ Failed to import config: {}", message);
+                        std::process::exit(1);
+                    }
+                    _ => {
+                        eprintln!("⚠️ Unexpected response from daemon");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Some(ConfigCommands::Template { output }) => {
+                let template_content =
+                    include_str!("../../../../dist_assets/store_app_template.yaml");
+                let final_content = if cli.profile.is_some() {
+                    let daemon_client =
+                        cowen_common::grpc::client::DaemonClient::new(port_path.clone());
+                    match daemon_client
+                        .list_config(&active_profile, "json", false)
+                        .await
+                    {
+                        Ok(cowen_common::grpc::client::DaemonResponse::ConfigData {
+                            config_json,
+                        }) => fill_template_with_config(template_content, &config_json),
+                        _ => template_content.to_string(),
+                    }
+                } else {
+                    template_content.to_string()
+                };
+                if let Some(out_path) = output {
+                    if let Err(e) = std::fs::write(out_path, &final_content) {
+                        eprintln!("⚠️ Failed to write template: {}", e);
+                        std::process::exit(1);
+                    }
+                    println!("✅ Exported configuration template successfully");
+                } else {
+                    print!("{}", final_content);
+                }
+            }
             None => {
                 let list_format = if cli.format == "text" {
                     "yaml"
@@ -1184,4 +1253,173 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::Version { .. } => unreachable!(),
     }
     Ok(())
+}
+
+fn read_config_file_to_json(file_path: &str) -> anyhow::Result<String> {
+    use anyhow::Context;
+    let content = std::fs::read_to_string(file_path)
+        .with_context(|| format!("Failed to read config file at: {}", file_path))?;
+    let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content)
+        .with_context(|| format!("Failed to parse YAML file at: {}", file_path))?;
+    let json_val =
+        serde_json::to_value(&yaml_val).context("Failed to convert YAML config to JSON")?;
+    let json_str = serde_json::to_string(&json_val).context("Failed to serialize config JSON")?;
+    Ok(json_str)
+}
+
+fn fill_template_with_config(template_str: &str, config_json: &str) -> String {
+    let config_val: serde_json::Value = match serde_json::from_str(config_json) {
+        Ok(v) => v,
+        Err(_) => return template_str.to_string(),
+    };
+
+    let mut output_lines = Vec::new();
+    let mut indent_stack: Vec<(usize, String)> = Vec::new();
+    let mut skip_until_indent: Option<usize> = None;
+
+    let lines: Vec<&str> = template_str.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            output_lines.push(line.to_string());
+            i += 1;
+            continue;
+        }
+
+        let is_commented = trimmed.starts_with('#');
+        let (indent, clean_trimmed) = if is_commented {
+            let hash_idx = line.find('#').unwrap();
+            let content_after_hash = &line[hash_idx + 1..];
+            let content_indent = content_after_hash.len() - content_after_hash.trim_start().len();
+            let actual_indent = if content_indent > 0 {
+                content_indent - 1
+            } else {
+                0
+            };
+            (actual_indent, content_after_hash.trim())
+        } else {
+            let raw_indent = line.len() - line.trim_start().len();
+            (raw_indent, trimmed)
+        };
+
+        if let Some(skip_level) = skip_until_indent {
+            if indent > skip_level {
+                i += 1;
+                continue;
+            } else {
+                skip_until_indent = None;
+            }
+        }
+
+        if is_commented && !clean_trimmed.contains(':') {
+            output_lines.push(line.to_string());
+            i += 1;
+            continue;
+        }
+
+        if let Some(colon_idx) = clean_trimmed.find(':') {
+            let key = clean_trimmed[..colon_idx].trim().to_string();
+            if key.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                while let Some(&(last_indent, _)) = indent_stack.last() {
+                    if last_indent >= indent {
+                        indent_stack.pop();
+                    } else {
+                        break;
+                    }
+                }
+
+                let mut path_parts = Vec::new();
+                for (_, k) in &indent_stack {
+                    path_parts.push(k.as_str());
+                }
+                path_parts.push(key.as_str());
+                let full_path = path_parts.join(".");
+
+                let lookup_val = if full_path.starts_with("storage") || full_path.starts_with("log")
+                {
+                    config_val.pointer(&format!("/global/{}", full_path.replace('.', "/")))
+                } else if full_path == "storage.type" {
+                    config_val.pointer("/global/storage/store")
+                } else {
+                    config_val.pointer(&format!("/profile/{}", full_path.replace('.', "/")))
+                };
+
+                indent_stack.push((indent, key.clone()));
+
+                if let Some(val) = lookup_val {
+                    let is_configured = match val {
+                        serde_json::Value::Null => false,
+                        serde_json::Value::Bool(_) => true,
+                        serde_json::Value::Number(num) => {
+                            if key.contains("port") {
+                                num.as_u64().unwrap_or(0) > 0
+                            } else {
+                                true
+                            }
+                        }
+                        serde_json::Value::String(s) => {
+                            !s.is_empty() && s != "******" && !s.contains('<')
+                        }
+                        serde_json::Value::Array(arr) => !arr.is_empty(),
+                        serde_json::Value::Object(obj) => !obj.is_empty(),
+                    };
+
+                    let is_sensitive =
+                        key == "app_secret" || key == "encrypt_key" || key == "certificate";
+
+                    if is_configured && !is_sensitive {
+                        let prefix = " ".repeat(indent);
+                        match val {
+                            serde_json::Value::Array(arr) => {
+                                output_lines.push(format!("{}{}:", prefix, key));
+                                for item in arr {
+                                    if let Some(s) = item.as_str() {
+                                        output_lines.push(format!("{}  - \"{}\"", prefix, s));
+                                    } else {
+                                        let item_yaml =
+                                            serde_yaml::to_string(item).unwrap_or_default();
+                                        for yaml_line in item_yaml.lines() {
+                                            if yaml_line.starts_with("---") {
+                                                continue;
+                                            }
+                                            if yaml_line.trim().is_empty() {
+                                                continue;
+                                            }
+                                            if yaml_line.starts_with('-') {
+                                                output_lines
+                                                    .push(format!("{}  {}", prefix, yaml_line));
+                                            } else {
+                                                output_lines
+                                                    .push(format!("{}    {}", prefix, yaml_line));
+                                            }
+                                        }
+                                    }
+                                }
+                                skip_until_indent = Some(indent);
+                            }
+                            serde_json::Value::Object(_) => {
+                                output_lines.push(format!("{}{}:", prefix, key));
+                            }
+                            _ => {
+                                let formatted_val = match val {
+                                    serde_json::Value::String(s) => format!("\"{}\"", s),
+                                    _ => val.to_string(),
+                                };
+                                output_lines.push(format!("{}{}: {}", prefix, key, formatted_val));
+                            }
+                        }
+                        i += 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        output_lines.push(line.to_string());
+        i += 1;
+    }
+
+    output_lines.join("\n")
 }

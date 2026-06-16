@@ -78,10 +78,6 @@ pub struct GatewayConfig {
     #[serde(default = "default_gateway_bind_address")]
     pub bind_address: String,
 
-    /// The ISV backend URL to reverse-proxy authenticated requests to.
-    /// Example: "http://127.0.0.1:3000" or "https://remote-isv.com"
-    pub upstream_url: String,
-
     /// Optional synchronous webhook URL called during code exchange.
     /// When set, Cowen blocks the 302 redirect until this hook returns 200.
     /// The ISV can return Set-Cookie headers that are merged into the 302 response.
@@ -346,7 +342,6 @@ impl Config {
             if enabled && self.gateway.is_none() {
                 self.gateway = Some(GatewayConfig {
                     bind_address: default_gateway_bind_address(),
-                    upstream_url: String::new(),
                     auth_sync_hook: None,
                     auth_routing: AuthRoutingConfig::default(),
                     routes: vec![],
@@ -358,11 +353,6 @@ impl Config {
         if let Ok(bind) = std::env::var("COWEN_GATEWAY_BIND") {
             if let Some(ref mut gw) = self.gateway {
                 gw.bind_address = bind;
-            }
-        }
-        if let Ok(upstream) = std::env::var("COWEN_GATEWAY_UPSTREAM") {
-            if let Some(ref mut gw) = self.gateway {
-                gw.upstream_url = upstream;
             }
         }
         if let Ok(mode) = std::env::var("COWEN_GATEWAY_MODE") {

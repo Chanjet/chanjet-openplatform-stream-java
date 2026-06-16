@@ -10,6 +10,19 @@ pub struct InitContext {
     pub stream_url: Option<String>,
     pub app_mode: Option<String>,
     pub proxy_port: Option<u16>,
+    pub file: Option<String>,
+}
+
+fn read_config_file_to_json(file_path: &str) -> anyhow::Result<String> {
+    use anyhow::Context;
+    let content = std::fs::read_to_string(file_path)
+        .with_context(|| format!("Failed to read config file at: {}", file_path))?;
+    let yaml_val: serde_yaml::Value = serde_yaml::from_str(&content)
+        .with_context(|| format!("Failed to parse YAML file at: {}", file_path))?;
+    let json_val =
+        serde_json::to_value(&yaml_val).context("Failed to convert YAML config to JSON")?;
+    let json_str = serde_json::to_string(&json_val).context("Failed to serialize config JSON")?;
+    Ok(json_str)
 }
 
 pub async fn execute(profile: &str, ctx: InitContext) -> anyhow::Result<()> {
@@ -24,6 +37,17 @@ pub async fn execute(profile: &str, ctx: InitContext) -> anyhow::Result<()> {
 
     let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
 
+    let mut config_json = None;
+    if let Some(ref file_path) = ctx.file {
+        match read_config_file_to_json(file_path) {
+            Ok(js) => config_json = Some(js),
+            Err(e) => {
+                eprintln!("❌ Failed to read config file: {}", e);
+                return Err(e);
+            }
+        }
+    }
+
     match ipc
         .init_profile(
             profile,
@@ -36,6 +60,7 @@ pub async fn execute(profile: &str, ctx: InitContext) -> anyhow::Result<()> {
             ctx.stream_url.as_deref(),
             ctx.app_mode.as_deref(),
             ctx.proxy_port.map(|p| p as u32),
+            config_json.clone(),
         )
         .await
     {
@@ -43,12 +68,15 @@ pub async fn execute(profile: &str, ctx: InitContext) -> anyhow::Result<()> {
             println!("✅ {}", message);
 
             // Run login flow interactively for supported modes
-            let mode_str = ctx
-                .app_mode
-                .clone()
-                .unwrap_or_else(|| "oauth2".to_string())
-                .to_lowercase()
-                .replace("-", "_");
+            let mut final_mode = ctx.app_mode.clone().unwrap_or_else(|| "oauth2".to_string());
+            if let Some(ref js_str) = config_json {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(js_str) {
+                    if let Some(am) = v.get("app_mode").and_then(|m| m.as_str()) {
+                        final_mode = am.to_string();
+                    }
+                }
+            }
+            let mode_str = final_mode.to_lowercase().replace("-", "_");
             if mode_str == "oauth2" {
                 let mut sigterm =
                     tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;

@@ -66,7 +66,7 @@ done
 # We define routes: 
 # - /open-api/** -> openapi (direct/bypass) with strip_prefix /open-api
 # - /order/** -> Service B with strip_prefix /order
-# Default upstream_url points to Mock Server
+# Default fallback route points to Mock Server
 PROFILE_YAML="$COWEN_HOME/default.yaml"
 cat <<EOF > "$PROFILE_YAML"
 app_key: "mock_app_key"
@@ -74,7 +74,6 @@ webhook_target: "$MOCK_URL"
 app_mode: "store-app"
 gateway:
   bind_address: "127.0.0.1:${COWEN_GATEWAY_PORT}"
-  upstream_url: "$MOCK_URL"
   auth_routing:
     mode: "STRICT"
     bypass_rules:
@@ -89,6 +88,8 @@ gateway:
     - path: "/order/**"
       upstream: "http://127.0.0.1:${UPSTREAM_B_PORT}"
       strip_prefix: "/order"
+    - path: "/**"
+      upstream: "$MOCK_URL"
 EOF
 
 # 3. Initialize store_app profile
@@ -110,7 +111,7 @@ sleep 2
 GATEWAY_URL="http://127.0.0.1:${COWEN_GATEWAY_PORT}"
 
 echo ">> Scenario 1: Default Upstream Route (No routing rules match)"
-# /v1/mock/ping bypasses auth and goes to default upstream_url (Mock Server)
+# /v1/mock/ping bypasses auth and goes to default fallback route (Mock Server)
 RES_DEFAULT=$(curl -s "$GATEWAY_URL/v1/mock/ping")
 echo "Default Response: $RES_DEFAULT"
 if ! echo "$RES_DEFAULT" | grep -q "status"; then

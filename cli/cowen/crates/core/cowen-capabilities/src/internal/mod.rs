@@ -1,3 +1,4 @@
+pub mod config_utils;
 pub mod dlq;
 pub mod forwarder;
 pub mod native_search;

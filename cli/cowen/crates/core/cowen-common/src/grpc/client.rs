@@ -418,6 +418,7 @@ impl DaemonClient {
         stream_url: Option<&str>,
         app_mode: Option<&str>,
         proxy_port: Option<u32>,
+        config_json: Option<String>,
     ) -> Result<DaemonResponse> {
         let mut client = self.build_native_auth_client().await?;
         let res = client
@@ -432,10 +433,32 @@ impl DaemonClient {
                 stream_url: stream_url.map(|s| s.to_string()),
                 app_mode: app_mode.map(|s| s.to_string()),
                 proxy_port,
+                config_json,
             }))
             .await?
             .into_inner();
         handle_success_res!(res)
+    }
+
+    pub async fn import_config(&self, profile: &str, config_json: &str) -> Result<DaemonResponse> {
+        let mut client = self.build_native_config_client().await?;
+        let res = client
+            .import_config(tonic::Request::new(grpc_proto::ImportConfigRequest {
+                profile: profile.to_string(),
+                config_json: config_json.to_string(),
+            }))
+            .await?
+            .into_inner();
+        if res.success {
+            Ok(DaemonResponse::Success {
+                message: "Config imported successfully".to_string(),
+            })
+        } else {
+            Ok(DaemonResponse::Error {
+                code: 500,
+                message: res.error_message.unwrap_or_default(),
+            })
+        }
     }
 
     pub async fn start_daemon(&self, profile: &str) -> Result<DaemonResponse> {

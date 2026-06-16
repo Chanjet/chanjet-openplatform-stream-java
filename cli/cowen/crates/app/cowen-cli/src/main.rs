@@ -19,7 +19,12 @@ async fn main() {
             return;
         }
 
-        tracing::error!(target: "sys", "FATAL PANIC: {}", payload);
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown location".to_string());
+        eprintln!("FATAL PANIC at {}: {}", location, payload);
+        tracing::error!(target: "sys", "FATAL PANIC at {}: {}", location, payload);
     }));
 
     // Execute the main task

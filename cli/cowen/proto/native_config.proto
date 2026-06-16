@@ -8,6 +8,7 @@ service NativeConfigService {
     rpc ListConfig (ListConfigRequest) returns (ListConfigResponse);
     rpc SetConfig (SetConfigRequest) returns (SetConfigResponse);
     rpc RenameProfile (RenameProfileRequest) returns (RenameProfileResponse);
+    rpc ImportConfig (ImportConfigRequest) returns (ImportConfigResponse);
 }
 
 message GetGlobalConfigRequest {}
@@ -61,4 +62,14 @@ message RenameProfileRequest {
 message RenameProfileResponse {
     bool success = 1;
     string message = 2;
+}
+
+message ImportConfigRequest {
+    string profile = 1;
+    string config_json = 2;
+}
+
+message ImportConfigResponse {
+    bool success = 1;
+    optional string error_message = 2;
 }
