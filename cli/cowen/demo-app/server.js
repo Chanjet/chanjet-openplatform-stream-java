@@ -463,7 +463,20 @@ app.get('/', (req, res) => {
           timeDisplay.textContent = '';
           const startTime = performance.now();
           try {
-            const res = await fetch(url);
+            const res = await fetch(url, {
+              headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+              }
+            });
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('text/html')) {
+              const htmlText = await res.text();
+              const endTime = performance.now();
+              timeDisplay.textContent = \`耗时: \${Math.round(endTime - startTime)}ms (HTML)\`;
+              display.textContent = \`[错误: 接口返回了 HTML 页面 (Status \${res.status})，通常代表未通过网关登录拦截，或后端报错]\\n\\n\` + htmlText;
+              return;
+            }
             const data = await res.json();
             const endTime = performance.now();
             timeDisplay.textContent = \`耗时: \${Math.round(endTime - startTime)}ms\`;
