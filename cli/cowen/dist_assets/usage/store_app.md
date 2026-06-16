@@ -225,11 +225,100 @@ cowen store migrate --to "mysql://user:pass@host:3306/db"
 * **业务调用**：业务主应用在需要调用开放平台 API 时，将代理设置指向 `cowen` 侧车端口（如 `8080`），由 `cowen` 代理完成多租户 Token 注入。
 
 ---
-
 ### 2. Kubernetes (K8s) 最佳实践
 
-以下是启用 **Inbound 身份网关 + Egress 代理混合模式** 时的 Pod 编排配置。
-我们将网关绑定在 `0.0.0.0:8090` 承接外部 Ingress 流量，把 Egress 代理绑定在 `127.0.0.1:8080` 供业务系统内调用。
+在 Kubernetes 中，我们将网关绑定在 `0.0.0.0:8090` 承接外部 Ingress 流量，把 Egress 代理绑定在 `127.0.0.1:8080` 供业务系统内调用。这里推荐两种配置及部署启动方式：
+
+#### 方式一：单 YAML 配置启动（ConfigMap + COWEN_HOME，生产推荐 🌟）
+适合复杂的网关路由表（`routes`）、多微服务分发和统一存储配置的场景。可以避免在 Deployment 中声明几十个环境变量。
+
+> [!CAUTION]
+> **只读挂载与运行状态锁文件冲突（K8s 避坑点）**：
+> 在 K8s 中直接将 ConfigMap 挂载到网关的运行目录会导致目录变为**只读**。但 `cowen` 启动时需要在运行目录内创建 `master_daemon.pid`、`ipc.port` 以及临时锁文件。
+> **解决办法**：将 ConfigMap 挂载在独立的临时目录（如 `/etc/cowen-config/`），然后将 `COWEN_HOME` 环境变量指向一个可写目录（如 `/tmp/cowen`），并在启动命令中将 YAML 拷贝过去后启动。
+
+```yaml
+# 1. 声明包含 default.yaml 的 ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cowen-config
+data:
+  default.yaml: |
+    app_key: "mock_app_key"
+    app_mode: "store-app"
+    openapi_url: "https://api.chanjet.com"
+    stream_url: "wss://stream.chanjet.com"
+    gateway:
+      bind_address: "0.0.0.0:8090"              # 绑定 0.0.0.0 供 Pod 外 Ingress 访问
+      upstream_url: "http://127.0.0.1:5000"     # 默认兜底后端指向主应用容器
+      auth_routing:
+        mode: "STRICT"
+        bypass_rules:
+          - "/v1/mock/ping"
+          - "/static/**"
+      routes:
+        - path: "/open-api/**"
+          upstream: "openapi"                   # 旁挂直连 OpenAPI
+          strip_prefix: "/open-api"
+        - path: "/order/**"
+          upstream: "http://127.0.0.1:8081"     # 多微服务分发（如订单微服务）
+          strip_prefix: "/order"
+    storage:
+      type: "mysql"
+      db_url: "mysql://user:pass@mysql-master:3306/cowen_db"
+    log:
+      level: "info"
+---
+# 2. Deployment 中的 Pod 编排
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: saas-gateway
+spec:
+  template:
+    spec:
+      containers:
+      # A. ISV 主业务容器
+      - name: main-app
+        image: my-saas-app:latest
+        ports:
+        - containerPort: 5000
+        env:
+        - name: COWEN_PROXY
+          value: "http://127.0.0.1:8080"
+          
+      # B. Cowen 侧车网关容器
+      - name: cowen-sidecar
+        image: chanjet/cowen:latest
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            mkdir -p /tmp/cowen
+            cp /etc/cowen-config/default.yaml /tmp/cowen/default.yaml
+            exec cowen daemon start --foreground
+        ports:
+        - containerPort: 8090
+        env:
+        # 重定向网关工作目录至可写路径，使 pid 和 ipc 文件正常生成
+        - name: COWEN_HOME
+          value: "/tmp/cowen"
+        # 敏感信息（凭证密钥）建议通过 Secret 环境变量形式传入或重写覆盖
+        - name: COWEN_APP_SECRET
+          valueFrom: { secretKeyRef: { name: cowen-secret, key: app-secret } }
+        - name: COWEN_ENCRYPT_KEY
+          valueFrom: { secretKeyRef: { name: cowen-secret, key: encrypt-key } }
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/cowen-config
+      volumes:
+      - name: config-volume
+        configMap:
+          name: cowen-config
+```
+
+#### 方式二：纯环境变量启动（适用于简单无盘模式）
+适合路由简单、无多微服务转发、只进行默认兜底和基础 OpenAPI 旁路代理的轻量场景。
 
 ```yaml
 apiVersion: apps/v1
