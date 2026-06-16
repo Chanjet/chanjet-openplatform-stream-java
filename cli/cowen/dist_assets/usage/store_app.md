@@ -149,6 +149,81 @@ gateway:
 #### 模式三：兜底默认转发
 对于不匹配任何 `routes` 的请求，网关将其透明反向代理至 `upstream_url` 兜底地址，并同步透传 `x-*` 租户标头。
 
+### 4. 双 Session 同步最佳实践 (通过 auth_sync_hook)
+
+在很多传统 ISV 系统中，除了网关自身需要识别用户 Session（用于拦截或直挂加签）外，您的 ISV 后端业务系统（Upstream）也需要建立独立的业务会话 Cookie（如 `isv_session`）。这就是 **双 Session (Dual Session) 同步模式**。
+
+`cowen` 网关通过 `auth_sync_hook` 极简地实现了这一同步过程：
+
+#### A. 同步交互流程
+1. 客户端浏览器访问 `http://<GATEWAY>/home?code=<AUTH_CODE>`。
+2. 网关拦截并换票成功后，向您的业务系统发送 POST 请求（`auth_sync_hook`），附带 JSON 载荷：
+   ```json
+   {
+     "org_id": "企业ID",
+     "user_id": "用户ID",
+     "app_id": "应用ID"
+   }
+   ```
+3. 您的业务系统在接收到该请求后，在本地创建业务 Session（如登录成功），并通过 HTTP 响应的 `Set-Cookie` 头部返回业务 Cookie（如 `isv_session=abc`）。
+4. 网关捕获该 Webhook 响应中的所有 `Set-Cookie` 头，并**自动将其合并**到发往客户端浏览器的 302 重定向中。
+5. 最终，浏览器端将同时写入 `cowen_sess_id`（网关 Session）和 `isv_session`（您的业务 Session）。
+
+#### B. ISV 后端 Webhook 实现示例 (Node.js/Express)
+```javascript
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+// 承接网关授权同步的 Webhook 接口
+app.post('/mock_isv/auth_sync_hook', (req, res) => {
+    const { org_id, user_id, app_id } = req.body;
+    console.log(`收到网关登录同步：企业=${org_id}, 用户=${user_id}`);
+    
+    // 1. 本地建立业务会话（如写入 Redis 缓存或本地数据库）
+    const isvSessionToken = generateUniqueSession();
+    saveSessionToDatabase(isvSessionToken, { org_id, user_id });
+    
+    // 2. 通过 Set-Cookie 写入浏览器 Cookie
+    // 注意：建议开启 HttpOnly 保证安全
+    res.setHeader('Set-Cookie', `isv_session=${isvSessionToken}; Path=/; HttpOnly; SameSite=Lax`);
+    
+    // 3. 返回 200 成功，通知网关同步完毕
+    res.status(200).json({
+        status: "synced",
+        org_id: org_id
+    });
+});
+```
+
+#### C. ISV 后端 Webhook 实现示例 (Python/Flask)
+```python
+from flask import Flask, request, jsonify, make_response
+import uuid
+
+app = Flask(__name__)
+
+@app.route('/mock_isv/auth_sync_hook', methods=['POST'])
+def auth_sync_hook():
+    payload = request.json
+    org_id = payload.get("org_id")
+    user_id = payload.get("user_id")
+    
+    # 1. 创建本地会话
+    session_id = f"isv_session_{uuid.uuid4().hex[:8]}"
+    # save_session(session_id, org_id, user_id)
+    
+    # 2. 返回 200 并在 Response 中注入 Cookie
+    resp = make_response(jsonify({
+        "status": "synced",
+        "org_id": org_id
+    }), 200)
+    
+    # 网关会自动捕获该 Set-Cookie 头并传递给客户端浏览器
+    resp.set_cookie("isv_session", session_id, httponly=True, path="/")
+    return resp
+```
+
 ---
 
 ## ⚠️ 能力边界
