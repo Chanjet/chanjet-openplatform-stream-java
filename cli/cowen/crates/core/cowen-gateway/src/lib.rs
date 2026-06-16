@@ -972,7 +972,9 @@ mod tests {
 
     #[test]
     fn test_strip_oauth_params_only_oauth() {
-        let uri: Uri = "http://example.com/invoice?code=abc123&state=xyz789".parse().unwrap();
+        let uri: Uri = "http://example.com/invoice?code=abc123&state=xyz789"
+            .parse()
+            .unwrap();
         assert_eq!(strip_oauth_params(&uri), "/invoice");
     }
 

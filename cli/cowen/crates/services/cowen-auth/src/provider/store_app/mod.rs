@@ -134,38 +134,7 @@ impl StoreAppProvider {
 #[async_trait]
 impl AuthProvider for StoreAppProvider {
     fn validate_config(&self, config: &Config) -> CowenResult<()> {
-        let decrypt_key_raw = if !config.encrypt_key.is_empty() {
-            &config.encrypt_key
-        } else {
-            &config.app_secret
-        };
-        let decrypt_key = cowen_common::utils::sanitize_credential(decrypt_key_raw);
-
-        if decrypt_key.is_empty() {
-            return Err(CowenError::Config(
-                "Decryption key (encrypt_key or fallback app_secret) is required and cannot be empty for SelfBuilt or StoreApp modes".to_string(),
-            ));
-        }
-
-        let key_len = if decrypt_key.len() == 32 {
-            if decrypt_key.len().is_multiple_of(2)
-                && decrypt_key.chars().all(|c| c.is_ascii_hexdigit())
-            {
-                16
-            } else {
-                32
-            }
-        } else {
-            decrypt_key.len()
-        };
-
-        if key_len != 16 {
-            return Err(CowenError::Config(format!(
-                "Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes (or 32-character hex) for SelfBuilt or StoreApp modes, got {} bytes",
-                decrypt_key.len()
-            )));
-        }
-        Ok(())
+        super::utils::validate_decrypt_key_config(config)
     }
 
     async fn check_credentials(
@@ -173,40 +142,7 @@ impl AuthProvider for StoreAppProvider {
         vault: &dyn cowen_common::vault::Vault,
         profile: &str,
     ) -> Result<cowen_doctor::DiagnosticStatus, String> {
-        let app_secret = vault.get_secret(profile, "app_secret").await.unwrap_or_default();
-        let encrypt_key = vault.get_secret(profile, "encrypt_key").await.unwrap_or_default();
-
-        let decrypt_key_raw = if !encrypt_key.is_empty() {
-            &encrypt_key
-        } else {
-            &app_secret
-        };
-        let decrypt_key = decrypt_key_raw.trim();
-
-        if decrypt_key.is_empty() {
-            Ok(cowen_doctor::DiagnosticStatus::Error(
-                "缺少解密密钥 (App Secret 或 Encrypt Key 均为空)".to_string(),
-            ))
-        } else {
-            let key_len = if decrypt_key.len() == 32 {
-                if hex::decode(decrypt_key).is_ok() {
-                    16
-                } else {
-                    32
-                }
-            } else {
-                decrypt_key.len()
-            };
-
-            if key_len != 16 {
-                Ok(cowen_doctor::DiagnosticStatus::Error(format!(
-                    "解密密钥不合规：必须为16字节或32字符Hex，当前 trimmed 长度为 {}",
-                    decrypt_key.len()
-                )))
-            } else {
-                Ok(cowen_doctor::DiagnosticStatus::Ok)
-            }
-        }
+        super::utils::check_decrypt_key_credentials(vault, profile).await
     }
 
     async fn exchange_temp_code(

@@ -78,7 +78,10 @@ impl AuthProviderValidator {
     }
 }
 
-fn validate_decrypt_key(client: &AuthClient, config: &cowen_common::config::Config) -> CowenResult<()> {
+fn validate_decrypt_key(
+    client: &AuthClient,
+    config: &cowen_common::config::Config,
+) -> CowenResult<()> {
     match client.provider(&config.app_mode).validate_config(config) {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -103,7 +106,13 @@ impl cowen_config::ConfigValidator for AuthProviderValidator {
     ) -> CowenResult<()> {
         validate_decrypt_key(&self.client, config)?;
 
-        if is_distributed && exists && !self.client.provider(&config.app_mode).is_allowed_in_distributed_storage() {
+        if is_distributed
+            && exists
+            && !self
+                .client
+                .provider(&config.app_mode)
+                .is_allowed_in_distributed_storage()
+        {
             let msg = format!("⚠️  Skipping profile '{}': Auth mode '{}' is not allowed in distributed storage scenarios (shared database/redis).", profile, config.app_mode);
             eprintln!("{}", msg);
             return Err(CowenError::Internal(format!("SKIPPED: {}", msg)));
@@ -119,7 +128,12 @@ impl cowen_config::ConfigValidator for AuthProviderValidator {
     ) -> CowenResult<()> {
         validate_decrypt_key(&self.client, config)?;
 
-        if is_distributed && !self.client.provider(&config.app_mode).is_allowed_in_distributed_storage() {
+        if is_distributed
+            && !self
+                .client
+                .provider(&config.app_mode)
+                .is_allowed_in_distributed_storage()
+        {
             return Err(CowenError::Config(format!("Auth mode '{}' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.", config.app_mode)));
         }
         Ok(())
@@ -142,7 +156,9 @@ mod tests {
     async fn create_test_validator() -> AuthProviderValidator {
         let temp_dir = tempfile::tempdir().unwrap();
         let app_cfg = cowen_common::config::AppConfig::default();
-        let vault = cowen_store::create_vault(&app_cfg, temp_dir.path(), "test_fingerprint").await.unwrap();
+        let vault = cowen_store::create_vault(&app_cfg, temp_dir.path(), "test_fingerprint")
+            .await
+            .unwrap();
         let pool = Arc::new(VaultTokenPool::new(vault));
         let client = create_auth_client(pool);
         AuthProviderValidator::new(client)

@@ -15,8 +15,6 @@ impl DiagnosticTask for CredentialsCheck {
     async fn run(&self, ctx: &DoctorContext) -> Result<DiagnosticResult> {
         let start = Instant::now();
 
-
-
         let auth_cli = crate::create_auth_client_with_vault(ctx.vault.clone());
         let status = match auth_cli
             .provider(&ctx.config.app_mode)

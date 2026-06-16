@@ -937,7 +937,6 @@ dependencies = [
  "cowen-store",
  "cowen-sys",
  "fs2",
- "hex",
  "indicatif",
  "inventory",
  "open",
