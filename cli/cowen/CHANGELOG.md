@@ -12,6 +12,7 @@
 - **JWKS 密钥自动轮转 (JWKS Key Rotation)**: 在网关内部实现 JWKS 本地管理。密钥存放在 Vault 密保池 `cowen:system:jwks` 中，网关每 30 天自动轮转 JWT 密钥，并提供对历史 `ROTATED` 状态密钥的平滑退行支持。
 - **应用商店模式 Code 拦截与 Wash 机制 (OAuth2 Code Interception & Wash)**: 支持拦截含有 `code` 临时参数的 OAuth2 重定向回调，并在网关底层静默与 ISV 托管平台进行 Wash 交换以实现自动租户身份绑定。
 - **三级凭证恢复机制 (3-Tier Auth Recovery)**: 在反向代理（Egress Proxy）重试链路中引入了三级鉴权恢复机制。请求遭遇 Token 过期时将依次通过：`内存缓存/数据库自愈` -> `Refresh Token 刷新` -> `永久授权码 (Permanent Auth Code) 换取` 逐级进行静默回源自愈，并在完全失效时清晰抛出 401 错误。
+- **统一路由分发与旁挂直连 OpenAPI (Unified Routing & Direct OpenAPI Mode)**: 网关支持配置 `routes` 路由规则表（支持 Glob 匹配与路径前缀剥离），允许将特定路径请求分发到多个 ISV 本地子 upstream 服务；并支持以 `"openapi"` 旁挂目标，直接由网关执行多租户 Token 换票与签名加签，一跳直达开放平台，省去本地 Proxy 本机多次转发开销。
 
 ### 🔧 改进与修复 (Improvements & Fixes)
 - **CORS 预检 OPTIONS 崩溃修复**: 修复了在处理 CORS OPTIONS 预检请求时克隆 `CorsLayer` 导致守护进程崩溃的 bug，通过引入 `mirror_request` 动态匹配 Origin 与 Headers，完美支持跨域 OPTIONS 预检。

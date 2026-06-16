@@ -585,6 +585,218 @@ fn handle_unauthorized(
     }
 }
 
+fn match_and_route(state: &GatewayState, path: &str) -> (bool, String, String) {
+    let mut matched_route = None;
+    for r in &state.gateway_config.routes {
+        if routing::glob_match(&r.path, path) {
+            matched_route = Some(r.clone());
+            break;
+        }
+    }
+
+    match matched_route {
+        Some(ref route) => {
+            let mut p = path.to_string();
+            if let Some(ref prefix) = route.strip_prefix {
+                if p.starts_with(prefix) {
+                    p = p.replacen(prefix, "", 1);
+                    if !p.starts_with('/') {
+                        p = format!("/{}", p);
+                    }
+                }
+            }
+            if route.upstream == "openapi" {
+                (true, state.app_config.openapi_url.clone(), p)
+            } else {
+                (false, route.upstream.clone(), p)
+            }
+        }
+        None => {
+            let is_direct = state.gateway_config.upstream_url == "openapi"
+                || state.gateway_config.upstream_url == state.app_config.openapi_url;
+            let target = if state.gateway_config.upstream_url == "openapi" {
+                state.app_config.openapi_url.clone()
+            } else {
+                state.gateway_config.upstream_url.clone()
+            };
+            (is_direct, target, path.to_string())
+        }
+    }
+}
+
+fn create_request_builder(
+    state: &GatewayState,
+    method: &str,
+    url: &str,
+    headers: reqwest::header::HeaderMap,
+    body: Vec<u8>,
+) -> reqwest::RequestBuilder {
+    let reqwest_method =
+        reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
+    let mut req_builder = state.http_client.request(reqwest_method, url);
+    req_builder = req_builder.headers(headers);
+    if !body.is_empty() {
+        req_builder = req_builder.body(reqwest::Body::from(body));
+    }
+    req_builder
+}
+
+async fn send_and_build_response(
+    state: &GatewayState,
+    req_builder: reqwest::RequestBuilder,
+    upstream_url: &str,
+) -> Result<(StatusCode, reqwest::header::HeaderMap, axum::body::Bytes), Response> {
+    match req_builder.send().await {
+        Ok(upstream_resp) => {
+            let status = StatusCode::from_u16(upstream_resp.status().as_u16())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            let headers = upstream_resp.headers().clone();
+            let body = upstream_resp.bytes().await.unwrap_or_default();
+            Ok((status, headers, body))
+        }
+        Err(e) => {
+            tracing::error!(
+                target: "audit",
+                profile = %state.profile,
+                upstream = %upstream_url,
+                "Upstream request failed: {}",
+                e
+            );
+            Err(error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Upstream error: {}", e),
+            ))
+        }
+    }
+}
+
+fn build_axum_response(
+    status: StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let mut response_builder = Response::builder().status(status);
+    for (key, value) in headers.iter() {
+        if let (Ok(name), Ok(val)) = (
+            axum::http::HeaderName::from_bytes(key.as_str().as_bytes()),
+            axum::http::HeaderValue::from_bytes(value.as_bytes()),
+        ) {
+            response_builder = response_builder.header(name, val);
+        }
+    }
+    response_builder.body(Body::from(body)).unwrap_or_else(|_| {
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, "Response build failed")
+    })
+}
+
+async fn handle_direct_openapi(
+    state: &GatewayState,
+    path: &str,
+    method: &str,
+    req_headers: reqwest::header::HeaderMap,
+    body_bytes: &[u8],
+    query: Option<&str>,
+) -> Response {
+    let auth_cli = cowen_auth::create_auth_client_with_vault(state.vault.clone());
+    let provider = auth_cli.provider(&state.config.app_mode);
+
+    let final_headers = match provider
+        .intercept_request(
+            &state.profile,
+            &state.config,
+            path,
+            method,
+            req_headers,
+            body_bytes,
+            &serde_json::Value::Null,
+        )
+        .await
+    {
+        Ok(cowen_auth::provider::ProxyRequestAction::Respond(json_resp)) => {
+            let body_bytes = serde_json::to_vec(&json_resp).unwrap_or_default();
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body_bytes))
+                .unwrap();
+        }
+        Ok(cowen_auth::provider::ProxyRequestAction::Forward { mut headers }) => {
+            headers.remove(reqwest::header::HOST);
+            headers
+        }
+        Err(e) => {
+            let masked_err = cowen_common::utils::mask_sensitive_json(&e.to_string());
+            tracing::error!(target: "audit", profile = %state.profile, method = %method, path = %path, error = %masked_err, "Direct OpenAPI intercept failed");
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                &format!("Direct intercept error: {}", masked_err),
+            );
+        }
+    };
+
+    let upstream_url = format!(
+        "{}{}{}",
+        state.app_config.openapi_url.trim_end_matches('/'),
+        path,
+        query.map(|q| format!("?{}", q)).unwrap_or_default()
+    );
+
+    let req_builder = create_request_builder(
+        state,
+        method,
+        &upstream_url,
+        final_headers,
+        body_bytes.to_vec(),
+    );
+
+    match send_and_build_response(state, req_builder, &upstream_url).await {
+        Ok((status, out_headers, resp_body)) => {
+            if let Err(e) = provider
+                .intercept_response(
+                    &state.profile,
+                    &state.config,
+                    path,
+                    method,
+                    status.as_u16(),
+                    &out_headers,
+                    &resp_body,
+                )
+                .await
+            {
+                tracing::warn!(target: "audit", profile = %state.profile, error = %e, "Direct post-flight intercept failed (non-fatal)");
+            }
+            build_axum_response(status, &out_headers, resp_body)
+        }
+        Err(error_resp) => error_resp,
+    }
+}
+
+async fn handle_normal_upstream(
+    state: &GatewayState,
+    target_upstream: &str,
+    path: &str,
+    query: Option<&str>,
+    req_headers: reqwest::header::HeaderMap,
+    body_bytes: Vec<u8>,
+    method: &str,
+) -> Response {
+    let upstream_url = format!(
+        "{}{}{}",
+        target_upstream.trim_end_matches('/'),
+        path,
+        query.map(|q| format!("?{}", q)).unwrap_or_default()
+    );
+
+    let req_builder = create_request_builder(state, method, &upstream_url, req_headers, body_bytes);
+
+    match send_and_build_response(state, req_builder, &upstream_url).await {
+        Ok((status, out_headers, resp_body)) => {
+            build_axum_response(status, &out_headers, resp_body)
+        }
+        Err(error_resp) => error_resp,
+    }
+}
+
 /// Reverse proxy the request to the upstream ISV backend.
 async fn proxy_to_upstream(
     state: &GatewayState,
@@ -595,37 +807,35 @@ async fn proxy_to_upstream(
     let path = parts.uri.path();
     let query = parts.uri.query();
 
-    // Build upstream URL
-    let upstream_url = format!(
-        "{}{}{}",
-        state.gateway_config.upstream_url.trim_end_matches('/'),
-        path,
-        query.map(|q| format!("?{}", q)).unwrap_or_default()
-    );
+    // 1. Evaluate custom route rules for upstream matching and prefix stripping
+    let (is_direct_openapi, target_upstream, final_path) = match_and_route(state, path);
 
-    // Build request with identity headers
-    let method = reqwest::Method::from_bytes(parts.method.as_str().as_bytes())
-        .unwrap_or(reqwest::Method::GET);
-
-    let mut req_builder = state.http_client.request(method, &upstream_url);
-
-    // Copy headers (except Host)
+    // 2. Prepare headers (copy incoming request headers, except Host)
+    let mut req_headers = reqwest::header::HeaderMap::new();
     for (key, value) in parts.headers.iter() {
         if key != header::HOST {
-            if let Ok(v) = value.to_str() {
-                req_builder = req_builder.header(key.as_str(), v);
+            if let Ok(name) = reqwest::header::HeaderName::from_bytes(key.as_str().as_bytes()) {
+                if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
+                    req_headers.insert(name, val);
+                }
             }
         }
     }
 
     // Inject identity headers if session is valid
     if let Some(c) = claims {
-        req_builder = req_builder.header("x-org-id", &c.org_id);
+        if let Ok(v) = c.org_id.parse() {
+            req_headers.insert("x-org-id", v);
+        }
         if let Some(ref uid) = c.user_id {
-            req_builder = req_builder.header("x-user-id", uid);
+            if let Ok(v) = uid.parse() {
+                req_headers.insert("x-user-id", v);
+            }
         }
         if let Some(ref aid) = c.app_id {
-            req_builder = req_builder.header("x-app-id", aid);
+            if let Ok(v) = aid.parse() {
+                req_headers.insert("x-app-id", v);
+            }
         }
     }
 
@@ -633,45 +843,28 @@ async fn proxy_to_upstream(
     let body_bytes = axum::body::to_bytes(body, usize::MAX)
         .await
         .unwrap_or_default();
-    if !body_bytes.is_empty() {
-        req_builder = req_builder.body(reqwest::Body::from(body_bytes));
-    }
 
-    // Send request
-    match req_builder.send().await {
-        Ok(upstream_resp) => {
-            let status = StatusCode::from_u16(upstream_resp.status().as_u16())
-                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-
-            let mut response_builder = Response::builder().status(status);
-
-            // Copy response headers
-            for (key, value) in upstream_resp.headers().iter() {
-                if let (Ok(name), Ok(val)) = (
-                    axum::http::HeaderName::from_bytes(key.as_str().as_bytes()),
-                    axum::http::HeaderValue::from_bytes(value.as_bytes()),
-                ) {
-                    response_builder = response_builder.header(name, val);
-                }
-            }
-
-            let resp_body = upstream_resp.bytes().await.unwrap_or_default();
-            response_builder
-                .body(Body::from(resp_body))
-                .unwrap_or_else(|_| {
-                    error_response(StatusCode::INTERNAL_SERVER_ERROR, "Response build failed")
-                })
-        }
-        Err(e) => {
-            tracing::error!(
-                target: "audit",
-                profile = %state.profile,
-                upstream = %upstream_url,
-                "Upstream request failed: {}",
-                e
-            );
-            error_response(StatusCode::BAD_GATEWAY, &format!("Upstream error: {}", e))
-        }
+    if is_direct_openapi {
+        handle_direct_openapi(
+            state,
+            &final_path,
+            parts.method.as_str(),
+            req_headers,
+            &body_bytes,
+            query,
+        )
+        .await
+    } else {
+        handle_normal_upstream(
+            state,
+            &target_upstream,
+            &final_path,
+            query,
+            req_headers,
+            body_bytes.to_vec(),
+            parts.method.as_str(),
+        )
+        .await
     }
 }
 

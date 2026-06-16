@@ -91,6 +91,22 @@ pub struct GatewayConfig {
     /// Auth routing rules controlling which paths require authentication.
     #[serde(default)]
     pub auth_routing: AuthRoutingConfig,
+
+    /// Custom routing rules for multiple upstreams or direct OpenAPI proxying.
+    #[serde(default)]
+    pub routes: Vec<GatewayRouteRule>,
+}
+
+/// Custom routing rule for Gateway forwarding.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct GatewayRouteRule {
+    /// Glob pattern to match against request path.
+    pub path: String,
+    /// Destination URL or special keyword "openapi".
+    pub upstream: String,
+    /// Optional prefix to strip from path before forwarding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strip_prefix: Option<String>,
 }
 
 fn default_gateway_bind_address() -> String {
@@ -333,6 +349,7 @@ impl Config {
                     upstream_url: String::new(),
                     auth_sync_hook: None,
                     auth_routing: AuthRoutingConfig::default(),
+                    routes: vec![],
                 });
             } else if !enabled {
                 self.gateway = None;

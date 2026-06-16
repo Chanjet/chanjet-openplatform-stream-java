@@ -8,4 +8,5 @@
 2. **会话校验 (Zero-Trust Session)**：自动提取并验证 AES-256-GCM 加密的 session cookie，对 IP + User-Agent 进行 SHA-256 签名绑定（防 Cookie 劫持）。
 3. **JWKS 密钥管理与自动轮转**：管理用于 JWT 签名的本地密钥集 `cowen:system:jwks`，支持 30 天自动密钥轮转，平滑过滤已轮转（ROTATED）的历史密钥。
 4. **Code 拦截与 Wash 机制**：自动捕获并拦截平台重定向 callback 请求中的临时授权码 (`code`) 并与 ISV 服务端完成 token 洗刷同步。
-5. **三级凭证恢复机制 (3-Tier Token Recovery)**：在 Egress 反向代理模式下，支持 `本地 Cache` -> `Refresh Token 刷新` -> `永久授权码 (Permanent Auth Code) 换取` 的三级凭证自愈恢复链路。
+5. **三级凭证恢复机制 (3-Tier Token Recovery)**：在 Ingress/Egress 模式下，支持 `本地 Cache` -> `Refresh Token 刷新` -> `永久授权码 (Permanent Auth Code) 换取` 的三级凭证自愈恢复链路。
+6. **统一路由与旁挂分流 (Unified Routing & OpenAPI Bypass)**：支持配置 `routes` 规则表，可依据 Glob 匹配将特定请求分发至多个不同的 ISV Upstream；并支持特殊目标 `"openapi"` 进行旁挂，直接由网关洗刷签名并发送至开放平台，省去侧车中转开销。

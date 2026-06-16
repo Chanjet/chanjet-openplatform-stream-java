@@ -103,7 +103,7 @@ impl RouteMatcher {
 /// - `**` matches zero or more path segments (e.g., `/api/**` matches `/api`, `/api/foo`, `/api/foo/bar`)
 /// - `*` matches exactly one path segment (e.g., `/api/*/list` matches `/api/v1/list`)
 /// - Exact string match
-fn glob_match(pattern: &str, path: &str) -> bool {
+pub(crate) fn glob_match(pattern: &str, path: &str) -> bool {
     let pat = pattern.trim_end_matches('/');
     let pth = path.trim_end_matches('/');
 
