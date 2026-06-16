@@ -13,183 +13,179 @@ app.use(express.json());
 // Serve static files from 'public' directory (accessible via /public/...)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// Root route - Render the premium dashboard
-app.get('/', (req, res) => {
-  const orgId = req.headers['x-org-id'];
-  const userId = req.headers['x-user-id'];
-  const appId = req.headers['x-app-id'];
-
-  // If accessed directly (not via Ingress Gateway), show warning/instructions
-  if (!orgId) {
-    return res.status(400).send(`
-      <!DOCTYPE html>
-      <html lang="zh-CN">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>接入指引 - Cowen 零信任网关</title>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-        <style>
-          :root {
-            --bg-color: #0b0f19;
-            --card-bg: rgba(17, 24, 39, 0.7);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --text-color: #f3f4f6;
-            --text-muted: #9ca3af;
-            --primary: #3b82f6;
-            --primary-glow: rgba(59, 130, 246, 0.15);
-            --accent: #f59e0b;
-          }
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            overflow-x: hidden;
-          }
-          .glass-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid var(--border-color);
-            border-radius: 24px;
-            padding: 40px;
-            max-width: 650px;
-            width: 90%;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
-            text-align: center;
-          }
-          h1 {
-            font-size: 2.2rem;
-            font-weight: 700;
-            margin-bottom: 15px;
-            background: linear-gradient(135deg, #60a5fa, #3b82f6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-          }
-          p {
-            color: var(--text-muted);
-            line-height: 1.6;
-            margin-bottom: 25px;
-            font-size: 1.05rem;
-          }
-          .alert {
-            background: rgba(245, 158, 11, 0.1);
-            border: 1px solid rgba(245, 158, 11, 0.2);
-            border-radius: 12px;
-            padding: 15px;
-            margin-bottom: 25px;
-            color: #fbbf24;
-            font-size: 0.95rem;
-            text-align: left;
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-          }
-          .flow-box {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 20px;
-            margin-bottom: 30px;
-            text-align: left;
-          }
-          .flow-title {
-            font-weight: 600;
-            margin-bottom: 12px;
-            font-size: 0.95rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-color);
-          }
-          .flow-step {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 10px;
-            font-size: 0.9rem;
-          }
-          .flow-step:last-child { margin-bottom: 0; }
-          .step-num {
-            background: var(--primary);
-            color: #fff;
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.8rem;
-            font-weight: 700;
-          }
-          .btn-primary {
-            display: inline-block;
-            background: var(--primary);
-            color: #white;
-            text-decoration: none;
-            padding: 14px 28px;
-            border-radius: 12px;
-            font-weight: 600;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 14px var(--primary-glow);
-            border: none;
-            cursor: pointer;
-          }
-          .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
-            background: #2563eb;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="glass-card">
-          <h1>访问被阻断 (Access Blocked)</h1>
-          <p>您正试图直接访问 ISV 后端服务。为了系统的零信任安全性，我们强制要求通过 Ingress 网关进行身份认证和路由。</p>
-          
-          <div class="alert">
-            <span>⚠️</span>
-            <div>
-              <strong>提示：</strong>直接访问后端将无法获取企业和用户的明文身份（<code>x-org-id</code>，<code>x-user-id</code>），导致所有的开放平台 API 代理调用失败。
-            </div>
-          </div>
-
-          <div class="flow-box">
-            <div class="flow-title">零信任链路拓扑:</div>
-            <div class="flow-step">
-              <span class="step-num">1</span>
-              <span>浏览器发起请求到网关端口 <code>http://127.0.0.1:18080/</code></span>
-            </div>
-            <div class="flow-step">
-              <span class="step-num">2</span>
-              <span>Cowen Ingress Gateway 进行身份鉴权并注入身份头</span>
-            </div>
-            <div class="flow-step">
-              <span class="step-num">3</span>
-              <span>后端服务 (当前端口 13000) 安全接收并处理业务逻辑</span>
-            </div>
-          </div>
-
-          <a href="http://127.0.0.1:18080/" class="btn-primary">通过网关入口访问</a>
-        </div>
-      </body>
-      </html>
-    `);
-  }
-
-  // Forward the dashboard, inject credentials via dynamic HTML scripting
-  res.send(`
+// Helper to render access blocked page when accessed directly (not via Gateway)
+function renderAccessBlockedPage(targetPath) {
+  const fullTargetUrl = `http://127.0.0.1:18080${targetPath}`;
+  return `
     <!DOCTYPE html>
     <html lang="zh-CN">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>ISV Dashboard - Cowen Secure Gateway</title>
+      <title>访问被阻断 - Cowen 零信任网关</title>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+      <style>
+        :root {
+          --bg-color: #0b0f19;
+          --card-bg: rgba(17, 24, 39, 0.7);
+          --border-color: rgba(255, 255, 255, 0.08);
+          --text-color: #f3f4f6;
+          --text-muted: #9ca3af;
+          --primary: #3b82f6;
+          --primary-glow: rgba(59, 130, 246, 0.15);
+          --accent: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: 'Inter', sans-serif;
+          background-color: var(--bg-color);
+          color: var(--text-color);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+          overflow-x: hidden;
+        }
+        .glass-card {
+          background: var(--card-bg);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          border: 1px solid var(--border-color);
+          border-radius: 24px;
+          padding: 40px;
+          max-width: 650px;
+          width: 90%;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+          text-align: center;
+        }
+        h1 {
+          font-size: 2.2rem;
+          font-weight: 700;
+          margin-bottom: 15px;
+          background: linear-gradient(135deg, #60a5fa, #3b82f6);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+        p {
+          color: var(--text-muted);
+          line-height: 1.6;
+          margin-bottom: 25px;
+          font-size: 1.05rem;
+        }
+        .alert {
+          background: rgba(245, 158, 11, 0.1);
+          border: 1px solid rgba(245, 158, 11, 0.2);
+          border-radius: 12px;
+          padding: 15px;
+          margin-bottom: 25px;
+          color: #fbbf24;
+          font-size: 0.95rem;
+          text-align: left;
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+        }
+        .flow-box {
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid var(--border-color);
+          border-radius: 16px;
+          padding: 20px;
+          margin-bottom: 30px;
+          text-align: left;
+        }
+        .flow-title {
+          font-weight: 600;
+          margin-bottom: 12px;
+          font-size: 0.95rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--text-color);
+        }
+        .flow-step {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 10px;
+          font-size: 0.9rem;
+        }
+        .flow-step:last-child { margin-bottom: 0; }
+        .step-num {
+          background: var(--primary);
+          color: #fff;
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.8rem;
+          font-weight: 700;
+        }
+        .btn-primary {
+          display: inline-block;
+          background: var(--primary);
+          color: #fff;
+          text-decoration: none;
+          padding: 14px 28px;
+          border-radius: 12px;
+          font-weight: 600;
+          font-size: 1rem;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 14px var(--primary-glow);
+          border: none;
+          cursor: pointer;
+        }
+        .btn-primary:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+          background: #2563eb;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="glass-card">
+        <h1>访问被阻断 (Access Blocked)</h1>
+        <p>您正试图直接访问 ISV 后端服务。为了系统的零信任安全性，我们强制要求通过 Ingress 网关进行身份认证和路由。</p>
+        
+        <div class="alert">
+          <span>⚠️</span>
+          <div>
+            <strong>提示：</strong>直接访问后端将无法获取企业和用户的明文身份（<code>x-org-id</code>，<code>x-user-id</code>），导致所有的开放平台 API 代理调用失败。
+          </div>
+        </div>
+
+        <div class="flow-box">
+          <div class="flow-title">零信任链路拓扑:</div>
+          <div class="flow-step">
+            <span class="step-num">1</span>
+            <span>浏览器发起请求到网关端口 <code>http://127.0.0.1:18080${targetPath}</code></span>
+          </div>
+          <div class="flow-step">
+            <span class="step-num">2</span>
+            <span>Cowen Ingress Gateway 进行身份鉴权并注入身份头</span>
+          </div>
+          <div class="flow-step">
+            <span class="step-num">3</span>
+            <span>后端服务 (当前端口 13000) 安全接收并处理业务逻辑</span>
+          </div>
+        </div>
+
+        <a href="${fullTargetUrl}" class="btn-primary">通过网关入口访问</a>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+// Common HTML header template
+function getHtmlHeader(title, activeTab) {
+  return `
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title}</title>
       <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
       <style>
         :root {
@@ -237,7 +233,7 @@ app.get('/', (req, res) => {
           align-items: center;
           border-bottom: 1px solid rgba(255, 255, 255, 0.05);
           padding-bottom: 25px;
-          margin-bottom: 30px;
+          margin-bottom: 25px;
         }
         .header h1 {
           font-family: 'Outfit', sans-serif;
@@ -271,6 +267,35 @@ app.get('/', (req, res) => {
           70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
           100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
+        
+        /* Navigation Menu styles */
+        .nav-menu {
+          display: flex;
+          gap: 12px;
+          margin-bottom: 30px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          padding-bottom: 15px;
+        }
+        .nav-item {
+          color: var(--text-muted);
+          text-decoration: none;
+          font-size: 0.95rem;
+          font-weight: 600;
+          padding: 10px 20px;
+          border-radius: 12px;
+          transition: all 0.3s ease;
+          border: 1px solid transparent;
+        }
+        .nav-item:hover {
+          color: #fff;
+          background: rgba(255, 255, 255, 0.03);
+        }
+        .nav-item.active {
+          color: #fff;
+          background: rgba(59, 130, 246, 0.15);
+          border: 1px solid rgba(59, 130, 246, 0.25);
+        }
+
         .grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
@@ -386,117 +411,194 @@ app.get('/', (req, res) => {
             </div>
           </div>
           
-          <div class="grid">
-            <div class="card">
-              <div class="card-title">网关注入的身份信息 (Ingress Headers)</div>
-              <div class="info-row">
-                <span class="info-label">企业 ID (x-org-id):</span>
-                <span class="info-value">${orgId}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">用户 ID (x-user-id):</span>
-                <span class="info-value">${userId}</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">应用 ID (x-app-id):</span>
-                <span class="info-value">${appId || 'N/A'}</span>
-              </div>
-            </div>
-            
-            <div class="card">
-              <div class="card-title">网络拓扑状态 (Network Topology)</div>
-              <div class="info-row">
-                <span class="info-label">网关地址 (Ingress Port):</span>
-                <span class="info-value">http://127.0.0.1:18080</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Upstream 地址:</span>
-                <span class="info-value">http://127.0.0.1:13000</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Egress 代理:</span>
-                <span class="info-value">http://127.0.0.1:18081</span>
-              </div>
-            </div>
+          <div class="nav-menu">
+            <a href="/" class="nav-item ${activeTab === 'home' ? 'active' : ''}">主面板 (Home)</a>
+            <a href="/books-page" class="nav-item ${activeTab === 'books' ? 'active' : ''}">账套管理 (Books)</a>
           </div>
+  `;
+}
 
-          <div class="card" style="margin-top: 25px;">
-            <div class="card-title">API 调试面板 (API Operations)</div>
-            <div class="action-panel" style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 25px;">
-              <button class="btn-action" id="fetch-user-btn">
-                <div class="loading-spinner" id="btn-spinner"></div>
-                <span>个人授权调用 (含 x-user-id)</span>
-              </button>
-              <button class="btn-action" id="fetch-user-org-btn" style="background: linear-gradient(135deg, var(--secondary), var(--accent)); box-shadow: 0 10px 20px var(--secondary-glow);">
-                <div class="loading-spinner" id="btn-spinner-org"></div>
-                <span>企业授权调用 (不含 x-user-id)</span>
-              </button>
-              <button class="btn-action" id="fetch-books-btn" style="background: linear-gradient(135deg, var(--accent), var(--primary)); box-shadow: 0 10px 20px rgba(139, 92, 246, 0.25);">
-                <div class="loading-spinner" id="btn-spinner-books"></div>
-                <span>获取账套列表 (GET /accounting/openapi/cc/book/findByEnterpriseId)</span>
-              </button>
-              <button class="btn-action" id="fetch-openapi-bypass-btn" style="background: linear-gradient(135deg, var(--primary), var(--secondary)); box-shadow: 0 10px 20px rgba(59, 130, 246, 0.25);">
-                <div class="loading-spinner" id="btn-spinner-bypass"></div>
-                <span>网关旁挂 OpenAPI 调用 (GET /openapi/accounting/cia/api/v1/user)</span>
-              </button>
-            </div>
+// Common identity card templates
+function getIdentityCards(orgId, userId, appId) {
+  return `
+    <div class="grid">
+      <div class="card">
+        <div class="card-title">网关注入的身份信息 (Ingress Headers)</div>
+        <div class="info-row">
+          <span class="info-label">企业 ID (x-org-id):</span>
+          <span class="info-value">${orgId}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">用户 ID (x-user-id):</span>
+          <span class="info-value">${userId}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">应用 ID (x-app-id):</span>
+          <span class="info-value">${appId || 'N/A'}</span>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">网络拓扑状态 (Network Topology)</div>
+        <div class="info-row">
+          <span class="info-label">网关地址 (Ingress Port):</span>
+          <span class="info-value">http://127.0.0.1:18080</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Upstream 地址:</span>
+          <span class="info-value">http://127.0.0.1:13000</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Egress 代理:</span>
+          <span class="info-value">http://127.0.0.1:18081</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
 
-            <div class="result-panel">
-              <div class="result-header">
-                <span>调用结果 (OpenAPI Result):</span>
-                <span id="response-time"></span>
-              </div>
-              <pre id="result-display">// 点击上方按钮发起调用。请求将通过 Cowen Local Proxy (Egress) 自动加签鉴权并获取数据。</pre>
-            </div>
-          </div>
+// Common script template for API calling
+const CLIENT_API_SCRIPT = `
+  async function makeRequest(url, spinnerEl, displayEl, timeDisplayEl) {
+    spinnerEl.style.display = 'block';
+    displayEl.textContent = '正在发起请求并进行自动令牌挂载...';
+    timeDisplayEl.textContent = '';
+    const startTime = performance.now();
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        const htmlText = await res.text();
+        const endTime = performance.now();
+        timeDisplayEl.textContent = '耗时: ' + Math.round(endTime - startTime) + 'ms (HTML)';
+        displayEl.textContent = '[错误: 接口返回了 HTML 页面 (Status ' + res.status + ')，通常代表未通过网关登录拦截，或后端报错]\\n\\n' + htmlText;
+        return;
+      }
+      const data = await res.json();
+      const endTime = performance.now();
+      timeDisplayEl.textContent = '耗时: ' + Math.round(endTime - startTime) + 'ms';
+      displayEl.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      displayEl.textContent = '错误: ' + err.message;
+    } finally {
+      spinnerEl.style.display = 'none';
+    }
+  }
+`;
 
+// Root route - Render the premium dashboard
+app.get('/', (req, res) => {
+  const orgId = req.headers['x-org-id'];
+  const userId = req.headers['x-user-id'];
+  const appId = req.headers['x-app-id'];
+
+  if (!orgId) {
+    return res.status(400).send(renderAccessBlockedPage('/'));
+  }
+
+  res.send(`
+    ${getHtmlHeader('ISV Dashboard - Cowen Secure Gateway', 'home')}
+    ${getIdentityCards(orgId, userId, appId)}
+    
+    <div class="card" style="margin-top: 25px;">
+      <div class="card-title">API 调试面板 (API Operations)</div>
+      <div class="action-panel" style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 25px;">
+        <button class="btn-action" id="fetch-user-btn">
+          <div class="loading-spinner" id="btn-spinner"></div>
+          <span>个人授权调用 (含 x-user-id)</span>
+        </button>
+        <button class="btn-action" id="fetch-user-org-btn" style="background: linear-gradient(135deg, var(--secondary), var(--accent)); box-shadow: 0 10px 20px var(--secondary-glow);">
+          <div class="loading-spinner" id="btn-spinner-org"></div>
+          <span>企业授权调用 (不含 x-user-id)</span>
+        </button>
+        <button class="btn-action" id="fetch-openapi-bypass-btn" style="background: linear-gradient(135deg, var(--primary), var(--secondary)); box-shadow: 0 10px 20px rgba(59, 130, 246, 0.25);">
+          <div class="loading-spinner" id="btn-spinner-bypass"></div>
+          <span>网关旁挂 OpenAPI 调用 (GET /openapi/accounting/cia/api/v1/user)</span>
+        </button>
+      </div>
+
+      <div class="result-panel">
+        <div class="result-header">
+          <span>调用结果 (OpenAPI Result):</span>
+          <span id="response-time"></span>
+        </div>
+        <pre id="result-display">// 点击上方按钮发起调用。请求将通过 Cowen Local Proxy (Egress) 自动加签鉴权并获取数据。</pre>
+      </div>
+    </div>
+    
+        </div>
+      </div>
+      
       <script>
+        ${CLIENT_API_SCRIPT}
+        
         const fetchBtn = document.getElementById('fetch-user-btn');
         const fetchOrgBtn = document.getElementById('fetch-user-org-btn');
-        const fetchBooksBtn = document.getElementById('fetch-books-btn');
         const fetchBypassBtn = document.getElementById('fetch-openapi-bypass-btn');
         const spinner = document.getElementById('btn-spinner');
         const spinnerOrg = document.getElementById('btn-spinner-org');
-        const spinnerBooks = document.getElementById('btn-spinner-books');
         const spinnerBypass = document.getElementById('btn-spinner-bypass');
         const display = document.getElementById('result-display');
         const timeDisplay = document.getElementById('response-time');
         
-        async function makeRequest(url, spinnerEl) {
-          spinnerEl.style.display = 'block';
-          display.textContent = '正在发起请求并进行自动令牌挂载...';
-          timeDisplay.textContent = '';
-          const startTime = performance.now();
-          try {
-            const res = await fetch(url, {
-              headers: {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-              }
-            });
-            const contentType = res.headers.get('content-type') || '';
-            if (contentType.includes('text/html')) {
-              const htmlText = await res.text();
-              const endTime = performance.now();
-              timeDisplay.textContent = \`耗时: \${Math.round(endTime - startTime)}ms (HTML)\`;
-              display.textContent = \`[错误: 接口返回了 HTML 页面 (Status \${res.status})，通常代表未通过网关登录拦截，或后端报错]\\n\\n\` + htmlText;
-              return;
-            }
-            const data = await res.json();
-            const endTime = performance.now();
-            timeDisplay.textContent = \`耗时: \${Math.round(endTime - startTime)}ms\`;
-            display.textContent = JSON.stringify(data, null, 2);
-          } catch (err) {
-            display.textContent = '错误: ' + err.message;
-          } finally {
-            spinnerEl.style.display = 'none';
-          }
-        }
+        fetchBtn.addEventListener('click', () => makeRequest('/api/user-info', spinner, display, timeDisplay));
+        fetchOrgBtn.addEventListener('click', () => makeRequest('/api/user-info-org', spinnerOrg, display, timeDisplay));
+        fetchBypassBtn.addEventListener('click', () => makeRequest('/openapi/accounting/cia/api/v1/user', spinnerBypass, display, timeDisplay));
+      </script>
+    </body>
+    </html>
+  `);
+});
 
-        fetchBtn.addEventListener('click', () => makeRequest('/api/user-info', spinner));
-        fetchOrgBtn.addEventListener('click', () => makeRequest('/api/user-info-org', spinnerOrg));
-        fetchBooksBtn.addEventListener('click', () => makeRequest('/api/books', spinnerBooks));
-        fetchBypassBtn.addEventListener('click', () => makeRequest('/openapi/accounting/cia/api/v1/user', spinnerBypass));
+// Books route - Render the accounting books query page
+app.get('/books-page', (req, res) => {
+  const orgId = req.headers['x-org-id'];
+  const userId = req.headers['x-user-id'];
+  const appId = req.headers['x-app-id'];
+
+  if (!orgId) {
+    return res.status(400).send(renderAccessBlockedPage('/books-page'));
+  }
+
+  res.send(`
+    ${getHtmlHeader('账套查询 - Cowen Secure Gateway', 'books')}
+    ${getIdentityCards(orgId, userId, appId)}
+    
+    <div class="card" style="margin-top: 25px;">
+      <div class="card-title">账套查询面板 (Accounting Books Operations)</div>
+      <div class="action-panel" style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-bottom: 25px;">
+        <button class="btn-action" id="fetch-books-btn" style="background: linear-gradient(135deg, var(--accent), var(--primary)); box-shadow: 0 10px 20px rgba(139, 92, 246, 0.25);">
+          <div class="loading-spinner" id="btn-spinner-books"></div>
+          <span>获取账套列表 (GET /accounting/openapi/cc/book/findByEnterpriseId)</span>
+        </button>
+      </div>
+
+      <div class="result-panel">
+        <div class="result-header">
+          <span>调用结果 (OpenAPI Result):</span>
+          <span id="response-time"></span>
+        </div>
+        <pre id="result-display">// 点击上方按钮发起调用。请求将通过 Cowen Local Proxy (Egress) 自动加签鉴权并获取数据。</pre>
+      </div>
+    </div>
+    
+        </div>
+      </div>
+      
+      <script>
+        ${CLIENT_API_SCRIPT}
+        
+        const fetchBooksBtn = document.getElementById('fetch-books-btn');
+        const spinnerBooks = document.getElementById('btn-spinner-books');
+        const display = document.getElementById('result-display');
+        const timeDisplay = document.getElementById('response-time');
+        
+        fetchBooksBtn.addEventListener('click', () => makeRequest('/api/books', spinnerBooks, display, timeDisplay));
       </script>
     </body>
     </html>

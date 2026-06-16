@@ -132,6 +132,7 @@ async fn build_gateway_state(
     let route_matcher = RouteMatcher::new(gateway_config.auth_routing.clone());
     let http_client = reqwest::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| CowenError::Internal(format!("Failed to create HTTP client: {}", e)))?;
 
@@ -271,7 +272,24 @@ async fn handle_gateway(State(state): State<GatewayState>, req: Request) -> Resp
 
     // 6. Sliding window renewal
     if let Some(ref claims) = session_claims {
-        if state.session_manager.needs_refresh(claims) {
+        let mut clears_cookie = false;
+        for cookie_header in response.headers().get_all(header::SET_COOKIE) {
+            if let Ok(cookie_str) = cookie_header.to_str() {
+                if cookie_str.contains("cowen_sess_id=")
+                    && (cookie_str.contains("cowen_sess_id=;")
+                        || cookie_str.contains("Max-Age=0")
+                        || cookie_str.contains("Expires=Thu, 01 Jan 1970"))
+                {
+                    clears_cookie = true;
+                    break;
+                }
+            }
+        }
+        if clears_cookie {
+            let uid_str = claims.user_id.as_deref().unwrap_or("");
+            let cache_key = hex::encode(Sha256::digest(format!("{}|{}", claims.org_id, uid_str)));
+            state.session_cache.invalidate(&cache_key);
+        } else if state.session_manager.needs_refresh(claims) {
             return inject_refresh_cookie(&state, response, claims).await;
         }
     }
@@ -416,8 +434,8 @@ async fn handle_code_interception(
             let sync_hook_cookies =
                 invoke_sync_hook(state, &org_id, user_id.as_deref(), app_id.as_deref()).await;
 
-            // Build clean redirect URL (strip code parameter)
-            let redirect_url = strip_code_param(uri);
+            // Build clean redirect URL (strip code and state parameters)
+            let redirect_url = strip_oauth_params(uri);
 
             tracing::info!(
                 target: "audit",
@@ -496,13 +514,13 @@ async fn invoke_sync_hook(
     sync_hook_cookies
 }
 
-/// Strip the `code` query parameter from a URI, preserving other parameters.
-fn strip_code_param(uri: &Uri) -> String {
+/// Strip the `code` and `state` query parameters from a URI, preserving other parameters.
+fn strip_oauth_params(uri: &Uri) -> String {
     let path = uri.path();
     if let Some(query) = uri.query() {
         let filtered: Vec<&str> = query
             .split('&')
-            .filter(|pair| !pair.starts_with("code="))
+            .filter(|pair| !pair.starts_with("code=") && !pair.starts_with("state="))
             .collect();
         if filtered.is_empty() {
             path.to_string()
@@ -549,7 +567,8 @@ fn handle_unauthorized(
         .and_then(|h| h.to_str().ok())
         .unwrap_or("http");
 
-    let full_requested_url = format!("{}://{}{}", scheme, host, uri);
+    let clean_uri = strip_oauth_params(uri);
+    let full_requested_url = format!("{}://{}{}", scheme, host, clean_uri);
     let encoded_redirect_uri = urlencoding::encode(&full_requested_url);
 
     let market_url = cowen_infra::obfs!(cowen_common::config::DEF_MARKET_URL);
@@ -569,8 +588,8 @@ fn handle_unauthorized(
                 .unwrap()
         }
         RequestType::Page => {
-            // Redirect to open platform login with state parameter
-            let state_param = urlencoding::encode(&full_requested_url);
+            // Redirect to open platform login with state parameter (using a random UUID to prevent URL parameter nesting)
+            let state_param = uuid::Uuid::new_v4().to_string();
             let login_url = format!(
                 "{}?client_id={}&response_type=code&redirect_uri={}&state={}",
                 oauth_authorize_url, state.config.app_key, encoded_redirect_uri, state_param
@@ -952,23 +971,23 @@ mod tests {
     }
 
     #[test]
-    fn test_strip_code_param_only_code() {
-        let uri: Uri = "http://example.com/invoice?code=abc123".parse().unwrap();
-        assert_eq!(strip_code_param(&uri), "/invoice");
+    fn test_strip_oauth_params_only_oauth() {
+        let uri: Uri = "http://example.com/invoice?code=abc123&state=xyz789".parse().unwrap();
+        assert_eq!(strip_oauth_params(&uri), "/invoice");
     }
 
     #[test]
-    fn test_strip_code_param_with_other_params() {
-        let uri: Uri = "http://example.com/invoice?foo=bar&code=abc123&baz=qux"
+    fn test_strip_oauth_params_with_other_params() {
+        let uri: Uri = "http://example.com/invoice?foo=bar&code=abc123&state=xyz789&baz=qux"
             .parse()
             .unwrap();
-        assert_eq!(strip_code_param(&uri), "/invoice?foo=bar&baz=qux");
+        assert_eq!(strip_oauth_params(&uri), "/invoice?foo=bar&baz=qux");
     }
 
     #[tokio::test]
     #[ignore]
-    async fn test_strip_code_param_no_query() {
+    async fn test_strip_oauth_params_no_query() {
         let uri: Uri = "http://example.com/invoice".parse().unwrap();
-        assert_eq!(strip_code_param(&uri), "/invoice");
+        assert_eq!(strip_oauth_params(&uri), "/invoice");
     }
 }
