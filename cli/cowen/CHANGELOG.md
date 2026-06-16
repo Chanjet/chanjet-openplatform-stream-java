@@ -4,6 +4,22 @@
 
 ---
 
+## [0.5.0] - 2026-06-16
+
+### 🚀 新特性 (Features)
+- **应用网关模块重构 (Identity-Aware Gateway Crate)**: 从旧有的业务体系中完全解耦，提取出核心的 `cowen-gateway` crate，专门处理零信任应用网关相关的路由与会话校验。
+- **零信任会话验证 (Zero-Trust Sessions & Fingerprinting)**: 网关实现了基于 AES-256-GCM 算法加密的 ISV 会话 Cookie (`cowen_sess_id`)。请求在经过网关时会自动绑定 User-Agent + IP 的 SHA-256 指纹验证，防范 Cookie 劫持与重放攻击。
+- **JWKS 密钥自动轮转 (JWKS Key Rotation)**: 在网关内部实现 JWKS 本地管理。密钥存放在 Vault 密保池 `cowen:system:jwks` 中，网关每 30 天自动轮转 JWT 密钥，并提供对历史 `ROTATED` 状态密钥的平滑退行支持。
+- **应用商店模式 Code 拦截与 Wash 机制 (OAuth2 Code Interception & Wash)**: 支持拦截含有 `code` 临时参数的 OAuth2 重定向回调，并在网关底层静默与 ISV 托管平台进行 Wash 交换以实现自动租户身份绑定。
+- **三级凭证恢复机制 (3-Tier Auth Recovery)**: 在反向代理（Egress Proxy）重试链路中引入了三级鉴权恢复机制。请求遭遇 Token 过期时将依次通过：`内存缓存/数据库自愈` -> `Refresh Token 刷新` -> `永久授权码 (Permanent Auth Code) 换取` 逐级进行静默回源自愈，并在完全失效时清晰抛出 401 错误。
+
+### 🔧 改进与修复 (Improvements & Fixes)
+- **CORS 预检 OPTIONS 崩溃修复**: 修复了在处理 CORS OPTIONS 预检请求时克隆 `CorsLayer` 导致守护进程崩溃的 bug，通过引入 `mirror_request` 动态匹配 Origin 与 Headers，完美支持跨域 OPTIONS 预检。
+- **租户永久码持久化失效修复**: 修复了 Store App 登录拦截时当 token 级别为用户层时，未将企业永久码 (`org_permanent_code`) 保存至 Vault，导致在重试时无法走 Permanent Code 路径进行三级恢复的 bug。
+- **E2E Mock Server 适配修复**: 修复了并发 E2E 测试运行中，标准 OAuth2 场景的 `client_id` (`dummy`/`dummy-parallel-client-id`) 无法匹配的问题，防止 Mock 服务对标准 OAuth2 场景错误派发 JWT 令牌导致用例失败。
+
+---
+
 ## [0.4.0] - 2026-06-10
 
 ### 🚀 新特性 (Features)

@@ -4,6 +4,18 @@
 
 ---
 
+## [0.5.0] - 2026-06-16
+
+### 🏗️ 架构重构 (Architectural Refactoring)
+- **新增 cowen-gateway 核心 Crate**: 新规划并解耦了应用层网关底座，建立了清晰的模块化边界，将网关路由逻辑与 `cowen-server` 主服务实现彻底剥离。
+- **三级 Token 恢复自愈机制实现**: 设计并实现了 `Cache` -> `Refresh Token` -> `Permanent Auth Code` 的回源自愈链路，规范了多租户身份在网关层的高内聚恢复模型。
+
+### 🔧 构建与质量管控 (Build & Quality Gate)
+- **重复代码率控制 (Code Duplication Cleanup)**: 重构了 `token_logic.rs` 中的 Token 恢复逻辑，提取出通用的 `try_refresh_token_recovery` 方法，消除了代码重复率审查导致的构建阻塞。
+- **测试冗余及构建警告消除**: 安全清除了在 TDD 开发定位过程中产生的辅助测试用例与零散测试入口（`config_test.rs` 等），确保 clippy 静态回归完全通过。
+
+---
+
 ## [0.4.0] - 2026-06-10
 
 ### 🏗️ 架构重构 (Architectural Refactoring)
