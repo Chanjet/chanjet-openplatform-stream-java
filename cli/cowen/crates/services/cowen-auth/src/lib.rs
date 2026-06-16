@@ -68,61 +68,29 @@ fn is_test_env() -> bool {
 /// 🚀 Auth-driven Config Validator
 /// Implements `ConfigValidator` from `core` to decouple architectural constraints
 /// from concrete mode logic.
-pub struct AuthProviderValidator;
+pub struct AuthProviderValidator {
+    client: AuthClient,
+}
 
 impl AuthProviderValidator {
-    pub fn new(_client: AuthClient) -> Self {
-        Self
+    pub fn new(client: AuthClient) -> Self {
+        Self { client }
     }
 }
 
-fn validate_decrypt_key(config: &cowen_common::config::Config) -> CowenResult<()> {
-    if config.app_mode == cowen_common::models::AuthMode::SelfBuilt
-        || config.app_mode == cowen_common::models::AuthMode::StoreApp
-    {
-        let decrypt_key_raw = if !config.encrypt_key.is_empty() {
-            &config.encrypt_key
-        } else {
-            &config.app_secret
-        };
-        let decrypt_key = cowen_common::utils::sanitize_credential(decrypt_key_raw);
-
-        if decrypt_key.is_empty() {
-            let err_msg = "Decryption key (encrypt_key or fallback app_secret) is required and cannot be empty for SelfBuilt or StoreApp modes".to_string();
+fn validate_decrypt_key(client: &AuthClient, config: &cowen_common::config::Config) -> CowenResult<()> {
+    match client.provider(&config.app_mode).validate_config(config) {
+        Ok(_) => Ok(()),
+        Err(e) => {
             if is_test_env() {
-                eprintln!("⚠️  [WARNING] {}", err_msg);
-                tracing::warn!("{}", err_msg);
+                eprintln!("⚠️  [WARNING] {}", e);
+                tracing::warn!("{}", e);
+                Ok(())
             } else {
-                return Err(CowenError::Config(err_msg));
-            }
-        } else {
-            let key_len = if decrypt_key.len() == 32 {
-                if decrypt_key.len().is_multiple_of(2)
-                    && decrypt_key.chars().all(|c| c.is_ascii_hexdigit())
-                {
-                    16
-                } else {
-                    32
-                }
-            } else {
-                decrypt_key.len()
-            };
-
-            if key_len != 16 {
-                let err_msg = format!(
-                    "Decryption key (encrypt_key or fallback app_secret) must be exactly 16 bytes (or 32-character hex) for SelfBuilt or StoreApp modes, got {} bytes",
-                    decrypt_key.len()
-                );
-                if is_test_env() {
-                    eprintln!("⚠️  [WARNING] {}", err_msg);
-                    tracing::warn!("{}", err_msg);
-                } else {
-                    return Err(CowenError::Config(err_msg));
-                }
+                Err(e)
             }
         }
     }
-    Ok(())
 }
 
 impl cowen_config::ConfigValidator for AuthProviderValidator {
@@ -133,10 +101,10 @@ impl cowen_config::ConfigValidator for AuthProviderValidator {
         is_distributed: bool,
         exists: bool,
     ) -> CowenResult<()> {
-        validate_decrypt_key(config)?;
+        validate_decrypt_key(&self.client, config)?;
 
-        if is_distributed && exists && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
-            let msg = format!("⚠️  Skipping profile '{}': Auth mode 'Oauth2' is not allowed in distributed storage scenarios (shared database/redis).", profile);
+        if is_distributed && exists && !self.client.provider(&config.app_mode).is_allowed_in_distributed_storage() {
+            let msg = format!("⚠️  Skipping profile '{}': Auth mode '{}' is not allowed in distributed storage scenarios (shared database/redis).", profile, config.app_mode);
             eprintln!("{}", msg);
             return Err(CowenError::Internal(format!("SKIPPED: {}", msg)));
         }
@@ -149,10 +117,10 @@ impl cowen_config::ConfigValidator for AuthProviderValidator {
         config: &cowen_common::config::Config,
         is_distributed: bool,
     ) -> CowenResult<()> {
-        validate_decrypt_key(config)?;
+        validate_decrypt_key(&self.client, config)?;
 
-        if is_distributed && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
-            return Err(CowenError::Config("Auth mode 'Oauth2' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.".to_string()));
+        if is_distributed && !self.client.provider(&config.app_mode).is_allowed_in_distributed_storage() {
+            return Err(CowenError::Config(format!("Auth mode '{}' is not allowed in distributed storage scenarios. Please use Sidecar or SelfBuilt mode for distributed deployments.", config.app_mode)));
         }
         Ok(())
     }
@@ -171,9 +139,18 @@ mod tests {
         DISABLE_TEST_ENV_CHECK.with(|cell| cell.set(false));
     }
 
-    #[test]
-    fn test_auth_provider_validator_encrypt_key_validation() {
-        let validator = AuthProviderValidator;
+    async fn create_test_validator() -> AuthProviderValidator {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let app_cfg = cowen_common::config::AppConfig::default();
+        let vault = cowen_store::create_vault(&app_cfg, temp_dir.path(), "test_fingerprint").await.unwrap();
+        let pool = Arc::new(VaultTokenPool::new(vault));
+        let client = create_auth_client(pool);
+        AuthProviderValidator::new(client)
+    }
+
+    #[tokio::test]
+    async fn test_auth_provider_validator_encrypt_key_validation() {
+        let validator = create_test_validator().await;
 
         // 1. SelfBuilt with valid 16-byte key
         let mut config = Config {
@@ -268,9 +245,9 @@ mod tests {
             .is_ok());
     }
 
-    #[test]
-    fn test_auth_provider_validator_fallback_app_secret_and_trimming() {
-        let validator = AuthProviderValidator;
+    #[tokio::test]
+    async fn test_auth_provider_validator_fallback_app_secret_and_trimming() {
+        let validator = create_test_validator().await;
 
         // 1. Fallback: encrypt_key is empty, app_secret is too short (should fail)
         let config_short_fallback = Config {

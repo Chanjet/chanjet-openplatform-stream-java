@@ -330,6 +330,18 @@ impl OAuth2Provider {
 
 #[async_trait]
 impl AuthProvider for OAuth2Provider {
+    fn validate_config(&self, _config: &Config) -> CowenResult<()> {
+        Ok(())
+    }
+
+    async fn check_credentials(
+        &self,
+        _vault: &dyn cowen_common::vault::Vault,
+        _profile: &str,
+    ) -> Result<cowen_doctor::DiagnosticStatus, String> {
+        Ok(cowen_doctor::DiagnosticStatus::Ok)
+    }
+
     async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> CowenResult<()> {
         if let Ok(token) = self.pool.as_vault().get_access_token(profile).await {
             if token.is_expired_with_buffer(chrono::Duration::minutes(15)) {
@@ -550,6 +562,20 @@ impl AuthProvider for OAuth2Provider {
         cfg_mgr: &cowen_config::ConfigManager,
         params: crate::provider::InitParams,
     ) -> CowenResult<(String, String)> {
+        // OCP: Proactive token rotation check (if not forcing refresh)
+        if !params.force {
+            if let Ok(rt) = vault.get_refresh_token(profile).await {
+                if !rt.is_expired() {
+                    if let Ok(_token) = self
+                        .refresh(profile, config, &reqwest::header::HeaderMap::new())
+                        .await
+                    {
+                        return Ok(("rotated".to_string(), "".to_string()));
+                    }
+                }
+            }
+        }
+
         // 1. Setup credentials (OCP: forced built-in for OAuth2)
         config.app_key = crate::models::BUILTIN_CLIENT_ID.to_string();
         config.app_secret = "".to_string();
@@ -700,16 +726,8 @@ impl AuthProvider for OAuth2Provider {
         let cfg_mgr = cowen_config::ConfigManager::new()?;
 
         let params = crate::provider::InitParams {
-            app_key: None,
-            app_secret: None,
-            certificate: None,
-            encrypt_key: None,
-            openapi_url: None,
-            stream_url: None,
-            webhook_target: None,
-            proxy_port: None,
             auto_start: true,
-            is_new: false,
+            ..Default::default()
         };
 
         self.initialize(

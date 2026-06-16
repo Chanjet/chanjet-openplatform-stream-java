@@ -233,6 +233,7 @@ impl NativeAuthCapability for DefaultAuthCapability {
             proxy_port: Some(config.proxy_port),
             auto_start: true,
             is_new: _is_new,
+            ..Default::default()
         };
 
         let init_result = if mode == cowen_common::models::AuthMode::Oauth2 {
@@ -295,48 +296,6 @@ impl NativeAuthCapability for DefaultAuthCapability {
             .hydrate_config(&req.profile, &mut config, self.vault.clone())
             .await;
 
-        if !req.force && config.app_mode == cowen_common::models::AuthMode::Oauth2 {
-            if let Ok(rt) = self.vault.get_refresh_token(&req.profile).await {
-                if !rt.is_expired() {
-                    if let Ok(_token) = auth_cli
-                        .refresh_token(&req.profile, &config, &reqwest::header::HeaderMap::new())
-                        .await
-                    {
-                        return Ok(GetAuthUrlResponse {
-                            success: true,
-                            url: "rotated".to_string(),
-                            state: "".to_string(),
-                            error_message: None,
-                        });
-                    }
-                }
-            }
-        }
-
-        if config.app_mode == cowen_common::models::AuthMode::SelfBuilt {
-            match auth_cli
-                .get_token(&req.profile, &config, &reqwest::header::HeaderMap::new())
-                .await
-            {
-                Ok(t) => {
-                    return Ok(GetAuthUrlResponse {
-                        success: true,
-                        url: t.value,
-                        state: "direct".to_string(),
-                        error_message: None,
-                    })
-                }
-                Err(e) => {
-                    return Ok(GetAuthUrlResponse {
-                        success: false,
-                        url: "".to_string(),
-                        state: "".to_string(),
-                        error_message: Some(e.to_string()),
-                    })
-                }
-            }
-        }
-
         match provider
             .generate_auth_url(
                 &req.profile,
@@ -344,16 +303,8 @@ impl NativeAuthCapability for DefaultAuthCapability {
                 self.vault.clone(),
                 &self.cfg_mgr,
                 cowen_auth::provider::InitParams {
-                    app_key: None,
-                    app_secret: None,
-                    certificate: None,
-                    encrypt_key: None,
-                    openapi_url: None,
-                    stream_url: None,
-                    webhook_target: None,
-                    proxy_port: None,
-                    auto_start: false,
-                    is_new: false,
+                    force: req.force,
+                    ..Default::default()
                 },
             )
             .await

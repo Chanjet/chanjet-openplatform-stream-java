@@ -3,6 +3,7 @@ use cowen_common::{CowenError, CowenResult};
 
 use cowen_common::config::Config;
 use cowen_common::models::Token;
+use cowen_doctor::DiagnosticStatus;
 
 pub mod oauth2;
 pub mod self_built;
@@ -27,6 +28,7 @@ pub struct InitParams {
     pub proxy_port: Option<u16>,
     pub auto_start: bool,
     pub is_new: bool,
+    pub force: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +245,20 @@ pub trait AuthProvider: Send + Sync {
         params: InitParams,
         daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
     ) -> CowenResult<()>;
+
+    /// OCP: Configuration validation hook.
+    fn validate_config(&self, _config: &Config) -> CowenResult<()> {
+        Ok(())
+    }
+
+    /// OCP: Diagnostic credential checking hook.
+    async fn check_credentials(
+        &self,
+        _vault: &dyn cowen_common::vault::Vault,
+        _profile: &str,
+    ) -> Result<DiagnosticStatus, String> {
+        Ok(DiagnosticStatus::Ok)
+    }
 
     /// 🚀 配置补全钩子：在守护进程启动前，从 Vault 中捞出敏感信息注入内存配置
     async fn hydrate_config(

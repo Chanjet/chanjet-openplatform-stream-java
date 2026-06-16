@@ -463,14 +463,10 @@ impl WasmPipelineManager {
             None => return headers,
         };
 
-        let app_mode_str = match self.config.app_mode {
-            cowen_common::models::AuthMode::Oauth2 => "oauth2",
-            cowen_common::models::AuthMode::SelfBuilt => "self-built",
-            cowen_common::models::AuthMode::StoreApp => "store-app",
-        };
+        let app_mode_str = self.config.app_mode.to_string();
 
         for interceptor_name in route.request_filter_plugins.clone() {
-            let matched_plugins = self.find_matched_plugins(&interceptor_name, app_mode_str);
+            let matched_plugins = self.find_matched_plugins(&interceptor_name, &app_mode_str);
 
             for (target_plugin_name, _) in matched_plugins {
                 if let Some(plugin_mutex) = self.get_or_load_plugin(&target_plugin_name) {
@@ -570,14 +566,10 @@ impl WasmPipelineManager {
             None => return body,
         };
 
-        let app_mode_str = match self.config.app_mode {
-            cowen_common::models::AuthMode::Oauth2 => "oauth2",
-            cowen_common::models::AuthMode::SelfBuilt => "self-built",
-            cowen_common::models::AuthMode::StoreApp => "store-app",
-        };
+        let app_mode_str = self.config.app_mode.to_string();
 
         for interceptor_name in route.response_filter_plugins.clone() {
-            let matched_plugins = self.find_matched_plugins(&interceptor_name, app_mode_str);
+            let matched_plugins = self.find_matched_plugins(&interceptor_name, &app_mode_str);
 
             for (target_plugin_name, _) in matched_plugins {
                 if let Some(plugin_mutex) = self.get_or_load_plugin(&target_plugin_name) {
