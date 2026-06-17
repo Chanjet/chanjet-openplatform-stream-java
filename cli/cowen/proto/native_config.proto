@@ -1,75 +1,153 @@
 syntax = "proto3";
 package cowen.daemon.native.config.v1;
 
+// NativeConfigService 提供了系统级和环境隔离（Profile 级）的配置读写服务。
+// 客户端可以使用该服务动态维护代理网关参数、应用秘钥和通用运行期变量。
 service NativeConfigService {
+    // 获取系统的全局公共配置（如遥测状态、全局接口域名等）。
     rpc GetGlobalConfig (GetGlobalConfigRequest) returns (GetGlobalConfigResponse);
+
+    // 修改或设置某个全局公共配置项。
     rpc SetGlobalConfig (SetGlobalConfigRequest) returns (SetGlobalConfigResponse);
+
+    // 获取特定 Profile 环境下的单个配置属性值。
     rpc GetConfig (GetConfigRequest) returns (GetConfigResponse);
+
+    // 罗列并格式化展示指定 Profile 下的所有配置列表。
     rpc ListConfig (ListConfigRequest) returns (ListConfigResponse);
+
+    // 更新或新增指定 Profile 下的单个配置项。
     rpc SetConfig (SetConfigRequest) returns (SetConfigResponse);
+
+    // 将已有 Profile 环境重命名。该操作会自动迁移或重命名关联的本地配置文件及密钥库存储。
     rpc RenameProfile (RenameProfileRequest) returns (RenameProfileResponse);
+
+    // 导入完整的 Profile 配置文件内容，支持整包配置的恢复与克隆。
     rpc ImportConfig (ImportConfigRequest) returns (ImportConfigResponse);
 }
 
+// 获取全局配置的请求参数
 message GetGlobalConfigRequest {}
+
+// 获取全局配置的响应结果
 message GetGlobalConfigResponse {
+    // 全局配置属性转换后的 JSON 格式字符串。
     string config_json = 1;
+
+    // 如果获取配置失败，包含的系统报错描述。可选。
     optional string error_message = 2;
 }
 
+// 设置全局配置的请求参数
 message SetGlobalConfigRequest {
+    // 配置项属性名（Key）。必填。
     string key = 1;
+
+    // 待设置的目标值（Value）。必填。
     string value = 2;
 }
+
+// 设置全局配置的响应结果
 message SetGlobalConfigResponse {
+    // 设置操作是否成功。
     bool success = 1;
+
+    // 如果设置失败，包含的详细错误原因。可选。
     optional string error_message = 2;
 }
 
+// 获取指定 Profile 配置的请求参数
 message GetConfigRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 需要查询的配置项 Key。必填。
     string key = 2;
 }
+
+// 获取指定 Profile 配置的响应结果
 message GetConfigResponse {
+    // 配置内容所对应的 JSON 格式字符串。
     string config_json = 1;
+
+    // 如果查询出错，包含的详细报错信息。可选。
     optional string error_message = 2;
 }
 
+// 罗列 Profile 配置项列表的请求参数
 message ListConfigRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 数据返回的渲染格式类型（例如 "yaml", "json"）。必填。
     string format = 2;
+
+    // 是否返回所有底层默认隐藏配置项。若为 true，会展示包括内部网关参数在内的完整视图。
     bool all = 3;
 }
+
+// 罗列 Profile 配置项列表的响应结果
 message ListConfigResponse {
+    // 渲染或序列化后的全量配置内容文本。
     string config_json = 1;
+
+    // 如果获取或格式化失败，包含的错误信息。可选。
     optional string error_message = 2;
 }
 
+// 设置指定 Profile 配置项的请求参数
 message SetConfigRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 配置项属性名（Key）。必填。
     string key = 2;
+
+    // 待配置的目标值（Value）。必填。
     string value = 3;
 }
+
+// 设置指定 Profile 配置项的响应结果
 message SetConfigResponse {
+    // 设置操作是否成功。
     bool success = 1;
+
+    // 如果配置设置失败，包含的详细错误描述。可选。
     optional string error_message = 2;
 }
 
+// 重命名 Profile 环境的请求参数
 message RenameProfileRequest {
+    // 原 Profile 名称。必填。
     string old_name = 1;
+
+    // 新的 Profile 名称。必填。
     string new_name = 2;
 }
+
+// 重命名 Profile 环境的响应结果
 message RenameProfileResponse {
+    // 操作是否成功。
     bool success = 1;
+
+    // 处理状态结果描述。
     string message = 2;
 }
 
+// 导入配置的请求参数
 message ImportConfigRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 整包导入的配置 JSON 结构字符串。必填。
     string config_json = 2;
 }
 
+// 导入配置的响应结果
 message ImportConfigResponse {
+    // 导入操作是否成功。
     bool success = 1;
+
+    // 如果导入解析或落盘失败，包含的具体错误原因。可选。
     optional string error_message = 2;
 }

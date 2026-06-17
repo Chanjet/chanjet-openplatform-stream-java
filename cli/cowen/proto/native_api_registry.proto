@@ -1,46 +1,103 @@
 syntax = "proto3";
 package cowen.daemon.native.api_registry.v1;
 
+// ApiRegistryService 提供了开放接口的管理、检索以及代理转发调用能力。
+// 客户端应用可以通过该服务发现可用的平台 API，并安全地发起接口请求，无需自行处理签名与令牌刷新。
 service ApiRegistryService {
+    // 获取当前可用或缓存的平台接口列表。支持搜索、分页，并可强行刷新远端数据。
     rpc ApiList (ApiListRequest) returns (ApiListResponse);
+
+    // 查询特定接口的具体规范定义（如请求参数结构、数据模型等）。
     rpc ApiSpec (ApiSpecRequest) returns (ApiSpecResponse);
+
+    // 发起一次真实的开放接口代理调用。
+    // 由守护进程自动附加当前活跃的 Access Token、执行网关签名算法，并在必要时触发令牌重刷和失败重试。
     rpc CallApi (CallApiRequest) returns (CallApiResponse);
 }
 
+// 代理发起平台接口调用的请求结构
 message CallApiRequest {
+    // 环境配置文件 Profile 的标识（如 "default", "sandbox"）。必填。
     string profile = 1;
+
+    // HTTP 请求方法，例如 "GET", "POST", "PUT", "DELETE"。必填。
     string method = 2;
+
+    // 调用的开放接口相对路径，例如 "/v1/user/info"。必填。
     string path = 3;
+
+    // 序列化为字符串的请求载荷（JSON 格式）。可选。
     optional string data = 4;
+
+    // 是否忽略本地缓存，强制向开放平台服务器发起真实的物理调用。默认为 false。
     bool force = 5;
 }
+
+// 平台接口代理调用的响应结构
 message CallApiResponse {
+    // 开放平台服务器返回的 HTTP 状态码（例如 200, 400, 401, 500）。
     uint32 status = 1;
+
+    // 开放平台服务器响应的 HTTP 头部键值对。
     map<string, string> headers = 2;
+
+    // 开放平台服务器返回的响应体内容（通常为 JSON 格式的字符串）。
     string body = 3;
+
+    // 如果接口请求在本地网关层、通信层或签名验证阶段失败，则包含相应的系统级错误描述。可选。
     optional string error_message = 4;
 }
 
+// 获取接口列表的请求结构
 message ApiListRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 模糊搜索关键字，用于匹配接口名称或路径。可选。
     optional string search = 2;
+
+    // 分页查询的当前页码，从 1 开始。必填。
     uint32 page = 3;
+
+    // 分页查询的单页大小限制。必填。
     uint32 page_size = 4;
+
+    // 是否忽略本地缓存的接口目录，强行从开放平台拉取最新元数据进行同步。默认为 false。
     bool refresh = 5;
 }
+
+// 获取接口列表的响应结构
 message ApiListResponse {
+    // 符合查询条件的接口总数。
     uint32 total = 1;
+
+    // 序列化后的接口目录 JSON 列表数据。
     string json = 2;
+
+    // 标识本次获取数据所使用的系统插件（如果有）。可选。
     optional string plugin_used = 3;
+
+    // 如果获取或拉取接口列表失败，包含详细的错误原因。可选。
     optional string error_message = 4;
 }
 
+// 获取接口规范定义的请求结构
 message ApiSpecRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 接口的 HTTP 请求方法。必填。
     string method = 2;
+
+    // 接口的相对路径。必填。
     string path = 3;
 }
+
+// 获取接口规范定义的响应结构
 message ApiSpecResponse {
+    // 接口的具体定义 JSON 字符串（包含详细字段类型与说明）。
     string json = 1;
+
+    // 如果获取接口定义失败，包含详细的错误描述。可选。
     optional string error_message = 2;
 }

@@ -1,66 +1,144 @@
 syntax = "proto3";
 package cowen.daemon.native.auth.v1;
 
+// NativeAuthService 提供了应用接入所需的身份认证和凭证管理服务。
+// 支持自建应用与三方/托管应用的初始化、OAuth2 授权登录流、以及 Token 的获取与失效清理。
 service NativeAuthService {
+    // 初始化或更新指定 Profile 的应用配置和密钥信息。
     rpc InitProfile (InitProfileRequest) returns (InitProfileResponse);
+
+    // 获取用于引导用户进行 Oauth2 网页授权的登录 URL 以及状态 state 标识。
     rpc GetAuthUrl (GetAuthUrlRequest) returns (GetAuthUrlResponse);
+
+    // 阻塞等待用户在浏览器中完成 OAuth2 授权，直到守护进程接收到重定向回调并成功换取 Token。
     rpc WaitForAuth (WaitForAuthRequest) returns (WaitForAuthResponse);
+
+    // 获取当前 Profile 活跃的 Access Token 信息。如果已失效或即将失效，可选择触发自动刷新。
     rpc GetToken (GetTokenRequest) returns (GetTokenResponse);
+
+    // 清除指定 Profile 下的全部敏感凭证信息（包括 Access Token、Refresh Token、Ticket 等）。
     rpc ClearToken (ClearTokenRequest) returns (ClearTokenResponse);
 }
 
+// 初始化 Profile 配置参数的请求结构
 message InitProfileRequest {
+    // 环境配置文件 Profile 的唯一标识。必填。
     string profile = 1;
+
+    // 开放平台应用唯一标识 AppKey。可选。
     optional string app_key = 2;
+
+    // 开放平台应用签名密钥 AppSecret。可选。
     optional string app_secret = 3;
+
+    // 应用证书（某些高级鉴权模式使用）。可选。
     optional string certificate = 4;
+
+    // 本地 Vault 数据库的加解密对称密钥。可选。
     optional string encrypt_key = 5;
+
+    // 网关接收 Webhook 回调的目标本地/内网服务地址。可选。
     optional string webhook_target = 6;
+
+    // 开放平台 API 根路径 URL（例如 "https://open-api.example.com"）。可选。
     optional string openapi_url = 7;
+
+    // 开放平台流式推送服务的连接 URL。可选。
     optional string stream_url = 8;
+
+    // 应用模式，例如 "self-built"（自建应用）或 "store-app"（三方应用）。可选。
     optional string app_mode = 9;
+
+    // 本地代理网关的监听端口号。可选。
     optional uint32 proxy_port = 10;
+
+    // 以 JSON 格式表达的扩展配置属性。可选。
     optional string config_json = 11;
 }
+
+// 初始化 Profile 的响应结构
 message InitProfileResponse {
+    // 操作是否成功。
     bool success = 1;
+
+    // 执行状态或失败的简要提示信息。
     string message = 2;
 }
 
+// 获取授权登录 URL 的请求结构
 message GetAuthUrlRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 是否强行发起新会话。若为 true，即使当前已有活跃会话也会重新生成新的授权链接。
     bool force = 2;
 }
+
+// 获取授权登录 URL 的响应结构
 message GetAuthUrlResponse {
+    // 是否成功生成授权会话。
     bool success = 1;
+
+    // 引导用户进行 OAuth2 鉴权登录的完整浏览器 URL。
     string url = 2;
+
+    // 本次 OAuth2 会话对应的防伪防篡改状态标识 State。
     string state = 3;
+
+    // 如果获取 URL 失败，包含详细的系统级报错信息。可选。
     optional string error_message = 4;
 }
 
+// 等待 OAuth2 授权回调的请求结构
 message WaitForAuthRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 与 GetAuthUrlResponse 中返回的 state 保持一致，用作会话比对确认。必填。
     string state = 2;
 }
+
+// 等待 OAuth2 授权回调的响应结构
 message WaitForAuthResponse {
+    // 用户是否在超时时间内成功完成授权流程。
     bool success = 1;
+
+    // 授权成功后换取的 Access Token 内容。
     string token = 2;
+
+    // 如果授权被拒绝或超时失败，包含的详细原因。可选。
     optional string error_message = 3;
 }
 
+// 获取 Token 的请求结构
 message GetTokenRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
+
+    // 如果 Token 已过期或即将过期，是否强制触发本地/网络换票逻辑。默认为 false。
     bool refresh = 2;
 }
+
+// 获取 Token 的响应结构
 message GetTokenResponse {
+    // 包含当前 Token 详情（值、过期时间等）的序列化 JSON 字符串。
     string token_json = 1;
+
+    // 如果读取或换取 Token 失败，包含详细的错误描述。可选。
     optional string error_message = 2;
 }
 
+// 清除凭证的请求结构
 message ClearTokenRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
 }
+
+// 清除凭证的响应结构
 message ClearTokenResponse {
+    // 操作是否成功。
     bool success = 1;
+
+    // 操作结果反馈描述。
     string message = 2;
 }

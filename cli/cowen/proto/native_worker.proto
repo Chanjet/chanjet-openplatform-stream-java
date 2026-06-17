@@ -1,84 +1,164 @@
 syntax = "proto3";
 package cowen.daemon.native.worker.v1;
 
+// NativeWorkerService 提供了用于消息队列接收、流式接收器（Worker）的生命周期管理服务。
+// 客户端可通过该服务控制后台连接器与开放平台数据通道连接的开启、关闭、热重载以及状态监控。
 service NativeWorkerService {
+    // 简易网络连通性探测接口（Ping-Pong）。
     rpc Ping (PingRequest) returns (PingResponse);
+
+    // 启动指定 Profile 的后台消息接收连接器。
     rpc StartWorker (StartWorkerRequest) returns (StartWorkerResponse);
+
+    // 启动所有本地已配置的后台消息接收连接器。
     rpc StartAllWorkers (StartAllWorkersRequest) returns (StartAllWorkersResponse);
+
+    // 停止指定 Profile 正在运行的消息接收连接器。
     rpc StopWorker (StopWorkerRequest) returns (StopWorkerResponse);
+
+    // 停止所有后台运行的消息接收连接器。
     rpc StopAllWorkers (StopAllWorkersRequest) returns (StopAllWorkersResponse);
+
+    // 重新加载指定 Profile 后台消息连接器的配置（会先安全排水停止旧连接，然后以新配置拉起）。
     rpc ReloadWorker (ReloadWorkerRequest) returns (ReloadWorkerResponse);
+
+    // 查询后台连接器的运行时状态及退避指数重试细节。
     rpc GetStatus (GetStatusRequest) returns (GetStatusResponse);
 }
 
+// 消息接收 Worker 的运行时状态机枚举
 enum WorkerState {
+    // 未定义状态
     WORKER_STATE_UNSPECIFIED = 0;
+    // 实例已被创建，尚未启动
     WORKER_STATE_CREATED = 1;
+    // 正在与开放平台建立网络连接通道
     WORKER_STATE_STARTING = 2;
+    // 成功建立连接通道，正在持续拉取或接收流式消息中
     WORKER_STATE_RUNNING = 3;
+    // 连接遭遇故障，正处于避让重试状态中（Backoff 避让期间）
     WORKER_STATE_BACKOFF = 4;
+    // 重试次数超出最终限制，连接已失败
     WORKER_STATE_FAILED = 5;
+    // 实例被指令要求关闭，当前正在将内存中暂存的消息排空保存（排水中）
     WORKER_STATE_DRAINING = 6;
+    // 实例已被安全停止
     WORKER_STATE_STOPPED = 7;
 }
 
+// 指数避让重试细节
 message WorkerBackoffDetails {
+    // 当前连续发生的连接故障次数。
     uint32 retry_count = 1;
+
+    // 最近一次连接故障的错误描述。
     string last_error = 2;
+
+    // 下一次触发尝试连接所需要等待的延迟时长（秒）。
     uint64 next_retry_in_secs = 3;
 }
 
+// 消息接收 Worker 状态及详细上下文
 message WorkerStateInfo {
+    // 当前状态值。
     WorkerState state = 1;
+
+    // 当连接处于避让重试阶段（WORKER_STATE_BACKOFF）时的具体退避重试详情。
     WorkerBackoffDetails backoff = 2;
+
+    // 当实例彻底失败（WORKER_STATE_FAILED）时所包含的根源错误成因。
     string failure_reason = 3;
 }
 
+// Ping 测试请求结构
 message PingRequest {}
+
+// Ping 测试响应结构
 message PingResponse {
-    string message = 1; // "pong"
+    // 响应消息，返回字符串 "pong"。
+    string message = 1;
 }
 
+// 启动 Worker 的请求参数
 message StartWorkerRequest {
+    // 关联环境 Profile 标识。必填。
     string profile = 1;
+
+    // 覆盖启动时临时使用的 JSON 格式配置载荷。若不填，则加载存储库中已存的 Profile 配置。可选。
     string config_json = 2; 
 }
+
+// 启动 Worker 的响应结果
 message StartWorkerResponse {
+    // 操作是否成功。
     bool success = 1;
+
+    // 操作执行结果反馈信息。
     string message = 2;
 }
 
+// 启动所有 Worker 的请求参数
 message StartAllWorkersRequest {}
+
+// 启动所有 Worker 的响应结果
 message StartAllWorkersResponse {
+    // 操作是否成功。
     bool success = 1;
+
+    // 操作执行结果汇总反馈信息。
     string message = 2;
 }
 
+// 停止特定 Worker 的请求参数
 message StopWorkerRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
 }
+
+// 停止特定 Worker 的响应结果
 message StopWorkerResponse {
+    // 停止指令是否成功下发并处理完毕。
     bool success = 1;
+
+    // 操作执行结果反馈信息。
     string message = 2;
 }
 
+// 停止全部 Worker 的请求参数
 message StopAllWorkersRequest {}
+
+// 停止全部 Worker 的响应结果
 message StopAllWorkersResponse {
+    // 停止指令是否成功下发并处理完毕。
     bool success = 1;
+
+    // 运行结果反馈信息。
     string message = 2;
 }
 
+// 重新加载/重启 Worker 的请求参数
 message ReloadWorkerRequest {
+    // 环境配置文件 Profile 的标识。必填。
     string profile = 1;
 }
+
+// 重新加载/重启 Worker 的响应结果
 message ReloadWorkerResponse {
+    // 重启与重载指令是否执行成功。
     bool success = 1;
+
+    // 处理状态结果描述。
     string message = 2;
 }
 
+// 获取 Worker 状态的请求参数
 message GetStatusRequest {
+    // 待查询的环境配置文件 Profile。如果不传，则返回本地内存中所有已创建的 Worker 的状态。可选。
     optional string profile = 1;
 }
+
+// 获取 Worker 状态的响应结果
 message GetStatusResponse {
+    // 各 Profile 关联的 Worker 运行时状态信息的映射 Map（Key 为 Profile 名称）。
     map<string, WorkerStateInfo> statuses = 1;
 }
