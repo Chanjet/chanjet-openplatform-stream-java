@@ -992,7 +992,6 @@ dependencies = [
  "clap_complete",
  "config",
  "cowen-common",
- "cowen-config",
  "cowen-store",
  "cowen-sys",
  "directories",

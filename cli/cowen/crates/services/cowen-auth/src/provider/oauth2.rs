@@ -12,10 +12,8 @@ use rand::Rng;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration, Utc};
-use fs2::FileExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use std::fs::File;
 use std::sync::Arc;
 
 pub struct Pkce {
@@ -36,6 +34,74 @@ type ListenerMap = StdMutex<
 fn get_oauth_listeners() -> &'static ListenerMap {
     static LISTENERS: OnceLock<ListenerMap> = OnceLock::new();
     LISTENERS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+async fn check_oauth2_revoked(
+    vault: &dyn cowen_common::vault::Vault,
+    profile: &str,
+) -> CowenResult<()> {
+    if let Ok(val) = vault.get_config(profile, "oauth2_revoked").await {
+        if val == "true" {
+            return Err(CowenError::Auth(
+                "令牌已失效（可能是无效的 refresh_token 或被吊销），请执行 `owenc auth login` 重新授权。".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn get_profile_locks() -> std::sync::Arc<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+> {
+    static LOCKS: std::sync::OnceLock<
+        std::sync::Arc<
+            std::sync::Mutex<
+                std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>,
+            >,
+        >,
+    > = std::sync::OnceLock::new();
+    LOCKS
+        .get_or_init(|| {
+            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()))
+        })
+        .clone()
+}
+
+async fn acquire_refresh_lock(
+    profile: &str,
+) -> CowenResult<(tokio::sync::OwnedMutexGuard<()>, std::fs::File)> {
+    let arc = get_profile_locks();
+    let intra_lock_arc = {
+        let mut map = arc.lock().unwrap();
+        map.entry(profile.to_string())
+            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
+    };
+    let intra_lock = intra_lock_arc.lock_owned().await;
+
+    let lock_dir = cowen_common::config::get_app_dir().join("locks");
+    let _ = std::fs::create_dir_all(&lock_dir);
+    let lock_file_path = lock_dir.join(format!("{}.lock", profile));
+    let lock_file = std::fs::File::create(&lock_file_path)
+        .map_err(|e| CowenError::Internal(format!("Failed to create lock file: {}", e)))?;
+
+    let mut acquired = false;
+    for _ in 0..300 {
+        if fs2::FileExt::try_lock_exclusive(&lock_file).is_ok() {
+            acquired = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    if !acquired {
+        return Err(CowenError::Auth(format!(
+            "Timeout waiting for cross-process lock for profile '{}'.",
+            profile
+        )));
+    }
+
+    Ok((intra_lock, lock_file))
 }
 
 pub struct OAuth2Provider {
@@ -343,6 +409,18 @@ impl AuthProvider for OAuth2Provider {
     }
 
     async fn on_maintenance_tick(&self, profile: &str, config: &Config) -> CowenResult<()> {
+        // 🚀 OCP: Short-circuit if the session is permanently revoked
+        if let Ok(val) = self
+            .pool
+            .as_vault()
+            .get_config(profile, "oauth2_revoked")
+            .await
+        {
+            if val == "true" {
+                return Ok(()); // Sleep longer in background
+            }
+        }
+
         if let Ok(token) = self.pool.as_vault().get_access_token(profile).await {
             if token.is_expired_with_buffer(chrono::Duration::minutes(15)) {
                 let remaining = token.expires_at.signed_duration_since(chrono::Utc::now());
@@ -369,12 +447,15 @@ impl AuthProvider for OAuth2Provider {
         Ok(())
     }
 
+    // jscpd:ignore-start
     async fn get_token(
         &self,
         profile: &str,
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
+        check_oauth2_revoked(self.pool.as_vault().as_ref(), profile).await?;
+
         // Fast path: check current memory/local cache
         if let Ok(token) = self.pool.get_access_token(profile).await {
             if !token.is_expired() {
@@ -382,32 +463,11 @@ impl AuthProvider for OAuth2Provider {
             }
         }
 
-        // 2. Slow path: Acquire Cross-Process File Lock (Async-friendly)
-        let lock_dir = cowen_common::config::get_app_dir().join("locks");
-        let _ = std::fs::create_dir_all(&lock_dir);
-        let lock_file_path = lock_dir.join(format!("{}.lock", profile));
-        let lock_file = File::create(&lock_file_path)
-            .map_err(|e| CowenError::Internal(format!("Failed to create lock file: {}", e)))?;
-
-        // 🚀 STABILITY: Use try_lock in a loop with async sleep to avoid blocking Tokio threads
-        let mut acquired = false;
-        for _ in 0..300 {
-            // Max 30s
-            if lock_file.try_lock_exclusive().is_ok() {
-                acquired = true;
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-
-        if !acquired {
-            return Err(CowenError::Auth(format!(
-                "Timeout waiting for cross-process lock for profile '{}'.",
-                profile
-            )));
-        }
+        let (_intra_lock, lock_file) = acquire_refresh_lock(profile).await?;
 
         let result = async {
+            check_oauth2_revoked(self.pool.as_vault().as_ref(), profile).await?;
+
             // 3. Double-Check: Reload from Vault after acquiring lock
             if let Ok(token) = self.pool.as_vault().get_access_token(profile).await {
                 if !token.is_expired() {
@@ -436,19 +496,32 @@ impl AuthProvider for OAuth2Provider {
         }
         .await;
 
-        lock_file.unlock()?;
+        let _ = fs2::FileExt::unlock(&lock_file);
         result
     }
 
+    // jscpd:ignore-start
     async fn refresh(
         &self,
         profile: &str,
         cfg: &Config,
         _headers: &reqwest::header::HeaderMap,
     ) -> CowenResult<cowen_common::models::Token> {
-        // Perform forced refresh using token pair fallback
-        let rt = self.get_refresh_token_with_fallback(profile).await?;
-        self.refresh_token(profile, cfg, &rt.value).await
+        check_oauth2_revoked(self.pool.as_vault().as_ref(), profile).await?;
+
+        let (_intra_lock, lock_file) = acquire_refresh_lock(profile).await?;
+
+        let result = async {
+            check_oauth2_revoked(self.pool.as_vault().as_ref(), profile).await?;
+
+            // Perform forced refresh using token pair fallback
+            let rt = self.get_refresh_token_with_fallback(profile).await?;
+            self.refresh_token(profile, cfg, &rt.value).await
+        }
+        .await;
+
+        let _ = fs2::FileExt::unlock(&lock_file);
+        result
     }
 
     fn is_allowed_in_distributed_storage(&self) -> bool {

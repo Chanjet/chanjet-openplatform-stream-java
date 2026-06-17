@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 struct MockState {
     pub last_generate_token_body: Option<serde_json::Value>,
     pub last_refresh_token_body: Option<serde_json::Value>,
+    pub refresh_count: u32,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -94,6 +95,7 @@ async fn start_mock_platform() -> (SocketAddr, tokio::task::JoinHandle<()>) {
     let state = Arc::new(Mutex::new(MockState {
         last_generate_token_body: None,
         last_refresh_token_body: None,
+        refresh_count: 0,
     }));
 
     let app = Router::new()
@@ -237,6 +239,7 @@ async fn test_auth_login_complex_error_serialization() {
     let state = Arc::new(Mutex::new(MockState {
         last_generate_token_body: None,
         last_refresh_token_body: None,
+        refresh_count: 0,
     }));
 
     let app = Router::new()
@@ -526,6 +529,133 @@ async fn test_auth_logout() {
     // 4. Verify they are cleared
     assert!(vault.get_app_access_token("test_key").await.is_err());
     assert!(vault.get_app_ticket("test_key").await.is_err());
+
+    let _ = dir;
+}
+
+async fn handle_oauth2_refresh_bug_tracking(
+    State(state): State<Arc<Mutex<MockState>>>,
+    _headers: HeaderMap,
+    axum::extract::Form(payload): axum::extract::Form<OAuth2Form>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let mut s = state.lock().await;
+    s.refresh_count += 1;
+    s.last_refresh_token_body = Some(json!(payload));
+    println!("MOCK SERVER HIT! refresh_count: {}", s.refresh_count);
+
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({
+            "code": "4007",
+            "message": "refresh_token不正确",
+            "result": serde_json::Value::Null
+        })),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_oauth2_refresh_continuous_request_bug() {
+    let state = Arc::new(Mutex::new(MockState {
+        last_generate_token_body: None,
+        last_refresh_token_body: None,
+        refresh_count: 0,
+    }));
+
+    let app = Router::new()
+        .route("/oauth2/token", post(handle_oauth2_refresh_bug_tracking))
+        .with_state(state.clone());
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let openapi_url = format!("http://{}", addr);
+
+    let _handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let (dir, home) = setup_auth_env("bug_profile", "oauth2", &openapi_url);
+
+    let app_cfg = cowen_common::config::AppConfig {
+        openapi_url: openapi_url.clone(),
+        stream_url: openapi_url.clone(),
+        ..Default::default()
+    };
+    let vault =
+        cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint")
+            .await
+            .unwrap();
+
+    vault
+        .set_config("bug_profile", "app_key", "test_key")
+        .await
+        .unwrap();
+    vault
+        .set_secret("bug_profile", "app_secret", "test_secret")
+        .await
+        .unwrap();
+
+    let at = cowen_common::models::Token {
+        value: "expired_at".to_string(),
+        expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
+        created_at: chrono::Utc::now() - chrono::Duration::hours(2),
+    };
+    vault.save_access_token("bug_profile", at).await.unwrap();
+
+    let rt = cowen_common::models::Token {
+        value: "active_rt".to_string(),
+        expires_at: chrono::Utc::now() + chrono::Duration::days(1),
+        created_at: chrono::Utc::now() - chrono::Duration::hours(2),
+    };
+    vault.save_refresh_token("bug_profile", rt).await.unwrap();
+
+    let current_exe = std::env::current_exe().unwrap();
+    let target_dir = current_exe.parent().unwrap().parent().unwrap();
+    let daemon_bin = target_dir.join("cowen-daemon");
+
+    let run_cli = |args: &[&str]| {
+        let mut cmd = Command::cargo_bin("cowen").unwrap();
+        cmd.env("COWEN_HOME", &home);
+        cmd.env("HOME", &home);
+        cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+        cmd.env("COWEN_SKIP_COMPLETION_INSTALL", "true");
+        cmd.env("COWEN_SKIP_BROWSER", "true");
+        cmd.env("COWEN_DAEMON_BIN", &daemon_bin);
+        cmd.arg("--profile").arg("bug_profile");
+        for arg in args {
+            cmd.arg(arg);
+        }
+        cmd.assert()
+    };
+
+    // 1. Start daemon
+    run_cli(&["daemon", "start"]).success();
+
+    // Give daemon a tiny bit of time to initialize
+    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+    // 2. Trigger token fetch (forces refresh)
+    run_cli(&["auth", "token"]);
+    run_cli(&["auth", "token"]);
+    run_cli(&["auth", "token"]);
+
+    // 3. Stop daemon
+    run_cli(&["daemon", "stop"]);
+
+    let final_count = state.lock().await.refresh_count;
+
+    let daemon_stdout =
+        std::fs::read_to_string(std::path::Path::new(&home).join("logs/daemon.stdout.log"))
+            .unwrap_or_default();
+    println!("DAEMON STDOUT:\n{}", daemon_stdout);
+    let daemon_stderr =
+        std::fs::read_to_string(std::path::Path::new(&home).join("logs/daemon.stderr.log"))
+            .unwrap_or_default();
+    println!("DAEMON STDERR:\n{}", daemon_stderr);
+
+    assert_eq!(
+        final_count, 1,
+        "Mock server should only be hit ONCE before oauth2_revoked short-circuits further attempts"
+    );
 
     let _ = dir;
 }
