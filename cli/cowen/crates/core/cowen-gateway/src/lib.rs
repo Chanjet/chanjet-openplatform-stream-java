@@ -435,7 +435,7 @@ async fn handle_code_interception(
                 invoke_sync_hook(state, &org_id, user_id.as_deref(), app_id.as_deref()).await;
 
             // Build clean redirect URL (strip code and state parameters)
-            let redirect_url = strip_oauth_params(uri);
+            let redirect_url = strip_oauth_callback_params(uri);
 
             tracing::info!(
                 target: "audit",
@@ -576,10 +576,16 @@ fn handle_unauthorized(
 
     match request_type {
         RequestType::Api => {
+            let orig_state = extract_state_param_from_uri(uri);
+            let state_param_part = if let Some(ref o_state) = orig_state {
+                format!("&state={}", urlencoding::encode(o_state))
+            } else {
+                "".to_string()
+            };
             let body = serde_json::json!({
                 "error": "unauthorized",
                 "message": "Valid session required",
-                "login_url": format!("{}?client_id={}&response_type=code&redirect_uri={}", oauth_authorize_url, state.config.app_key, encoded_redirect_uri)
+                "login_url": format!("{}?client_id={}&response_type=code&redirect_uri={}{}", oauth_authorize_url, state.config.app_key, encoded_redirect_uri, state_param_part)
             });
             Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
@@ -589,7 +595,9 @@ fn handle_unauthorized(
         }
         RequestType::Page => {
             // Redirect to open platform login with state parameter (using a random UUID to prevent URL parameter nesting)
-            let state_param = uuid::Uuid::new_v4().to_string();
+            let orig_state = extract_state_param_from_uri(uri);
+            let state_param =
+                orig_state.unwrap_or_else(|| format!("cowen-{}", uuid::Uuid::new_v4()));
             let login_url = format!(
                 "{}?client_id={}&response_type=code&redirect_uri={}&state={}",
                 oauth_authorize_url, state.config.app_key, encoded_redirect_uri, state_param
@@ -936,6 +944,52 @@ fn error_response(status: StatusCode, message: &str) -> Response {
         .unwrap()
 }
 
+fn extract_state_param_from_uri(uri: &Uri) -> Option<String> {
+    uri.query().and_then(|q| {
+        q.split('&').find_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            if key == "state" && !value.is_empty() {
+                Some(urlencoding::decode(value).ok()?.into_owned())
+            } else {
+                None
+            }
+        })
+    })
+}
+
+fn strip_oauth_callback_params(uri: &Uri) -> String {
+    let path = uri.path();
+    if let Some(query) = uri.query() {
+        let filtered: Vec<String> = query
+            .split('&')
+            .filter(|pair| {
+                if pair.starts_with("code=") {
+                    false
+                } else if pair.starts_with("state=") {
+                    if let Some((_, val)) = pair.split_once('=') {
+                        if let Ok(decoded) = urlencoding::decode(val) {
+                            if decoded.starts_with("cowen-") {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                } else {
+                    true
+                }
+            })
+            .map(|s| s.to_string())
+            .collect();
+        if filtered.is_empty() {
+            path.to_string()
+        } else {
+            format!("{}?{}", path, filtered.join("&"))
+        }
+    } else {
+        path.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -991,5 +1045,40 @@ mod tests {
     async fn test_strip_oauth_params_no_query() {
         let uri: Uri = "http://example.com/invoice".parse().unwrap();
         assert_eq!(strip_oauth_params(&uri), "/invoice");
+    }
+
+    #[test]
+    fn test_extract_state_param_from_uri() {
+        let uri: Uri = "http://example.com/invoice?state=my_state&foo=bar"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            extract_state_param_from_uri(&uri),
+            Some("my_state".to_string())
+        );
+
+        let uri_no_state: Uri = "http://example.com/invoice?foo=bar".parse().unwrap();
+        assert_eq!(extract_state_param_from_uri(&uri_no_state), None);
+    }
+
+    #[test]
+    fn test_strip_oauth_callback_params() {
+        // Should keep business state, strip code
+        let uri: Uri = "http://example.com/invoice?code=abc123&state=my_state&foo=bar"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            strip_oauth_callback_params(&uri),
+            "/invoice?state=my_state&foo=bar"
+        );
+
+        // Should strip gateway-generated state (starting with cowen-)
+        let uri_gw_state: Uri = "http://example.com/invoice?code=abc123&state=cowen-uuid&foo=bar"
+            .parse()
+            .unwrap();
+        assert_eq!(
+            strip_oauth_callback_params(&uri_gw_state),
+            "/invoice?foo=bar"
+        );
     }
 }
