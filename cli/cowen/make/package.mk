@@ -52,7 +52,7 @@ impl-package-macos: build-system-plugins
 	rm -f $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-core.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin-ai.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-plugin-mcp.pkg $(OUTPUT_DIR)/macos-$(ARCH)/release/Distribution.xml
 	cp dist_assets/macos/cowen-uninstall $(OUTPUT_DIR)/macos-$(ARCH)/release/cowen-uninstall
 	@$(call MD5,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)
-	@$(call SHA1,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)
+	@$(call SHA256,$(OUTPUT_DIR)/macos-$(ARCH)/release/$(BINARY)-v$(VERSION)-macos-$(ARCH).pkg)
 
 package-linux-x86_64: clean linux-x86_64
 	@echo "📦 Packaging Linux x86_64 (Native Build)..."
@@ -82,7 +82,7 @@ package-linux-aarch64: clean linux-aarch64 build-system-plugins
 	cd $(OUTPUT_DIR)/linux-aarch64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz $(BINARY) cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root_aarch64 lib system_plugins
 	rm -rf pkg_root_aarch64
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
-	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
+	@$(call SHA256,$(OUTPUT_DIR)/linux-aarch64/release/$(BINARY)-v$(VERSION)-linux-aarch64.tar.gz)
 
 package-windows-x86_64: clean windows-x86_64
 	@echo "📦 Packaging Windows x86_64..."
@@ -93,7 +93,7 @@ package-windows-x86_64: clean windows-x86_64
 	@echo "🗜️ Zipping Windows package..."
 	powershell -NoProfile -Command "Compress-Archive -Path $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe -DestinationPath $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip -Force"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
-	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
+	@$(call SHA256,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@echo "🔍 Automating Windows package verification..."
 	powershell -NoProfile -ExecutionPolicy Bypass -File "crates/app/cowen-cli/tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
 
@@ -142,7 +142,7 @@ package-windows-x86_64-cross: windows-x86_64-cross
 	cd $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86_64.zip .
 	rm -rf $(OUTPUT_DIR)/windows-x86_64-cross/tmp_pkg
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-cross/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip)
-	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64-cross/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip)
+	@$(call SHA256,$(OUTPUT_DIR)/windows-x86_64-cross/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip)
 	@echo "✅ Cross-packaging completed: $(OUTPUT_DIR)/windows-x86_64-cross/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip"
 
 package-windows-x86-cross: windows-x86-cross
@@ -189,7 +189,7 @@ package-windows-x86-cross: windows-x86-cross
 	cd $(OUTPUT_DIR)/windows-x86/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86.zip .
 	rm -rf $(OUTPUT_DIR)/windows-x86/tmp_pkg
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip)
-	@$(call SHA1,$(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip)
+	@$(call SHA256,$(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip)
 	@echo "✅ Cross-packaging completed: $(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip"
 
 # 内部复用的 Linux 打包逻辑
@@ -212,5 +212,5 @@ impl-package-linux-x86_64: build-system-plugins
 	cd $(OUTPUT_DIR)/linux-x86_64 && tar -czf release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz $(BINARY) cowen-daemon install.sh README.txt CHANGELOG.md usage -C ../../cli/cowen/pkg_root lib system_plugins
 	rm -rf pkg_root
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
-	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
+	@$(call SHA256,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 

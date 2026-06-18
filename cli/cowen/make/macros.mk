@@ -19,11 +19,11 @@ endif
 ifeq ($(OS),Windows_NT)
     RM = powershell -NoProfile -Command "$(foreach d,$(1),if(Test-Path $(d)){ Remove-Item -Recurse -Force $(d) };)"
     MD5 = powershell -NoProfile -Command "$$hash = (Get-FileHash -Algorithm MD5 $(1)).Hash.ToLower(); Set-Content -Path $(1).md5 -Value $$hash"
-    SHA1 = powershell -NoProfile -Command "$$hash = (Get-FileHash -Algorithm SHA1 $(1)).Hash.ToLower(); Set-Content -Path $(1).sha1 -Value $$hash"
+    SHA256 = powershell -NoProfile -Command "$$hash = (Get-FileHash -Algorithm SHA256 $(1)).Hash.ToLower(); Set-Content -Path $(1).sha256 -Value $$hash"
 else
     RM = rm -rf $(1)
     MD5 = (md5 -q $(1) 2>/dev/null || md5sum $(1) | cut -d ' ' -f 1) > $(1).md5
-    SHA1 = (shasum -a 1 $(1) 2>/dev/null || sha1sum $(1)) | cut -d ' ' -f 1 > $(1).sha1
+    SHA256 = (shasum -a 256 $(1) 2>/dev/null || sha256sum $(1)) | cut -d ' ' -f 1 > $(1).sha256
 endif
 
 VERIFY_BIN = ./crates/app/cowen-cli/tests/e2e/scripts/verify-binary.sh $(1)

@@ -316,7 +316,7 @@ pub fn discover_plugins<P: AsRef<Path>>(dir: P) -> Vec<PathBuf> {
             let path = entry.path();
             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
             if supported_exts.contains(&ext) {
-                // Ignore .bundle, .md5, .sha1 files etc. when matching empty extension on Unix
+                // Ignore .bundle, .md5, .sha256 files etc. when matching empty extension on Unix
                 if ext.is_empty() {
                     let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
                     if file_name.starts_with('.') || file_name.contains('.') {

@@ -29,7 +29,7 @@ macos-aarch64: build-plugins
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/$(BINARY) 2>/dev/null || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/macos-aarch64/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
-	@$(call SHA1,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
+	@$(call SHA256,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/macos-aarch64/$(BINARY))
 
 test-macos-aarch64:
@@ -41,7 +41,7 @@ test-macos-aarch64:
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/$(BINARY) 2>/dev/null || true
 	@codesign --force --deep --sign - $(OUTPUT_DIR)/test/cowen-daemon 2>/dev/null || true
 	@$(call MD5,$(OUTPUT_DIR)/test/$(BINARY))
-	@$(call SHA1,$(OUTPUT_DIR)/test/$(BINARY))
+	@$(call SHA256,$(OUTPUT_DIR)/test/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/test/$(BINARY))
 
 
@@ -57,7 +57,7 @@ linux-x86_64: build-plugins
 	cp target/release/cowen-mcp-plugin $(OUTPUT_DIR)/linux-x86_64/ || true
 	if [ -f "$(OUTPUT_DIR)/linux-x86_64/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/linux-x86_64/ || exit 1; fi
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
-	@$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
+	@$(call SHA256,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
 # 确保 Podman 虚拟机已启动并响应 (仅 macOS/Windows)
@@ -135,7 +135,7 @@ linux-x86_64-with-podman: prepare-podman-image
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-mcp-plugin ../../bin/linux-x86_64/ && \
 			cp target_podman/x86_64-unknown-linux-gnu/release/cowen-mcp-plugin.bundle ../../bin/linux-x86_64/" && \
 	$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
-	$(call SHA1,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
+	$(call SHA256,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
 linux-aarch64: build-plugins
@@ -149,7 +149,7 @@ linux-aarch64: build-plugins
 	cp target/release/cowen-mcp-plugin $(OUTPUT_DIR)/linux-aarch64/ || true
 	if [ -f "$(OUTPUT_DIR)/linux-aarch64/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/linux-aarch64/ || exit 1; fi
 	@$(call MD5,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
-	@$(call SHA1,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
+	@$(call SHA256,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-aarch64/$(BINARY))
 
 windows-x86_64: build-plugins build-system-plugins
@@ -161,7 +161,7 @@ windows-x86_64: build-plugins build-system-plugins
 	powershell -NoProfile -Command "if (Test-Path target/release/cowen_search_embedding.dll) { cargo run --release -p cowen-signer -- sign-plugin --dylib target/release/cowen_search_embedding.dll --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/release/cowen_search_embedding.bundle --manifest-file crates/plugins/cowen-search-embedding/plugin.json; Copy-Item -Path target/release/cowen_search_embedding.dll -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.dll -Force; Copy-Item -Path target/release/cowen_search_embedding.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen_search_embedding.bundle -Force }"
 	powershell -NoProfile -Command "if (Test-Path target/release/cowen-mcp-plugin.exe) { Copy-Item -Path target/release/cowen-mcp-plugin.exe -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-mcp-plugin.exe -Force; Copy-Item -Path target/release/cowen-mcp-plugin.bundle -Destination $(OUTPUT_DIR)/windows-x86_64/cowen-mcp-plugin.bundle -Force }"
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
-	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
+	@$(call SHA256,$(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe)
 
 windows-x86-cross: build-system-plugins
 	@echo "🪟 Cross-compiling Windows x86 (32-bit) v$(VERSION) via cargo-zigbuild..."
@@ -173,7 +173,7 @@ windows-x86-cross: build-system-plugins
 	cp target/i686-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x86/$(BINARY).exe
 	cp target/i686-pc-windows-gnu/release/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86/cowen-daemon.exe
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86/$(BINARY).exe)
-	@$(call SHA1,$(OUTPUT_DIR)/windows-x86/$(BINARY).exe)
+	@$(call SHA256,$(OUTPUT_DIR)/windows-x86/$(BINARY).exe)
 
 windows-x86_64-cross: build-system-plugins
 	@echo "🪟 Cross-compiling Windows x86_64 (64-bit) v$(VERSION) via cargo-zigbuild..."
@@ -185,7 +185,7 @@ windows-x86_64-cross: build-system-plugins
 	cp target/x86_64-pc-windows-gnu/release/$(BINARY).exe $(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe
 	cp target/x86_64-pc-windows-gnu/release/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86_64-cross/cowen-daemon.exe
 	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe)
-	@$(call SHA1,$(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe)
+	@$(call SHA256,$(OUTPUT_DIR)/windows-x86_64-cross/$(BINARY).exe)
 
 windows-plugin-x64:
 	@echo "🪟 Building Windows x86_64 AI plugin (MSVC Release)..."
