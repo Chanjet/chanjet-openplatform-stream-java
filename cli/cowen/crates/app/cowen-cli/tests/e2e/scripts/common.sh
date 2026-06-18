@@ -217,6 +217,38 @@ setup_workspace() {
         echo -e "${YELLOW}⚠️  cowen-daemon not found. Standard internal server logic will be used.${NC}"
     fi
 
+    # stand-alone signer
+    local signer_src="$build_dir/cowen-signer"
+    if [ ! -f "$signer_src" ]; then
+        if [ -f "target/llvm-cov-target/debug/cowen-signer" ]; then
+            signer_src="target/llvm-cov-target/debug/cowen-signer"
+        elif [ -f "target/release/cowen-signer" ]; then
+            signer_src="target/release/cowen-signer"
+        elif [ -f "target/debug/cowen-signer" ]; then
+            signer_src="target/debug/cowen-signer"
+        fi
+    fi
+    if [ -f "$signer_src" ]; then
+        cp "$signer_src" "$COWEN_HOME/cowen-signer"
+        chmod +x "$COWEN_HOME/cowen-signer"
+    fi
+
+    # stand-alone mcp-plugin
+    local mcp_src="$build_dir/cowen-mcp-plugin"
+    if [ ! -f "$mcp_src" ]; then
+        if [ -f "target/llvm-cov-target/debug/cowen-mcp-plugin" ]; then
+            mcp_src="target/llvm-cov-target/debug/cowen-mcp-plugin"
+        elif [ -f "target/release/cowen-mcp-plugin" ]; then
+            mcp_src="target/release/cowen-mcp-plugin"
+        elif [ -f "target/debug/cowen-mcp-plugin" ]; then
+            mcp_src="target/debug/cowen-mcp-plugin"
+        fi
+    fi
+    if [ -f "$mcp_src" ]; then
+        cp "$mcp_src" "$COWEN_HOME/cowen-mcp-plugin"
+        chmod +x "$COWEN_HOME/cowen-mcp-plugin"
+    fi
+
     # Also copy search embedding plugin if exists
     if [ -f "$build_dir/libcowen_search_embedding" ]; then
         cp "$build_dir/libcowen_search_embedding" "$COWEN_HOME/"
