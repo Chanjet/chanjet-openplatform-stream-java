@@ -13,10 +13,14 @@ cd "$COWEN_HOME"
 
 # 1. 初始化并启动后台 Daemon 服务，用来响应审计日志 gRPC/IPC 请求
 "$COWEN_BIN" init --profile "$PROFILE" --app-key "dummykey" --app-secret "dummysecret" --app-mode self-built --certificate "dummy_cert" --encrypt-key "dummy_ek"
+
 "$COWEN_BIN" --profile "$PROFILE" daemon start
 
-# 等待 daemon 启动完成
+# 等待 daemon 启动完成且数据库 migration 完毕
 sleep 1.0
+
+# 手动注入一条 DLQ 记录用于后续 CLI 运维命令校验
+sqlite3 cowen.db "INSERT INTO cowen_dlq (id, profile, topic, payload, retry_count, error, created_at) VALUES (1, '$PROFILE', 'test_topic', '{\"msg\": \"hello\"}', 0, 'mock_err', '2026-06-18 14:00:00');"
 
 echo "📊 1. 测试 cowen audit 审计查看器..."
 # 执行 audit 命令（默认为 follow 状态所以我们需要在后台运行它，并在读取完后杀掉它）
@@ -71,6 +75,25 @@ kill -15 "$FOLLOW_PID" >/dev/null 2>&1 || true
 wait "$FOLLOW_PID" || true
 
 assert_pass "Follow log view executed successfully"
+
+echo "📊 5. 测试 cowen dlq 子命令..."
+# 5.1 列出 dlq 应当包含刚才插入的 test_topic
+DLQ_LIST_OUT=$("$COWEN_BIN" --profile "$PROFILE" dlq list 2>&1)
+echo "     DLQ List Output: $DLQ_LIST_OUT"
+echo "$DLQ_LIST_OUT" | grep -q "test_topic"
+assert_pass "dlq list matched successfully"
+
+# 5.2 详情查看应当包含 payload 细节
+"$COWEN_BIN" --profile "$PROFILE" dlq view 1 | grep -q "hello"
+assert_pass "dlq view matched successfully"
+
+# 5.3 尝试重试，应当调用 IPC 成功
+"$COWEN_BIN" --profile "$PROFILE" dlq retry 1 | grep -q "Retrying"
+assert_pass "dlq retry triggered successfully"
+
+# 5.4 清空队列
+"$COWEN_BIN" --profile "$PROFILE" dlq purge | grep -q "Purging"
+assert_pass "dlq purge triggered successfully"
 
 # 停止 daemon
 "$COWEN_BIN" --profile "$PROFILE" daemon stop || true

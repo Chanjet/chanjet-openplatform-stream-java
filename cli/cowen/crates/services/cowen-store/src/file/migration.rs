@@ -22,9 +22,10 @@ fn process_monolithic_items(
     obj: &serde_json::Map<String, serde_json::Value>,
 ) -> CowenResult<()> {
     for (prefix, items) in obj {
+        let actual_prefix = if prefix == "config" { "cfg" } else { prefix };
         if let Some(items_obj) = items.as_object() {
             for (id, val) in items_obj {
-                let path = store.get_path(profile, prefix, id, true);
+                let path = store.get_path(profile, actual_prefix, id, true);
                 let val_str =
                     serde_json::to_string(val).map_err(|e| CowenError::Store(e.to_string()))?;
                 let final_data = if let Some(fp) = fingerprint {
@@ -118,4 +119,61 @@ pub async fn migrate_v2_to_v3(
     migrate_monolithic_v2_to_v3(root_dir, profile, fingerprint).await?;
     migrate_directory_v2_to_v3(root_dir, profile).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use cowen_common::models::Item;
+
+    #[tokio::test]
+    async fn test_migration_v2_to_v3() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let profile = "test_mig";
+
+        // 1. Write monolithic V2 json
+        let old_monolithic = root.join(format!("{}.json", profile));
+        let monolithic_data = serde_json::json!({
+            "config": {
+                "key1": {
+                    "profile": profile,
+                    "key": "key1",
+                    "value": "val1",
+                    "version": 1,
+                    "updated_at": 123456
+                }
+            }
+        });
+        std::fs::write(&old_monolithic, serde_json::to_string(&monolithic_data).unwrap()).unwrap();
+
+        // 2. Setup directory V2 layout
+        let profile_dir = root.join(profile);
+        std::fs::create_dir_all(profile_dir.join("tok_v2")).unwrap();
+        std::fs::write(profile_dir.join("tok_v2/access_token"), "token_val").unwrap();
+
+        std::fs::create_dir_all(profile_dir.join("dlq/topic_a")).unwrap();
+        std::fs::write(profile_dir.join("dlq/topic_a/msg1"), "dlq_val").unwrap();
+
+        // 3. Run migration
+        migrate_v2_to_v3(root, profile, None).await.unwrap();
+
+        // 4. Verify results
+        // 4.1 Monolithic renamed
+        assert!(root.join(format!("{}.json.v2_bak", profile)).exists());
+        assert!(!old_monolithic.exists());
+
+        // 4.2 Config migrated to cfg/
+        let store = FileStore::new(root, None).unwrap();
+        let item: Item = store.load(profile, "key1").unwrap();
+        assert_eq!(item.value, "val1");
+
+        // 4.3 Tokens folder renamed
+        assert!(profile_dir.join("tokens/access_token").exists());
+        assert!(!profile_dir.join("tok_v2").exists());
+
+        // 4.4 DLQ flattened
+        assert!(profile_dir.join("dlq/msg1").exists());
+    }
 }
