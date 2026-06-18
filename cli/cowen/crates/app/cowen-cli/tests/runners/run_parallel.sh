@@ -6,7 +6,25 @@ if [ -z "$BASH_VERSION" ]; then
     exec bash "$0" "$@"
 fi
 
-# Load common utilities if available
+# Pre-set COWEN_BIN before sourcing common.sh to bypass the exit-on-missing check during clean builds
+TARGET_BASE=${CARGO_TARGET_DIR:-target}
+if [[ "$RUSTFLAGS" == *"-Cinstrument-coverage"* ]]; then
+    BUILD_ARGS="${BUILD_ARGS:---profile test}"
+else
+    BUILD_ARGS="${BUILD_ARGS:---release}"
+fi
+
+if [[ "$BUILD_ARGS" == *"--release"* ]]; then
+    COWEN_BIN_TMP="$TARGET_BASE/release/cowen"
+else
+    COWEN_BIN_TMP="$TARGET_BASE/debug/cowen"
+fi
+if [[ "$COWEN_BIN_TMP" == /* ]]; then
+    export COWEN_BIN="$COWEN_BIN_TMP"
+else
+    export COWEN_BIN="$(pwd)/$COWEN_BIN_TMP"
+fi
+
 [ -f crates/app/cowen-cli/tests/e2e/scripts/common.sh ] && source crates/app/cowen-cli/tests/e2e/scripts/common.sh
 
 # 🚀 All-in-One: Start in-container databases if running inside Podman/Docker
@@ -98,30 +116,52 @@ cp crates/app/cowen-cli/tests/e2e/scripts/common.sh "$RESULTS_DIR/tmp_scripts/"
 cp crates/app/cowen-cli/tests/e2e/scripts/verify-binary.sh "$RESULTS_DIR/tmp_scripts/"  || true
 
 
-echo -n "  Building cowen binary and plugins (release)..."
+echo -n "  Building cowen binary and plugins..."
 export COWEN_BUILD_CLIENT_ID="dummy-parallel-client-id"
-BUILD_ARGS="--release"
+if [[ "$RUSTFLAGS" == *"-Cinstrument-coverage"* ]]; then
+    BUILD_ARGS="${BUILD_ARGS:---profile test}"
+else
+    BUILD_ARGS="${BUILD_ARGS:---release}"
+fi
 
 # Respect CARGO_TARGET_DIR if set
 TARGET_BASE=${CARGO_TARGET_DIR:-target}
-BINARY_PATH="$TARGET_BASE/release/cowen"
+if [[ "$BUILD_ARGS" == *"--release"* ]]; then
+    BINARY_PATH="$TARGET_BASE/release/cowen"
+else
+    BINARY_PATH="$TARGET_BASE/debug/cowen"
+fi
 
 if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
     BUILD_ARGS="--release --target x86_64-unknown-linux-gnu"
     BINARY_PATH="$TARGET_BASE/x86_64-unknown-linux-gnu/release/cowen"
 fi
 
-if COWEN_BUILD_CLIENT_ID=dummy cargo build --quiet $BUILD_ARGS -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer -p cowen-mcp-plugin; then
-    echo -e " ${GREEN}[OK]${NC}"
-    export COWEN_BIN="$(pwd)/$BINARY_PATH"
-    # Force common.sh to refresh its SOURCE_BIN
-    if [ -f crates/app/cowen-cli/tests/e2e/scripts/common.sh ]; then
-        # We need to make sure common.sh uses the same COWEN_BIN
-        update_source_bin
+SHOULD_BUILD=true
+if [ "$SKIP_BUILD" = "true" ] && [ -f "$BINARY_PATH" ]; then
+    SHOULD_BUILD=false
+fi
+
+if [ "$SHOULD_BUILD" = "true" ]; then
+    if COWEN_BUILD_CLIENT_ID=dummy cargo build --quiet $BUILD_ARGS -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer -p cowen-mcp-plugin; then
+        echo -e " ${GREEN}[OK]${NC}"
+    else
+        echo -e " ${RED}[FAILED]${NC}"
+        exit 1
     fi
 else
-    echo -e " ${RED}[FAILED]${NC}"
-    exit 1
+    echo -e " ${GREEN}[SKIPPED BUILD]${NC}"
+fi
+
+if [[ "$BINARY_PATH" == /* ]]; then
+    export COWEN_BIN="$BINARY_PATH"
+else
+    export COWEN_BIN="$(pwd)/$BINARY_PATH"
+fi
+# Force common.sh to refresh its SOURCE_BIN
+if [ -f crates/app/cowen-cli/tests/e2e/scripts/common.sh ]; then
+    # We need to make sure common.sh uses the same COWEN_BIN
+    update_source_bin
 fi
 
 # 🔌 🔌 ENSURE SEARCH PLUGINS ARE SIGNED FOR TESTS
@@ -162,8 +202,12 @@ if [ -f "$MCP_PLUGIN_SRC" ] && [ -f "dist_assets/keys/official_dev.pk8" ]; then
     echo "✅ Plugin signed and bundle generated: \"$BUILD_DIR/cowen-mcp-plugin.bundle\""
 fi
 
-cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"
-export COWEN_BIN="$(pwd)/$(dirname "$BINARY_PATH")/cowen-test"
+# cp "$BINARY_PATH" "$(dirname "$BINARY_PATH")/cowen-test"
+if [[ "$BINARY_PATH" == /* ]]; then
+    export COWEN_BIN="$BINARY_PATH"
+else
+    export COWEN_BIN="$(pwd)/$BINARY_PATH"
+fi
 
 # --- Suite Discovery & LPT (Longest Processing Time) Sorting ---
 declare -a PARALLEL_SUITES
@@ -315,9 +359,24 @@ EOF_ETA
         echo -e "  [JOB $job_id] ${RED}❌ ${real_name} FAILED${NC} (${elapsed_ms}ms, CPU: ${cpu_usage}%) ${eta_str}"
     fi
 
+    # Try SIGTERM first to allow coverage flush
+    pkill -15 -f "cowen_job_${job_id}_" >/dev/null 2>&1 || true
+    if [ -f "$workspace/master_daemon.pid" ]; then
+        local daemon_pid=$(cat "$workspace/master_daemon.pid" 2>/dev/null | tr -d ' ' || true)
+        if [ -n "$daemon_pid" ]; then
+            kill -15 "$daemon_pid" >/dev/null 2>&1 || true
+        fi
+    fi
+    sleep 1.0
     # Bulletproof process teardown: kill all daemons belonging to this job's isolated workspace
     pkill -9 -f "cowen_job_${job_id}_" >/dev/null 2>&1 || true
-    pkill -9 cowen-daemon >/dev/null 2>&1 || true
+    if [ -f "$workspace/master_daemon.pid" ]; then
+        local daemon_pid=$(cat "$workspace/master_daemon.pid" 2>/dev/null | tr -d ' ' || true)
+        if [ -n "$daemon_pid" ]; then
+            kill -9 "$daemon_pid" >/dev/null 2>&1 || true
+            rm -f "$workspace/master_daemon.pid"
+        fi
+    fi
 
     return $exit_code
 }

@@ -275,8 +275,16 @@ cleanup_suite() {
                 PID=$(cat "$pid_file" 2>/dev/null)
                 if [ -n "$PID" ]; then
                     echo "     Killing daemon PID $PID..."
-                    kill -9 "$PID" >/dev/null 2>&1 || true
-                    sleep 0.5
+                    kill -15 "$PID" >/dev/null 2>&1 || true
+                    for i in {1..10}; do
+                        if ! kill -0 "$PID" 2>/dev/null; then
+                            break
+                        fi
+                        sleep 0.1
+                    done
+                    if kill -0 "$PID" 2>/dev/null; then
+                        kill -9 "$PID" >/dev/null 2>&1 || true
+                    fi
                 fi
                 rm -f "$pid_file" >/dev/null 2>&1 || true
             done
@@ -289,6 +297,13 @@ cleanup_suite() {
         fi
 
         # 1.5 Global pkill as fallback (Robustness)
+        if [ -n "$COWEN_BIN" ]; then
+            pkill -15 -x "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
+        fi
+        if [ -n "$COWEN_DAEMON_BIN" ]; then
+            pkill -15 -x "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
+        fi
+        sleep 1.0
         if [ -n "$COWEN_BIN" ]; then
             pkill -9 -x "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
         fi
@@ -447,7 +462,8 @@ cleanup_all_workspaces() {
     if [ "$IS_WINDOWS" = true ]; then
         taskkill //F //IM cowen_*.exe >/dev/null 2>&1 || true
     else
-        # Kill by pattern since each test has a unique binary name
+        pkill -15 "cowen_" >/dev/null 2>&1 || true
+        sleep 0.2
         pkill -9 "cowen_" >/dev/null 2>&1 || true
     fi
 
