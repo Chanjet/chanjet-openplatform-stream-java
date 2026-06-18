@@ -315,6 +315,13 @@ impl DaemonClient {
             return Ok(res);
         }
 
+        if std::env::var("COWEN_SKIP_DAEMON_RECOVERY").is_ok() {
+            let is_explicit = std::env::args().any(|arg| arg == "daemon" || arg == "init");
+            if !is_explicit {
+                bail!("Daemon is offline and auto-recovery is disabled via COWEN_SKIP_DAEMON_RECOVERY");
+            }
+        }
+
         let daemon_path = self.resolve_daemon_executable_path()?;
         let (log_dir, child) = self.setup_daemon_logs_and_spawn(&daemon_path)?;
 

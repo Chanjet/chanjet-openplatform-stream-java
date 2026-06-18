@@ -304,7 +304,7 @@ cleanup_suite() {
         if [ -d "$COWEN_HOME" ]; then
             # Find all .pid files in COWEN_HOME
             find "$COWEN_HOME" -name "*_daemon.pid" 2>/dev/null | while read pid_file; do
-                PID=$(cat "$pid_file" 2>/dev/null)
+                PID=$(head -n 1 "$pid_file" 2>/dev/null)
                 if [ -n "$PID" ]; then
                     echo "     Killing daemon PID $PID..."
                     kill -15 "$PID" >/dev/null 2>&1 || true
@@ -767,7 +767,7 @@ kill_daemons_in_dirs() {
         if [ -d "$dir" ]; then
             for pattern in "*_daemon.pid" "master_daemon.pid"; do
                 find "$dir" -name "$pattern" 2>/dev/null | while read pid_file; do
-                    local PID=$(cat "$pid_file" 2>/dev/null)
+                    local PID=$(head -n 1 "$pid_file" 2>/dev/null)
                     if [ -n "$PID" ]; then
                         echo "     Killing daemon PID $PID in $dir..." >&2
                         kill -9 "$PID" >/dev/null 2>&1 || true

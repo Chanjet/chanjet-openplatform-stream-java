@@ -44,7 +44,9 @@ EOF
 # Start Node A (Foreground in background task)
 "$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/node_a.log" 2>&1 &
 NODE_A_PID=$!
-sleep 2
+wait_for_daemon "$PROF" 15
+sleep 1
+
 
 # Perform force login to fetch AppTicket into the shared SQLite DB
 "$COWEN_BIN" auth login --profile "$PROF" --force >/dev/null

@@ -23,7 +23,32 @@ pub fn check_port_occupancy(port: u16, bin_name: &str) -> Option<(u32, String)> 
         return None;
     }
 
-    // 2. It's occupied. Try to find the process using sysinfo
+    #[cfg(unix)]
+    {
+        let output = std::process::Command::new("lsof")
+            .arg("-i")
+            .arg(format!("tcp:{}", port))
+            .arg("-t")
+            .output();
+        if let Ok(out) = output {
+            let pid_str = String::from_utf8_lossy(&out.stdout);
+            for line in pid_str.lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    use sysinfo::ProcessesToUpdate;
+                    let mut s = sysinfo::System::new();
+                    let sys_pid = sysinfo::Pid::from_u32(pid);
+                    s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
+                    if let Some(process) = s.process(sys_pid) {
+                        let name = process.name().to_string_lossy().to_string();
+                        return Some((pid, name));
+                    }
+                    return Some((pid, "Unknown Process".to_string()));
+                }
+            }
+        }
+    }
+
+    // 2. Fallback/Windows: It's occupied. Try to find the process using sysinfo
     use sysinfo::{ProcessesToUpdate, System};
     let mut s = System::new();
     s.refresh_processes(ProcessesToUpdate::All, true);

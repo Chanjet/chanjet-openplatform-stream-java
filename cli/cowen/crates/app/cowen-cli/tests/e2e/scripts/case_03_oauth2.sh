@@ -142,4 +142,87 @@ else
     fail_suite "[FAIL]"
 fi
 
+# ============================================================
+# Phase 3: IPC-based Authorization Flow (Orchestrator E2E Coverage)
+# ============================================================
+echo -e "\n${BOLD}3. IPC-based Authorization (Wait for Token Exchange via IPC)${NC}"
+
+# Inject expired token again to force re-authorization
+TOKEN_PAIR='{"access_token":"expired_at","refresh_token":"old_rt","expires_at":"2020-01-01T00:00:00Z","refresh_expires_at":"2020-01-01T00:00:00Z","created_at":"2020-01-01T00:00:00Z"}'
+sqlite3 "$COWEN_HOME/cowen.db" \
+    "UPDATE cowen_secret SET item_value='$TOKEN_PAIR' WHERE profile='$PROF' AND item_key='oauth2_token_pair';"
+
+# Clean up any leftover sessions in DB
+sqlite3 "$COWEN_HOME/cowen.db" "DELETE FROM cowen_token WHERE profile='global' AND item_key LIKE 'session:%';"
+
+# Launch auth login in background with --force (this forces fallback to initialize via IPC and prevents proactive token rotation)
+"$COWEN_BIN" auth login --profile "$PROF" --force > ipc_init_debug.log 2>&1 &
+IPC_INIT_PID=$!
+
+echo "   IPC Init PID: $IPC_INIT_PID (blocking, waiting for daemon auth IPC)"
+
+# Wait for pending session to appear in sqlite (created by the new init process)
+echo -n "   Waiting for new auth session..."
+SESSION_JSON2=""
+for i in {1..30}; do
+    if [ -f "$COWEN_HOME/cowen.db" ]; then
+        SESSION_JSON2=$(sqlite3 "$COWEN_HOME/cowen.db" \
+            "SELECT item_value FROM cowen_token WHERE profile='global' AND item_key LIKE 'session:%' LIMIT 1;" 2>/dev/null)
+        if [ -n "$SESSION_JSON2" ]; then
+            echo -e " ${GREEN}[FOUND]${NC}"
+            break
+        fi
+    fi
+    echo -n "."
+    sleep 0.5
+done
+
+if [ -z "$SESSION_JSON2" ]; then
+    kill "$IPC_INIT_PID" 2>/dev/null
+    fail_suite "[TIMEOUT - new session not found]"
+fi
+
+# Extract redirect_port and state from session JSON
+REDIRECT_PORT2=$(get_json_field "$SESSION_JSON2" "redirect_port")
+STATE2=$(get_json_field "$SESSION_JSON2" "state")
+echo "   Extracted: port=$REDIRECT_PORT2, state=${STATE2:0:8}..."
+
+# Wait a moment for CLI redirect listener to start
+sleep 2
+
+# Simulate browser callback to the CLI's redirect port
+echo -n "   Simulating browser callback to CLI listener..."
+CALLBACK_RESP2=$(curl -s -o /dev/null -w "%{http_code}" \
+    "http://127.0.0.1:${REDIRECT_PORT2}/callback?code=mock_auth_code_ipc_56789&state=${STATE2}")
+if [ "$CALLBACK_RESP2" == "200" ]; then
+    echo -e " ${GREEN}[OK]${NC}"
+else
+    kill "$IPC_INIT_PID" 2>/dev/null
+    fail_suite "[HTTP $CALLBACK_RESP2]"
+fi
+
+# Wait for init to complete via IPC token exchange
+echo -n "   Waiting for IPC init to complete..."
+for i in {1..15}; do
+    if ! kill -0 "$IPC_INIT_PID" 2>/dev/null; then
+        echo -e " ${GREEN}[DONE]${NC}"
+        break
+    fi
+    sleep 1
+done
+
+if kill -0 "$IPC_INIT_PID" 2>/dev/null; then
+    kill "$IPC_INIT_PID" 2>/dev/null
+    fail_suite "[TIMEOUT - IPC init still blocking]"
+fi
+
+# Verify the token was updated (in sqlite)
+T_IPC=$(extract_token "$PROF")
+echo "   Token after IPC authorization: $T_IPC"
+if [ -n "$T_IPC" ] && [[ "$T_IPC" == mock_at_oa2* ]]; then
+    echo -e "  ${GREEN}✓${NC} Token exchange via IPC completed successfully"
+else
+    fail_suite "Token exchange via IPC failed to write new token"
+fi
+
 echo -e "\n${GREEN}🎊 Case 03 Passed!${NC}"
