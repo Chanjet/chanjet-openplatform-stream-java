@@ -3,7 +3,7 @@ use cowen_common::grpc::proto::native_system_service_server::NativeSystemService
 use cowen_common::grpc::proto::{
     DoctorRequest, DoctorResponse, StoreStatusRequest, StoreStatusResponse, SystemResetRequest,
     SystemResetResponse, SystemStatusRequest, SystemStatusResponse, TunnelPluginRequest,
-    TunnelPluginResponse,
+    TunnelPluginResponse, StoreMigrateRequest, StoreMigrateResponse,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -105,6 +105,29 @@ impl NativeSystemService for NativeSystemController {
             Ok(resp) => Ok(Response::new(DoctorResponse {
                 report: resp.report,
                 error_message: resp.error_message,
+            })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
+    }
+
+    async fn store_migrate(
+        &self,
+        request: Request<StoreMigrateRequest>,
+    ) -> Result<Response<StoreMigrateResponse>, Status> {
+        let (claims, inner) = crate::get_claims_and_inner!(request);
+        let domain_req = cowen_capabilities::native_system::DomainStoreMigrateRequest {
+            target_url: inner.target_url,
+            mode: inner.mode,
+        };
+        match self
+            .capabilities
+            .native_system
+            .store_migrate(claims.as_ref(), domain_req)
+            .await
+        {
+            Ok(resp) => Ok(Response::new(StoreMigrateResponse {
+                success: resp.success,
+                message: resp.message,
             })),
             Err(e) => Err(Status::internal(e.to_string())),
         }

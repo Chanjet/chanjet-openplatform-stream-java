@@ -28,10 +28,13 @@ impl StoreMigrator {
         mode: MigrationMode,
     ) -> CowenResult<()> {
         let app_dir = &cfg_mgr.app_dir;
+        let fingerprint = cowen_common::security::get_machine_fingerprint()
+            .unwrap_or_else(|_| "migration".to_string());
 
         // 1. Create Target Store
         println!("🚀 Initializing target store: {}...", target_url);
-        let target = create_store_from_url(target_url, app_dir, "migration").await?;
+        let target = create_store_from_url(target_url, app_dir, &fingerprint).await?;
+        target.migrate().await?;
 
         // 2. Scan all profiles
         let profiles = self.source.list_all_profiles().await?;

@@ -16,6 +16,10 @@ service NativeSystemService {
     // 执行一键体检诊断，检查本地网络、文件权限、开放平台可达性以及证书时效性。
     rpc Doctor (DoctorRequest) returns (DoctorResponse);
 
+    // 迁移存储后端。将所有已保存的配置和凭据状态迁移至指定的新后端。
+    // 示例中的敏感数据值必须使用占位符展示，例如：target_url = "mysql://<USER>:<PASSWORD>@localhost:3306/db"
+    rpc StoreMigrate (StoreMigrateRequest) returns (StoreMigrateResponse);
+
     // 建立一个与指定系统插件进行双向数据流交互的管道（通过 stdio 流转发实现通信）。
     // 主要用于在无直接通信媒介时建立跨进程双向隧道。
     rpc TunnelPlugin (stream TunnelPluginRequest) returns (stream TunnelPluginResponse);
@@ -109,4 +113,20 @@ message TunnelPluginResponse {
 
     // 管道流式传输中的异常错误信息描述。可选。
     optional string error_message = 3;
+}
+
+// 存储迁移请求参数
+message StoreMigrateRequest {
+    // 目标存储后端的连接 URL
+    string target_url = 1;
+    // 迁移模式，可选值："clone"、"move"
+    string mode = 2;
+}
+
+// 存储迁移响应结果
+message StoreMigrateResponse {
+    // 迁移是否成功
+    bool success = 1;
+    // 迁移结果提示信息
+    string message = 2;
 }

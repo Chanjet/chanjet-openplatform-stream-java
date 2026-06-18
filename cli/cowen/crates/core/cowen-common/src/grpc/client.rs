@@ -820,6 +820,22 @@ impl DaemonClient {
         handle_json_res!(res, StoreStatusData)
     }
 
+    pub async fn store_migrate(&self, target_url: &str, mode: &str) -> Result<DaemonResponse> {
+        let mut client = self.build_native_system_client().await?;
+        let res = client
+            .store_migrate(tonic::Request::new(grpc_proto::StoreMigrateRequest {
+                target_url: target_url.to_string(),
+                mode: mode.to_string(),
+            }))
+            .await?
+            .into_inner();
+        if res.success {
+            Ok(DaemonResponse::Success { message: res.message })
+        } else {
+            Ok(DaemonResponse::Error { code: 500, message: res.message })
+        }
+    }
+
     pub async fn tail_audit(&self, profile: &str, lines: usize) -> Result<DaemonResponse> {
         let mut client = self.build_native_audit_client().await?;
         let res = client

@@ -23,6 +23,16 @@ pub struct DomainStoreStatusResponse {
     pub error_message: Option<String>,
 }
 
+pub struct DomainStoreMigrateRequest {
+    pub target_url: String,
+    pub mode: String,
+}
+
+pub struct DomainStoreMigrateResponse {
+    pub success: bool,
+    pub message: String,
+}
+
 pub struct DomainSystemStatusRequest {
     pub profile: String,
     pub all: bool,
@@ -75,6 +85,11 @@ pub trait NativeSystemCapability: Send + Sync {
         claims: Option<&cowen_common::jwt::IpcClaims>,
         req: DomainSystemResetRequest,
     ) -> Result<DomainSystemResetResponse, CowenError>;
+    async fn store_migrate(
+        &self,
+        claims: Option<&cowen_common::jwt::IpcClaims>,
+        req: DomainStoreMigrateRequest,
+    ) -> Result<DomainStoreMigrateResponse, CowenError>;
 }
 
 pub struct DefaultSystem {
@@ -560,6 +575,43 @@ impl NativeSystemCapability for DefaultSystem {
                     error_message: Some(errors.join(", ")),
                 })
             }
+        }
+    }
+
+    #[rbac(action = "execute")]
+    async fn store_migrate(
+        &self,
+        _claims: Option<&cowen_common::jwt::IpcClaims>,
+        req: DomainStoreMigrateRequest,
+    ) -> Result<DomainStoreMigrateResponse, CowenError> {
+        use cowen_store::migration::{StoreMigrator, MigrationMode};
+
+        let mode = match req.mode.as_str() {
+            "clone" => MigrationMode::Clone,
+            "move" => MigrationMode::Move,
+            _ => {
+                return Err(CowenError::Validation(format!(
+                    "Invalid migration mode: {}. Expected 'clone' or 'move'.",
+                    req.mode
+                )))
+            }
+        };
+
+        let source_store = self.vault.primary_store();
+        let migrator = StoreMigrator::new(source_store);
+
+        match migrator.migrate(&self.cfg_mgr, &req.target_url, mode).await {
+            Ok(_) => Ok(DomainStoreMigrateResponse {
+                success: true,
+                message: format!(
+                    "Successfully migrated storage to {} with mode {}.",
+                    req.target_url, req.mode
+                ),
+            }),
+            Err(e) => Ok(DomainStoreMigrateResponse {
+                success: false,
+                message: format!("Migration failed: {}", e),
+            }),
         }
     }
 

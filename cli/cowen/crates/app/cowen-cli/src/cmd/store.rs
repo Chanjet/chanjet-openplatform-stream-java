@@ -94,8 +94,19 @@ pub async fn status() -> Result<()> {
     Ok(())
 }
 
-pub async fn migrate(_to: &str, _mode: String) -> Result<()> {
-    Err(anyhow::anyhow!(
-        "Migration via CLI is deprecated. Please use daemon IPC or offline tools."
-    ))
+pub async fn migrate(to: &str, mode: String) -> Result<()> {
+    let port_path = crate::get_ipc_port_path();
+    let ipc = cowen_common::grpc::client::DaemonClient::new(port_path);
+
+    println!("🔄 Initiating store migration from CLI...");
+    match ipc.store_migrate(to, &mode).await? {
+        cowen_common::grpc::client::DaemonResponse::Success { message } => {
+            println!("✅ {}", message);
+            Ok(())
+        }
+        cowen_common::grpc::client::DaemonResponse::Error { message, .. } => {
+            Err(anyhow::anyhow!(message))
+        }
+        _ => Err(anyhow::anyhow!("Unexpected response from daemon")),
+    }
 }
