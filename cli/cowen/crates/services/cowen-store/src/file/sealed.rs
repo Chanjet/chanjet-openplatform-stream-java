@@ -176,3 +176,116 @@ impl cowen_common::store::Store for MonolithicSealStore {
         format!("Encrypted Local File Store at {:?}", self.inner.root_dir())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+    use cowen_common::store::Store;
+
+    #[tokio::test]
+    async fn test_sealed_store_comprehensive() {
+        let dir = tempdir().unwrap();
+        let store = MonolithicSealStore::new(dir.path(), "test_fingerprint");
+        
+        // 1. Config 读写委派测试
+        store.set_config("p", "k", "v").await.unwrap();
+        assert_eq!(store.get_config("p", "k").await.unwrap(), "v");
+        assert_eq!(store.get_config_metadata("p", "k").await.unwrap().0, 0);
+        assert_eq!(store.get_config_full("p", "k").await.unwrap().value, "v");
+        
+        store.set_config_conditional("p", "k", "v2", 1).await.unwrap();
+        assert_eq!(store.get_config("p", "k").await.unwrap(), "v2");
+        assert_eq!(store.list_configs("p").await.unwrap(), vec!["k".to_string()]);
+        
+        store.delete_config("p", "k").await.unwrap();
+        assert!(store.get_config("p", "k").await.is_err());
+
+        // 2. Secret 读写委派测试
+        store.set_secret("p", "sk", "sv").await.unwrap();
+        assert_eq!(store.get_secret("p", "sk").await.unwrap(), "sv");
+        assert_eq!(store.list_secrets("p").await.unwrap(), vec!["sk".to_string()]);
+        store.delete_secret("p", "sk").await.unwrap();
+        assert!(store.get_secret("p", "sk").await.is_err());
+
+        // 3. Token 委派测试
+        let tok = models::Token {
+            value: "t1".to_string(),
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+            created_at: chrono::Utc::now(),
+        };
+        store.save_access_token("p", tok.clone()).await.unwrap();
+        assert_eq!(store.get_access_token("p").await.unwrap().value, "t1");
+        store.delete_access_token("p").await.unwrap();
+
+        store.save_refresh_token("p", tok.clone()).await.unwrap();
+        assert_eq!(store.get_refresh_token("p").await.unwrap().value, "t1");
+        store.delete_refresh_token("p").await.unwrap();
+
+        store.save_app_access_token("ak", tok.clone()).await.unwrap();
+        assert_eq!(store.get_app_access_token("ak").await.unwrap().value, "t1");
+        store.delete_app_access_token("ak").await.unwrap();
+
+        let ticket = models::Ticket {
+            value: "tick1".to_string(),
+            created_at: chrono::Utc::now(),
+        };
+        store.save_app_ticket("ak", ticket.clone()).await.unwrap();
+        assert_eq!(store.get_app_ticket("ak").await.unwrap().value, "tick1");
+        store.delete_app_ticket("ak").await.unwrap();
+
+        store.save_org_permanent_code("ak", "org", "c1").await.unwrap();
+        assert_eq!(store.get_org_permanent_code("ak", "org").await.unwrap(), "c1");
+
+        store.save_user_permanent_code("ak", "org", "usr", "c2").await.unwrap();
+        assert_eq!(store.get_user_permanent_code("ak", "org", "usr").await.unwrap(), "c2");
+
+        store.set_token("p", "tk", "tv", 3600).await.unwrap();
+        assert_eq!(store.get_token("p", "tk").await.unwrap(), "tv");
+        assert_eq!(store.list_tokens("p").await.unwrap(), vec!["tk".to_string()]);
+        store.delete_token("p", "tk").await.unwrap();
+
+        // 4. Audit & DLQ 委派测试
+        let audit = models::AuditEntry {
+            id: "1".to_string(),
+            timestamp: chrono::Utc::now(),
+            profile: "p".to_string(),
+            level: "info".to_string(),
+            target: "t".to_string(),
+            message: "msg".to_string(),
+            fields: serde_json::Value::Null,
+        };
+        store.save_audit(&audit).await.unwrap();
+        assert_eq!(store.list_audit("p", 10).await.unwrap().len(), 1);
+
+        let dlq = models::DlqMessage {
+            id: Some(1),
+            profile: "p".to_string(),
+            topic: "t".to_string(),
+            payload: "pay".to_string(),
+            retry_count: 0,
+            error: Some("err".to_string()),
+            created_at: chrono::Utc::now(),
+        };
+        store.push_dlq(&dlq).await.unwrap();
+        assert_eq!(store.list_all_dlq("p").await.unwrap().len(), 1);
+        assert_eq!(store.list_dlq("p", 10).await.unwrap().len(), 1);
+        assert_eq!(store.list_dlq_paged("p", 0, 10).await.unwrap().len(), 1);
+        assert!(store.get_dlq_by_id(1).await.unwrap().is_some());
+        assert!(store.pop_dlq("p", "t").await.unwrap().is_some());
+        store.delete_dlq_by_id(1).await.unwrap();
+
+        // 5. Profile & Name 委派测试
+        store.set_config("p", "k", "v").await.unwrap();
+        store.rename_profile("p", "new_p").await.unwrap();
+        let profiles = store.list_all_profiles().await.unwrap();
+        assert!(profiles.contains(&"new_p".to_string()));
+        store.clear_profile("new_p").await.unwrap();
+        store.raw_del("new_p/config/k").await.unwrap();
+        store.migrate().await.unwrap();
+        store.shutdown().await.unwrap();
+
+        assert_eq!(store.name(), "sealed");
+        assert!(store.description().contains("Encrypted Local File Store"));
+    }
+}
