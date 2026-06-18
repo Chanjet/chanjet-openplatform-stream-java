@@ -50,11 +50,7 @@ fn resolve_daemon_path() -> std::path::PathBuf {
         .parent()
         .unwrap()
         .to_path_buf();
-    let bin_name = if cfg!(windows) {
-        "cowen-daemon.exe"
-    } else {
-        "cowen-daemon"
-    };
+    let bin_name = cowen_sys::get_daemon_binary_name();
     let mut daemon_path = std::env::var("COWEN_DAEMON_BIN")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| exe_dir.join(bin_name));
@@ -122,25 +118,7 @@ async fn start_foreground(
 
     eprintln!("✅ Startup commands sent to foreground daemon. Blocking...");
 
-    #[cfg(unix)]
-    {
-        tokio::spawn(async move {
-            use tokio::signal::unix::{signal, SignalKind};
-            if let (Ok(mut sigterm), Ok(mut sigint)) = (
-                signal(SignalKind::terminate()),
-                signal(SignalKind::interrupt()),
-            ) {
-                tokio::select! {
-                    _ = sigterm.recv() => {
-                        let _ = std::process::Command::new("kill").arg("-15").arg(child_id.to_string()).status();
-                    }
-                    _ = sigint.recv() => {
-                        let _ = std::process::Command::new("kill").arg("-2").arg(child_id.to_string()).status();
-                    }
-                }
-            }
-        });
-    }
+    cowen_sys::handle_parent_signals_for_child(child_id);
 
     let status = child.wait()?;
     eprintln!("ℹ️ cowen-daemon exited with status: {}", status);

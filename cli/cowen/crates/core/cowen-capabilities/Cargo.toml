@@ -16,6 +16,7 @@ cowen-macros = { path = "../cowen-macros" }
 cowen-monitor = { path = "../../services/cowen-monitor" }
 cowen-search = { path = "../../services/cowen-search" }
 cowen-store = { path = "../../services/cowen-store" }
+cowen-sys = { path = "../cowen-sys" }
 reqwest = { version = "0.12", features = ["json", "socks"] }
 semver = "1.0.28"
 serde = { version = "1.0", features = ["derive"] }

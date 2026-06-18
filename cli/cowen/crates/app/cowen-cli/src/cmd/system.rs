@@ -313,17 +313,8 @@ pub async fn enforce_daemon_version_sync(_profile: &str) -> Result<()> {
         let pid_str = std::fs::read_to_string(&pid_file).unwrap_or_default();
         if let Ok(pid) = pid_str.trim().parse::<u32>() {
             println!("🛑 Stopping master daemon (PID: {})...", pid);
-            #[cfg(windows)]
-            let _ = std::process::Command::new("taskkill")
-                .arg("/F")
-                .arg("/PID")
-                .arg(pid.to_string())
-                .status();
-            #[cfg(unix)]
-            let _ = std::process::Command::new("kill")
-                .arg("-9")
-                .arg(pid.to_string())
-                .status();
+            let pm = cowen_sys::get_process_manager();
+            let _ = pm.kill_process(pid, true).await;
         }
 
         let _ = std::fs::remove_file(&pid_file);

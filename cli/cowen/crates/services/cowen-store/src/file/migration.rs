@@ -124,8 +124,8 @@ pub async fn migrate_v2_to_v3(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use cowen_common::models::Item;
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_migration_v2_to_v3() {
@@ -146,7 +146,11 @@ mod tests {
                 }
             }
         });
-        std::fs::write(&old_monolithic, serde_json::to_string(&monolithic_data).unwrap()).unwrap();
+        std::fs::write(
+            &old_monolithic,
+            serde_json::to_string(&monolithic_data).unwrap(),
+        )
+        .unwrap();
 
         // 2. Setup directory V2 layout
         let profile_dir = root.join(profile);

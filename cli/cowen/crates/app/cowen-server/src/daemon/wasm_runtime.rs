@@ -114,17 +114,7 @@ impl WasmPipelineManager {
 
     fn get_system_plugin_search_paths() -> Vec<std::path::PathBuf> {
         let mut paths = vec![cowen_common::config::get_app_dir().join("system_plugins")];
-        if cfg!(unix) {
-            paths.push(std::path::PathBuf::from(
-                "/usr/local/share/cowen/system_plugins",
-            ));
-        } else if cfg!(windows) {
-            if let Ok(exe_path) = std::env::current_exe() {
-                if let Some(parent) = exe_path.parent() {
-                    paths.push(parent.join("system_plugins"));
-                }
-            }
-        }
+        paths.extend(cowen_sys::get_system_plugin_search_paths());
         paths
     }
 

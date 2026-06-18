@@ -12,8 +12,8 @@ setup_workspace "case_92"
 trap cleanup_suite EXIT
 
 # 拷贝成标准名称以避开 macOS 15 字符限制和 cmdline 限制
-cp "$COWEN_BIN" "$COWEN_HOME/cowen"
-cp "$COWEN_DAEMON_BIN" "$COWEN_HOME/cowen-daemon"
+ln -sf "$COWEN_BIN" "$COWEN_HOME/cowen"
+ln -sf "$COWEN_DAEMON_BIN" "$COWEN_HOME/cowen-daemon"
 export COWEN_BIN="$COWEN_HOME/cowen"
 export COWEN_DAEMON_BIN="$COWEN_HOME/cowen-daemon"
 chmod +x "$COWEN_BIN" "$COWEN_DAEMON_BIN"

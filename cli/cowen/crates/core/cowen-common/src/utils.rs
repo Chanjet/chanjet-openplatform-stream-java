@@ -58,6 +58,9 @@ pub fn secure_write<P: std::convert::AsRef<std::path::Path>, C: std::convert::As
 
 pub fn is_cowen_process_name(name: &str, current_exe_name: Option<&str>) -> bool {
     let name_lower = name.to_lowercase();
+    if name_lower.contains("cowen") {
+        return true;
+    }
 
     let is_static_match = matches!(name_lower.as_str(), "cowen" | "cowen.exe")
         || name_lower == get_bin_name().to_lowercase()

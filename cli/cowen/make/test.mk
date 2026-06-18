@@ -43,7 +43,7 @@ test-win: test-rust
 	powershell -NoProfile -ExecutionPolicy Bypass -Command "$$env:COWEN_SKIP_BROWSER='true'; crates/app/cowen-cli/tests/runners/run_suites.ps1"
 
 # 在 macOS 原生环境执行并行测试
-test-macos: test-rust local-db-up
-	@echo "🧪 Running Parallel E2E Suite natively on macOS (Isolated)..."
-	COWEN_SKIP_BROWSER=true TEST_BASE=target/cowen_tests_macos BASE_PORT_START=18000 crates/app/cowen-cli/tests/runners/run_parallel.sh
+test-macos: local-db-up
+	@echo "🧪 Running Full Coverage Testing Flow on macOS..."
+	@bash scripts/run_tests_with_coverage.sh
 

@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::vault::Vault;
 use crate::CowenResult;
 use cowen_infra::path::get_app_dir;
-use cowen_infra::process::{check_port_occupancy, extract_profile_from_cmdline, get_bin_name};
+use cowen_infra::process::{extract_profile_from_cmdline, get_bin_name};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -222,10 +222,10 @@ fn evaluate_daemon_running_state(
         if ctx.config.proxy_enabled {
             let bin_name = get_bin_name();
             if let Some((other_pid, other_name)) =
-                check_port_occupancy(ctx.config.proxy_port, &bin_name)
+                cowen_sys::check_port_occupancy(ctx.config.proxy_port, &bin_name)
             {
                 level = StatusLevel::ERROR;
-                if other_name.to_lowercase().contains(&bin_name.to_lowercase()) {
+                if crate::utils::is_cowen_process_name(&other_name, Some(&bin_name)) {
                     let other_profile = extract_profile_from_cmdline(other_pid)
                         .unwrap_or_else(|| "unknown".to_string());
                     port_conflict = Some(format!(

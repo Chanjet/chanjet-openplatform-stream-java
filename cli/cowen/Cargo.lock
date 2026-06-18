@@ -969,6 +969,7 @@ dependencies = [
  "cowen-monitor",
  "cowen-search",
  "cowen-store",
+ "cowen-sys",
  "reqwest 0.12.28",
  "semver",
  "serde",

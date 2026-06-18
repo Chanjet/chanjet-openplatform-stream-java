@@ -225,15 +225,29 @@ pub fn setup_test_env(
         let daemon_src = path.join(format!("cowen-daemon{}", exe_suffix));
 
         if !cli_found && cli_src.exists() {
-            fs::copy(&cli_src, bin_dir.join(format!("cowen{}", exe_suffix))).unwrap();
+            let dest = bin_dir.join(format!("cowen{}", exe_suffix));
+            #[cfg(unix)]
+            {
+                let _ = fs::remove_file(&dest);
+                std::os::unix::fs::symlink(&cli_src, &dest).unwrap();
+            }
+            #[cfg(not(unix))]
+            {
+                fs::copy(&cli_src, &dest).unwrap();
+            }
             cli_found = true;
         }
         if !daemon_found && daemon_src.exists() {
-            fs::copy(
-                &daemon_src,
-                bin_dir.join(format!("cowen-daemon{}", exe_suffix)),
-            )
-            .unwrap();
+            let dest = bin_dir.join(format!("cowen-daemon{}", exe_suffix));
+            #[cfg(unix)]
+            {
+                let _ = fs::remove_file(&dest);
+                std::os::unix::fs::symlink(&daemon_src, &dest).unwrap();
+            }
+            #[cfg(not(unix))]
+            {
+                fs::copy(&daemon_src, &dest).unwrap();
+            }
             daemon_found = true;
         }
 

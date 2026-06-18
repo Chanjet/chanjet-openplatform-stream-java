@@ -231,11 +231,7 @@ impl DefaultSystem {
         })?;
 
         let plugins_dir = cowen_common::config::get_app_dir().join("plugins");
-        let expected_path = if cfg!(target_os = "windows") {
-            plugins_dir.join(format!("{}.exe", plugin_name))
-        } else {
-            plugins_dir.join(&plugin_name)
-        };
+        let expected_path = plugins_dir.join(cowen_sys::append_executable_extension(&plugin_name));
 
         if !expected_path.exists() {
             return Err(CowenError::NotFound(format!(
@@ -584,7 +580,7 @@ impl NativeSystemCapability for DefaultSystem {
         _claims: Option<&cowen_common::jwt::IpcClaims>,
         req: DomainStoreMigrateRequest,
     ) -> Result<DomainStoreMigrateResponse, CowenError> {
-        use cowen_store::migration::{StoreMigrator, MigrationMode};
+        use cowen_store::migration::{MigrationMode, StoreMigrator};
 
         let mode = match req.mode.as_str() {
             "clone" => MigrationMode::Clone,

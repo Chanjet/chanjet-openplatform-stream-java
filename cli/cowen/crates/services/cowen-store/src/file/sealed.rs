@@ -180,31 +180,41 @@ impl cowen_common::store::Store for MonolithicSealStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use cowen_common::store::Store;
+    use tempfile::tempdir;
 
+    // #lizard forgives
     #[tokio::test]
     async fn test_sealed_store_comprehensive() {
         let dir = tempdir().unwrap();
         let store = MonolithicSealStore::new(dir.path(), "test_fingerprint");
-        
+
         // 1. Config 读写委派测试
         store.set_config("p", "k", "v").await.unwrap();
         assert_eq!(store.get_config("p", "k").await.unwrap(), "v");
         assert_eq!(store.get_config_metadata("p", "k").await.unwrap().0, 0);
         assert_eq!(store.get_config_full("p", "k").await.unwrap().value, "v");
-        
-        store.set_config_conditional("p", "k", "v2", 1).await.unwrap();
+
+        store
+            .set_config_conditional("p", "k", "v2", 1)
+            .await
+            .unwrap();
         assert_eq!(store.get_config("p", "k").await.unwrap(), "v2");
-        assert_eq!(store.list_configs("p").await.unwrap(), vec!["k".to_string()]);
-        
+        assert_eq!(
+            store.list_configs("p").await.unwrap(),
+            vec!["k".to_string()]
+        );
+
         store.delete_config("p", "k").await.unwrap();
         assert!(store.get_config("p", "k").await.is_err());
 
         // 2. Secret 读写委派测试
         store.set_secret("p", "sk", "sv").await.unwrap();
         assert_eq!(store.get_secret("p", "sk").await.unwrap(), "sv");
-        assert_eq!(store.list_secrets("p").await.unwrap(), vec!["sk".to_string()]);
+        assert_eq!(
+            store.list_secrets("p").await.unwrap(),
+            vec!["sk".to_string()]
+        );
         store.delete_secret("p", "sk").await.unwrap();
         assert!(store.get_secret("p", "sk").await.is_err());
 
@@ -222,7 +232,10 @@ mod tests {
         assert_eq!(store.get_refresh_token("p").await.unwrap().value, "t1");
         store.delete_refresh_token("p").await.unwrap();
 
-        store.save_app_access_token("ak", tok.clone()).await.unwrap();
+        store
+            .save_app_access_token("ak", tok.clone())
+            .await
+            .unwrap();
         assert_eq!(store.get_app_access_token("ak").await.unwrap().value, "t1");
         store.delete_app_access_token("ak").await.unwrap();
 
@@ -234,15 +247,33 @@ mod tests {
         assert_eq!(store.get_app_ticket("ak").await.unwrap().value, "tick1");
         store.delete_app_ticket("ak").await.unwrap();
 
-        store.save_org_permanent_code("ak", "org", "c1").await.unwrap();
-        assert_eq!(store.get_org_permanent_code("ak", "org").await.unwrap(), "c1");
+        store
+            .save_org_permanent_code("ak", "org", "c1")
+            .await
+            .unwrap();
+        assert_eq!(
+            store.get_org_permanent_code("ak", "org").await.unwrap(),
+            "c1"
+        );
 
-        store.save_user_permanent_code("ak", "org", "usr", "c2").await.unwrap();
-        assert_eq!(store.get_user_permanent_code("ak", "org", "usr").await.unwrap(), "c2");
+        store
+            .save_user_permanent_code("ak", "org", "usr", "c2")
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .get_user_permanent_code("ak", "org", "usr")
+                .await
+                .unwrap(),
+            "c2"
+        );
 
         store.set_token("p", "tk", "tv", 3600).await.unwrap();
         assert_eq!(store.get_token("p", "tk").await.unwrap(), "tv");
-        assert_eq!(store.list_tokens("p").await.unwrap(), vec!["tk".to_string()]);
+        assert_eq!(
+            store.list_tokens("p").await.unwrap(),
+            vec!["tk".to_string()]
+        );
         store.delete_token("p", "tk").await.unwrap();
 
         // 4. Audit & DLQ 委派测试

@@ -5,8 +5,7 @@ use cowen_common::grpc::client::DaemonClient;
 use cowen_common::grpc::proto::TunnelPluginRequest;
 use std::fs;
 use std::io::{self, Write};
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -152,11 +151,7 @@ pub async fn list() -> Result<()> {
     }
 
     let mut found_any = false;
-    let supported_exts = if cfg!(target_os = "windows") {
-        vec!["exe"]
-    } else {
-        vec![""]
-    };
+    let supported_exts = cowen_sys::get_supported_plugin_extensions();
 
     for entry in fs::read_dir(plugins_dir)? {
         let entry = entry?;
@@ -201,11 +196,7 @@ pub async fn list() -> Result<()> {
 pub async fn enable(name: &String) -> Result<()> {
     let plugins_dir = get_app_dir().join("plugins");
 
-    let expected_path = if cfg!(target_os = "windows") {
-        plugins_dir.join(format!("{}.exe", name))
-    } else {
-        plugins_dir.join(name)
-    };
+    let expected_path = plugins_dir.join(cowen_sys::append_executable_extension(name));
 
     if expected_path.exists() {
         let port_path = crate::get_ipc_port_path();
@@ -275,12 +266,7 @@ fn copy_plugin_and_bundle(
 ) -> Result<()> {
     std::fs::copy(source_path, target_path)?;
 
-    #[cfg(unix)]
-    {
-        let mut perms = fs::metadata(target_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(target_path, perms)?;
-    }
+    cowen_sys::fs::make_executable(target_path)?;
 
     if bundle_source_path.exists() && bundle_source_path.is_file() {
         let bundle_file_name = bundle_source_path.file_name().unwrap();
@@ -476,11 +462,7 @@ pub async fn run(profile: &str, name_opt: &Option<String>, args: &[String]) -> R
     }
 
     if let Some(name) = name_opt {
-        let expected_path = if cfg!(target_os = "windows") {
-            plugins_dir.join(format!("{}.exe", name))
-        } else {
-            plugins_dir.join(name)
-        };
+        let expected_path = plugins_dir.join(cowen_sys::append_executable_extension(name));
 
         if !expected_path.exists() {
             return Err(anyhow::anyhow!(

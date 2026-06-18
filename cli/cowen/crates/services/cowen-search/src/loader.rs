@@ -128,11 +128,7 @@ impl SearchProviderFactory {
 
         let mut primary: Option<Box<dyn SearchProvider>> = None;
         if let Some(p_name) = search_plugin_name {
-            let expected_path = if cfg!(target_os = "windows") && !p_name.ends_with(".exe") {
-                plugins_dir.join(format!("{}.exe", p_name))
-            } else {
-                plugins_dir.join(&p_name)
-            };
+            let expected_path = plugins_dir.join(cowen_sys::append_executable_extension(&p_name));
 
             if expected_path.exists() {
                 primary = Some(Box::new(SidecarSearchProvider::new(

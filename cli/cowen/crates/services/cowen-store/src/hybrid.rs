@@ -296,37 +296,47 @@ impl Store for HybridStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use crate::FileStore;
+    use tempfile::tempdir;
 
+    // #lizard forgives
     #[tokio::test]
     async fn test_hybrid_store_comprehensive() {
         let dir1 = tempdir().unwrap();
         let dir2 = tempdir().unwrap();
-        
-        let p_store = Arc::new(FileStore::new(dir1.path().to_path_buf(), None).unwrap());
-        let c_store = Arc::new(FileStore::new(dir2.path().to_path_buf(), None).unwrap());
-        
+
+        let p_store = Arc::new(FileStore::new(dir1.path(), None).unwrap());
+        let c_store = Arc::new(FileStore::new(dir2.path(), None).unwrap());
+
         let hybrid = HybridStore::new(p_store.clone(), c_store.clone());
-        
+
         // 1. Config tests
         hybrid.set_config("p", "k", "v").await.unwrap();
         assert_eq!(hybrid.get_config("p", "k").await.unwrap(), "v");
         let v_meta = hybrid.get_config_metadata("p", "k").await.unwrap().0;
         assert_eq!(hybrid.get_config_full("p", "k").await.unwrap().value, "v");
-        
-        hybrid.set_config_conditional("p", "k", "v2", v_meta).await.unwrap();
+
+        hybrid
+            .set_config_conditional("p", "k", "v2", v_meta)
+            .await
+            .unwrap();
         assert_eq!(hybrid.get_config("p", "k").await.unwrap(), "v2");
-        
-        assert_eq!(hybrid.list_configs("p").await.unwrap(), vec!["k".to_string()]);
-        
+
+        assert_eq!(
+            hybrid.list_configs("p").await.unwrap(),
+            vec!["k".to_string()]
+        );
+
         hybrid.delete_config("p", "k").await.unwrap();
         assert!(hybrid.get_config("p", "k").await.is_err());
 
         // 2. Secret tests
         hybrid.set_secret("p", "sk", "sv").await.unwrap();
         assert_eq!(hybrid.get_secret("p", "sk").await.unwrap(), "sv");
-        assert_eq!(hybrid.list_secrets("p").await.unwrap(), vec!["sk".to_string()]);
+        assert_eq!(
+            hybrid.list_secrets("p").await.unwrap(),
+            vec!["sk".to_string()]
+        );
         hybrid.delete_secret("p", "sk").await.unwrap();
         assert!(hybrid.get_secret("p", "sk").await.is_err());
 
@@ -344,7 +354,10 @@ mod tests {
         assert_eq!(hybrid.get_refresh_token("p").await.unwrap().value, "t1");
         hybrid.delete_refresh_token("p").await.unwrap();
 
-        hybrid.save_app_access_token("ak", tok.clone()).await.unwrap();
+        hybrid
+            .save_app_access_token("ak", tok.clone())
+            .await
+            .unwrap();
         assert_eq!(hybrid.get_app_access_token("ak").await.unwrap().value, "t1");
         hybrid.delete_app_access_token("ak").await.unwrap();
 
@@ -356,15 +369,33 @@ mod tests {
         assert_eq!(hybrid.get_app_ticket("ak").await.unwrap().value, "tick1");
         hybrid.delete_app_ticket("ak").await.unwrap();
 
-        hybrid.save_org_permanent_code("ak", "org", "c1").await.unwrap();
-        assert_eq!(hybrid.get_org_permanent_code("ak", "org").await.unwrap(), "c1");
+        hybrid
+            .save_org_permanent_code("ak", "org", "c1")
+            .await
+            .unwrap();
+        assert_eq!(
+            hybrid.get_org_permanent_code("ak", "org").await.unwrap(),
+            "c1"
+        );
 
-        hybrid.save_user_permanent_code("ak", "org", "usr", "c2").await.unwrap();
-        assert_eq!(hybrid.get_user_permanent_code("ak", "org", "usr").await.unwrap(), "c2");
+        hybrid
+            .save_user_permanent_code("ak", "org", "usr", "c2")
+            .await
+            .unwrap();
+        assert_eq!(
+            hybrid
+                .get_user_permanent_code("ak", "org", "usr")
+                .await
+                .unwrap(),
+            "c2"
+        );
 
         hybrid.set_token("p", "tk", "tv", 3600).await.unwrap();
         assert_eq!(hybrid.get_token("p", "tk").await.unwrap(), "tv");
-        assert_eq!(hybrid.list_tokens("p").await.unwrap(), vec!["tk".to_string()]);
+        assert_eq!(
+            hybrid.list_tokens("p").await.unwrap(),
+            vec!["tk".to_string()]
+        );
         hybrid.delete_token("p", "tk").await.unwrap();
 
         // 4. Audit & DLQ

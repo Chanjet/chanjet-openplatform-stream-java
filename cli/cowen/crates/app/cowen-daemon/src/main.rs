@@ -1,4 +1,4 @@
-#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")] // os-macro-allowed
 #![allow(unused_imports)]
 
 use anyhow::Result;
@@ -337,18 +337,7 @@ fn setup_signal_handlers() -> tokio::sync::mpsc::Receiver<()> {
         }
     });
 
-    #[cfg(unix)]
-    {
-        let stop_tx_sigterm = stop_tx.clone();
-        tokio::spawn(async move {
-            use tokio::signal::unix::{signal, SignalKind};
-            if let Ok(mut stream) = signal(SignalKind::terminate()) {
-                stream.recv().await;
-                tracing::info!("SIGTERM received, sending shutdown signal...");
-                let _ = stop_tx_sigterm.send(()).await;
-            }
-        });
-    }
+    cowen_sys::register_shutdown_signals(stop_tx.clone());
 
     stop_rx
 }

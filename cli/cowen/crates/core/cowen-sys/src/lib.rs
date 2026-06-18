@@ -100,6 +100,163 @@ pub fn get_daemon_binary_name() -> &'static str {
     return "cowen-daemon";
 }
 
+pub fn append_executable_extension(name: &str) -> String {
+    #[cfg(windows)]
+    {
+        if name.ends_with(".exe") {
+            name.to_string()
+        } else {
+            format!("{}.exe", name)
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        name.to_string()
+    }
+}
+
+pub fn is_windows() -> bool {
+    #[cfg(windows)]
+    return true;
+    #[cfg(not(windows))]
+    return false;
+}
+
+pub fn get_system_plugin_search_paths() -> Vec<std::path::PathBuf> {
+    let mut paths = vec![];
+    #[cfg(unix)]
+    {
+        paths.push(std::path::PathBuf::from(
+            "/usr/local/share/cowen/system_plugins",
+        ));
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                paths.push(parent.join("system_plugins"));
+            }
+        }
+    }
+    paths
+}
+
+pub fn handle_parent_signals_for_child(child_id: u32) {
+    #[cfg(unix)]
+    {
+        tokio::spawn(async move {
+            use tokio::signal::unix::{signal, SignalKind};
+            if let (Ok(mut sigterm), Ok(mut sigint)) = (
+                signal(SignalKind::terminate()),
+                signal(SignalKind::interrupt()),
+            ) {
+                tokio::select! {
+                    _ = sigterm.recv() => {
+                        let pm = get_process_manager();
+                        let _ = pm.kill_process(child_id, false).await;
+                    }
+                    _ = sigint.recv() => {
+                        let _ = std::process::Command::new("kill").arg("-2").arg(child_id.to_string()).status();
+                    }
+                }
+            }
+        });
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child_id;
+    }
+}
+
+pub fn register_shutdown_signals(stop_tx: tokio::sync::mpsc::Sender<()>) {
+    #[cfg(unix)]
+    {
+        tokio::spawn(async move {
+            use tokio::signal::unix::{signal, SignalKind};
+            if let Ok(mut stream) = signal(SignalKind::terminate()) {
+                stream.recv().await;
+                tracing::info!("SIGTERM received, sending shutdown signal...");
+                let _ = stop_tx.send(()).await;
+            }
+        });
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = stop_tx;
+    }
+}
+
+pub fn check_port_occupancy(port: u16, bin_name: &str) -> Option<(u32, String)> {
+    if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+        return None;
+    }
+
+    #[cfg(unix)]
+    {
+        let output = std::process::Command::new("lsof")
+            .arg("-i")
+            .arg(format!("tcp:{}", port))
+            .arg("-t")
+            .output();
+        if let Ok(out) = output {
+            let pid_str = String::from_utf8_lossy(&out.stdout);
+            for line in pid_str.lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    use sysinfo::ProcessesToUpdate;
+                    let mut s = sysinfo::System::new();
+                    let sys_pid = sysinfo::Pid::from_u32(pid);
+                    s.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
+                    if let Some(process) = s.process(sys_pid) {
+                        let name = process.name().to_string_lossy().to_string();
+                        return Some((pid, name));
+                    }
+                    return Some((pid, "Unknown Process".to_string()));
+                }
+            }
+        }
+    }
+
+    use sysinfo::{ProcessesToUpdate, System};
+    let mut s = System::new();
+    s.refresh_processes(ProcessesToUpdate::All, true);
+
+    let bin_name_lower = bin_name.to_lowercase();
+
+    for (pid, process) in s.processes() {
+        let cmdline = process
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy())
+            .collect::<Vec<_>>();
+        let cmd_str = cmdline.join(" ");
+
+        let has_bin = process
+            .name()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains(&bin_name_lower)
+            || cmd_str.to_lowercase().contains(&bin_name_lower);
+        if !has_bin {
+            continue;
+        }
+
+        let is_daemon = cmdline
+            .iter()
+            .any(|arg| arg.contains("cowen-daemon") || arg == "daemon");
+        let is_cowen_exe = process
+            .name()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains("cowen-daemon");
+
+        if (is_daemon || is_cowen_exe) && pid.as_u32() != std::process::id() {
+            return Some((pid.as_u32(), bin_name.to_string()));
+        }
+    }
+
+    Some((0, "Unknown Process".to_string()))
+}
+
 pub fn create_sandboxed_command(
     binary_path: &std::path::Path,
     sandbox_path: &std::path::Path,

@@ -1,9 +1,9 @@
 use cowen_capabilities::CapabilityRegistry;
 use cowen_common::grpc::proto::native_system_service_server::NativeSystemService;
 use cowen_common::grpc::proto::{
-    DoctorRequest, DoctorResponse, StoreStatusRequest, StoreStatusResponse, SystemResetRequest,
-    SystemResetResponse, SystemStatusRequest, SystemStatusResponse, TunnelPluginRequest,
-    TunnelPluginResponse, StoreMigrateRequest, StoreMigrateResponse,
+    DoctorRequest, DoctorResponse, StoreMigrateRequest, StoreMigrateResponse, StoreStatusRequest,
+    StoreStatusResponse, SystemResetRequest, SystemResetResponse, SystemStatusRequest,
+    SystemStatusResponse, TunnelPluginRequest, TunnelPluginResponse,
 };
 use std::pin::Pin;
 use std::sync::Arc;

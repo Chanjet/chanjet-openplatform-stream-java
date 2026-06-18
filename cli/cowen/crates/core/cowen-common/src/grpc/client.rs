@@ -837,9 +837,14 @@ impl DaemonClient {
             .await?
             .into_inner();
         if res.success {
-            Ok(DaemonResponse::Success { message: res.message })
+            Ok(DaemonResponse::Success {
+                message: res.message,
+            })
         } else {
-            Ok(DaemonResponse::Error { code: 500, message: res.message })
+            Ok(DaemonResponse::Error {
+                code: 500,
+                message: res.message,
+            })
         }
     }
 

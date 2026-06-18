@@ -32,7 +32,7 @@ fn resolve_shell(
     if let Some(s) = requested_shell {
         return Ok(s);
     }
-    if cfg!(windows) {
+    if cowen_sys::is_windows() {
         Ok(clap_complete::Shell::PowerShell)
     } else {
         let shell_path = env::var("SHELL").unwrap_or_default();

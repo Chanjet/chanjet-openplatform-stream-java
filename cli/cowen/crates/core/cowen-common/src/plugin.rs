@@ -59,11 +59,7 @@ impl PluginManifest {
 
     pub fn load(plugin_name: &str) -> anyhow::Result<Self> {
         let plugins_dir = crate::config::get_app_dir().join("plugins");
-        let expected_path = if cfg!(target_os = "windows") {
-            plugins_dir.join(format!("{}.exe", plugin_name))
-        } else {
-            plugins_dir.join(plugin_name)
-        };
+        let expected_path = plugins_dir.join(cowen_sys::append_executable_extension(plugin_name));
 
         // For Wasm, it could just be .wasm, but the metadata is usually in .json anyway
         // or embedded in the bundle.

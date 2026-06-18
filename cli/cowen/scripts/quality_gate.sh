@@ -170,10 +170,18 @@ echo "[9/10] Checking code coverage (cargo llvm-cov)..."
 if ! command -v cargo-llvm-cov &> /dev/null; then
     echo "⚠️  cargo-llvm-cov not found. Skipping coverage check."
 else
-    # Enforce minimum 8% total coverage on cowen-auth package (due to workspace dependency dilution)
+    # Clean previous coverage artifacts to avoid "failed to collect object files" errors
+    RUSTC_WRAPPER="" cargo llvm-cov clean
+    # Enforce history-based dynamic coverage quality gate on cowen-auth crate
     # NOTE: sccache interferes with llvm-cov by stripping profiling data, so we must explicitly disable it.
-    if ! RUSTC_WRAPPER="" cargo llvm-cov test --package cowen-auth --fail-under-lines 8; then
-        echo "❌ Code coverage check failed for cowen-auth (Target: >=8%)!"
+    mkdir -p target
+    if ! RUSTC_WRAPPER="" cargo llvm-cov --package cowen-auth > target/coverage_auth_report.txt; then
+        echo "❌ Running coverage tests for cowen-auth failed!"
+        exit 1
+    fi
+
+    if ! python3 scripts/coverage_gate.py --report target/coverage_auth_report.txt --gate .coverage_gate_auth; then
+        echo "❌ Code coverage check failed for cowen-auth!"
         exit 1
     else
         echo "✅ Code coverage check passed."
@@ -195,6 +203,20 @@ if command -v cargo-deny &> /dev/null; then
     else
         echo "✅ Dependency license & bans check passed."
     fi
+fi
+
+# 11. Check OS Macro Leakage
+echo ""
+echo "[11/11] Checking OS Macro Leakage..."
+if ! python3 scripts/test_check_os_macro_leak.py; then
+    echo "❌ OS Macro Leak unit tests failed!"
+    exit 1
+fi
+if ! python3 scripts/check_os_macro_leak.py; then
+    echo "❌ OS Macro Leak check failed! Some crates contain OS-specific macros outside cowen-sys."
+    exit 1
+else
+    echo "✅ OS Macro Leak check passed."
 fi
 
 echo ""
