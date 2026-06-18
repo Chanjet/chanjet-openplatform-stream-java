@@ -1288,20 +1288,26 @@ fn fill_template_with_config(template_str: &str, config_json: &str) -> String {
             continue;
         }
 
-        let is_commented = trimmed.starts_with('#');
-        let (indent, clean_trimmed) = if is_commented {
-            let hash_idx = line.find('#').unwrap();
-            let content_after_hash = &line[hash_idx + 1..];
-            let content_indent = content_after_hash.len() - content_after_hash.trim_start().len();
-            let actual_indent = if content_indent > 0 {
-                content_indent - 1
+        let mut current_line = line.to_string();
+        let mut is_commented = false;
+        while current_line.trim_start().starts_with('#') {
+            is_commented = true;
+            if let Some(hash_idx) = current_line.find('#') {
+                let before_hash = &current_line[..hash_idx];
+                let after_hash = &current_line[hash_idx + 1..];
+                let after_hash_stripped = after_hash.strip_prefix(' ').unwrap_or(after_hash);
+                current_line = format!("{}{}", before_hash, after_hash_stripped);
             } else {
-                0
-            };
-            (actual_indent, content_after_hash.trim())
+                break;
+            }
+        }
+
+        let (indent, clean_trimmed) = if is_commented {
+            let raw_indent = current_line.len() - current_line.trim_start().len();
+            (raw_indent, current_line.trim().to_string())
         } else {
             let raw_indent = line.len() - line.trim_start().len();
-            (raw_indent, trimmed)
+            (raw_indent, trimmed.to_string())
         };
 
         if let Some(skip_level) = skip_until_indent {
@@ -1380,6 +1386,7 @@ fn fill_template_with_config(template_str: &str, config_json: &str) -> String {
                                     } else {
                                         let item_yaml =
                                             serde_yaml::to_string(item).unwrap_or_default();
+                                        let mut first_line = true;
                                         for yaml_line in item_yaml.lines() {
                                             if yaml_line.starts_with("---") {
                                                 continue;
@@ -1387,7 +1394,18 @@ fn fill_template_with_config(template_str: &str, config_json: &str) -> String {
                                             if yaml_line.trim().is_empty() {
                                                 continue;
                                             }
-                                            if yaml_line.starts_with('-') {
+                                            if first_line {
+                                                if yaml_line.starts_with('-') {
+                                                    output_lines
+                                                        .push(format!("{}  {}", prefix, yaml_line));
+                                                } else {
+                                                    output_lines.push(format!(
+                                                        "{}  - {}",
+                                                        prefix, yaml_line
+                                                    ));
+                                                }
+                                                first_line = false;
+                                            } else if yaml_line.starts_with('-') {
                                                 output_lines
                                                     .push(format!("{}  {}", prefix, yaml_line));
                                             } else {
@@ -1422,4 +1440,55 @@ fn fill_template_with_config(template_str: &str, config_json: &str) -> String {
     }
 
     output_lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fill_template_double_comment() {
+        let template = r#"
+# gateway:
+#   bind_address: "0.0.0.0:8090"
+#   # auth_routing:
+#   #   mode: "STRICT"
+#   #   # bypass_rules:
+#   #   #   - "/ping"
+#   # routes:
+#   #   - path: "/**"
+#   #     upstream: "http://localhost:5000"
+"#;
+        let config_json = r#"{
+            "profile": {
+                "gateway": {
+                    "bind_address": "0.0.0.0:9090",
+                    "auth_routing": {
+                        "mode": "PERMISSIVE",
+                        "bypass_rules": ["/ping", "/health"]
+                    },
+                    "routes": [
+                        {
+                            "path": "/**",
+                            "upstream": "http://localhost:6000"
+                        }
+                    ]
+                }
+            }
+        }"#;
+
+        let output = fill_template_with_config(template, config_json);
+        println!("Output:\n{}", output);
+
+        // Assert that gateway is uncommented and filled
+        assert!(output.contains("gateway:\n  bind_address: \"0.0.0.0:9090\""));
+        // Assert that auth_routing is uncommented and filled
+        assert!(output.contains("  auth_routing:\n    mode: \"PERMISSIVE\""));
+        // Assert that bypass_rules is uncommented and filled
+        assert!(output.contains("    bypass_rules:\n      - \"/ping\"\n      - \"/health\""));
+        // Assert that routes is uncommented and filled
+        assert!(
+            output.contains("  routes:\n    - path: /**\n      upstream: http://localhost:6000")
+        );
+    }
 }
