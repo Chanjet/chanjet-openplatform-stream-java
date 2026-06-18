@@ -321,13 +321,28 @@ fn determine_conn_level(
     (conn_level, conn_icon_override, final_state)
 }
 
+fn check_app_key_mismatch(client_id: &str, configured_app_key: &str) -> Option<String> {
+    if let Some(at_idx) = client_id.find('@') {
+        let running_app_key = &client_id[..at_idx];
+        let configured_trimmed = configured_app_key.trim();
+        if !running_app_key.is_empty() && running_app_key != configured_trimmed {
+            return Some(format!(
+                "配置的 AppKey ({}) 与运行中 Daemon 使用的 AppKey ({}) 不一致，请运行 'cowen daemon restart' 重启以应用配置。",
+                configured_trimmed, running_app_key
+            ));
+        }
+    }
+    None
+}
+
 fn inject_connection_state(
     ctx: &StatusContext<'_>,
     supports_webhooks: bool,
     level: &mut StatusLevel,
     children: &mut Vec<StatusEntry>,
-) -> Option<u64> {
+) -> (Option<u64>, Option<String>) {
     let mut captured_proxy_port = None;
+    let mut mismatch_reason = None;
     let status_file = get_app_dir().join(format!("{}_status.json", ctx.profile));
     if let Ok(content) = std::fs::read_to_string(status_file) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -340,13 +355,25 @@ fn inject_connection_state(
             let (conn_level, conn_icon_override, final_state) =
                 determine_conn_level(&conn_state, is_fresh, supports_webhooks, &error_val);
 
+            let mut conn_level = conn_level;
+            let mut final_state = final_state;
+
+            if let Some(cid) = json.get("client_id").and_then(|v| v.as_str()) {
+                if let Some(reason) = check_app_key_mismatch(cid, ctx.config.app_key.trim()) {
+                    conn_level = StatusLevel::ERROR;
+                    final_state = format!("{} (AppKey Mismatch)", conn_state);
+                    mismatch_reason = Some(reason);
+                }
+            }
+
             if conn_level as i32 > *level as i32 && conn_level != StatusLevel::WARN {
                 *level = conn_level;
             }
 
             if supports_webhooks {
                 let mut entry =
-                    StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state);
+                    StatusEntry::new(CommonTemplate::BridgeConnection, conn_level, final_state)
+                        .with_reason(mismatch_reason.clone());
                 if let Some(icon) = conn_icon_override {
                     entry.icon = icon.to_string();
                 }
@@ -360,7 +387,7 @@ fn inject_connection_state(
             }
         }
     }
-    captured_proxy_port
+    (captured_proxy_port, mismatch_reason)
 }
 
 fn evaluate_daemon_details_and_version(
@@ -413,9 +440,12 @@ fn build_final_status_entry(
     details: Vec<String>,
     port_conflict: Option<String>,
     outdated: bool,
+    mismatch_reason: Option<String>,
 ) -> StatusEntry {
     StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
-        .with_reason(if daemon_info.is_none() {
+        .with_reason(if let Some(reason) = mismatch_reason {
+            Some(reason)
+        } else if daemon_info.is_none() {
             if let Some(conflict) = port_conflict {
                 Some(conflict)
             } else {
@@ -448,10 +478,13 @@ pub async fn collect_daemon_status(
         evaluate_daemon_running_state(ctx, efficiency_tip, &daemon_info);
 
     let mut captured_proxy_port = None;
+    let mut mismatch_reason = None;
 
     if daemon_info.is_some() {
-        captured_proxy_port =
+        let (port, reason) =
             inject_connection_state(ctx, supports_webhooks, &mut level, &mut children);
+        captured_proxy_port = port;
+        mismatch_reason = reason;
     }
 
     let mut details = vec![];
@@ -472,6 +505,7 @@ pub async fn collect_daemon_status(
         details,
         port_conflict,
         outdated,
+        mismatch_reason,
     );
 
     Ok(res)
@@ -588,5 +622,41 @@ impl MonitorClient {
                 err
             )))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_app_key_mismatch() {
+        // Test case 1: AppKey matches
+        assert_eq!(
+            check_app_key_mismatch("eMDiqlzR@host_123", "eMDiqlzR"),
+            None
+        );
+
+        // Test case 2: AppKey matches after trimming
+        assert_eq!(
+            check_app_key_mismatch("eMDiqlzR@host_123", "  eMDiqlzR  "),
+            None
+        );
+
+        // Test case 3: AppKey mismatches
+        let result = check_app_key_mismatch("3x45dOtt@host_123", "eMDiqlzR");
+        assert!(result.is_some());
+        let err_msg = result.unwrap();
+        assert!(err_msg.contains("配置的 AppKey (eMDiqlzR)"));
+        assert!(err_msg.contains("与运行中 Daemon 使用的 AppKey (3x45dOtt) 不一致"));
+
+        // Test case 4: Invalid Client ID (no @ symbol)
+        assert_eq!(
+            check_app_key_mismatch("invalid_client_id_format", "eMDiqlzR"),
+            None
+        );
+
+        // Test case 5: Empty Client ID
+        assert_eq!(check_app_key_mismatch("", "eMDiqlzR"), None);
     }
 }
