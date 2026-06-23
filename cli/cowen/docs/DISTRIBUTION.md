@@ -16,6 +16,7 @@
 | **系统插件路径** | 用户级系统插件目录：`~/.cowen/system_plugins/` | 用户级系统插件目录：`~/.cowen/system_plugins/` | 用户级系统插件目录：`~/.cowen\system_plugins\` |
 | **守护进程机制** | `launchd` 用户 Agents 启动项 | `systemd` / 用户自启动配置 | Windows 注册表启动项 (Registry Run Key) |
 | **组件可选性** | **支持**组件勾选 (Core 强制，AI / MCP 插件可选) | **不支持**可选 (全量打包，一键全量安装) | **不支持**可选 (根据构建类型全量嵌入安装) |
+| **分发插件明细** | **系统插件**：<br>- `cowen_wasm_auth_selfbuilt.wasm`/`.bundle`<br>- `cowen_wasm_auth_storeapp.wasm`/`.bundle`<br>- `cowen_wasm_auth_custom.wasm`<br>**外部插件**：<br>- `libcowen_search_embedding` (AI)<br>- `libcowen_search_embedding.bundle`<br>- `cowen-mcp-plugin` (MCP)<br>- `cowen-mcp-plugin.bundle` | **系统插件**：<br>- `cowen_wasm_auth_selfbuilt.wasm`/`.bundle`<br>- `cowen_wasm_auth_storeapp.wasm`/`.bundle`<br>- `cowen_wasm_auth_custom.wasm`<br>**外部插件**：<br>- `libcowen_search_embedding` (AI)<br>- `libcowen_search_embedding.bundle`<br>- `cowen-mcp-plugin` (MCP)<br>- `cowen-mcp-plugin.bundle` | **系统插件**：<br>- `cowen_wasm_auth_selfbuilt.wasm`/`.bundle`<br>- `cowen_wasm_auth_storeapp.wasm`/`.bundle`<br>- `cowen_wasm_auth_custom.wasm`<br>**外部插件**：<br>- `libcowen_search_embedding.exe` (AI, 64位)<br>- `cowen_search_embedding.dll` (AI, 32位)<br>- `libcowen_search_embedding.bundle` / `cowen_search_embedding.bundle`<br>- `cowen-mcp-plugin.exe` (MCP)<br>- `cowen-mcp-plugin.bundle` |
 
 ---
 
