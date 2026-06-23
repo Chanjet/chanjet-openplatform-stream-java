@@ -99,3 +99,33 @@ fn test_validate_loopback_addr() {
     assert!(result1.is_err());
     assert!(result2.is_err());
 }
+
+#[test]
+fn test_resolve_daemon_executable_path_internal() {
+    use std::path::PathBuf;
+    
+    // 1. With env variable
+    let path = cowen_common::grpc::client::resolve_daemon_executable_path_internal(
+        Some(PathBuf::from("/usr/bin/cowen")),
+        Some("custom-daemon-path".to_string()),
+        "cowen-daemon.exe",
+    );
+    assert_eq!(path, PathBuf::from("custom-daemon-path"));
+
+    // 2. With current_exe and specific binary name
+    let path = cowen_common::grpc::client::resolve_daemon_executable_path_internal(
+        Some(PathBuf::from("/usr/bin/cowen")),
+        None,
+        "cowen-daemon.exe",
+    );
+    assert_eq!(path, PathBuf::from("/usr/bin/cowen-daemon.exe"));
+
+    // 3. Fallback without current_exe
+    let path = cowen_common::grpc::client::resolve_daemon_executable_path_internal(
+        None,
+        None,
+        "cowen-daemon.exe",
+    );
+    assert_eq!(path, PathBuf::from("cowen-daemon.exe"));
+}
+

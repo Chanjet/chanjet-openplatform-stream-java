@@ -214,21 +214,35 @@ impl DaemonClient {
         }
         Ok(None)
     }
+}
 
-    fn resolve_daemon_executable_path(&self) -> Result<PathBuf> {
-        let daemon_path = if let Ok(env_path) = std::env::var("COWEN_DAEMON_BIN") {
-            PathBuf::from(env_path)
-        } else if let Ok(path) = std::env::current_exe() {
-            let exe_dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
-            let dir = if exe_dir.as_os_str().is_empty() {
-                PathBuf::from(".")
-            } else {
-                exe_dir
-            };
-            dir.join("cowen-daemon")
+pub fn resolve_daemon_executable_path_internal(
+    current_exe: Option<PathBuf>,
+    env_val: Option<String>,
+    binary_name: &str,
+) -> PathBuf {
+    if let Some(env_path) = env_val {
+        PathBuf::from(env_path)
+    } else if let Some(path) = current_exe {
+        let exe_dir = path.parent().unwrap_or(Path::new("")).to_path_buf();
+        let dir = if exe_dir.as_os_str().is_empty() {
+            PathBuf::from(".")
         } else {
-            PathBuf::from("cowen-daemon")
+            exe_dir
         };
+        dir.join(binary_name)
+    } else {
+        PathBuf::from(binary_name)
+    }
+}
+
+impl DaemonClient {
+    fn resolve_daemon_executable_path(&self) -> Result<PathBuf> {
+        let daemon_path = resolve_daemon_executable_path_internal(
+            std::env::current_exe().ok(),
+            std::env::var("COWEN_DAEMON_BIN").ok(),
+            cowen_sys::get_daemon_binary_name(),
+        );
         if daemon_path.components().count() > 1 && !daemon_path.exists() {
             bail!("cowen-daemon executable not found at {}. Please ensure it is installed alongside the cowen CLI or set COWEN_DAEMON_BIN.", daemon_path.display());
         }
