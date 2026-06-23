@@ -211,14 +211,14 @@ setup_workspace() {
         fi
         
         # Pre-initialize WINEPREFIX for the workspace to prevent races
-        export WINEPREFIX="$COWEN_HOME/.wine"
+        export WINEPREFIX="${TEST_BASE}/.wine_shared"
         export WINE_AUTO_DEBUGGER=0
         mkdir -p "$WINEPREFIX"
 
         cp "$abs_source" "$COWEN_HOME/$unique_name$ext"
         cat > "$COWEN_HOME/$unique_name" <<EOF
 #!/bin/bash
-export WINEPREFIX="$COWEN_HOME/.wine"
+export WINEPREFIX="${TEST_BASE}/.wine_shared"
 export WINEDEBUG="-all"
 export WINE_AUTO_DEBUGGER=0
 export COWEN_HOME="Z:$COWEN_HOME"
@@ -277,7 +277,7 @@ EOF
         if [ "$OS_NAME" = "windows-cross" ]; then
             cat > "$COWEN_HOME/cowen-signer" <<EOF
 #!/bin/bash
-export WINEPREFIX="$COWEN_HOME/.wine"
+export WINEPREFIX="${TEST_BASE}/.wine_shared"
 export WINEDEBUG="-all"
 export WINE_AUTO_DEBUGGER=0
 export COWEN_HOME="Z:$COWEN_HOME"
@@ -305,7 +305,7 @@ EOF
         if [ "$OS_NAME" = "windows-cross" ]; then
             cat > "$COWEN_HOME/cowen-mcp-plugin" <<EOF
 #!/bin/bash
-export WINEPREFIX="$COWEN_HOME/.wine"
+export WINEPREFIX="${TEST_BASE}/.wine_shared"
 export WINEDEBUG="-all"
 export WINE_AUTO_DEBUGGER=0
 export COWEN_HOME="Z:$COWEN_HOME"
@@ -402,17 +402,17 @@ cleanup_suite() {
 
         # 1.5 Global pkill as fallback (Robustness)
         if [ -n "$COWEN_BIN" ]; then
-            pkill -15 -x "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
+            pkill -15 -f "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
         fi
         if [ -n "$COWEN_DAEMON_BIN" ]; then
-            pkill -15 -x "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
+            pkill -15 -f "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
         fi
         sleep 1.0
         if [ -n "$COWEN_BIN" ]; then
-            pkill -9 -x "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
+            pkill -9 -f "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
         fi
         if [ -n "$COWEN_DAEMON_BIN" ]; then
-            pkill -9 -x "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
+            pkill -9 -f "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
         fi
         
         # 2. Cleanup mock server state for next case (Only if shared)
@@ -579,6 +579,9 @@ cleanup_all_workspaces() {
         pkill -15 -f "cowen_" >/dev/null 2>&1 || true
         sleep 0.2
         pkill -9 -f "cowen_" >/dev/null 2>&1 || true
+        if [ "$OS_NAME" = "windows-cross" ]; then
+            WINEPREFIX="${TEST_BASE:-target/coverage_windows-cross}/.wine_shared" wineserver -k >/dev/null 2>&1 || true
+        fi
     fi
 
     # 2. Kill all mock servers
@@ -799,9 +802,16 @@ wait_for_daemon() {
     local log_file="$COWEN_HOME/logs/${profile}_sys.log"
     local config_file="$COWEN_HOME/profiles/${profile}/config.toml"
     
-    if [ -f "$config_file" ] && grep -E -q 'stream_url = ".+"' "$config_file" 2>/dev/null; then
+    local has_stream=false
+    if [ -n "$COWEN_STREAM_URL" ]; then
+        has_stream=true
+    elif [ -f "$config_file" ] && grep -E -q 'stream_url = ".+"' "$config_file" 2>/dev/null; then
+        has_stream=true
+    fi
+
+    if [ "$has_stream" = true ]; then
         for i in $(seq 1 "$max_retries"); do
-            if [ -f "$log_file" ] && grep -q "Bridge connection established" "$log_file" 2>/dev/null; then
+            if [ -f "$log_file" ] && grep -q -E "Bridge connection established|Bridge synced token successfully|WebSocket connected" "$log_file" 2>/dev/null; then
                 # Give it a tiny moment to process the initial mock server push
                 sleep 0.5
                 break
@@ -1003,7 +1013,7 @@ wait_for_pods_active() {
             for i in $(seq "$start" "$end"); do
                 local POD_HOME="$base_home/pod_$i"
                 # Support both profile logs and daemon foreground output logs
-                if grep -q "Bridge connection established" "$POD_HOME/logs/"*_sys.log 2>/dev/null || grep -q "Bridge connection established" "$POD_HOME/daemon.log" 2>/dev/null; then
+                if grep -q -E "Bridge connection established|Bridge synced token successfully|WebSocket connected" "$POD_HOME/logs/"*_sys.log 2>/dev/null || grep -q -E "Bridge connection established|Bridge synced token successfully|WebSocket connected" "$POD_HOME/daemon.log" 2>/dev/null; then
                     ((connected_count++))
                 fi
             done
