@@ -9,6 +9,9 @@ fi
 setup_workspace "case_62"
 trap cleanup_suite EXIT
 
+# Disable port fallback so the concurrent daemon correctly detects the port collision
+export COWEN_ALLOW_PORT_FALLBACK=0
+
 echo -e "${BOLD}1. Initialization${NC}"
 "$COWEN_BIN" init --profile main \
     --app-mode self-built \
@@ -18,6 +21,10 @@ echo -e "${BOLD}1. Initialization${NC}"
     --certificate CERT_SB \
     --webhook-target "http://127.0.0.1:8080/cb" >/dev/null
 assert_pass "Profile initialized"
+
+# Stop the auto-started daemon so we can test the explicit lifecycle
+"$COWEN_BIN" daemon stop --profile main >/dev/null
+sleep 1
 
 echo -e "${BOLD}2. Start daemon in foreground (simulate launchd)${NC}"
 # Redirect output so it doesn't pollute the test logs

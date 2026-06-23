@@ -62,10 +62,10 @@ macro_rules! handle_json_res {
 
 macro_rules! handle_generic_field_res {
     ($res:expr, $field:ident, $variant:ident) => {
-        if $res.$field.is_empty() && $res.error_message.is_some() {
+        if let (true, Some(msg)) = ($res.$field.is_empty(), $res.error_message) {
             Ok(DaemonResponse::Error {
                 code: 500,
-                message: $res.error_message.unwrap(),
+                message: msg,
             })
         } else {
             Ok(DaemonResponse::$variant {
@@ -171,6 +171,20 @@ pub struct DaemonClient {
     pub port_path: PathBuf,
 }
 
+#[derive(Debug, Default)]
+pub struct InitProfileParams<'a> {
+    pub app_key: Option<&'a str>,
+    pub app_secret: Option<&'a str>,
+    pub certificate: Option<&'a str>,
+    pub encrypt_key: Option<&'a str>,
+    pub webhook_target: Option<&'a str>,
+    pub openapi_url: Option<&'a str>,
+    pub stream_url: Option<&'a str>,
+    pub app_mode: Option<&'a str>,
+    pub proxy_port: Option<u32>,
+    pub config_json: Option<String>,
+}
+
 impl DaemonClient {
     pub fn new<P: AsRef<Path>>(port_path: P) -> Self {
         Self {
@@ -269,7 +283,7 @@ impl DaemonClient {
 
     async fn wait_for_daemon_start_and_ping(
         &self,
-        log_dir: &PathBuf,
+        log_dir: &Path,
         mut child: std::process::Child,
     ) -> Result<(Channel, AuthInterceptor)> {
         let append_stderr_tail = |mut err_msg: String| -> String {
@@ -416,31 +430,22 @@ impl DaemonClient {
     pub async fn init_profile(
         &self,
         profile: &str,
-        app_key: Option<&str>,
-        app_secret: Option<&str>,
-        certificate: Option<&str>,
-        encrypt_key: Option<&str>,
-        webhook_target: Option<&str>,
-        openapi_url: Option<&str>,
-        stream_url: Option<&str>,
-        app_mode: Option<&str>,
-        proxy_port: Option<u32>,
-        config_json: Option<String>,
+        params: InitProfileParams<'_>,
     ) -> Result<DaemonResponse> {
         let mut client = self.build_native_auth_client().await?;
         let res = client
             .init_profile(tonic::Request::new(grpc_proto::InitProfileRequest {
                 profile: profile.to_string(),
-                app_key: app_key.map(|s| s.to_string()),
-                app_secret: app_secret.map(|s| s.to_string()),
-                certificate: certificate.map(|s| s.to_string()),
-                encrypt_key: encrypt_key.map(|s| s.to_string()),
-                webhook_target: webhook_target.map(|s| s.to_string()),
-                openapi_url: openapi_url.map(|s| s.to_string()),
-                stream_url: stream_url.map(|s| s.to_string()),
-                app_mode: app_mode.map(|s| s.to_string()),
-                proxy_port,
-                config_json,
+                app_key: params.app_key.map(|s| s.to_string()),
+                app_secret: params.app_secret.map(|s| s.to_string()),
+                certificate: params.certificate.map(|s| s.to_string()),
+                encrypt_key: params.encrypt_key.map(|s| s.to_string()),
+                webhook_target: params.webhook_target.map(|s| s.to_string()),
+                openapi_url: params.openapi_url.map(|s| s.to_string()),
+                stream_url: params.stream_url.map(|s| s.to_string()),
+                app_mode: params.app_mode.map(|s| s.to_string()),
+                proxy_port: params.proxy_port,
+                config_json: params.config_json,
             }))
             .await?
             .into_inner();
@@ -721,10 +726,10 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.json.is_empty() && res.error_message.is_some() {
+        if let (true, Some(msg)) = (res.json.is_empty(), res.error_message) {
             Ok(DaemonResponse::Error {
                 code: 500,
-                message: res.error_message.unwrap(),
+                message: msg,
             })
         } else {
             Ok(DaemonResponse::ApiListData {
@@ -879,10 +884,10 @@ impl DaemonClient {
             }))
             .await?
             .into_inner();
-        if res.status >= 400 && res.error_message.is_some() {
+        if let (true, Some(msg)) = (res.status >= 400, res.error_message) {
             Ok(DaemonResponse::Error {
                 code: res.status as i32,
-                message: res.error_message.unwrap(),
+                message: msg,
             })
         } else {
             Ok(DaemonResponse::ApiResponse(ApiResponseDto {

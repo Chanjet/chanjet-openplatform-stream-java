@@ -718,11 +718,13 @@ async fn handle_direct_openapi(
         .intercept_request(
             &state.profile,
             &state.config,
-            path,
-            method,
-            req_headers,
-            body_bytes,
-            &serde_json::Value::Null,
+            cowen_auth::provider::InterceptRequestContext {
+                path,
+                method,
+                headers: req_headers,
+                body: body_bytes,
+                spec: &serde_json::Value::Null,
+            },
         )
         .await
     {
@@ -769,11 +771,13 @@ async fn handle_direct_openapi(
                 .intercept_response(
                     &state.profile,
                     &state.config,
-                    path,
-                    method,
-                    status.as_u16(),
-                    &out_headers,
-                    &resp_body,
+                    cowen_auth::provider::InterceptResponseContext {
+                        path,
+                        method,
+                        status: status.as_u16(),
+                        headers: &out_headers,
+                        body: &resp_body,
+                    },
                 )
                 .await
             {

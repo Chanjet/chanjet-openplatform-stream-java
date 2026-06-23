@@ -134,11 +134,11 @@ async def handle_push(request):
                     "appKey": app_key,
                     "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "biz_content": {
-                        "app_ticket": f"mock_ticket_{uuid.uuid4().hex[:8]}",
-                        "appTicket": f"mock_ticket_{uuid.uuid4().hex[:8]}"
+                        "app_ticket": f"mock_ticket_{app_key}",
+                        "appTicket": f"mock_ticket_{app_key}"
                     },
                     "bizContent": {
-                        "appTicket": f"mock_ticket_{uuid.uuid4().hex[:8]}"
+                        "appTicket": f"mock_ticket_{app_key}"
                     }
                 })
             except Exception as e:

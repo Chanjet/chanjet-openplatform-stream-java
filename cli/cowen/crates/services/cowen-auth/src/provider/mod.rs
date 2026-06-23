@@ -31,6 +31,22 @@ pub struct InitParams {
     pub force: bool,
 }
 
+pub struct InterceptRequestContext<'a> {
+    pub path: &'a str,
+    pub method: &'a str,
+    pub headers: reqwest::header::HeaderMap,
+    pub body: &'a [u8],
+    pub spec: &'a serde_json::Value,
+}
+
+pub struct InterceptResponseContext<'a> {
+    pub path: &'a str,
+    pub method: &'a str,
+    pub status: u16,
+    pub headers: &'a reqwest::header::HeaderMap,
+    pub body: &'a [u8],
+}
+
 #[derive(Debug, Clone)]
 pub enum PlatformEvent {
     AppTicket(String),
@@ -276,30 +292,20 @@ pub trait AuthProvider: Send + Sync {
         &self,
         profile: &str,
         config: &Config,
-        _path: &str,
-        _method: &str,
-        headers: reqwest::header::HeaderMap,
-        body: &[u8],
-        spec: &serde_json::Value,
+        ctx: InterceptRequestContext<'_>,
     ) -> CowenResult<ProxyRequestAction> {
-        let mut headers = headers;
+        let mut headers = ctx.headers;
         let token = self.get_token(profile, config, &headers).await?;
         headers.insert("openToken", token.value.parse().unwrap());
-        let _ = (body, spec);
         Ok(ProxyRequestAction::Forward { headers })
     }
 
     async fn intercept_response(
         &self,
-        profile: &str,
-        config: &Config,
-        path: &str,
-        method: &str,
-        status: u16,
-        headers: &reqwest::header::HeaderMap,
-        body: &[u8],
+        _profile: &str,
+        _config: &Config,
+        _ctx: InterceptResponseContext<'_>,
     ) -> CowenResult<Option<serde_json::Value>> {
-        let _ = (profile, config, path, method, status, headers, body);
         Ok(None)
     }
 

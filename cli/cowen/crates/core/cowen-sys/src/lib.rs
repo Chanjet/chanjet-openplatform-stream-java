@@ -304,6 +304,45 @@ pub fn configure_socket_reuse(socket: &tokio::net::TcpSocket) -> std::io::Result
     Ok(())
 }
 
+pub async fn wait_for_terminate() -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        sigterm.recv().await;
+    }
+    #[cfg(windows)]
+    {
+        let mut ctrl_break = tokio::signal::windows::ctrl_break()?;
+        ctrl_break.recv().await;
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        tokio::time::sleep(std::time::Duration::from_secs(u64::MAX)).await;
+    }
+    Ok(())
+}
+
+pub fn get_onnx_library_bytes() -> &'static [u8] {
+    #[cfg(target_os = "windows")]
+    return include_bytes!("../../../../dist_assets/windows/onnxruntime.dll");
+    #[cfg(target_os = "macos")]
+    return include_bytes!("../../../../dist_assets/macos/libonnxruntime.dylib");
+    #[cfg(target_os = "linux")]
+    return include_bytes!("../../../../dist_assets/linux/libonnxruntime.so");
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    return &[];
+}
+
+pub fn get_onnx_library_name() -> &'static str {
+    #[cfg(windows)]
+    return "onnxruntime.dll";
+    #[cfg(target_os = "macos")]
+    return "libonnxruntime.dylib";
+    #[cfg(not(any(windows, target_os = "macos")))]
+    return "libonnxruntime.so";
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

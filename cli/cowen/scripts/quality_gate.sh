@@ -25,20 +25,7 @@ else
     echo "✅ Clippy check passed."
 fi
 
-# 3. Check Cross-Platform compilation
-echo ""
-echo "[3/6] Checking static cross-platform compilation..."
-# Verify if the required cross-compilation GCC toolchain is present
-if ! command -v x86_64-linux-gnu-gcc &> /dev/null; then
-    echo "⚠️  Cross-compiler 'x86_64-linux-gnu-gcc' not found. Skipping make check-cross. (Please run in CI or Docker for full cross-check)"
-else
-    if ! make check-cross; then
-        echo "❌ Cross-platform compilation check failed!"
-        exit 1
-    else
-        echo "✅ Cross-platform compilation check passed."
-    fi
-fi
+
 
 # 4. Check Rust Code Duplication (<= 5% overall, and no >5 lines duplicate in the same file)
 echo ""

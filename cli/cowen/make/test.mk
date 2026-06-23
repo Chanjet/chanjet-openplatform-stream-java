@@ -11,7 +11,7 @@ test-rust: quality-gate
 	COWEN_SKIP_BROWSER=true RUSTFLAGS="-D warnings" cargo test
 
 # 自动根据环境运行测试
-test:
+test: quality-gate
 ifeq ($(HOST_OS),macos)
 	@$(MAKE) test-macos
 else ifeq ($(HOST_OS),linux)
@@ -19,11 +19,12 @@ else ifeq ($(HOST_OS),linux)
 else ifeq ($(HOST_OS),windows)
 	@$(MAKE) test-win
 endif
+	@$(MAKE) check-cross
 
 # 在 Linux 容器中执行并行 E2E (Podman) - 封闭纯净环境
 # 在 Linux 容器中执行并行 E2E (Podman) - All-in-One 封闭容器模式
 # 数据库服务内置于测试容器中，无需外部 db-up，无需 --network host
-test-linux: prepare-podman-machine prepare-podman-image
+test-linux: quality-gate prepare-podman-machine prepare-podman-image
 	@echo "🧪 Running Full Test Suite in Linux container (All-in-One mode)..."
 	@export DOCKER_HOST=$$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || echo "unix://$$HOME/.local/share/containers/podman/machine/podman-machine-default/podman.sock"); \
 	trap '$(MAKE) stop-podman-machine' EXIT; \

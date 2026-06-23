@@ -51,16 +51,18 @@ pub async fn execute(profile: &str, ctx: InitContext) -> anyhow::Result<()> {
     match ipc
         .init_profile(
             profile,
-            ctx.app_key.as_deref(),
-            ctx.app_secret.as_deref(),
-            ctx.certificate.as_deref(),
-            ctx.encrypt_key.as_deref(),
-            ctx.webhook_target.as_deref(),
-            ctx.openapi_url.as_deref(),
-            ctx.stream_url.as_deref(),
-            ctx.app_mode.as_deref(),
-            ctx.proxy_port.map(|p| p as u32),
-            config_json.clone(),
+            cowen_common::grpc::client::InitProfileParams {
+                app_key: ctx.app_key.as_deref(),
+                app_secret: ctx.app_secret.as_deref(),
+                certificate: ctx.certificate.as_deref(),
+                encrypt_key: ctx.encrypt_key.as_deref(),
+                webhook_target: ctx.webhook_target.as_deref(),
+                openapi_url: ctx.openapi_url.as_deref(),
+                stream_url: ctx.stream_url.as_deref(),
+                app_mode: ctx.app_mode.as_deref(),
+                proxy_port: ctx.proxy_port.map(|p| p as u32),
+                config_json: config_json.clone(),
+            },
         )
         .await
     {
@@ -78,16 +80,14 @@ pub async fn execute(profile: &str, ctx: InitContext) -> anyhow::Result<()> {
             }
             let mode_str = final_mode.to_lowercase().replace("-", "_");
             if mode_str == "oauth2" {
-                let mut sigterm =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
                 let login_result = tokio::select! {
                     res = crate::cmd::auth::login(profile, false) => res,
                     _ = tokio::signal::ctrl_c() => {
                         eprintln!("\n❌ Initialization cancelled (SIGINT). Cleaning up...");
                         Err(anyhow::anyhow!("Initialization cancelled"))
                     }
-                    _ = sigterm.recv() => {
-                        eprintln!("\n❌ Initialization cancelled (SIGTERM). Cleaning up...");
+                    _ = cowen_sys::wait_for_terminate() => {
+                        eprintln!("\n❌ Initialization cancelled (SIGTERM/Break). Cleaning up...");
                         Err(anyhow::anyhow!("Initialization cancelled"))
                     }
                 };

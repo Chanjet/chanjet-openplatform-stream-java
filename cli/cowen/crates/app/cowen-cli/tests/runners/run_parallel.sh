@@ -49,7 +49,17 @@ echo -e "${BLUE}${BOLD}   Cowen CLI Hybrid Verification Suite (Stable)         $
 echo -e "${BLUE}${BOLD}========================================================${NC}"
 
 # Configuration
-MAX_PARALLEL="${MAX_PARALLEL:-32}"
+# Dynamically adjust parallel limit based on CPU cores if not explicitly set
+if [ -z "$MAX_PARALLEL" ]; then
+    if command -v nproc &> /dev/null; then
+        MAX_PARALLEL=$(nproc)
+    elif command -v sysctl &> /dev/null; then
+        MAX_PARALLEL=$(sysctl -n hw.ncpu)
+    else
+        MAX_PARALLEL=8
+    fi
+fi
+export MAX_PARALLEL
 TEST_BASE="${TEST_BASE:-target/cowen_tests}"
 if [[ "$TEST_BASE" != /* ]]; then
     TEST_BASE="$(pwd)/$TEST_BASE"

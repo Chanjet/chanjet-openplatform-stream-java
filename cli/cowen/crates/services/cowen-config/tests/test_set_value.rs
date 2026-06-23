@@ -1,9 +1,8 @@
-#![allow(clippy::await_holding_lock)]
-
 use cowen_config::ConfigManager;
 use std::fs;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use tempfile::tempdir;
+use tokio::sync::Mutex;
 
 static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -20,7 +19,7 @@ fn clean_env() {
 
 #[tokio::test]
 async fn test_set_value_log_level_lowercase_conversion() {
-    let _guard = get_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = get_test_lock().lock().await;
     clean_env();
     let dir = tempdir().unwrap();
     let app_dir = dir.path().to_path_buf();
@@ -62,7 +61,7 @@ log:
 
 #[tokio::test]
 async fn test_set_value_log_level_invalid() {
-    let _guard = get_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = get_test_lock().lock().await;
     clean_env();
     let dir = tempdir().unwrap();
     let app_dir = dir.path().to_path_buf();

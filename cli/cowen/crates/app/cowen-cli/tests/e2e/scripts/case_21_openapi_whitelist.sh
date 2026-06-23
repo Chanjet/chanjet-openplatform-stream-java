@@ -26,12 +26,23 @@ start_mock
     --stream-url $MOCK_WS
 
 assert_pass "SelfBuilt initialized"
-sleep 2
+wait_for_daemon main 15
+
+# Allow time for Mock Server to push the AppTicket over the newly established bridge
+echo -n "   Waiting for AppTicket..."
+for i in {1..20}; do
+    if "$COWEN_BIN" auth login --profile main --force >/dev/null 2>&1; then
+        echo -e " ${GREEN}[OK]${NC}"
+        break
+    fi
+    sleep 1
+    echo -n "."
+done
 
 # 2. Test Whitelisted Path
 echo -e "${BOLD}2. Test Whitelisted Path (/v1/app/data/get)${NC}"
 # Use a path that IS in the mock server's spec
-"$COWEN_BIN" api POST /v1/app/data/get --data '{"id": 1}' --profile main > "$COWEN_HOME/api_out_1.json" 2>&1
+"$COWEN_BIN" api POST /v1/app/data/get --data '{"id": 1}' --profile main > "$COWEN_HOME/api_out_1.json" 2>&1 || true
 if grep -q "mock_at_sb_" "$COWEN_HOME/api_out_1.json" || grep -q "success" "$COWEN_HOME/api_out_1.json"; then
     echo -e "   ${GREEN}✓${NC} Whitelisted path allowed"
 else

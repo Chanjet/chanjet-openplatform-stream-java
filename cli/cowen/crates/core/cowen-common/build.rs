@@ -1,6 +1,7 @@
 include!("../../../build_common.rs");
 
 fn main() {
+    std::env::set_var("PROTOC", protoc_bin_vendored::protoc_bin_path().unwrap());
     run_build_script("../../../.git");
 
     tonic_build::configure()

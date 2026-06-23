@@ -168,7 +168,7 @@ async fn handle_redis_url(_actual_url: &str) -> CowenResult<Arc<dyn Store>> {
     }
     #[cfg(not(feature = "redis"))]
     {
-        return Err(CowenError::Store("Redis feature not enabled".to_string()));
+        Err(CowenError::Store("Redis feature not enabled".to_string()))
     }
 }
 

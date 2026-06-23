@@ -1,10 +1,9 @@
-#![allow(clippy::await_holding_lock)]
-
 use cowen_common::config::AppConfig;
 use cowen_config::ConfigManager;
 use std::fs;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use tempfile::tempdir;
+use tokio::sync::Mutex;
 
 static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -22,7 +21,7 @@ fn clean_env() {
 #[tokio::test]
 async fn test_auto_migrate_valid_sqlite() {
     println!("DEBUG: test_auto_migrate_valid_sqlite starting");
-    let _guard = get_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = get_test_lock().lock().await;
     println!("DEBUG: lock acquired");
     clean_env();
     let dir = tempdir().unwrap();
@@ -77,7 +76,7 @@ storage:
 
 #[tokio::test]
 async fn test_auto_migrate_invalid_store() {
-    let _guard = get_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = get_test_lock().lock().await;
     clean_env();
     let dir = tempdir().unwrap();
     let app_dir = dir.path().to_path_buf();
@@ -124,7 +123,7 @@ storage:
 
 #[tokio::test]
 async fn test_auto_migrate_invalid_distributed_missing_url() {
-    let _guard = get_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = get_test_lock().lock().await;
     clean_env();
     let dir = tempdir().unwrap();
     let app_dir = dir.path().to_path_buf();

@@ -59,9 +59,9 @@ EOF
     --webhook-target "$MOCK_URL/webhook_sink"
 
 
-# Manually start daemon
-"$COWEN_BIN" daemon start --profile main
-wait_for_daemon "main" 8
+# Daemon is auto-started by init
+wait_for_daemon "main" 10
+sleep 2
 
 # --- Node 2: Follower (No Init) ---
 echo -e "${BOLD}2. Setup Node 2 (No Init)${NC}"

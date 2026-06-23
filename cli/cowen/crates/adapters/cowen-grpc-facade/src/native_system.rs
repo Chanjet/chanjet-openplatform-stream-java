@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)] // required by tonic trait signature
 use cowen_capabilities::CapabilityRegistry;
 use cowen_common::grpc::proto::native_system_service_server::NativeSystemService;
 use cowen_common::grpc::proto::{

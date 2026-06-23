@@ -155,18 +155,13 @@ fn dry_run_reset() {
     println!("  - Delete logs/ and profiles/ directories");
 }
 
-fn kill_master_daemon(app_dir: &std::path::Path) {
+async fn kill_master_daemon(app_dir: &std::path::Path) {
     let daemon_pid_file = app_dir.join("master_daemon.pid");
     if daemon_pid_file.exists() {
         if let Ok(pid_str) = std::fs::read_to_string(&daemon_pid_file) {
             if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                let sys = sysinfo::System::new_with_specifics(
-                    sysinfo::RefreshKind::nothing()
-                        .with_processes(sysinfo::ProcessRefreshKind::nothing()),
-                );
-                if let Some(process) = sys.process(sysinfo::Pid::from_u32(pid)) {
-                    process.kill();
-                }
+                let pm = cowen_sys::get_process_manager();
+                let _ = pm.kill_process(pid, true).await;
             }
         }
     }
@@ -194,7 +189,7 @@ fn clean_app_dir(app_dir: &std::path::Path) {
 
 async fn execute_local_reset() {
     let app_dir = cowen_common::config::get_app_dir();
-    kill_master_daemon(&app_dir);
+    kill_master_daemon(&app_dir).await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     clean_app_dir(&app_dir);
     println!("✅ System reset successful");

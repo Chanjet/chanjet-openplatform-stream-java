@@ -38,37 +38,40 @@ enum Commands {
         #[arg(long, help = "Country", default_value = "")]
         country: String,
     },
-    SignPlugin {
-        #[arg(long, help = "Path to the .dylib/.so binary")]
-        dylib: PathBuf,
-        #[arg(long, help = "Plugin Name")]
-        name: String,
-        #[arg(long, help = "Plugin Version")]
-        version: String,
-        #[arg(long, help = "Path to the developer private key")]
-        dev_key: PathBuf,
-        #[arg(long, help = "Path to the developer certificate JSON")]
-        dev_cert: PathBuf,
-        #[arg(long, help = "Output path for the signature bundle JSON")]
-        out_bundle: PathBuf,
-        #[arg(
-            long,
-            help = "Path to the plugin.json manifest. If provided, capabilities, privileges, transport and contributes are read from it."
-        )]
-        manifest_file: Option<PathBuf>,
-        #[arg(
-            long,
-            help = "Capabilities/Interfaces provided by the plugin",
-            value_delimiter = ','
-        )]
-        capabilities: Option<Vec<String>>,
-        #[arg(
-            long,
-            help = "Sensitive privileges consumed by the plugin",
-            value_delimiter = ','
-        )]
-        required_privileges: Option<Vec<String>>,
-    },
+    SignPlugin(SignPluginArgs),
+}
+
+#[derive(clap::Args)]
+pub struct SignPluginArgs {
+    #[arg(long, help = "Path to the .dylib/.so binary")]
+    pub dylib: PathBuf,
+    #[arg(long, help = "Plugin Name")]
+    pub name: String,
+    #[arg(long, help = "Plugin Version")]
+    pub version: String,
+    #[arg(long, help = "Path to the developer private key")]
+    pub dev_key: PathBuf,
+    #[arg(long, help = "Path to the developer certificate JSON")]
+    pub dev_cert: PathBuf,
+    #[arg(long, help = "Output path for the signature bundle JSON")]
+    pub out_bundle: PathBuf,
+    #[arg(
+        long,
+        help = "Path to the plugin.json manifest. If provided, capabilities, privileges, transport and contributes are read from it."
+    )]
+    pub manifest_file: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "Capabilities/Interfaces provided by the plugin",
+        value_delimiter = ','
+    )]
+    pub capabilities: Option<Vec<String>>,
+    #[arg(
+        long,
+        help = "Sensitive privileges consumed by the plugin",
+        value_delimiter = ','
+    )]
+    pub required_privileges: Option<Vec<String>>,
 }
 
 fn cmd_generate_root(out_root_key: PathBuf, out_root_pub: PathBuf) -> Result<()> {
@@ -188,22 +191,12 @@ fn apply_manifest_to_plugin_config(
     Ok(())
 }
 
-fn cmd_sign_plugin(
-    dylib: PathBuf,
-    name: String,
-    version: String,
-    dev_key: PathBuf,
-    dev_cert: PathBuf,
-    out_bundle: PathBuf,
-    manifest_file: Option<PathBuf>,
-    capabilities: Option<Vec<String>>,
-    required_privileges: Option<Vec<String>>,
-) -> Result<()> {
-    let dev_bytes = std::fs::read(&dev_key).context("Failed to read dev key")?;
+fn cmd_sign_plugin(args: SignPluginArgs) -> Result<()> {
+    let dev_bytes = std::fs::read(&args.dev_key).context("Failed to read dev key")?;
     let dev_pair = Ed25519KeyPair::from_pkcs8(&dev_bytes)
         .map_err(|_| anyhow::anyhow!("Invalid dev pk8 key"))?;
 
-    let cert_str = std::fs::read_to_string(&dev_cert)?;
+    let cert_str = std::fs::read_to_string(&args.dev_cert)?;
     let cert: DeveloperCert = serde_json::from_str(&cert_str)?;
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
@@ -214,19 +207,19 @@ fn cmd_sign_plugin(
         );
     }
 
-    let dylib_bytes = std::fs::read(&dylib).context("Failed to read plugin dylib")?;
+    let dylib_bytes = std::fs::read(&args.dylib).context("Failed to read plugin dylib")?;
     use ring::digest::{Context, SHA256};
     let mut ctx = Context::new(&SHA256);
     ctx.update(&dylib_bytes);
     let hash = hex::encode(ctx.finish().as_ref());
 
-    let mut final_caps = capabilities.unwrap_or_default();
-    let mut final_privs = required_privileges.unwrap_or_default();
+    let mut final_caps = args.capabilities.unwrap_or_default();
+    let mut final_privs = args.required_privileges.unwrap_or_default();
     let mut final_transport = None;
     let mut final_contributes = None;
 
     apply_manifest_to_plugin_config(
-        manifest_file,
+        args.manifest_file,
         &mut final_caps,
         &mut final_privs,
         &mut final_transport,
@@ -234,8 +227,8 @@ fn cmd_sign_plugin(
     )?;
 
     let manifest = PluginManifest {
-        name,
-        version,
+        name: args.name,
+        version: args.version,
         binary_hash: hash,
         transport: final_transport,
         capabilities: final_caps,
@@ -252,8 +245,8 @@ fn cmd_sign_plugin(
         manifest_signature_hex: hex::encode(sig.as_ref()),
     };
 
-    std::fs::write(&out_bundle, serde_json::to_string_pretty(&bundle)?)?;
-    println!("✅ Plugin signed and bundle generated: {:?}", out_bundle);
+    std::fs::write(&args.out_bundle, serde_json::to_string_pretty(&bundle)?)?;
+    println!("✅ Plugin signed successfully: {:?}", args.out_bundle);
     Ok(())
 }
 
@@ -278,28 +271,8 @@ fn main() -> Result<()> {
         } => {
             cmd_issue_cert(root_key, dev_id, out_dev_key, out_cert, days, org, country)?;
         }
-        Commands::SignPlugin {
-            dylib,
-            name,
-            version,
-            dev_key,
-            dev_cert,
-            out_bundle,
-            manifest_file,
-            capabilities,
-            required_privileges,
-        } => {
-            cmd_sign_plugin(
-                dylib,
-                name,
-                version,
-                dev_key,
-                dev_cert,
-                out_bundle,
-                manifest_file,
-                capabilities,
-                required_privileges,
-            )?;
+        Commands::SignPlugin(args) => {
+            cmd_sign_plugin(args)?;
         }
     }
     Ok(())

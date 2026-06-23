@@ -431,38 +431,44 @@ fn evaluate_daemon_details_and_version(
     (details, outdated)
 }
 
-fn build_final_status_entry(
-    display_name: &str,
-    daemon_info: &Option<DaemonInfo>,
-    level: StatusLevel,
-    msg: String,
-    children: Vec<StatusEntry>,
-    details: Vec<String>,
-    port_conflict: Option<String>,
-    outdated: bool,
-    mismatch_reason: Option<String>,
-) -> StatusEntry {
-    StatusEntry::new(CommonTemplate::Daemon(display_name.to_string()), level, msg)
-        .with_reason(if let Some(reason) = mismatch_reason {
-            Some(reason)
-        } else if daemon_info.is_none() {
-            if let Some(conflict) = port_conflict {
-                Some(conflict)
-            } else {
-                Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string())
-            }
-        } else if outdated {
-            Some(
-                "⚠️ 当前后台进程版本已过时。建议运行 'cowen daemon restart' 以同步最新功能。"
-                    .to_string(),
-            )
-        } else if level == StatusLevel::ERROR {
-            Some("Daemon 已启动，但当前连接状态异常。".to_string())
+pub struct FinalStatusEntryParams<'a> {
+    pub display_name: &'a str,
+    pub daemon_info: &'a Option<DaemonInfo>,
+    pub level: StatusLevel,
+    pub msg: String,
+    pub children: Vec<StatusEntry>,
+    pub details: Vec<String>,
+    pub port_conflict: Option<String>,
+    pub outdated: bool,
+    pub mismatch_reason: Option<String>,
+}
+
+fn build_final_status_entry(params: FinalStatusEntryParams<'_>) -> StatusEntry {
+    StatusEntry::new(
+        CommonTemplate::Daemon(params.display_name.to_string()),
+        params.level,
+        params.msg,
+    )
+    .with_reason(if let Some(reason) = params.mismatch_reason {
+        Some(reason)
+    } else if params.daemon_info.is_none() {
+        if let Some(conflict) = params.port_conflict {
+            Some(conflict)
         } else {
-            None
-        })
-        .with_details(details)
-        .with_children(children)
+            Some("Daemon 未启动，后台自动化能力（续约/桥接）已禁用。".to_string())
+        }
+    } else if params.outdated {
+        Some(
+            "⚠️ 当前后台进程版本已过时。建议运行 'cowen daemon restart' 以同步最新功能。"
+                .to_string(),
+        )
+    } else if params.level == StatusLevel::ERROR {
+        Some("Daemon 已启动，但当前连接状态异常。".to_string())
+    } else {
+        None
+    })
+    .with_details(params.details)
+    .with_children(params.children)
 }
 
 pub async fn collect_daemon_status(
@@ -496,9 +502,9 @@ pub async fn collect_daemon_status(
         outdated = o;
     }
 
-    let res = build_final_status_entry(
+    let res = build_final_status_entry(FinalStatusEntryParams {
         display_name,
-        &daemon_info,
+        daemon_info: &daemon_info,
         level,
         msg,
         children,
@@ -506,7 +512,7 @@ pub async fn collect_daemon_status(
         port_conflict,
         outdated,
         mismatch_reason,
-    );
+    });
 
     Ok(res)
 }

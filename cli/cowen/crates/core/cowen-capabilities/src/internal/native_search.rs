@@ -12,9 +12,12 @@ pub trait NativeSearchCapability: Send + Sync {
     ) -> (Vec<serde_json::Value>, Option<String>);
 }
 
+type SearchCacheEntry = (u64, u64, Arc<cowen_search::loader::FallbackProvider>);
+type SearchCacheMap = HashMap<String, SearchCacheEntry>;
+type SearchCacheLock = Arc<RwLock<SearchCacheMap>>;
+
 pub struct DefaultSearch {
-    search_cache:
-        Arc<RwLock<HashMap<String, (u64, u64, Arc<cowen_search::loader::FallbackProvider>)>>>,
+    search_cache: SearchCacheLock,
 }
 
 impl Default for DefaultSearch {

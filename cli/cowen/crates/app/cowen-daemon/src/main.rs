@@ -1,16 +1,14 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")] // os-macro-allowed
-#![allow(unused_imports)]
+#![allow(clippy::result_large_err)] // required by tonic interceptor signature
 
 use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{error, info};
 
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 
-use cowen_auth::client::Client;
 use cowen_common::daemon::DaemonService;
 use cowen_common::vault::Vault;
 use cowen_config::ConfigManager;

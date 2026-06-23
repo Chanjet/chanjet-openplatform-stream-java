@@ -1,5 +1,5 @@
-#![allow(dead_code, unused_imports, unused_variables)]
-// Audit specific capability
+#![allow(dead_code, unused_imports, unused_variables)] // TODO: placeholder, implement properly later
+                                                       // Audit specific capability
 use cowen_auth::client::Client;
 use cowen_common::daemon::DaemonService;
 use cowen_common::grpc::proto::*;

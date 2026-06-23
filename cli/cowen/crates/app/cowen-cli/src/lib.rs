@@ -835,7 +835,8 @@ pub async fn run(cli: Cli) -> Result<()> {
                         .await?;
                     }
                     ApiCommands::Spec { method, path, raw } => {
-                        cmd::api::spec(&active_profile, method, path, *raw).await?;
+                        cmd::api::spec(&active_profile, method.as_str(), path.as_str(), *raw)
+                            .await?;
                     }
                 }
             } else if let (Some(m), Some(p)) = (method, path) {

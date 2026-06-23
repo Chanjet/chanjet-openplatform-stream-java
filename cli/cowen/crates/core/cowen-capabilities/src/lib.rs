@@ -20,22 +20,24 @@ use cowen_common::vault::Vault;
 use cowen_config::ConfigManager;
 use std::sync::Arc;
 
+pub type TunnelPluginStreamAlias = std::pin::Pin<
+    Box<
+        dyn tokio_stream::Stream<
+                Item = Result<
+                    cowen_common::grpc::proto::TunnelPluginResponse,
+                    cowen_common::CowenError,
+                >,
+            > + Send
+            + 'static,
+    >,
+>;
+
 pub struct CapabilityRegistry {
     pub native_api_registry:
         Arc<dyn capabilities::protected::native_api_registry::NativeApiRegistryCapability>,
     pub native_system: Arc<
         dyn capabilities::protected::native_system::NativeSystemCapability<
-            TunnelPluginStream = std::pin::Pin<
-                Box<
-                    dyn tokio_stream::Stream<
-                            Item = Result<
-                                cowen_common::grpc::proto::TunnelPluginResponse,
-                                cowen_common::CowenError,
-                            >,
-                        > + Send
-                        + 'static,
-                >,
-            >,
+            TunnelPluginStream = TunnelPluginStreamAlias,
         >,
     >,
     pub native_dlq: Arc<dyn capabilities::protected::native_dlq::NativeDlqCapability>,

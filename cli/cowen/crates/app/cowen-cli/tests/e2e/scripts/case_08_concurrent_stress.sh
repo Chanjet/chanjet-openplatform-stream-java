@@ -21,6 +21,7 @@ echo -e "${BOLD}2. Start Daemon${NC}"
 "$COWEN_BIN" daemon start --profile stress >/dev/null
 wait_for_daemon stress 10
 assert_pass "Daemon is running"
+sleep 2
 
 echo -e "${BOLD}3. Concurrent Proxy Requests (Stress)${NC}"
 echo "   Launching 20 parallel requests..."

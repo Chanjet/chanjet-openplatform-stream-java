@@ -29,10 +29,18 @@ export COWEN_EXCLUSIVE=true
 assert_pass "Profile P1 initialized"
 
 echo -e "${BOLD}2. Start First Daemon (P1)${NC}"
-"$COWEN_BIN" daemon start --profile p1 >/dev/null
+# Daemon was auto-started by init
 wait_for_daemon p1 10
-"$COWEN_BIN" auth login --profile p1 --force >/dev/null
-sleep 2
+# Allow time for Mock Server to push the AppTicket over the newly established bridge
+echo -n "   Waiting for AppTicket (P1)..."
+for i in {1..20}; do
+    if "$COWEN_BIN" auth login --profile p1 --force >/dev/null 2>&1; then
+        echo -e " ${GREEN}[OK]${NC}"
+        break
+    fi
+    sleep 1
+    echo -n "."
+done
 
 # Verify P1 is connected
 CONN_COUNT=$(wait_for_connections 1 5)
@@ -60,12 +68,18 @@ sed -i.bak "s/monitor_port:.*/monitor_port: $P2_MONITOR_PORT/" "$HOME_P2/app.yam
     --openapi-url $MOCK_URL --stream-url $MOCK_WS \
     --proxy-port $PROXY_PORT_2 >/dev/null
 
-# Start P2
-"$COWEN_BIN" daemon start --profile p2 >/dev/null
+# Daemon P2 auto-started by init
 wait_for_daemon p2 10
 export COWEN_HOME="$HOME_P2"
-"$COWEN_BIN" auth login --profile p2 --force >/dev/null
-sleep 2
+echo -n "   Waiting for AppTicket (P2)..."
+for i in {1..20}; do
+    if "$COWEN_BIN" auth login --profile p2 --force >/dev/null 2>&1; then
+        echo -e " ${GREEN}[OK]${NC}"
+        break
+    fi
+    sleep 1
+    echo -n "."
+done
 echo "   P2 starting..."
 
 echo -e "${BOLD}4. Verify Eviction Logic${NC}"

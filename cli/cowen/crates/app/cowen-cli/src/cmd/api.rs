@@ -223,7 +223,7 @@ fn print_spec_responses(op: &serde_json::Value) {
     }
 }
 
-pub async fn spec(profile: &str, method: &String, path: &String, raw: bool) -> Result<()> {
+pub async fn spec(profile: &str, method: &str, path: &str, raw: bool) -> Result<()> {
     let ipc = cowen_common::grpc::client::DaemonClient::new(crate::get_ipc_port_path());
     match ipc.api_spec(profile, method, path).await {
         Ok(DaemonResponse::ApiSpecData { json }) => {

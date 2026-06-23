@@ -54,12 +54,8 @@ echo -e "   ✓ Node 1 initialized as StoreApp"
 
 echo -e "${BOLD}2. Trigger AppTicket Push and Verify Storage${NC}"
 
-# Start daemon on Node 1 to receive ticket
-"$COWEN_BIN" daemon start --profile main >/dev/null
+# Wait for daemon (auto-started by init) to establish websocket bridge
 wait_for_daemon main 10
-
-echo -e "  Triggering AppTicket push for Node 1..."
-curl -s -X POST -H "appKey: $APP_KEY" "$MOCK_URL/auth/appTicket/resend" >/dev/null
 
 # Verify ticket exists in PostgreSQL with retries
 echo -n "  Verifying AppTicket in PostgreSQL..."
@@ -84,11 +80,19 @@ echo -e "${BOLD}3. Verify Persistence after Node 1 Restart${NC}"
 sleep 1
 
 echo -n "  Verifying AppTicket persists after daemon stop..."
-TICKET_AFTER_STOP=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';" "$DB_NAME" | grep -v "ticket_value" | grep -v "\-\-\-" | grep -v "rows" | xargs)
+TICKET_AFTER_STOP=""
+for i in {1..10}; do
+    TICKET_AFTER_STOP=$(safe_psql_exec "SELECT ticket_value FROM cowen_ticket WHERE app_key = '$APP_KEY';" "$DB_NAME" | grep -v "ticket_value" | grep -v "\-\-\-" | grep -v "rows" | xargs)
+    if [[ "$TICKET_IN_DB" == "$TICKET_AFTER_STOP" ]]; then
+        break
+    fi
+    sleep 1
+done
+
 if [[ "$TICKET_IN_DB" == "$TICKET_AFTER_STOP" ]]; then
     echo -e " ${GREEN}[OK]${NC}"
 else
-    fail_suite "Ticket lost or changed after stop"
+    fail_suite "Ticket lost or changed after stop. Was: '$TICKET_IN_DB', Now: '$TICKET_AFTER_STOP'"
 fi
 
 echo -e "${BOLD}4. Verify Node 2 Access (Shared Storage)${NC}"
@@ -100,7 +104,6 @@ storage:
 log:
   level: debug
 openapi_url: "$MOCK_URL"
-stream_url: "$MOCK_WS"
 telemetry_enabled: false
 ai_enabled: false
 EOF

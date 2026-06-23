@@ -9,6 +9,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+# Maximize file descriptor limit for high concurrency testing
+ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
+
 # 1. Prepare local databases if running locally on macOS/Linux (excluding Docker/Podman environments)
 if [ -z "$IN_PODMAN" ] && [ -z "$IN_DOCKER" ]; then
     echo "🐘 Preparing local database services..."
@@ -25,8 +28,8 @@ echo "🧹 1. Cleaning previous coverage telemetry and build artifacts..."
 if command -v cargo-llvm-cov &> /dev/null; then
     cargo llvm-cov clean --workspace
 fi
-rm -rf target/llvm-cov-data target/llvm-cov-target
-mkdir -p target/llvm-cov-data target
+rm -rf target/llvm-cov-data target/llvm-cov-target || (sleep 1 && rm -rf target/llvm-cov-data target/llvm-cov-target) || true
+mkdir -p target/llvm-cov-data target/llvm-cov-target/debug
 
 # 3. Run unit and integration tests (injects coverage)
 echo "🧪 2. Running Rust unit and integration tests with coverage..."
@@ -48,8 +51,12 @@ export COWEN_SKIP_BROWSER=true
 export TEST_BASE=target/cowen_tests_macos
 export BASE_PORT_START=18000
 
-# Execute parallel E2E test runner
-crates/app/cowen-cli/tests/runners/run_parallel.sh || echo "⚠️ Warning: Some E2E suites failed, but coverage collection will continue."
+# Execute parallel E2E test runner and capture exit code
+set +e
+crates/app/cowen-cli/tests/runners/run_parallel.sh
+E2E_EXIT_CODE=$?
+set -e
+
 
 # 6. Copy E2E profraw telemetry data to merge folder
 echo "📦 5. Copying E2E telemetry trace data..."
@@ -103,5 +110,10 @@ OBJECTS="$OBJECTS -object target/llvm-cov-target/debug/cowen -object target/llvm
 $LLVM_COV report -use-color=0 -instr-profile=target/llvm-cov-target/llvm-cov-target/cowen.profdata $OBJECTS -ignore-filename-regex "(registry/src|toolchains/|debug/build|cranelift|target-lexicon|mssql\.rs)" > target/coverage_report.txt
 
 # 9. Execute python coverage gate to print breakdown and enforce quality gate threshold
+if [ "$E2E_EXIT_CODE" -ne 0 ]; then
+    echo "❌ E2E tests failed (Exit Code: $E2E_EXIT_CODE)! Coverage report generated for debugging, but skipping quality gate."
+    exit "$E2E_EXIT_CODE"
+fi
+
 echo "📈 8. Executing coverage quality gate check..."
 python3 scripts/coverage_gate.py

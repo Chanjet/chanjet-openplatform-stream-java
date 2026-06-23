@@ -22,6 +22,7 @@ echo -e "${BOLD}2. Start Daemon${NC}"
 "$COWEN_BIN" daemon start --profile life >/dev/null
 wait_for_daemon life 10
 assert_pass "Daemon is running"
+sleep 2
 
 echo -e "${BOLD}3. Initial Token Acquisition${NC}"
 "$COWEN_BIN" auth login --profile life --force >/dev/null

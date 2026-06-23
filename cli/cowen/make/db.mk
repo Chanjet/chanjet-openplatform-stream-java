@@ -132,11 +132,49 @@ run:
 
 # Makefile 跨平台编译语法检查强校准靶点
 check-cross:
-	@echo "====== 开始 macOS 架构静态编译检查 ======"
-	cargo check --target aarch64-apple-darwin --workspace --all-targets
-	@echo "====== 开始 Linux 架构静态编译检查 ======"
-	cargo check --target x86_64-unknown-linux-gnu --workspace --all-targets
-	@echo "====== 开始 Windows 架构静态编译检查 ======"
-	cargo check --target x86_64-pc-windows-msvc --workspace --all-targets
-	@echo "====== 所有平台跨平台编译静态检查 100% 通过 ======"
+	@echo "====== 开始多平台跨平台编译并行静态检查 ======"
+	@rm -f .check_macos.log .check_linux.log .check_win.log
+	@echo "⏳ 正在并行执行跨平台编译检查..."
+	@failed=0; \
+	pid_macos=0; \
+	pid_linux=0; \
+	pid_win=0; \
+	if [ "$(HOST_OS)" != "macos" ]; then \
+		echo "⏳ [macOS] 启动静态编译检查..."; \
+		cargo check --target aarch64-apple-darwin --workspace --all-targets -j 2 > .check_macos.log 2>&1 & pid_macos=$$!; \
+	else \
+		echo "⏭️ [macOS] 跳过当前主机平台的静态编译检查"; \
+	fi; \
+	if [ "$(HOST_OS)" != "linux" ]; then \
+		echo "⏳ [Linux] 启动跨平台编译检查..."; \
+		DOCKER_DEFAULT_PLATFORM=linux/amd64 CARGO_TARGET_DIR=target/cross/linux cross check --config 'build.rustc-wrapper=""' --target x86_64-unknown-linux-gnu --workspace --all-targets -j 2 > .check_linux.log 2>&1 & pid_linux=$$!; \
+	else \
+		echo "⏭️ [Linux] 跳过当前主机平台的跨平台编译检查"; \
+	fi; \
+	if [ "$(HOST_OS)" != "windows" ]; then \
+		echo "⏳ [Windows] 启动跨平台编译检查..."; \
+		DOCKER_DEFAULT_PLATFORM=linux/amd64 CARGO_TARGET_DIR=target/cross/win cross check --config 'build.rustc-wrapper=""' --target x86_64-pc-windows-gnu --workspace --all-targets -j 1 > .check_win.log 2>&1 & pid_win=$$!; \
+	else \
+		echo "⏭️ [Windows] 跳过当前主机平台的跨平台编译检查"; \
+	fi; \
+	if [ $$pid_macos -ne 0 ]; then \
+		wait $$pid_macos || { echo "❌ [macOS] 检查失败:"; cat .check_macos.log; failed=1; }; \
+	else \
+		echo "✅ [macOS] 当前主机平台（跳过）"; \
+	fi; \
+	if [ $$pid_linux -ne 0 ]; then \
+		wait $$pid_linux || { echo "❌ [Linux] 检查失败:"; cat .check_linux.log; failed=1; }; \
+	else \
+		echo "✅ [Linux] 当前主机平台（跳过）"; \
+	fi; \
+	if [ $$pid_win -ne 0 ]; then \
+		wait $$pid_win || { echo "❌ [Windows] 检查失败:"; cat .check_win.log; failed=1; }; \
+	else \
+		echo "✅ [Windows] 当前主机平台（跳过）"; \
+	fi; \
+	if [ $$failed -eq 1 ]; then echo "====== 跨平台编译静态检查存在错误 ======"; exit 1; fi; \
+	if [ $$pid_macos -ne 0 ]; then echo "✅ [macOS] 架构静态编译检查通过"; fi; \
+	if [ $$pid_linux -ne 0 ]; then echo "✅ [Linux] 架构静态编译检查通过"; fi; \
+	if [ $$pid_win -ne 0 ]; then echo "✅ [Windows] 架构静态编译检查通过"; fi; \
+	echo "====== 所有平台跨平台编译静态检查完成 ======"
 

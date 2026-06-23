@@ -1,5 +1,5 @@
-#![allow(dead_code, unused_imports, unused_variables)]
-// Worker specific capability
+#![allow(dead_code, unused_imports, unused_variables)] // TODO: placeholder, implement properly later
+                                                       // Worker specific capability
 use cowen_auth::client::Client;
 use cowen_common::{daemon::DaemonService, grpc::proto::*, vault::Vault, CowenError};
 use cowen_config::ConfigManager;

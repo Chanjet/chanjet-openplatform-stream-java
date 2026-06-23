@@ -695,18 +695,40 @@ wait_for_token() {
     return 1
 }
 
-# Wait for daemon status to be ACTIVE or RUNNING
 wait_for_daemon() {
     local profile="$1"
-    local max_retries="${2:-10}"
+    local max_retries="${2:-15}"
     
+    local is_active=false
     for i in $(seq 1 "$max_retries"); do
         if COWEN_SKIP_DAEMON_RECOVERY=true "$COWEN_BIN" status --profile "$profile" 2>&1 | grep -q "ACTIVE\|RUNNING"; then
-            return 0
+            is_active=true
+            break
         fi
         sleep 1
     done
-    return 1
+
+    if [ "$is_active" = false ]; then
+        return 1
+    fi
+
+    # Long-term fix for Mock Server Push race conditions:
+    # Wait for the WebSocket bridge to be fully established before returning.
+    local log_file="$COWEN_HOME/logs/${profile}_sys.log"
+    local config_file="$COWEN_HOME/profiles/${profile}/config.toml"
+    
+    if [ -f "$config_file" ] && grep -E -q 'stream_url = ".+"' "$config_file" 2>/dev/null; then
+        for i in $(seq 1 "$max_retries"); do
+            if [ -f "$log_file" ] && grep -q "Bridge connection established" "$log_file" 2>/dev/null; then
+                # Give it a tiny moment to process the initial mock server push
+                sleep 0.5
+                break
+            fi
+            sleep 1
+        done
+    fi
+
+    return 0
 }
 
 # Setup and isolate PostgreSQL database
@@ -858,9 +880,10 @@ wait_for_pods_active() {
     local start="$2"
     local end="$3"
     local pattern="${4:-ACTIVE\|RUNNING}"
-    local timeout="${5:-15}"
+    local timeout="${5:-20}"
     
     local expected=$((end - start + 1))
+    local all_active=false
     for elapsed in $(seq 1 "$timeout"); do
         local active_count=0
         for i in $(seq "$start" "$end"); do
@@ -870,11 +893,47 @@ wait_for_pods_active() {
             fi
         done
         if [ "$active_count" -eq "$expected" ]; then
-            return 0
+            all_active=true
+            break
         fi
         sleep 1
     done
-    return 1
+
+    if [ "$all_active" = false ]; then
+        return 1
+    fi
+
+    # Long-term fix for Sidecar Bridge Race Conditions
+    # If a stream URL is configured via ENV or in the first pod's profile, wait for all bridges to establish.
+    local has_stream=false
+    if [ -n "$COWEN_STREAM_URL" ]; then
+        has_stream=true
+    else
+        local sample_config="$base_home/pod_${start}/profiles/main/config.toml"
+        if [ -f "$sample_config" ] && grep -E -q 'stream_url = ".+"' "$sample_config" 2>/dev/null; then
+            has_stream=true
+        fi
+    fi
+
+    if [ "$has_stream" = true ]; then
+        for elapsed in $(seq 1 "$timeout"); do
+            local connected_count=0
+            for i in $(seq "$start" "$end"); do
+                local POD_HOME="$base_home/pod_$i"
+                # Support both profile logs and daemon foreground output logs
+                if grep -q "Bridge connection established" "$POD_HOME/logs/"*_sys.log 2>/dev/null || grep -q "Bridge connection established" "$POD_HOME/daemon.log" 2>/dev/null; then
+                    ((connected_count++))
+                fi
+            done
+            if [ "$connected_count" -eq "$expected" ]; then
+                sleep 0.5
+                break
+            fi
+            sleep 1
+        done
+    fi
+
+    return 0
 }
 
 

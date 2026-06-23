@@ -16,13 +16,16 @@ start_mock
 echo "1. Testing Adaptive Token Refresh Strategy..."
 COWEN_SKIP_DAEMON_RECOVERY=1 "$COWEN_BIN" init --profile prof_robust     --app-mode self-built     --app-key AK_ROBUST     --app-secret AS_ROBUST     --encrypt-key 1234567890123456     --certificate "CERT_ROBUST"     --openapi-url $MOCK_URL     --stream-url $MOCK_WS     --webhook-target "http://127.0.0.1:8080/cb" >/dev/null
 
-# 注入令牌
-"$COWEN_BIN" auth login --profile prof_robust --force >/dev/null
-
 echo "  Starting daemon in foreground..."
 LOG_FILE="$COWEN_HOME/prof_robust.log"
 "$COWEN_BIN" --profile prof_robust daemon start --foreground --proxy-port 0 > "$LOG_FILE" 2>&1 &
 LOCAL_PID=$!
+
+# Wait for daemon to establish connection and fetch AppTicket
+sleep 3
+
+# 注入令牌
+"$COWEN_BIN" auth login --profile prof_robust --force >/dev/null
 
 # 极致轮询日志
 echo -n "  Waiting for adaptive delay log..."

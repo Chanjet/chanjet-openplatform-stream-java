@@ -771,13 +771,10 @@ impl AuthProvider for SelfBuiltProvider {
         &self,
         profile: &str,
         config: &Config,
-        path: &str,
-        _method: &str,
-        headers: reqwest::header::HeaderMap,
-        _body: &[u8],
-        _spec: &serde_json::Value,
+        ctx: crate::provider::InterceptRequestContext<'_>,
     ) -> CowenResult<crate::provider::ProxyRequestAction> {
-        let mut headers = headers;
+        let mut headers = ctx.headers;
+        let path = ctx.path;
 
         // Inject token
         match self.get_token(profile, config, &headers).await {

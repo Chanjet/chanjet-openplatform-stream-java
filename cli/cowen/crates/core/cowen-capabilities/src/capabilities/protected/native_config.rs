@@ -1,5 +1,5 @@
-#![allow(dead_code, unused_imports, unused_variables)]
-// Config specific capability
+#![allow(dead_code, unused_imports, unused_variables)] // TODO: placeholder, implement properly later
+                                                       // Config specific capability
 use crate::internal::config_utils::{
     deep_merge, merge_and_save_global_config, validate_port_conflicts,
 };

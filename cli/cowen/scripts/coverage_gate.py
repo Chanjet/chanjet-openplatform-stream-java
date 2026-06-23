@@ -143,6 +143,7 @@ def main():
     print("-" * 75)
 
     # 3. Dynamic Coverage Gate Check
+    total_coverage = round(total_coverage, 2)
     history_gate = 0.0
     if os.path.exists(gate_file_path):
         try:

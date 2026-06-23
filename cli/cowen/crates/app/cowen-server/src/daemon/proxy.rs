@@ -176,11 +176,13 @@ async fn handle_proxy(State(state): State<ProxyState>, req: Request) -> axum::re
         .intercept_request(
             &state.profile,
             &state.config,
-            &req_path,
-            &method_str,
-            headers,
-            &bytes,
-            &serde_json::Value::Null,
+            cowen_auth::provider::InterceptRequestContext {
+                path: &req_path,
+                method: &method_str,
+                headers,
+                body: &bytes,
+                spec: &serde_json::Value::Null,
+            },
         )
         .await
     {
@@ -313,11 +315,13 @@ async fn handle_upstream_response(
                 .intercept_response(
                     &state.profile,
                     &state.config,
-                    req_path,
-                    method_str,
-                    status,
-                    &out_headers,
-                    &out_bytes,
+                    cowen_auth::provider::InterceptResponseContext {
+                        path: req_path,
+                        method: method_str,
+                        status,
+                        headers: &out_headers,
+                        body: &out_bytes,
+                    },
                 )
                 .await
             {

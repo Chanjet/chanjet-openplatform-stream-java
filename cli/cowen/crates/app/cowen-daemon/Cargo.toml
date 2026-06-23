@@ -8,7 +8,7 @@ edition = "2021"
 anyhow = "1.0"
 chrono = "0.4.44"
 clap = { version = "4.6", features = ["derive"] }
-cowen-auth = { path = "../../services/cowen-auth" }
+
 cowen-capabilities = { path = "../../core/cowen-capabilities" }
 cowen-common = { path = "../../core/cowen-common" }
 cowen-config = { path = "../../services/cowen-config" }
@@ -34,4 +34,5 @@ uuid = { version = "1.23.1", features = ["v4"] }
 windows-service = "0.7"
 
 [build-dependencies]
+protoc-bin-vendored = "3.2.0"
 tonic-build = "0.12"

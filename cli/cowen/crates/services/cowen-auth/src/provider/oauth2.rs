@@ -50,16 +50,11 @@ async fn check_oauth2_revoked(
     Ok(())
 }
 
-fn get_profile_locks() -> std::sync::Arc<
-    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
-> {
-    static LOCKS: std::sync::OnceLock<
-        std::sync::Arc<
-            std::sync::Mutex<
-                std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>,
-            >,
-        >,
-    > = std::sync::OnceLock::new();
+type ProfileLocksMap = std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>;
+type ProfileLocksSync = std::sync::Arc<std::sync::Mutex<ProfileLocksMap>>;
+
+fn get_profile_locks() -> ProfileLocksSync {
+    static LOCKS: std::sync::OnceLock<ProfileLocksSync> = std::sync::OnceLock::new();
     LOCKS
         .get_or_init(|| {
             std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()))
@@ -544,12 +539,12 @@ impl AuthProvider for OAuth2Provider {
         &self,
         profile: &str,
         config: &Config,
-        path: &str,
-        method: &str,
-        mut headers: reqwest::header::HeaderMap,
-        _body: &[u8],
-        spec: &serde_json::Value,
+        ctx: crate::provider::InterceptRequestContext<'_>,
     ) -> CowenResult<crate::provider::ProxyRequestAction> {
+        let mut headers = ctx.headers;
+        let path = ctx.path;
+        let method = ctx.method;
+        let spec = ctx.spec;
         let token = self.get_token(profile, config, &headers).await?;
 
         crate::provider::utils::decorate_proxy_headers(

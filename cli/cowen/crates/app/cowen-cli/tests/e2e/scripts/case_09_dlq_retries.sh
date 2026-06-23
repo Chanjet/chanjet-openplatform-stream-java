@@ -20,11 +20,6 @@ BAD_SINK="http://127.0.0.1:9999/broken"
     --openapi-url $MOCK_URL --stream-url $MOCK_WS --proxy-port $PROXY_PORT >/dev/null
 assert_pass "Profile initialized"
 
-"$COWEN_BIN" auth login --profile dlq_prof --force >/dev/null
-assert_pass "Initial token acquired"
-
-echo -e "${BOLD}2. Start Daemon${NC}"
-"$COWEN_BIN" daemon start --profile dlq_prof >/dev/null
 echo -n "  Waiting for daemon bridge connection..."
 for i in {1..20}; do
     if grep -q "Bridge connection established" "$COWEN_HOME/logs/dlq_prof_sys.log" 2>/dev/null; then
@@ -35,6 +30,9 @@ for i in {1..20}; do
     sleep 1
 done
 assert_pass "Daemon is running and connected"
+
+"$COWEN_BIN" auth login --profile dlq_prof --force >/dev/null
+assert_pass "Initial token acquired"
 
 echo -e "${BOLD}3. Trigger Broadcast (Will Fail Forwarding)${NC}"
 curl -s -X POST -H "Content-Type: application/json" \

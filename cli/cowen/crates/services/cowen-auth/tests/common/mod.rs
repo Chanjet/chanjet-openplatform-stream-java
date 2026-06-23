@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code)] // Test utility module
 
 use async_trait::async_trait;
 use cowen_common::domain::*;

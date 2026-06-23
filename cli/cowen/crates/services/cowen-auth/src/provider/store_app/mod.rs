@@ -226,12 +226,13 @@ impl AuthProvider for StoreAppProvider {
         &self,
         profile: &str,
         config: &Config,
-        path: &str,
-        method: &str,
-        mut headers: reqwest::header::HeaderMap,
-        body: &[u8],
-        spec: &serde_json::Value,
+        ctx: crate::provider::InterceptRequestContext<'_>,
     ) -> CowenResult<crate::provider::ProxyRequestAction> {
+        let mut headers = ctx.headers;
+        let path = ctx.path;
+        let method = ctx.method;
+        let body = ctx.body;
+        let spec = ctx.spec;
         // 1. Check for short-circuit interception (OAuth2 Token Exchange)
         if path.ends_with("/oauth2/token") && method == "POST" {
             let json_resp = self.intercept_exchange(profile, config, body).await?;
@@ -317,11 +318,7 @@ impl AuthProvider for StoreAppProvider {
         &self,
         _profile: &str,
         _config: &Config,
-        _path: &str,
-        _method: &str,
-        _status: u16,
-        _response_headers: &reqwest::header::HeaderMap,
-        _response_body: &[u8],
+        _ctx: crate::provider::InterceptResponseContext<'_>,
     ) -> CowenResult<Option<serde_json::Value>> {
         Ok(None)
     }
