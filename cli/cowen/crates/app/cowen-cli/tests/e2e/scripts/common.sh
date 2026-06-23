@@ -13,6 +13,9 @@ export NC='\033[0m'
 
 # Detect OS and adjust binary name
 OS_TYPE=$(uname -s)
+if [ "$OS_NAME" = "windows-cross" ] || [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
+    export IS_WINDOWS="true"
+fi
 
 get_source_bin() {
     if [ -n "$COWEN_BIN" ]; then
@@ -22,7 +25,7 @@ get_source_bin() {
     
     local target_base=${CARGO_TARGET_DIR:-target}
     local bins=()
-    if [[ "$OS_TYPE" == *"MINGW"* || "$OS_TYPE" == *"MSYS"* || "$OS_TYPE" == *"CYGWIN"* ]]; then
+    if [ "$IS_WINDOWS" = "true" ]; then
         bins=(
             "$target_base/release/cowen-test.exe" 
             "$target_base/debug/cowen-test.exe" 
@@ -193,60 +196,124 @@ setup_workspace() {
     # Use cp instead of symbolic link so the OS process manager shows the unique name
     # On modern filesystems, cp is fast. This ensures 'pkill' and process isolation works flawlessly.
     local abs_source=$(python3 -c "import os; print(os.path.abspath('$SOURCE_BIN'))")
-    cp "$abs_source" "$COWEN_HOME/$unique_name"
-    export COWEN_BIN="$COWEN_HOME/$unique_name"
+    
+    local ext=""
+    if [ "$OS_NAME" = "windows-cross" ]; then
+        ext=".exe"
+    fi
+
+    if [ "$OS_NAME" = "windows-cross" ]; then
+        local wine_bin="wine64"
+        if ! command -v wine64 >/dev/null 2>&1; then
+            if command -v wine >/dev/null 2>&1; then
+                wine_bin="wine"
+            fi
+        fi
+        
+        # Pre-initialize WINEPREFIX for the workspace to prevent races
+        export WINEPREFIX="$COWEN_HOME/.wine"
+        export WINE_AUTO_DEBUGGER=0
+        mkdir -p "$WINEPREFIX"
+
+        cp "$abs_source" "$COWEN_HOME/$unique_name$ext"
+        cat > "$COWEN_HOME/$unique_name" <<EOF
+#!/bin/bash
+export WINEPREFIX="$COWEN_HOME/.wine"
+export WINEDEBUG="-all"
+export WINE_AUTO_DEBUGGER=0
+export COWEN_HOME="Z:$COWEN_HOME"
+exec $wine_bin "Z:$COWEN_HOME/$unique_name$ext" "\$@"
+EOF
+        chmod +x "$COWEN_HOME/$unique_name"
+        export COWEN_BIN="$COWEN_HOME/$unique_name"
+    else
+        cp "$abs_source" "$COWEN_HOME/$unique_name"
+        export COWEN_BIN="$COWEN_HOME/$unique_name"
+    fi
     
     # 🚀 DAEMON EXTRACTION: Also copy and RENAME the standalone daemon binary
     local build_dir=$(dirname "$abs_source")
-    local daemon_src="$build_dir/cowen-daemon"
+    local daemon_src="$build_dir/cowen-daemon$ext"
     
     # Fallback to other build dirs if not found in current one
     if [ ! -f "$daemon_src" ]; then
-        if [ -f "target/release/cowen-daemon" ]; then
-            daemon_src="target/release/cowen-daemon"
-        elif [ -f "target/debug/cowen-daemon" ]; then
-            daemon_src="target/debug/cowen-daemon"
+        if [ -f "target/release/cowen-daemon$ext" ]; then
+            daemon_src="target/release/cowen-daemon$ext"
+        elif [ -f "target/debug/cowen-daemon$ext" ]; then
+            daemon_src="target/debug/cowen-daemon$ext"
         fi
     fi
 
     if [ -f "$daemon_src" ]; then
-        cp "$daemon_src" "$COWEN_HOME/$unique_daemon"
-        export COWEN_DAEMON_BIN="$COWEN_HOME/$unique_daemon"
-        chmod +x "$COWEN_DAEMON_BIN"
+        cp "$daemon_src" "$COWEN_HOME/$unique_daemon$ext"
+        
+        if [ "$OS_NAME" = "windows-cross" ]; then
+            # 🚀 OCP/Rosetta Fix: Point COWEN_DAEMON_BIN directly to the Windows .exe binary
+            # under Wine's Z: drive mapping. Avoid Unix wrappers to bypass Rosetta index crashes.
+            export COWEN_DAEMON_BIN="Z:$COWEN_HOME/$unique_daemon$ext"
+            chmod +x "$COWEN_HOME/$unique_daemon$ext"
+        else
+            export COWEN_DAEMON_BIN="$COWEN_HOME/$unique_daemon$ext"
+            chmod +x "$COWEN_DAEMON_BIN"
+        fi
     else
         echo -e "${YELLOW}⚠️  cowen-daemon not found. Standard internal server logic will be used.${NC}"
     fi
 
     # stand-alone signer
-    local signer_src="$build_dir/cowen-signer"
+    local signer_src="$build_dir/cowen-signer$ext"
     if [ ! -f "$signer_src" ]; then
-        if [ -f "target/llvm-cov-target/debug/cowen-signer" ]; then
-            signer_src="target/llvm-cov-target/debug/cowen-signer"
-        elif [ -f "target/release/cowen-signer" ]; then
-            signer_src="target/release/cowen-signer"
-        elif [ -f "target/debug/cowen-signer" ]; then
-            signer_src="target/debug/cowen-signer"
+        if [ -f "target/llvm-cov-target/debug/cowen-signer$ext" ]; then
+            signer_src="target/llvm-cov-target/debug/cowen-signer$ext"
+        elif [ -f "target/release/cowen-signer$ext" ]; then
+            signer_src="target/release/cowen-signer$ext"
+        elif [ -f "target/debug/cowen-signer$ext" ]; then
+            signer_src="target/debug/cowen-signer$ext"
         fi
     fi
     if [ -f "$signer_src" ]; then
-        cp "$signer_src" "$COWEN_HOME/cowen-signer"
-        chmod +x "$COWEN_HOME/cowen-signer"
+        cp "$signer_src" "$COWEN_HOME/cowen-signer$ext"
+        
+        if [ "$OS_NAME" = "windows-cross" ]; then
+            cat > "$COWEN_HOME/cowen-signer" <<EOF
+#!/bin/bash
+export WINEPREFIX="$COWEN_HOME/.wine"
+export WINEDEBUG="-all"
+export WINE_AUTO_DEBUGGER=0
+export COWEN_HOME="Z:$COWEN_HOME"
+exec $wine_bin "Z:$COWEN_HOME/cowen-signer$ext" "\$@"
+EOF
+            chmod +x "$COWEN_HOME/cowen-signer"
+        fi
+        chmod +x "$COWEN_HOME/cowen-signer$ext"
     fi
 
     # stand-alone mcp-plugin
-    local mcp_src="$build_dir/cowen-mcp-plugin"
+    local mcp_src="$build_dir/cowen-mcp-plugin$ext"
     if [ ! -f "$mcp_src" ]; then
-        if [ -f "target/llvm-cov-target/debug/cowen-mcp-plugin" ]; then
-            mcp_src="target/llvm-cov-target/debug/cowen-mcp-plugin"
-        elif [ -f "target/release/cowen-mcp-plugin" ]; then
-            mcp_src="target/release/cowen-mcp-plugin"
-        elif [ -f "target/debug/cowen-mcp-plugin" ]; then
-            mcp_src="target/debug/cowen-mcp-plugin"
+        if [ -f "target/llvm-cov-target/debug/cowen-mcp-plugin$ext" ]; then
+            mcp_src="target/llvm-cov-target/debug/cowen-mcp-plugin$ext"
+        elif [ -f "target/release/cowen-mcp-plugin$ext" ]; then
+            mcp_src="target/release/cowen-mcp-plugin$ext"
+        elif [ -f "target/debug/cowen-mcp-plugin$ext" ]; then
+            mcp_src="target/debug/cowen-mcp-plugin$ext"
         fi
     fi
     if [ -f "$mcp_src" ]; then
-        cp "$mcp_src" "$COWEN_HOME/cowen-mcp-plugin"
-        chmod +x "$COWEN_HOME/cowen-mcp-plugin"
+        cp "$mcp_src" "$COWEN_HOME/cowen-mcp-plugin$ext"
+        
+        if [ "$OS_NAME" = "windows-cross" ]; then
+            cat > "$COWEN_HOME/cowen-mcp-plugin" <<EOF
+#!/bin/bash
+export WINEPREFIX="$COWEN_HOME/.wine"
+export WINEDEBUG="-all"
+export WINE_AUTO_DEBUGGER=0
+export COWEN_HOME="Z:$COWEN_HOME"
+exec $wine_bin "Z:$COWEN_HOME/cowen-mcp-plugin$ext" "\$@"
+EOF
+            chmod +x "$COWEN_HOME/cowen-mcp-plugin"
+        fi
+        chmod +x "$COWEN_HOME/cowen-mcp-plugin$ext"
     fi
 
     # Also copy search embedding plugin if exists
@@ -269,12 +336,17 @@ setup_workspace() {
     export COWEN_ALLOW_PORT_FALLBACK=1
     export COWEN_MONITOR_PORT=$monitor_port
 
+    local db_path="$COWEN_HOME/cowen.db"
+    if [ "$OS_NAME" = "windows-cross" ]; then
+        db_path="Z:$COWEN_HOME/cowen.db"
+    fi
+
     # Create isolated app.yaml with absolute DB path
     cat > "$COWEN_HOME/app.yaml" <<EOF
 monitor_port: $monitor_port
 storage:
   store: innerdb
-  db_url: "sqlite://$COWEN_HOME/cowen.db"
+  db_url: "sqlite://$db_path"
 log:
   level: debug
 telemetry_enabled: false
@@ -433,7 +505,12 @@ start_mock() {
     fi
     echo -n "  Starting Mock Server on port $MOCK_PORT..."
     # Ensure port is free
-    if [ "$IS_WINDOWS" = true ]; then
+    local is_real_windows=false
+    if [ "$IS_WINDOWS" = true ] && [[ "$(uname -s)" == *"MINGW"* || "$(uname -s)" == *"MSYS"* ]]; then
+        is_real_windows=true
+    fi
+
+    if [ "$is_real_windows" = true ]; then
         local pid=$(netstat -ano | grep ":$MOCK_PORT" | grep "LISTENING" | awk '{print $5}' | head -n 1)
         if [ -n "$pid" ]; then taskkill //F //PID "$pid" >/dev/null 2>&1 || true; fi
     else
@@ -490,17 +567,22 @@ except:
 
 # Global Cleanup
 cleanup_all_workspaces() {
+    local is_real_windows=false
+    if [ "$IS_WINDOWS" = true ] && [[ "$(uname -s)" == *"MINGW"* || "$(uname -s)" == *"MSYS"* ]]; then
+        is_real_windows=true
+    fi
+
     # 1. Kill all cowen related processes
-    if [ "$IS_WINDOWS" = true ]; then
+    if [ "$is_real_windows" = true ]; then
         taskkill //F //IM cowen_*.exe >/dev/null 2>&1 || true
     else
-        pkill -15 "cowen_" >/dev/null 2>&1 || true
+        pkill -15 -f "cowen_" >/dev/null 2>&1 || true
         sleep 0.2
-        pkill -9 "cowen_" >/dev/null 2>&1 || true
+        pkill -9 -f "cowen_" >/dev/null 2>&1 || true
     fi
 
     # 2. Kill all mock servers
-    if [ "$IS_WINDOWS" = true ]; then
+    if [ "$is_real_windows" = true ]; then
         # On Windows, we usually kill by port or process name if known
         local pids=$(netstat -ano | grep LISTENING | grep -E ":(9299|16000|18000)" | awk '{print $5}' | sort -u)
         for pid in $pids; do taskkill //F //PID "$pid" >/dev/null 2>&1 || true; done
