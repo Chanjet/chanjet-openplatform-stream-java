@@ -49,22 +49,27 @@ if [ -d "system_plugins" ]; then
     cp -r system_plugins/* "$HOME/.cowen/system_plugins/"
 fi
 
-# 6. Install and enable AI search plugin
+# 6. Install and enable plugins
 PLUGIN_DIR="$HOME/.cowen/plugins"
-if [ -d "lib" ] && ls lib/libcowen_search_embedding >/dev/null 2>&1; then
-    echo "🧩 Installing AI search plugin..."
+if [ -d "lib" ] && [ "$(ls -A lib 2>/dev/null)" ]; then
+    echo "🧩 Installing plugins..."
     mkdir -p "$PLUGIN_DIR"
-    cp lib/libcowen_search_embedding "$PLUGIN_DIR/"
-    if [ -f "lib/libcowen_search_embedding.bundle" ]; then
-        cp lib/libcowen_search_embedding.bundle "$PLUGIN_DIR/"
-    fi
-    chmod +x "$PLUGIN_DIR/libcowen_search_embedding"
+    cp -r lib/* "$PLUGIN_DIR/"
     
-    echo "⚙️ Enabling AI search plugin..."
     # Wait briefly for daemon to stabilize if just installed/started
     sleep 1
-    "$INSTALL_DIR/$BINARY" plugins enable libcowen_search_embedding > /dev/null 2>&1 || true
-    echo "✅ AI search plugin installed and enabled."
+    
+    for file in "$PLUGIN_DIR"/*; do
+        if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            if [[ "$filename" != *.bundle ]]; then
+                chmod +x "$file"
+                echo "⚙️ Enabling plugin $filename..."
+                "$INSTALL_DIR/$BINARY" plugins enable "$filename" > /dev/null 2>&1 || true
+            fi
+        fi
+    done
+    echo "✅ Plugins installed and enabled."
 fi
 
 echo -e "\n🎉 Installation complete! Run 'cowen --help' to get started."

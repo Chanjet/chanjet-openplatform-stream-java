@@ -8,14 +8,40 @@ if (!(Test-Path $install_dir)) {
 
 Write-Host "=== 🚀 Starting Cowen Windows installation ===" -ForegroundColor Cyan
 
-# 1. 自动探测并拷贝核心二进制和插件 DLL
+# 1. 自动探测并拷贝核心二进制和插件
 $current_dir = Get-Location
-$files_to_copy = @("cowen.exe", "cowen-daemon.exe", "cowen_search_embedding.dll", "cowen_search_embedding.bundle")
-foreach ($file in $files_to_copy) {
+$core_files = @("cowen.exe", "cowen-daemon.exe")
+foreach ($file in $core_files) {
     $src = Join-Path $current_dir $file
     if (Test-Path $src) {
         Copy-Item -Path $src -Destination $install_dir -Force
         Write-Host "✅ Copied $file to $install_dir" -ForegroundColor Green
+    }
+}
+
+$plugin_dir = Join-Path $env:USERPROFILE ".cowen\plugins"
+if (!(Test-Path $plugin_dir)) {
+    New-Item -ItemType Directory -Force -Path $plugin_dir | Out-Null
+}
+
+$plugin_files = @(
+    "libcowen_search_embedding.exe", "libcowen_search_embedding.bundle",
+    "cowen_search_embedding.dll", "cowen_search_embedding.bundle",
+    "cowen-mcp-plugin.exe", "cowen-mcp-plugin.bundle"
+)
+foreach ($file in $plugin_files) {
+    $src = Join-Path $current_dir $file
+    if (Test-Path $src) {
+        Copy-Item -Path $src -Destination $plugin_dir -Force
+        Write-Host "✅ Copied $file to $plugin_dir" -ForegroundColor Green
+        
+        # 自动在 CLI 中启用插件
+        if ($file.EndsWith(".exe") -or $file.EndsWith(".dll")) {
+            Write-Host "⚙️ Enabling plugin $file within cowen CLI..." -ForegroundColor Cyan
+            # Wait briefly for daemon to stabilize if just installed/started
+            Start-Sleep -Seconds 1
+            Start-Process -FilePath (Join-Path $install_dir "cowen.exe") -ArgumentList "plugins", "enable", $file -NoNewWindow -Wait -ErrorAction SilentlyContinue
+        }
     }
 }
 
