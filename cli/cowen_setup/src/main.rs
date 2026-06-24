@@ -6,24 +6,34 @@ fn main() {
     println!("🚀 Starting cowen installation...");
     
     // Embed binaries
-    let cowen_bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen.exe"#);
-    let daemon_bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen-daemon.exe"#);
+    let cowen_bytes = include_bytes!(r#"../../../bin/windows-x86_64/cowen.exe"#);
+    let daemon_bytes = include_bytes!(r#"../../../bin/windows-x86_64/cowen-daemon.exe"#);
     
-    #[cfg(has_ai_plugin)]
-    let dll_bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen_search_embedding.dll"#);
-    #[cfg(not(has_ai_plugin))]
-    let dll_bytes: &[u8] = &[];
+    #[cfg(has_search_exe)]
+    let search_exe_bytes = include_bytes!(r#"../../../bin/windows-x86_64/libcowen_search_embedding.exe"#);
+    #[cfg(not(has_search_exe))]
+    let search_exe_bytes: &[u8] = &[];
     
-    #[cfg(has_ai_plugin)]
-    let bundle_bytes = include_bytes!(r#"..\..\..\bin\windows-x86_64\cowen_search_embedding.bundle"#);
-    #[cfg(not(has_ai_plugin))]
-    let bundle_bytes: &[u8] = &[];
+    #[cfg(has_search_exe)]
+    let search_exe_bundle = include_bytes!(r#"../../../bin/windows-x86_64/libcowen_search_embedding.bundle"#);
+    #[cfg(not(has_search_exe))]
+    let search_exe_bundle: &[u8] = &[];
+
+    #[cfg(has_mcp_exe)]
+    let mcp_exe_bytes = include_bytes!(r#"../../../bin/windows-x86_64/cowen-mcp-plugin.exe"#);
+    #[cfg(not(has_mcp_exe))]
+    let mcp_exe_bytes: &[u8] = &[];
+    
+    #[cfg(has_mcp_exe)]
+    let mcp_bundle_bytes = include_bytes!(r#"../../../bin/windows-x86_64/cowen-mcp-plugin.bundle"#);
+    #[cfg(not(has_mcp_exe))]
+    let mcp_bundle_bytes: &[u8] = &[];
     
     // Embed system plugins
-    let selfbuilt_wasm_bytes = include_bytes!(r#"..\..\cowen\target\wasm32-wasip1\release\cowen_wasm_auth_selfbuilt.wasm"#);
-    let selfbuilt_bundle_bytes = include_bytes!(r#"..\..\cowen\target\wasm32-wasip1\release\cowen_wasm_auth_selfbuilt.bundle"#);
-    let storeapp_wasm_bytes = include_bytes!(r#"..\..\cowen\target\wasm32-wasip1\release\cowen_wasm_auth_storeapp.wasm"#);
-    let storeapp_bundle_bytes = include_bytes!(r#"..\..\cowen\target\wasm32-wasip1\release\cowen_wasm_auth_storeapp.bundle"#);
+    let selfbuilt_wasm_bytes = include_bytes!(r#"../../cowen/target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm"#);
+    let selfbuilt_bundle_bytes = include_bytes!(r#"../../cowen/target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle"#);
+    let storeapp_wasm_bytes = include_bytes!(r#"../../cowen/target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm"#);
+    let storeapp_bundle_bytes = include_bytes!(r#"../../cowen/target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle"#);
     
     let home = std::env::var("USERPROFILE").expect("Failed to find USERPROFILE");
     let install_dir = PathBuf::from(&home).join(".cowen").join("bin");
@@ -55,26 +65,30 @@ fn main() {
         .expect("Failed to write cowen_wasm_auth_storeapp.bundle");
     println!("📦 Installed Wasm system plugins to {}", system_plugins_dir.display());
     
-    if !dll_bytes.is_empty() {
-        let plugins_dir = PathBuf::from(&home).join(".cowen").join("plugins");
-        if !plugins_dir.exists() {
-            fs::create_dir_all(&plugins_dir).expect("Failed to create plugins directory");
-        }
-        
-        let dll_dest = plugins_dir.join("cowen_search_embedding.dll");
-        fs::write(&dll_dest, dll_bytes).expect("Failed to write cowen_search_embedding.dll");
-        
-        let bundle_dest = plugins_dir.join("cowen_search_embedding.bundle");
-        fs::write(&bundle_dest, bundle_bytes).expect("Failed to write cowen_search_embedding.bundle");
-        
-        println!("🧩 Installed AI plugin to {}", plugins_dir.display());
-        
-        // Wait briefly and enable the plugin
+    let plugins_dir = PathBuf::from(&home).join(".cowen").join("plugins");
+    let mut plugins_installed = false;
+
+    if !search_exe_bytes.is_empty() {
+        if !plugins_dir.exists() { fs::create_dir_all(&plugins_dir).unwrap(); }
+        fs::write(plugins_dir.join("libcowen_search_embedding.exe"), search_exe_bytes).unwrap();
+        fs::write(plugins_dir.join("libcowen_search_embedding.bundle"), search_exe_bundle).unwrap();
+        println!("🧩 Installed AI plugin (EXE) to {}", plugins_dir.display());
+        plugins_installed = true;
+    }
+
+    if !mcp_exe_bytes.is_empty() {
+        if !plugins_dir.exists() { fs::create_dir_all(&plugins_dir).unwrap(); }
+        fs::write(plugins_dir.join("cowen-mcp-plugin.exe"), mcp_exe_bytes).unwrap();
+        fs::write(plugins_dir.join("cowen-mcp-plugin.bundle"), mcp_bundle_bytes).unwrap();
+        println!("🧩 Installed MCP plugin to {}", plugins_dir.display());
+        plugins_installed = true;
+    }
+
+    if plugins_installed {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        let _ = Command::new(&dest)
-            .args(&["plugins", "enable", "cowen_search_embedding"])
-            .status();
-        println!("✅ AI plugin enabled.");
+        let _ = Command::new(&dest).args(&["plugins", "enable", "cowen-search-embedding"]).status();
+        let _ = Command::new(&dest).args(&["plugins", "enable", "cowen-mcp-plugin"]).status();
+        println!("✅ Plugins enabled.");
     }
     
     // Add to User PATH

@@ -40,7 +40,7 @@ for i in {1..4}; do
     # Each pod gets a unique proxy port to avoid localhost conflicts
     export COWEN_PROXY_PORT=$(get_unused_port)
     # Note: COWEN_HOME must be set per process for local files (logs, etc)
-    COWEN_HOME="$POD_HOME" "$COWEN_BIN" daemon start --foreground > "$POD_HOME/daemon.log" 2>&1 &
+    COWEN_HOME="$POD_HOME" "$COWEN_BIN" daemon start --foreground > "$POD_HOME/daemon.log" 2>&1 < /dev/null &
     PIDS+=($!)
 done
 
@@ -74,7 +74,7 @@ for i in {5..8}; do
     POD_HOME="$BASE_HOME/pod_$i"
     mkdir -p "$POD_HOME"
     export COWEN_PROXY_PORT=$(get_unused_port)
-    COWEN_HOME="$POD_HOME" "$COWEN_BIN" daemon start --foreground > "$POD_HOME/daemon.log" 2>&1 &
+    COWEN_HOME="$POD_HOME" "$COWEN_BIN" daemon start --foreground > "$POD_HOME/daemon.log" 2>&1 < /dev/null &
     PIDS+=($!)
 done
 

@@ -42,7 +42,7 @@ EOF
     --proxy-port $PROXY_PORT
 
 # Start Daemon
-"$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/daemon.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 sleep 5
 
@@ -101,7 +101,7 @@ echo -e "   ${GREEN}✓${NC} All records have valid org_id values"
 
 # 4. Verify Correct Token Attachment during API Calls
 echo -e "${BOLD}4. Restarting Daemon and Verifying API Proxy${NC}"
-"$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/daemon_v2.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/daemon_v2.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 sleep 10
 

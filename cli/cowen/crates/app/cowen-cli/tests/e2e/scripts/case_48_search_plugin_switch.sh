@@ -64,7 +64,7 @@ else
 fi
 
 "$COWEN_BIN" daemon stop --profile main
-"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/daemon_v2.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/daemon_v2.log" 2>&1 < /dev/null &
 sleep 2
 
 echo "Test 2: Search using plugin_v2 (should fail and fallback)"

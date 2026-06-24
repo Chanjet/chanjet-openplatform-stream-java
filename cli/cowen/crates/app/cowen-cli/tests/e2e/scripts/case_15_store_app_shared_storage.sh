@@ -77,7 +77,7 @@ EOF
 
 
 # Node 2 starts daemon
-"$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 
 wait_for_daemon main 10

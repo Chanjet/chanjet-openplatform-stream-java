@@ -14,7 +14,7 @@ start_mock
 
 echo "--- Test 1: Start Master Daemon ---"
 # We need a running daemon to test IPC
-"$COWEN_BIN" daemon start --foreground > "$TEST_BASE/master.log" 2>&1 &
+"$COWEN_BIN" daemon start --foreground > "$TEST_BASE/master.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 
 echo "   Waiting for daemon to be ready..."

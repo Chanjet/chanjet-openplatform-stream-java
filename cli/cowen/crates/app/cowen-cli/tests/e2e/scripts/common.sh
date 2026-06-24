@@ -220,6 +220,7 @@ setup_workspace() {
 #!/bin/bash
 export WINEPREFIX="${TEST_BASE}/.wine_shared"
 export WINEDEBUG="-all"
+export WINEDLLOVERRIDES="mscoree=;mshtml=;winevulkan=;opengl32=;d3d11=;dxgi="
 export WINE_AUTO_DEBUGGER=0
 export COWEN_HOME="Z:$COWEN_HOME"
 exec $wine_bin "Z:$COWEN_HOME/$unique_name$ext" "\$@"
@@ -279,6 +280,7 @@ EOF
 #!/bin/bash
 export WINEPREFIX="${TEST_BASE}/.wine_shared"
 export WINEDEBUG="-all"
+export WINEDLLOVERRIDES="mscoree=;mshtml=;winevulkan=;opengl32=;d3d11=;dxgi="
 export WINE_AUTO_DEBUGGER=0
 export COWEN_HOME="Z:$COWEN_HOME"
 exec $wine_bin "Z:$COWEN_HOME/cowen-signer$ext" "\$@"
@@ -307,6 +309,7 @@ EOF
 #!/bin/bash
 export WINEPREFIX="${TEST_BASE}/.wine_shared"
 export WINEDEBUG="-all"
+export WINEDLLOVERRIDES="mscoree=;mshtml=;winevulkan=;opengl32=;d3d11=;dxgi="
 export WINE_AUTO_DEBUGGER=0
 export COWEN_HOME="Z:$COWEN_HOME"
 exec $wine_bin "Z:$COWEN_HOME/cowen-mcp-plugin$ext" "\$@"
@@ -401,18 +404,21 @@ cleanup_suite() {
         fi
 
         # 1.5 Global pkill as fallback (Robustness)
+        # ⚠️ CRITICAL: DO NOT use -f here on macOS/Linux. 
+        # Since the project path contains "cowen-cli", pkill -f will match the bash runner itself
+        # and cause the entire test suite to be randomly killed (SIGTERM).
         if [ -n "$COWEN_BIN" ]; then
-            pkill -15 -f "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
+            pkill -15 -x "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
         fi
         if [ -n "$COWEN_DAEMON_BIN" ]; then
-            pkill -15 -f "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
+            pkill -15 -x "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
         fi
         sleep 1.0
         if [ -n "$COWEN_BIN" ]; then
-            pkill -9 -f "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
+            pkill -9 -x "$(basename "$COWEN_BIN")" >/dev/null 2>&1 || true
         fi
         if [ -n "$COWEN_DAEMON_BIN" ]; then
-            pkill -9 -f "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
+            pkill -9 -x "$(basename "$COWEN_DAEMON_BIN")" >/dev/null 2>&1 || true
         fi
         
         # 2. Cleanup mock server state for next case (Only if shared)

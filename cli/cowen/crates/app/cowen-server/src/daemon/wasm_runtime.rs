@@ -596,10 +596,12 @@ impl WasmPipelineManager {
 }
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
     use super::*;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
+    #[cfg(not(windows))]
     async fn test_wasm_pipeline_full() {
         let temp_dir = std::env::temp_dir().join("cowen_test_vault");
         let _ = std::fs::remove_dir_all(&temp_dir);

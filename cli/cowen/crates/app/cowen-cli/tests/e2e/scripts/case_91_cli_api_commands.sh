@@ -13,15 +13,18 @@ trap cleanup_suite EXIT
 PROFILE="api_test"
 
 echo "📦 1. 初始化 profile 并启动守护进程..."
+start_mock
+
 "$COWEN_BIN" init --profile "$PROFILE" \
     --app-key "dummy_app_key" \
     --app-secret "dummy_app_secret" \
     --app-mode self-built \
     --certificate "dummy_cert" \
+    --stream-url "$MOCK_WS" \
     --encrypt-key "1234567890123456"
 
 "$COWEN_BIN" daemon start --profile "$PROFILE" >/dev/null
-wait_for_daemon "$PROFILE" 10
+wait_for_daemon "$PROFILE" 20
 
 echo "📦 2. 运行 cowen api list 相关指令..."
 "$COWEN_BIN" api list --profile "$PROFILE"

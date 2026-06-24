@@ -4,6 +4,63 @@
 
 ---
 
+## [0.5.0] - 2026-06-16
+
+### 🚀 新特性 (Features)
+- **应用网关模块重构 (Identity-Aware Gateway Crate)**: 从旧有的业务体系中完全解耦，提取出核心的 `cowen-gateway` crate，专门处理零信任应用网关相关的路由与会话校验。
+- **零信任会话验证 (Zero-Trust Sessions & Fingerprinting)**: 网关实现了基于 AES-256-GCM 算法加密的 ISV 会话 Cookie (`cowen_sess_id`)。请求在经过网关时会自动绑定 User-Agent + IP 的 SHA-256 指纹验证，防范 Cookie 劫持与重放攻击。
+- **JWKS 密钥自动轮转 (JWKS Key Rotation)**: 在网关内部实现 JWKS 本地管理。密钥存放在 Vault 密保池 `cowen:system:jwks` 中，网关每 30 天自动轮转 JWT 密钥，并提供对历史 `ROTATED` 状态密钥的平滑退行支持。
+- **应用商店模式 Code 拦截与 Wash 机制 (OAuth2 Code Interception & Wash)**: 支持拦截含有 `code` 临时参数的 OAuth2 重定向回调，并在网关底层静默与 ISV 托管平台进行 Wash 交换以实现自动租户身份绑定。
+- **三级凭证恢复机制 (3-Tier Auth Recovery)**: 在反向代理（Egress Proxy）重试链路中引入了三级鉴权恢复机制。请求遭遇 Token 过期时将依次通过：`内存缓存/数据库自愈` -> `Refresh Token 刷新` -> `永久授权码 (Permanent Auth Code) 换取` 逐级进行静默回源自愈，并在完全失效时清晰抛出 401 错误。
+- **统一路由分发与旁挂直连 OpenAPI (Unified Routing & Direct OpenAPI Mode)**: 网关支持配置 `routes` 路由规则表（支持 Glob 匹配与路径前缀剥离），允许将特定路径请求分发到多个 ISV 本地子 upstream 服务；并支持以 `"openapi"` 旁挂目标，直接由网关执行多租户 Token 换票与签名加签，一跳直达开放平台，省去本地 Proxy 本机多次转发开销。
+
+### 🔧 改进与修复 (Improvements & Fixes)
+- **CORS 预检 OPTIONS 崩溃修复**: 修复了在处理 CORS OPTIONS 预检请求时克隆 `CorsLayer` 导致守护进程崩溃的 bug，通过引入 `mirror_request` 动态匹配 Origin 与 Headers，完美支持跨域 OPTIONS 预检。
+- **租户永久码持久化失效修复**: 修复了 Store App 登录拦截时当 token 级别为用户层时，未将企业永久码 (`org_permanent_code`) 保存至 Vault，导致在重试时无法走 Permanent Code 路径进行三级恢复的 bug。
+- **E2E Mock Server 适配修复**: 修复了并发 E2E 测试运行中，标准 OAuth2 场景的 `client_id` (`dummy`/`dummy-parallel-client-id`) 无法匹配的问题，防止 Mock 服务对标准 OAuth2 场景错误派发 JWT 令牌导致用例失败。
+
+---
+
+## [0.4.0] - 2026-06-10
+
+### 🚀 新特性 (Features)
+- **Thin CLI 瘦客户端架构演进**: 将 Init、Api 和 Auth Login 等核心业务逻辑全面下沉至 `cowen-daemon` 后台守护进程。CLI 命令行工具重构为轻量级 IPC 客户端，极大提高了多端操作时的状态一致性。
+- **纯 Rust 独立 AI 搜索与多租户隔离 (Standalone AI Sidecar)**: 重构了 AI 语义搜索组件，使其作为 100% Rust 编写的纯独立 Sidecar 进程运行。内存向量检索库引入了强租户 (Tenant Namespace) 隔离，实现了绝对的数据物理区隔。
+- **磁盘级向量检索缓存 (Vector Disk Caching)**: 为搜索插件实现了磁盘级缓存架构，并在更新索引时引入内容指纹 Hash 对比。当 API 规约未改变时完全跳过 ONNX 推理，将热启动耗时缩短至 5 毫秒以内。
+- **WebAssembly 插件引擎 (Wasm Integration)**: 在核心 HTTP 代理热路径中引入了 Phase 3 Wasmtime 引擎，支持基于 WIT 接口标准的 WebAssembly 插件执行，为未来的无状态扩展奠定基础。
+- **跨平台原生插件沙盒隔离 (Native Sandboxing)**: 实现了跨平台的非特权系统沙盒隔离包装器 (Sandboxing Wrapper)，为 Sidecar 插件子进程提供了操作系统级的安全隔离。
+- **纯可执行二进制插件支持**: 移除了对 `.so`、`.dylib` 和 `.dll` 等动态库伪装扩展名的依赖，插件现在可完全作为标准的跨平台可执行二进制文件被直接调用和校验。
+- **动态能力推导与注册 (Dynamic Capabilities)**: 移除了硬编码的能力配置，支持通过插件文件名或清单动态推导并注册其承载的能力（如 `SearchProvider`），极大提升了扩展灵活性。
+- **MCP API 响应优化**: 简化 `cowen_api_list` 输出文本，提升对现代客户端（如 AI Agents）的兼容性，修复了长文本解析截断的问题。
+- **插件安全管控增强**: 强化了插件执行层的命令管控，严格按照 `cli_commands` 注册清单进行过滤，避免越权执行。
+
+### 🔧 改进与修复 (Improvements & Fixes)
+- **OAuth2 离线授权流支持 (Thin CLI Finalizer)**: 增强了 `--finalize` 参数。即使在无守护进程处于激活状态时，后台终结器也可接管并捕获 OAuth2 授权回调的重定向 Code，确保登录流程闭环。
+- **IPC 指令高并发死锁修复**: 修复了并发环境下由于 `ConfigManager` 读取冲突导致的高 CPU 占用和请求死锁。
+- **Proxy WebSocket 竞态条件修复**: 修复了高并发场景下代理拦截器 WebSocket 初始化的极速竞态条件。
+- **配置环境安全切换**: 在配置 Profile 切换前增加物理校验逻辑，彻底杜绝了切换至一个不存在的环境而导致状态机崩溃的风险。
+- **系统重置 (Reset) 稳定性**: 实现了可靠的全局和特定配置的 `SystemReset` IPC 处理器，确保在重置并清理文件和缓存时的稳定一致。
+- **OAuth2 状态显示修复**: 修复了命令行状态检查中，OAuth2 环境配置被误报为 `Stale` (陈旧) 的问题。
+- **系统状态展示**: 优化了 `status` 诊断命令，现可正确渲染后台守护进程返回的 `error_level` 错误级别。
+- **初始化阻塞修复**: 修复了守护进程在执行开机自启动时可能阻塞 gRPC 服务端口监听的问题，将自启任务安全转入后台执行。
+- **Token 生成载荷补全**: 修复了 `generateToken` 时载荷中缺失 `appTicket` 的问题。
+
+---
+
+## [0.3.6] - 2026-05-29
+
+### 🚀 新特性 (Features)
+- **更轻量的后台驻留 (Lightweight Daemon)**: 优化了开机自启流程，使得后台服务实现了真正的单进程独立驻留，大幅降低系统资源开销。
+- **Windows 环境静默启动 (Windows Silent Boot)**: 彻底消除了 Windows 系统在开机自启后台服务时残留命令行黑窗（Console Window）闪烁的问题，实现了完全的静默运行。
+
+### 🔧 改进与修复 (Improvements & Fixes)
+- **智能 Header 剥离解决 415 报错**: 针对部分客户端工具（如 Postman、Axios）在发送无请求体（Body）的 `GET` / `HEAD` / `DELETE` 请求时默认带上 `Content-Type` 导致老旧服务端（如 Tomcat 9）抛出 `415 Unsupported Media Type` 错误的问题，代理服务现已自动支持在转发前智能剥离冗余的 `Content-Type` 头。
+- **端口被占用与重启失败修复**: 彻底解决了后台服务异常重启或崩溃恢复时，因 `1588` 端口“假性占用”导致的长时间无法恢复服务的问题。
+- **并发请求偶发 401 失败修复**: 根除了 CLI 与守护进程高并发交互过程中偶尔遭遇的 `401 Unauthorized` 认证失败问题。
+- **日志与网络遥测降噪**: 显著净化了系统后台的错误日志文件。对于网络质量较差环境下的探测连接采取了更大的超时容忍度，减少了无意义的错误刷屏。
+
+---
+
 ## [0.3.5] - 2026-05-22
 
 ### 🚀 新特性 (Features)

@@ -167,7 +167,9 @@ else
         exit 1
     fi
 
-    if ! python3 scripts/coverage_gate.py --report target/coverage_auth_report.txt --gate .coverage_gate_auth; then
+    OS_NAME="${OS_NAME:-$(uname -s | tr 'A-Z' 'a-z')}"
+    GATE_FILE=".coverage_gate_auth_${OS_NAME}"
+    if ! python3 scripts/coverage_gate.py --report target/coverage_auth_report.txt --gate "$GATE_FILE"; then
         echo "❌ Code coverage check failed for cowen-auth!"
         exit 1
     else

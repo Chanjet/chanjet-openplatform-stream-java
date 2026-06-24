@@ -24,7 +24,7 @@ sqlite3 cowen.db "INSERT INTO cowen_dlq (id, profile, topic, payload, retry_coun
 
 echo "📊 1. 测试 cowen audit 审计查看器..."
 # 执行 audit 命令（默认为 follow 状态所以我们需要在后台运行它，并在读取完后杀掉它）
-"$COWEN_BIN" --profile "$PROFILE" audit --lines 5 > audit_output.log 2>&1 &
+"$COWEN_BIN" --profile "$PROFILE" audit --lines 5 > audit_output.log 2>&1 < /dev/null &
 AUDIT_PID=$!
 sleep 1.5
 kill -15 "$AUDIT_PID" >/dev/null 2>&1 || true

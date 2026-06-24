@@ -156,7 +156,7 @@ sqlite3 "$COWEN_HOME/cowen.db" \
 sqlite3 "$COWEN_HOME/cowen.db" "DELETE FROM cowen_token WHERE profile='global' AND item_key LIKE 'session:%';"
 
 # Launch auth login in background with --force (this forces fallback to initialize via IPC and prevents proactive token rotation)
-"$COWEN_BIN" auth login --profile "$PROF" --force > ipc_init_debug.log 2>&1 &
+"$COWEN_BIN" auth login --profile "$PROF" --force > ipc_init_debug.log 2>&1 < /dev/null &
 IPC_INIT_PID=$!
 
 echo "   IPC Init PID: $IPC_INIT_PID (blocking, waiting for daemon auth IPC)"

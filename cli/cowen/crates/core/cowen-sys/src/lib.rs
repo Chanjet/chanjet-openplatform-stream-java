@@ -291,6 +291,7 @@ pub fn create_sandboxed_command(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = allowed_roots;
+        let _ = sandbox_path;
         std::process::Command::new(binary_path)
     }
 }

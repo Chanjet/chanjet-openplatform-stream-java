@@ -27,7 +27,7 @@ echo -e "${BOLD}3. Concurrent Proxy Requests (Stress)${NC}"
 echo "   Launching 20 parallel requests..."
 PIDS=()
 for i in {1..20}; do
-    curl -s http://127.0.0.1:$PROXY_PORT/v1/mock/ping >/dev/null &
+    curl -s http://127.0.0.1:$PROXY_PORT/v1/mock/ping >/dev/null < /dev/null &
     PIDS+=($!)
 done
 

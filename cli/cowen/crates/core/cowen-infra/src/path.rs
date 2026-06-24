@@ -59,8 +59,13 @@ mod tests {
     #[test]
     fn test_get_app_dir_internal_env_cowen_home() {
         // Absolute COWEN_HOME
-        let res = get_app_dir_internal(Some("/tmp/custom_cowen".to_string()), None);
-        assert_eq!(res, PathBuf::from("/tmp/custom_cowen"));
+        #[cfg(not(windows))]
+        let abs_path = "/tmp/custom_cowen";
+        #[cfg(windows)]
+        let abs_path = "C:\\tmp\\custom_cowen";
+
+        let res = get_app_dir_internal(Some(abs_path.to_string()), None);
+        assert_eq!(res, PathBuf::from(abs_path));
 
         // Relative COWEN_HOME
         let res = get_app_dir_internal(Some(".custom_cowen".to_string()), None);
@@ -79,8 +84,13 @@ mod tests {
 
     #[test]
     fn test_get_app_dir_internal_default_not_writable() {
-        // A path that is guaranteed not to be writable (e.g. root level nonexistent path)
-        let unwritable_home = PathBuf::from("/nonexistent_forbidden_dir_path_xxx");
+        // A path that is guaranteed not to be writable
+        // - Unix: /dev/null is a device, cannot be a directory
+        // - Windows/Wine: Q: drive typically doesn't exist
+        #[cfg(not(windows))]
+        let unwritable_home = PathBuf::from("/dev/null/invalid_cowen_home");
+        #[cfg(windows)]
+        let unwritable_home = PathBuf::from("Q:\\invalid_cowen_home");
 
         let res = get_app_dir_internal(None, Some(unwritable_home));
         // It should fallback to standard temp dir

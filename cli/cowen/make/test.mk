@@ -7,8 +7,8 @@ quality-gate:
 
 test-rust: quality-gate
 	@echo "🧪 Running Rust internal and integration tests..."
-	RUSTFLAGS="-D warnings" cargo build -p cowen-cli -p cowen-daemon
-	COWEN_SKIP_BROWSER=true RUSTFLAGS="-D warnings" cargo test
+	RUSTFLAGS="-D warnings" cargo build -j $(MAX_PARALLEL) -p cowen-cli -p cowen-daemon
+	COWEN_SKIP_BROWSER=true RUSTFLAGS="-D warnings" cargo test -j $(MAX_PARALLEL)
 
 # 自动根据环境运行测试
 test: quality-gate
@@ -42,12 +42,12 @@ test-linux: quality-gate prepare-docker-machine prepare-docker-image
 # 在 Windows PowerShell 环境下执行测试
 test-win: local-db-up
 	@echo "🧪 Running Full Coverage Testing Flow on Windows..."
-	@bash scripts/run_tests_with_coverage.sh
+	@MAX_PARALLEL=$(MAX_PARALLEL) bash scripts/run_tests_with_coverage.sh
 
 # 在 macOS 原生环境执行并行测试
 test-macos: local-db-up
 	@echo "🧪 Running Full Coverage Testing Flow on macOS..."
-	@bash scripts/run_tests_with_coverage.sh
+	@MAX_PARALLEL=$(MAX_PARALLEL) bash scripts/run_tests_with_coverage.sh
 
 
 # 在 macOS 下使用原生 Wine 运行 Windows 版本的 E2E 测试
@@ -62,14 +62,13 @@ test-windows-on-mac:
 		exit 1; \
 	fi
 
-# 默认串行执行以防止 Wine 进程冲突和 CPU 负载过高，支持从命令行覆盖
-MAX_PARALLEL ?= 1
+WINE_MAX_PARALLEL ?= $(shell echo $$(( $$(sysctl -n hw.ncpu) / 2 )))
 
 _test-windows-on-mac-native: local-db-up
 	@echo "🧪 Running Windows Test Suite natively via $(WINE_CMD) on macOS..."
 	@CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER=$(WINE_CMD) \
 	CARGO_BUILD_TARGET=x86_64-pc-windows-gnu \
 	OS_NAME=windows-cross \
-	MAX_PARALLEL=$(MAX_PARALLEL) \
+	MAX_PARALLEL=$(WINE_MAX_PARALLEL) \
 	bash scripts/run_tests_with_coverage.sh
 

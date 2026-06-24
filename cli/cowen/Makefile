@@ -12,7 +12,7 @@ endif
 # 缓存目录与镜像定义
 CARGO_CACHE_DIR=$(HOME)/.cache/cowen-cargo
 BUILDER_IMAGE=localhost/cowen-builder
-MAX_PARALLEL ?= 1
+
 
 # 检测当前主机环境
 ifeq ($(OS),Windows_NT)
@@ -36,6 +36,14 @@ else
         HOST_ARCH := $(UNAME_M)
     endif
 endif
+
+# 默认并发配置：macOS 下默认使用 CPU 核心数 * 2 以最大化性能，其他环境默认串行 (防冲突)
+ifeq ($(HOST_OS),macos)
+MAX_PARALLEL ?= $(shell echo $$(( $$(sysctl -n hw.ncpu) * 2 )))
+else
+MAX_PARALLEL ?= 1
+endif
+
 # --- 默认构建目标 (Default Build Target) ---
 build:
 ifeq ($(HOST_OS),macos)

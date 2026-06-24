@@ -94,7 +94,7 @@ ai_enabled: false
 EOF
 
 # Start daemon on Node 2 so it can query the shared DB
-"$COWEN_BIN" daemon start --profile default --foreground > "$HOME_2/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile default --foreground > "$HOME_2/daemon.log" 2>&1 < /dev/null &
 PID_2=$!
 sleep 1
 

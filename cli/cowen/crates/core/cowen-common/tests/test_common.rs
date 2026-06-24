@@ -103,7 +103,7 @@ fn test_validate_loopback_addr() {
 #[test]
 fn test_resolve_daemon_executable_path_internal() {
     use std::path::PathBuf;
-    
+
     // 1. With env variable
     let path = cowen_common::grpc::client::resolve_daemon_executable_path_internal(
         Some(PathBuf::from("/usr/bin/cowen")),
@@ -128,4 +128,3 @@ fn test_resolve_daemon_executable_path_internal() {
     );
     assert_eq!(path, PathBuf::from("cowen-daemon.exe"));
 }
-

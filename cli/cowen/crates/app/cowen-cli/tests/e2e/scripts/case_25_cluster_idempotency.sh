@@ -42,7 +42,7 @@ EOF
 "$COWEN_BIN" daemon stop >/dev/null 2>&1
 
 # Start Node A (Foreground in background task)
-"$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/node_a.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile "$PROF" --foreground > "$COWEN_HOME/node_a.log" 2>&1 < /dev/null &
 NODE_A_PID=$!
 wait_for_daemon "$PROF" 15
 sleep 1
@@ -60,7 +60,7 @@ mkdir -p "$HOME_NODE_B"
 cp "$COWEN_HOME/app.yaml" "$HOME_NODE_B/app.yaml"
 
 export COWEN_HOME="$HOME_NODE_B"
-"$COWEN_BIN" daemon start --profile "$PROF" --monitor-port $MONITOR_PORT_B --foreground > "$COWEN_HOME/node_b.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile "$PROF" --monitor-port $MONITOR_PORT_B --foreground > "$COWEN_HOME/node_b.log" 2>&1 < /dev/null &
 NODE_B_PID=$!
 export COWEN_HOME="$HOME_NODE_A"
 

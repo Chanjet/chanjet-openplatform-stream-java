@@ -35,7 +35,7 @@ sleep 1
 lsof -ti:$PROXY_PORT | xargs kill -9 >/dev/null 2>&1 || true
 sleep 1
 
-"$COWEN_BIN" daemon start --profile sidecar --foreground >"$COWEN_HOME/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile sidecar --foreground >"$COWEN_HOME/daemon.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 sleep 5
 

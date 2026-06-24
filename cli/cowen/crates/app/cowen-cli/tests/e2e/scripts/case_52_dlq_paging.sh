@@ -25,7 +25,7 @@ echo "--- Test 1: Setup Profile with Invalid Webhook (to trigger DLQ) ---"
     --webhook-target "http://127.0.0.1:1" # Invalid port
 
 echo "--- Test 2: Start Daemon and Inject 25 Failed Messages ---"
-"$COWEN_BIN" daemon start --foreground > "$TEST_BASE/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --foreground > "$TEST_BASE/daemon.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 
 echo "   Waiting for daemon to be ready..."

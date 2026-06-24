@@ -136,15 +136,19 @@ fi
 
 # Respect CARGO_TARGET_DIR if set
 TARGET_BASE=${CARGO_TARGET_DIR:-target}
-if [[ "$BUILD_ARGS" == *"--release"* ]]; then
-    BINARY_PATH="$TARGET_BASE/release/cowen"
-else
-    BINARY_PATH="$TARGET_BASE/debug/cowen"
+if [ "$OS_NAME" = "windows-cross" ]; then
+    BINARY_EXT=".exe"
+    TARGET_SUBDIR="x86_64-pc-windows-gnu/"
+    BUILD_ARGS="$BUILD_ARGS --target x86_64-pc-windows-gnu"
+elif [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
+    BUILD_ARGS="--release --target x86_64-unknown-linux-gnu"
+    TARGET_SUBDIR="x86_64-unknown-linux-gnu/"
 fi
 
-if [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
-    BUILD_ARGS="--release --target x86_64-unknown-linux-gnu"
-    BINARY_PATH="$TARGET_BASE/x86_64-unknown-linux-gnu/release/cowen"
+if [[ "$BUILD_ARGS" == *"--release"* ]]; then
+    BINARY_PATH="${TARGET_BASE}/${TARGET_SUBDIR}release/cowen${BINARY_EXT}"
+else
+    BINARY_PATH="${TARGET_BASE}/${TARGET_SUBDIR}debug/cowen${BINARY_EXT}"
 fi
 
 SHOULD_BUILD=true
@@ -244,7 +248,10 @@ def schedule():
             reader = csv.reader(f)
             for row in reader:
                 if len(row) >= 3:
-                    stats[row[0]] = {'ms': int(row[1]), 'cpu': float(row[2])}
+                    try:
+                        stats[row[0]] = {'ms': int(row[1]), 'cpu': float(row[2])}
+                    except ValueError:
+                        pass
     
     scripts = glob.glob("crates/app/cowen-cli/tests/e2e/scripts/case_*.sh")
     scored = []
@@ -283,6 +290,16 @@ run_job() {
     local workspace="$TEST_BASE/.cowen_test_job_${job_id}"
     
     mkdir -p "$workspace"
+
+    if [ "$OS_NAME" = "windows-cross" ]; then
+        mkdir -p "$workspace/.wine_shared"
+        cat > "$workspace/.wine_shared/user.reg" <<EOF_REG
+WINE REGISTRY Version 2
+
+[Software\\\\Wine\\\\Drivers]
+"Graphics"="null"
+EOF_REG
+    fi
     cat > "$workspace/app.yaml" <<EOF
 storage:
   store: sqlite
@@ -310,7 +327,7 @@ EOF
     
     # Extract precise ms using awk
     local elapsed_ms="N/A"
-    if [ -n "$elapsed_sec" ]; then
+    if [[ "$elapsed_sec" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
         elapsed_ms=$(awk "BEGIN {print int($elapsed_sec * 1000)}")
     fi
     [ -z "$cpu_usage" ] && cpu_usage="0.00"
@@ -341,7 +358,10 @@ if os.path.exists(job_stats_path):
     with open(job_stats_path) as f:
         for row in csv.reader(f):
             if len(row) >= 2:
-                completed_ms += int(row[1])
+                try:
+                    completed_ms += int(row[1])
+                except ValueError:
+                    pass
 total_expected_ms = 0
 expected_ms_path = os.path.join(RESULTS_DIR, "total_expected_ms.txt")
 if os.path.exists(expected_ms_path):
@@ -400,8 +420,28 @@ export PHASE_1_START_TIME=$(date +%s)
 rm -f "$RESULTS_DIR/completed_jobs.txt"
 touch "$RESULTS_DIR/completed_jobs.txt"
 
+# --- Pre-initialize Shared WINEPREFIX for Windows Cross Testing ---
+if [ "$OS_NAME" = "windows-cross" ]; then
+    echo "⌛ Pre-initializing shared Wine prefix to avoid concurrent initialization race..."
+    export WINEPREFIX="${TEST_BASE}/.wine_shared"
+    export WINE_AUTO_DEBUGGER=0
+    export WINEDEBUG="-all"
+    export WINEDLLOVERRIDES="mscoree=;mshtml=;winevulkan=;opengl32=;d3d11=;dxgi="
+    mkdir -p "$WINEPREFIX"
+    
+    wine_bin="wine64"
+    if ! command -v wine64 >/dev/null 2>&1; then
+        if command -v wine >/dev/null 2>&1; then
+            wine_bin="wine"
+        fi
+    fi
+    
+    $wine_bin cmd.exe /c echo "Wine Shared Prefix Initialized" >/dev/null 2>&1
+    echo "✅ Shared Wine prefix ready."
+fi
+
 if [ "$TOTAL_PARALLEL" -gt 0 ]; then
-    echo -e "\n${BOLD}Phase 1: Running Parallel Suites ($TOTAL_PARALLEL)${NC}"
+    echo -e "\n${BOLD}Phase 1: Running Parallel Suites ($TOTAL_PARALLEL) [Concurrency: $MAX_PARALLEL]${NC}"
     for suite in "${PARALLEL_SUITES[@]}"; do
         # Extract case ID from filename (e.g., case_01 -> 1)
         case_id=$(basename "$suite" | cut -d'_' -f2 | sed 's/^0//')

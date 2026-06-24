@@ -79,7 +79,7 @@ ai_enabled: false
 EOF
 
 # Start daemon on Node 2 so it can query the shared DB
-"$COWEN_BIN" daemon start --profile default --foreground > "$HOME_2/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile default --foreground > "$HOME_2/daemon.log" 2>&1 < /dev/null &
 NODE2_PID=$!
 sleep 2
 
@@ -162,7 +162,7 @@ export COWEN_HOME="$HOME_2"
 # Stop any background daemon auto-launched by Node 2 commands earlier, to ensure clean port binding and socket ownership
 "$COWEN_BIN" daemon stop --all >/dev/null 2>&1 || true
 # Start Node 2 daemon to test proxy on port PROXY_PORT_2
-"$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile main --proxy-port $PROXY_PORT_2 --foreground > "$HOME_2/daemon.log" 2>&1 < /dev/null &
 
 echo -n "   Waiting for Node 2 daemon to stabilize..."
 sleep 10

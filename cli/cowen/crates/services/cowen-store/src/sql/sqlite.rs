@@ -137,7 +137,11 @@ impl SqlBuilder for SqliteBuilder {
         // URL is guaranteed to be sqlite:<path> from lib.rs
         let db_path = if let Some(stripped) = normalized_url.strip_prefix("sqlite:") {
             let pure_path = stripped.split('?').next().unwrap();
-            std::path::PathBuf::from(pure_path)
+            let mut pure_path_str = pure_path;
+            if pure_path_str.starts_with("//") {
+                pure_path_str = &pure_path_str[2..];
+            }
+            std::path::PathBuf::from(pure_path_str)
         } else {
             std::path::PathBuf::from("cowen.db")
         };

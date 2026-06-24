@@ -28,7 +28,7 @@ sleep 1
 
 echo -e "${BOLD}2. Start daemon in foreground (simulate launchd)${NC}"
 # Redirect output so it doesn't pollute the test logs
-"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/launchd.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/launchd.log" 2>&1 < /dev/null &
 LAUNCHD_PID=$!
 
 # Give it a fraction of a second to simulate the port binding / startup delay

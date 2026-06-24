@@ -26,7 +26,7 @@ export COWEN_PROXY_PORT=$(get_unused_port)
 PROFILE="env-auto-init"
 
 # Start daemon in background with --foreground to simulate container behavior
-"$COWEN_BIN" --profile $PROFILE daemon start --foreground > "$COWEN_HOME/daemon.log" 2>&1 &
+"$COWEN_BIN" --profile $PROFILE daemon start --foreground > "$COWEN_HOME/daemon.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 
 echo -e "  Waiting for auto-initialization..."

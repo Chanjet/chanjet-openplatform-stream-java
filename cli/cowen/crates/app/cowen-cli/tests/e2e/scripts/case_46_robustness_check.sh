@@ -18,7 +18,7 @@ COWEN_SKIP_DAEMON_RECOVERY=1 "$COWEN_BIN" init --profile prof_robust     --app-m
 
 echo "  Starting daemon in foreground..."
 LOG_FILE="$COWEN_HOME/prof_robust.log"
-"$COWEN_BIN" --profile prof_robust daemon start --foreground --proxy-port 0 > "$LOG_FILE" 2>&1 &
+"$COWEN_BIN" --profile prof_robust daemon start --foreground --proxy-port 0 > "$LOG_FILE" 2>&1 < /dev/null &
 LOCAL_PID=$!
 
 # Wait for daemon to establish connection and fetch AppTicket

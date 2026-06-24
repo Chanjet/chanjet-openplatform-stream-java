@@ -31,7 +31,7 @@ echo "--- Test 1: Setup Profile ---"
 
 echo "--- Test 2: Start Daemon ---"
 DAEMON_LOG="$TEST_BASE/daemon_chaos.log"
-"$COWEN_BIN" daemon start --foreground > "$DAEMON_LOG" 2>&1 &
+"$COWEN_BIN" daemon start --foreground > "$DAEMON_LOG" 2>&1 < /dev/null &
 DAEMON_PID=$!
 
 echo "   Waiting for daemon to be ready..."

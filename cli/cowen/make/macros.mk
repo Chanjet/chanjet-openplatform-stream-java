@@ -34,9 +34,9 @@ PROD_STREAM  = https://stream-open.chanapp.chanjet.com
 TEST_OPENAPI = https://openapi.inte.chanjet.com
 TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
 
-.PHONY: build macos-aarch64 linux-x86_64 linux-x86_64-with-podman linux-aarch64 windows-x86_64 windows-x86-cross windows-x86_64-cross \
+.PHONY: build macos-aarch64 linux-x86_64 linux-x86_64-with-docker linux-aarch64 windows-x86_64 windows-x86-cross windows-x86_64-cross \
         windows-plugin-x64 windows-plugin-x86 test-macos-aarch64 \
         test test-linux test-win test-macos check-cross \
-        package package-macos-aarch64 package-linux-x86_64 package-linux-x86_64-with-podman \
-        package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-cross package-windows-x86-cross clean install run prepare-podman-image prepare-podman-machine stop-podman-machine
+        package package-macos-aarch64 package-linux-x86_64 package-linux-x86_64-with-docker \
+        package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-cross package-windows-x86-cross clean install run prepare-docker-image prepare-docker-machine stop-docker-machine
 

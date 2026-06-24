@@ -51,7 +51,7 @@ async fn test_oauth2_on_maintenance_tick_refreshes_expired_token() {
     // 1. Setup expired access token and valid refresh token (structured)
     vault
         .save_access_token(
-            "p1",
+            "p2",
             Token {
                 value: "expired_at".to_string(),
                 expires_at: Utc::now() - Duration::minutes(10), // Expired
@@ -63,7 +63,7 @@ async fn test_oauth2_on_maintenance_tick_refreshes_expired_token() {
 
     vault
         .save_refresh_token(
-            "p1",
+            "p2",
             Token {
                 value: "valid_rt".to_string(),
                 expires_at: Utc::now() + Duration::days(7),
@@ -79,17 +79,17 @@ async fn test_oauth2_on_maintenance_tick_refreshes_expired_token() {
     ));
     let provider = OAuth2Provider::new(pool, sender);
 
-    let config = cowen_common::Config::default_with_profile("p1");
+    let config = cowen_common::Config::default_with_profile("p2");
 
     // 2. Trigger maintenance tick
     provider
-        .on_maintenance_tick("p1", &config)
+        .on_maintenance_tick("p2", &config)
         .await
         .expect("Maintenance tick failed");
 
     // 3. Check if access token was updated.
     // EXPECTATION: It SHOULD be updated now.
-    let token = vault.get_access_token("p1").await.unwrap();
+    let token = vault.get_access_token("p2").await.unwrap();
     assert_eq!(
         token.value, "new_at",
         "Token should have been updated to new_at"

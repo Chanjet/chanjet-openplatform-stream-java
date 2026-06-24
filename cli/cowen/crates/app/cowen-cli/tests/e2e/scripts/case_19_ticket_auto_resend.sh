@@ -34,7 +34,7 @@ start_mock
 assert_pass "StoreApp initialized"
 
 # Start Daemon (to receive the ticket)
-"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/daemon.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 sleep 8
 

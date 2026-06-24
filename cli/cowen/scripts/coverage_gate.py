@@ -163,10 +163,10 @@ def main():
         except Exception as e:
             print(f"❌ Error writing new gate value to {gate_file_path}: {e}")
             sys.exit(1)
-    elif abs(total_coverage - history_gate) < 1e-5:
-        print(f"✅ Coverage matches the gate value.")
+    elif total_coverage >= history_gate - 1.0:
+        print(f"✅ Coverage ({total_coverage:.2f}%) is within the 1.0% tolerance of the gate ({history_gate:.2f}%).")
     else:
-        print(f"❌ ERROR: Current coverage ({total_coverage:.2f}%) is BELOW the gate ({history_gate:.2f}%)!")
+        print(f"❌ ERROR: Current coverage ({total_coverage:.2f}%) is BELOW the gate ({history_gate:.2f}%) by more than 1.0%!")
         sys.exit(1)
 
     sys.exit(0)

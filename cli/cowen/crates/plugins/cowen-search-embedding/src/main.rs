@@ -380,6 +380,19 @@ mod tests {
             .join("model_quantized.onnx");
         let default_tokenizer = app_dir.join("search").join("models").join("tokenizer.json");
 
+        #[cfg(windows)]
+        {
+            let dll_path = temp_dir.join("onnxruntime.dll");
+            std::fs::write(
+                &dll_path,
+                include_bytes!("../../../../dist_assets/windows/onnxruntime.dll"),
+            )
+            .unwrap();
+            unsafe {
+                std::env::set_var("ORT_DYLIB_PATH", dll_path.to_str().unwrap());
+            }
+        }
+
         match ONNXEmbedder::new(
             &default_model.to_string_lossy(),
             &default_tokenizer.to_string_lossy(),

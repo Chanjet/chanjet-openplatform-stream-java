@@ -27,7 +27,7 @@ echo "  [Test B] Simulating a slow-to-start daemon using a delayed TCP proxy..."
 FAKE_PORT=$(get_unused_port)
 
 # Start the actual daemon
-"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/daemon.log" 2>&1 &
+"$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/daemon.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
 
 APP_HASH=$(echo -n "$COWEN_HOME" | shasum -a 256 | cut -c 1-16)
