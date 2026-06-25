@@ -128,12 +128,11 @@ run:
 	cargo run -- --help
 
 # Makefile 跨平台编译语法检查强校准靶点
-check-cross: prepare-docker-image
+check-cross:
 	@echo "====== 开始多平台跨平台编译并行静态检查 ======"
 	@rm -f .check_macos.log .check_linux.log .check_win.log
 	@echo "⏳ 正在并行执行跨平台编译检查..."
-	@trap '$(MAKE) stop-docker-machine' EXIT; \
-	failed=0; \
+	@failed=0; \
 	pid_macos=0; \
 	pid_linux=0; \
 	pid_win=0; \
@@ -145,13 +144,13 @@ check-cross: prepare-docker-image
 	fi; \
 	if [ "$(HOST_OS)" != "linux" ]; then \
 		echo "⏳ [Linux] 启动跨平台编译检查..."; \
-		$(DOCKER_RUN_BASE) $(BUILDER_IMAGE) bash -c "cargo check --target x86_64-unknown-linux-gnu --workspace --all-targets -j 2" > .check_linux.log 2>&1 < /dev/null & pid_linux=$$!; \
+		cargo check --target x86_64-unknown-linux-gnu --workspace --all-targets -j 2 > .check_linux.log 2>&1 < /dev/null & pid_linux=$$!; \
 	else \
 		echo "⏭️ [Linux] 跳过当前主机平台的跨平台编译检查"; \
 	fi; \
 	if [ "$(HOST_OS)" != "windows" ]; then \
 		echo "⏳ [Windows] 启动跨平台编译检查..."; \
-		DOCKER_DEFAULT_PLATFORM=linux/amd64 CARGO_TARGET_DIR=target/cross/win CROSS_NO_TTY=1 cross check --config 'build.rustc-wrapper=""' --target x86_64-pc-windows-gnu --workspace --all-targets -j 1 > .check_win.log 2>&1 < /dev/null & pid_win=$$!; \
+		cargo check --target x86_64-pc-windows-gnu --workspace --all-targets -j 2 > .check_win.log 2>&1 < /dev/null & pid_win=$$!; \
 	else \
 		echo "⏭️ [Windows] 跳过当前主机平台的跨平台编译检查"; \
 	fi; \
