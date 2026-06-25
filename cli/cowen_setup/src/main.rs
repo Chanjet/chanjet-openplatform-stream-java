@@ -45,26 +45,46 @@ fn main() {
             .stderr(std::process::Stdio::inherit())
             .status();
 
-        let _ = Command::new("taskkill")
-            .args(&["/F", "/T", "/IM", "cowen-daemon.exe"])
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status();
-
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-        
         let cmds = vec![
+            "cowen-daemon.exe",
             "cowen.exe",
             "cowen-mcp-plugin.exe",
             "libcowen_search_embedding.exe"
         ];
-        for p in cmds {
+        
+        for p in &cmds {
             println!("> taskkill /F /T /IM {}", p);
             let _ = Command::new("taskkill")
                 .args(&["/F", "/T", "/IM", p])
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .status();
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        
+        let mut needs_elevation_to_kill = false;
+        for p in &cmds {
+            if let Ok(out) = Command::new("tasklist").args(&["/FI", &format!("IMAGENAME eq {}", p), "/NH"]).output() {
+                let stdout_str = String::from_utf8_lossy(&out.stdout);
+                if stdout_str.contains(p) {
+                    needs_elevation_to_kill = true;
+                    break;
+                }
+            }
+        }
+
+        if needs_elevation_to_kill {
+            println!("⚠️ Detected running processes that require Administrator privileges to terminate...");
+            let script = "taskkill /F /T /IM cowen-daemon.exe; taskkill /F /T /IM cowen.exe; taskkill /F /T /IM cowen-mcp-plugin.exe; taskkill /F /T /IM libcowen_search_embedding.exe";
+            let _ = Command::new("powershell")
+                .args(&[
+                    "-NoProfile",
+                    "-Command",
+                    &format!("Start-Process powershell -ArgumentList '-NoProfile -Command \"{}\"' -Verb RunAs -Wait", script)
+                ])
+                .status();
+            println!("✅ Processes forcefully terminated.");
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
