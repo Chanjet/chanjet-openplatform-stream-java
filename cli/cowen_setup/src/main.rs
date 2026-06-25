@@ -238,6 +238,16 @@ fn main() {
 
 
 
+    #[cfg(target_os = "windows")]
+    {
+        println!("🧹 Cleaning up background services...");
+        let _ = Command::new("taskkill")
+            .args(&["/F", "/T", "/IM", "cowen-daemon.exe"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+
     println!("\n🎉 Installation complete! Please RESTART your terminal.");
     Command::new("cmd").args(&["/c", "pause"]).status().unwrap();
 }
