@@ -1,0 +1,53 @@
+--- crates/services/cowen-auth/tests/test_oauth2.rs
++++ crates/services/cowen-auth/tests/test_oauth2.rs
+@@ -104,3 +104,49 @@
+     let init_params = InitParams::default();
+     provider.initialize("test", &mut config, &init_params).await.unwrap();
+ }
++
++#[tokio::test]
++async fn test_oauth2_check_credentials() {
++    use cowen_auth::provider::AuthProvider;
++    let vault = Arc::new(common::MockVault::new());
++    let pool: Arc<dyn TokenPool> = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
++    let sender = Arc::new(common::MockHttpSender::new());
++    let provider = OAuth2Provider::new(pool, sender);
++
++    let res = provider.check_credentials(vault.as_ref(), "test").await.unwrap();
++    assert_eq!(res, cowen_doctor::DiagnosticStatus::Ok);
++}
++
++#[tokio::test]
++async fn test_oauth2_obtain_app_ticket() {
++    use cowen_auth::provider::AuthProvider;
++    let vault = Arc::new(common::MockVault::new());
++    let pool: Arc<dyn TokenPool> = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
++    let sender = Arc::new(common::MockHttpSender::with_body(
++        "{\"appTicket\":\"mock_ticket\",\"expireSeconds\":3600}",
++    ));
++    let provider = OAuth2Provider::new(pool, sender);
++
++    let config = cowen_common::config::Config::default_with_profile("test");
++    let ticket = provider.obtain_app_ticket("test", &config).await.unwrap();
++    assert_eq!(ticket.value, "mock_ticket");
++}
++
++#[tokio::test]
++async fn test_oauth2_finalize_login() {
++    use cowen_auth::provider::AuthProvider;
++    let vault = Arc::new(common::MockVault::new());
++    let pool: Arc<dyn TokenPool> = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
++    let sender = Arc::new(common::MockHttpSender::with_body(
++        "{\"access_token\":\"mock_at\",\"refresh_token\":\"mock_rt\",\"expires_in\":3600}",
++    ));
++    let provider = OAuth2Provider::new(pool, sender);
++
++    let session_mgr = cowen_auth::AuthSessionManager::new(pool.as_ref());
++    session_mgr.capture_callback("test", cowen_common::models::OAuth2Callback {
++        code: "mock_code".to_string(),
++        state: "state".to_string(),
++    }).await.unwrap();
++
++    let config = cowen_common::config::Config::default_with_profile("test");
++    provider.finalize_login("test", &config, "sid", None).await.unwrap();
++}

@@ -1,0 +1,43 @@
+--- crates/services/cowen-auth/tests/test_oauth2.rs
++++ crates/services/cowen-auth/tests/test_oauth2.rs
+@@ -62,6 +62,17 @@
+     let sender = Arc::new(common::MockHttpSender::new());
+     let provider = OAuth2Provider::new(pool, sender);
+ 
++    vault.save_access_token("test", cowen_common::models::Token {
++        value: "mock_at".to_string(),
++        created_at: chrono::Utc::now(),
++        expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
++    }).await.unwrap();
++    vault.save_refresh_token("test", cowen_common::models::Token {
++        value: "mock_rt".to_string(),
++        created_at: chrono::Utc::now(),
++        expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
++    }).await.unwrap();
++
+     let config = Config::default_with_profile("test");
+     let app_config = cowen_common::config::AppConfig::default();
+     
+@@ -74,6 +85,25 @@
+     let diag = provider.get_diagnostics(&ctx).await.unwrap();
+     assert!(!diag.is_empty());
+ }
++
++#[tokio::test]
++async fn test_oauth2_initialize() {
++    use cowen_auth::provider::{AuthProvider, InitParams};
++    use cowen_store::StoreVault;
++    use cowen_store::file::FileStore;
++
++    let dir = tempfile::tempdir().unwrap();
++    let vault_path = dir.path().join("oauth2_init.vault");
++    let store = Arc::new(FileStore::new(vault_path, Some("fingerprint")).unwrap());
++    let vault = Arc::new(StoreVault::new(store.clone(), store.clone()));
++    let pool: Arc<dyn TokenPool> = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
++    let sender = Arc::new(common::MockHttpSender::new());
++    let provider = OAuth2Provider::new(pool, sender);
++
++    let mut config = cowen_common::config::Config::default_with_profile("test");
++    let init_params = InitParams::default();
++    provider.initialize("test", &mut config, &init_params).await.unwrap();
++}
