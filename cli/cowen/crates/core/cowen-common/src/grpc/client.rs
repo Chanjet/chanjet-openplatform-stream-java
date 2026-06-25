@@ -393,7 +393,7 @@ impl DaemonClient {
 
         let endpoint = format!("http://127.0.0.1:{}", port);
         let channel = tonic::transport::Endpoint::new(endpoint)?
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(300))
             .connect_timeout(Duration::from_secs(5))
             .connect()
             .await?;

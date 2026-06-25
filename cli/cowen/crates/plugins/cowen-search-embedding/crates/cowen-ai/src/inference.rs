@@ -1,7 +1,6 @@
 use ort::inputs;
 use ort::session::Session;
 use ort::value::Tensor;
-use std::sync::Once;
 use tokenizers::Tokenizer;
 
 pub struct ONNXEmbedder {
@@ -9,90 +8,92 @@ pub struct ONNXEmbedder {
     tokenizer: Tokenizer,
 }
 
-static INIT_ORT: Once = Once::new();
+static ORT_INIT: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
 
-fn ensure_ort_initialized() {
-    INIT_ORT.call_once(|| {
-        if let Ok(env_path) = std::env::var("ORT_DYLIB_PATH") {
-            if std::path::Path::new(&env_path).exists() {
-                if let Ok(mut builder) = ort::init_from(env_path) {
-                    builder = builder.with_name("cowen_search");
-                    let _ = builder.commit();
-                    return;
-                }
-            }
-        }
-
-        if let Ok(exe_path) = std::env::current_exe() {
-            let mut current = exe_path.as_path();
-            let lib_name = match std::env::consts::OS {
-                "macos" => "libonnxruntime.dylib",
-                "windows" => "onnxruntime.dll",
-                _ => "libonnxruntime.so",
-            };
-
-            let mut found_path = None;
-            while let Some(parent) = current.parent() {
-                let candidates = [
-                    parent.join(".libs").join(lib_name),
-                    parent.join(lib_name),
-                    parent
-                        .join("target")
-                        .join("debug")
-                        .join(".libs")
-                        .join(lib_name),
-                    parent
-                        .join("target")
-                        .join("llvm-cov-target")
-                        .join("debug")
-                        .join(".libs")
-                        .join(lib_name),
-                    parent
-                        .join("target")
-                        .join("llvm-cov-target")
-                        .join("llvm-cov-target")
-                        .join("debug")
-                        .join("deps")
-                        .join(".libs")
-                        .join(lib_name),
-                ];
-                for candidate in &candidates {
-                    if candidate.exists() {
-                        found_path = Some(candidate.clone());
-                        break;
-                    }
-                }
-                if found_path.is_some() {
-                    break;
-                }
-                current = parent;
-            }
-
-            if let Some(path) = found_path {
+fn ensure_ort_initialized() -> Result<(), String> {
+    ORT_INIT
+        .get_or_init(|| {
+            if let Ok(path) = std::env::var("ORT_DYLIB_PATH") {
                 if let Ok(mut builder) = ort::init_from(&path) {
                     builder = builder.with_name("cowen_search");
                     let _ = builder.commit();
+                    return Ok(());
+                }
+            }
+
+            if let Ok(exe_path) = std::env::current_exe() {
+                let lib_name = match std::env::consts::OS {
+                    "macos" => "libonnxruntime.dylib",
+                    "windows" => "onnxruntime.dll",
+                    _ => "libonnxruntime.so",
+                };
+
+                let mut current = exe_path.as_path();
+                let mut found_path = None;
+
+                while let Some(parent) = current.parent() {
+                    let candidates = vec![
+                        parent.join(lib_name),
+                        parent.join("deps").join(lib_name),
+                        parent.join(".libs").join(lib_name),
+                        parent
+                            .join("target")
+                            .join("debug")
+                            .join("deps")
+                            .join(".libs")
+                            .join(lib_name),
+                        parent
+                            .join("target")
+                            .join("release")
+                            .join("deps")
+                            .join(".libs")
+                            .join(lib_name),
+                        parent
+                            .join("target")
+                            .join("llvm-cov-target")
+                            .join("debug")
+                            .join(".libs")
+                            .join(lib_name),
+                    ];
+                    for candidate in &candidates {
+                        if candidate.exists() {
+                            found_path = Some(candidate.clone());
+                            break;
+                        }
+                    }
+                    if found_path.is_some() {
+                        break;
+                    }
+                    current = parent;
+                }
+
+                if let Some(path) = found_path {
+                    if let Ok(mut builder) = ort::init_from(&path) {
+                        builder = builder.with_name("cowen_search");
+                        let _ = builder.commit();
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "[ONNX-INIT] Found library at {:?} but init_from failed!",
+                            path
+                        ))
+                    }
                 } else {
-                    panic!(
-                        "[ONNX-INIT] Found library at {:?} but init_from failed!",
-                        path
-                    );
+                    Err(format!(
+                        "[ONNX-INIT] Could not find {} in any parent directory of {:?}",
+                        lib_name, exe_path
+                    ))
                 }
             } else {
-                panic!(
-                    "[ONNX-INIT] Could not find {} in any parent directory of {:?}",
-                    lib_name, exe_path
-                );
+                Err("[ONNX-INIT] Failed to get current_exe and ORT_DYLIB_PATH not set".to_string())
             }
-        } else {
-            panic!("[ONNX-INIT] Failed to get current_exe and ORT_DYLIB_PATH not set");
-        }
-    });
+        })
+        .clone()
 }
 
 impl ONNXEmbedder {
     pub fn new(model_path: &str, tokenizer_path: &str) -> anyhow::Result<Self> {
-        ensure_ort_initialized();
+        ensure_ort_initialized().map_err(|e| anyhow::anyhow!(e))?;
 
         let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;

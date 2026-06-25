@@ -411,6 +411,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires libonnxruntime.dylib which is not present in standard cargo test environment"]
     fn test_disk_cache_reuse_and_invalidation() {
         let tmp = tempdir().unwrap();
         setup_test_engine(tmp.path());

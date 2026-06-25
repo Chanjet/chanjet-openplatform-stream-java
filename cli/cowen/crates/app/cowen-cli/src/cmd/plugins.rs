@@ -398,7 +398,7 @@ async fn run_stdio_plugin(
     .unwrap();
 
     let tx_in = tx.clone();
-    tokio::spawn(async move {
+    let stdin_task = tokio::spawn(async move {
         let mut stdin = tokio::io::stdin();
         let mut buf = vec![0u8; 8192];
         loop {
@@ -433,18 +433,34 @@ async fn run_stdio_plugin(
     let mut stdout = tokio::io::stdout();
     let mut stderr = tokio::io::stderr();
 
-    while let Ok(Some(resp)) = stream.message().await {
-        if let Some(err) = resp.error_message {
-            eprintln!("Daemon Error: {}", err);
-            break;
-        }
-        if let Some(out) = resp.stdout_payload {
-            let _ = stdout.write_all(&out).await;
-            let _ = stdout.flush().await;
-        }
-        if let Some(err) = resp.stderr_payload {
-            let _ = stderr.write_all(&err).await;
-            let _ = stderr.flush().await;
+    loop {
+        match stream.message().await {
+            Ok(Some(resp)) => {
+                if let Some(err) = resp.error_message {
+                    eprintln!("Daemon Error: {}", err);
+                    break;
+                }
+                if let Some(out) = resp.stdout_payload {
+                    let _ = stdout.write_all(&out).await;
+                    let _ = stdout.flush().await;
+                }
+                if let Some(err) = resp.stderr_payload {
+                    let _ = stderr.write_all(&err).await;
+                    let _ = stderr.flush().await;
+                }
+            }
+            Ok(None) => {
+                if !stdin_task.is_finished() {
+                    return Err(anyhow::anyhow!("Daemon closed connection gracefully, but stdin is still active (Daemon restarted)."));
+                }
+                break;
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Daemon connection lost during plugin execution: {}",
+                    e
+                ));
+            }
         }
     }
 

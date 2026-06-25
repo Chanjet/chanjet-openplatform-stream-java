@@ -38,6 +38,10 @@ pub async fn login(profile: &str, force: bool) -> Result<()> {
                     eprintln!("❌ Login failed: {}", message);
                     return Err(anyhow::anyhow!("Login failed: {}", message));
                 }
+                Err(e) => {
+                    eprintln!("❌ IPC Error from daemon during wait_for_auth: {}", e);
+                    return Err(e);
+                }
                 _ => {
                     eprintln!("❌ Unexpected response from daemon during wait_for_auth");
                     return Err(anyhow::anyhow!("Unexpected response"));
