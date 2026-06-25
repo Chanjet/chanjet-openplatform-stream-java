@@ -55,21 +55,24 @@ async fn test_execute_finalize_login_with_listener_success() {
 
     let pool_ref = pool.clone();
     let session_id = session.state.clone();
-    
+
     // Spawn task to simulate hitting the callback
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        
+
         let session_manager = AuthSessionManager::new(pool_ref.as_ref());
         let session = session_manager.get_session(&session_id).await.unwrap();
         let port = session.redirect_port;
-        
+
         // Ensure port is assigned
         assert!(port > 0);
-        
+
         let client = reqwest::Client::new();
         let _ = client
-            .get(format!("http://127.0.0.1:{}/callback?code=mock_code_abc&state={}", port, session.state))
+            .get(format!(
+                "http://127.0.0.1:{}/callback?code=mock_code_abc&state={}",
+                port, session.state
+            ))
             .send()
             .await;
     });
@@ -87,7 +90,7 @@ async fn test_execute_finalize_login_with_listener_success() {
     .await;
 
     assert!(res.is_ok());
-    
+
     // Ensure code is saved to pool
     let saved_code = session_manager.get_captured_code(profile).await.unwrap();
     assert_eq!(saved_code, "mock_code_abc");
@@ -103,16 +106,19 @@ async fn test_execute_finalize_login_exchange_error() {
 
     let pool_ref = pool.clone();
     let session_id = session.state.clone();
-    
+
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
         let session_manager = AuthSessionManager::new(pool_ref.as_ref());
         let session = session_manager.get_session(&session_id).await.unwrap();
         let port = session.redirect_port;
-        
+
         let client = reqwest::Client::new();
         let _ = client
-            .get(format!("http://127.0.0.1:{}/callback?code=mock_code_xyz&state={}", port, session.state))
+            .get(format!(
+                "http://127.0.0.1:{}/callback?code=mock_code_xyz&state={}",
+                port, session.state
+            ))
             .send()
             .await;
     });
@@ -122,15 +128,16 @@ async fn test_execute_finalize_login_exchange_error() {
         profile,
         &session.state,
         "test_provider",
-        |_| async move {
-            Err(CowenError::Auth("simulated exchange error".to_string()))
-        },
+        |_| async move { Err(CowenError::Auth("simulated exchange error".to_string())) },
     )
     .await;
 
     assert!(res.is_err());
-    assert!(res.unwrap_err().to_string().contains("simulated exchange error"));
-    
+    assert!(res
+        .unwrap_err()
+        .to_string()
+        .contains("simulated exchange error"));
+
     // When error occurs, it should clear the session
     let get_session = session_manager.get_session(&session.state).await;
     assert!(get_session.is_err());

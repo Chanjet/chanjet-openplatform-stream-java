@@ -96,7 +96,8 @@ impl TokenDomain for MockVault {
 #[async_trait]
 impl ConfigDomain for MockVault {
     async fn get_config(&self, _: &str, k: &str) -> CowenResult<String> {
-        let val = self.configs
+        let val = self
+            .configs
             .lock()
             .await
             .get(k)

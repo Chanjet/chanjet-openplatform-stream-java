@@ -37,6 +37,18 @@ make install
 
 ### 2. 初始化环境
 
+Cowen 支持三种核心接入模式 (`app-mode`)，请根据你的业务场景选择：
+
+- **`self_built` (自建应用模式)**：
+  - **场景**：适用于企业内部研发的私有系统直接调用开放平台 API。
+  - **能力**：基于公私钥对进行强加密认证，一次配置长期有效，底层由 Wasm 插件隔离执行令牌续期，无需人工介入。
+- **`store_app` (商店应用模式)**：
+  - **场景**：适用于 ISV 服务商在畅捷通应用商店上架的 SaaS 产品。
+  - **能力**：深度集成 `appTicket` 票据流转机制，支持多租户隔离与动态回调，满足复杂生态应用的鉴权与运营合规要求。
+- **`oauth2` (第三方 OAuth2 模式)**：
+  - **场景**：适用于轻量级第三方接入或用户级授权的交互式工具。
+  - **能力**：标准化 OAuth2 Code/Token 流，自动唤起浏览器授权，内置守护进程无缝接管长周期的 Refresh Token 静默刷新。
+
 ```bash
 cowen init --app-mode self_built --app-key YOUR_KEY --app-secret YOUR_SECRET -c YOUR_CERT
 ```
