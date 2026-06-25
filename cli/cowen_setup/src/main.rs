@@ -5,11 +5,15 @@ use std::process::Command;
 fn main() {
     #[cfg(target_os = "windows")]
     {
-        // Check for Administrator privileges
-        let is_elevated = Command::new("net")
-            .arg("session")
+        // Check for Administrator privileges reliably
+        let is_elevated = Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-Command",
+                "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"
+            ])
             .output()
-            .map(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
             .unwrap_or(false);
 
         if !is_elevated {
@@ -39,22 +43,21 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         println!("🛑 Stopping running instances...");
-        let sc_stop1 = Command::new("sc").args(&["stop", "cowen.exeDaemon"]).output();
-        if let Ok(out) = sc_stop1 {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            if !stdout.trim().is_empty() || !stderr.trim().is_empty() {
-                println!("> sc stop cowen.exeDaemon\nSTDOUT: {}\nSTDERR: {}", stdout.trim(), stderr.trim());
-            }
-        }
-        let sc_stop2 = Command::new("sc").args(&["stop", "cowenDaemon"]).output();
-        if let Ok(out) = sc_stop2 {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            if !stdout.trim().is_empty() || !stderr.trim().is_empty() {
-                println!("> sc stop cowenDaemon\nSTDOUT: {}\nSTDERR: {}", stdout.trim(), stderr.trim());
-            }
-        }
+        
+        println!("> sc stop cowen.exeDaemon");
+        let _ = Command::new("sc")
+            .args(&["stop", "cowen.exeDaemon"])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+
+        println!("> sc stop cowenDaemon");
+        let _ = Command::new("sc")
+            .args(&["stop", "cowenDaemon"])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+
         std::thread::sleep(std::time::Duration::from_millis(1000));
         
         let cmds = vec![
@@ -65,14 +68,11 @@ fn main() {
         ];
         for p in cmds {
             println!("> taskkill /F /T /IM {}", p);
-            let out = Command::new("taskkill").args(&["/F", "/T", "/IM", p]).output();
-            if let Ok(o) = out {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                let stderr = String::from_utf8_lossy(&o.stderr);
-                if !stdout.trim().is_empty() || !stderr.trim().is_empty() {
-                    println!("> taskkill {}\nSTDOUT: {}\nSTDERR: {}", p, stdout.trim(), stderr.trim());
-                }
-            }
+            let _ = Command::new("taskkill")
+                .args(&["/F", "/T", "/IM", p])
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .status();
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
