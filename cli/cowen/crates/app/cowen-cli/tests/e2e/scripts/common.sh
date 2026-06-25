@@ -169,16 +169,24 @@ setup_workspace() {
         find "$COWEN_HOME" -name "*_daemon.pid" 2>/dev/null | while read pid_file; do
             PID=$(cat "$pid_file" 2>/dev/null)
             if [ -n "$PID" ]; then
+                kill -15 "$PID" >/dev/null 2>&1 || true
+                for i in {1..10}; do
+                    if ! kill -0 "$PID" 2>/dev/null; then break; fi
+                    sleep 0.2
+                done
                 kill -9 "$PID" >/dev/null 2>&1 || true
-                sleep 0.5
             fi
         done
         # Also kill by unified master daemon PID if present
         if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
             PID=$(cat "$COWEN_HOME/master_daemon.pid" | head -n 1 2>/dev/null)
             if [ -n "$PID" ]; then
+                kill -15 "$PID" >/dev/null 2>&1 || true
+                for i in {1..10}; do
+                    if ! kill -0 "$PID" 2>/dev/null; then break; fi
+                    sleep 0.2
+                done
                 kill -9 "$PID" >/dev/null 2>&1 || true
-                sleep 0.5
             fi
         fi
     fi
@@ -881,7 +889,6 @@ setup_mysql_db() {
     echo "$MYSQL_BASE_URL/$db_name"
 }
 
-# 统一终止并回收传入的多个工作目录下的所有 master 和 profile 守护进程
 kill_daemons_in_dirs() {
     for dir in "$@"; do
         if [ -d "$dir" ]; then
@@ -889,8 +896,21 @@ kill_daemons_in_dirs() {
                 find "$dir" -name "$pattern" 2>/dev/null | while read pid_file; do
                     local PID=$(head -n 1 "$pid_file" 2>/dev/null)
                     if [ -n "$PID" ]; then
-                        echo "     Killing daemon PID $PID in $dir..." >&2
-                        kill -9 "$PID" >/dev/null 2>&1 || true
+                        echo "     Terminating daemon PID $PID in $dir (SIGTERM)..." >&2
+                        kill -15 "$PID" >/dev/null 2>&1 || true
+                        
+                        # Wait up to 3 seconds for graceful exit so LLVM profiler can flush .profraw
+                        for i in {1..15}; do
+                            if ! kill -0 "$PID" 2>/dev/null; then
+                                break
+                            fi
+                            sleep 0.2
+                        done
+                        
+                        if kill -0 "$PID" 2>/dev/null; then
+                            echo "     Force killing daemon PID $PID in $dir (SIGKILL)..." >&2
+                            kill -9 "$PID" >/dev/null 2>&1 || true
+                        fi
                     fi
                 done
             done

@@ -5,8 +5,9 @@ use cowen_config::ConfigManager;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::{BufRead, Seek, Write};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::time::sleep;
+use tokio::time::Instant;
 
 pub async fn wait_for_token_exchange_ipc(profile: &str, monitor_port: u16) -> CowenResult<()> {
     let client = MonitorClient::new(monitor_port);
@@ -154,7 +155,7 @@ pub async fn wait_for_token_exchange(
     }
 }
 
-fn check_failure_log_growth(
+pub fn check_failure_log_growth(
     log_file: &std::path::Path,
     last_log_size: &mut u64,
 ) -> CowenResult<bool> {
@@ -274,12 +275,14 @@ pub async fn perform_failure_cleanup(
     _cfg_mgr: &ConfigManager,
 ) {
     // 1. Kill the finalizer background process
-    let mut sys = sysinfo::System::new();
-    let sys_pid = sysinfo::Pid::from_u32(finalizer_pid);
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
-    if let Some(process) = sys.process(sys_pid) {
-        process.kill_with(sysinfo::Signal::Kill);
-        tracing::info!(target: "sys", pid = %finalizer_pid, "Background finalizer killed due to initialization failure");
+    if finalizer_pid > 0 {
+        let mut sys = sysinfo::System::new();
+        let sys_pid = sysinfo::Pid::from_u32(finalizer_pid);
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
+        if let Some(process) = sys.process(sys_pid) {
+            process.kill_with(sysinfo::Signal::Kill);
+            tracing::info!(target: "sys", pid = %finalizer_pid, "Background finalizer killed due to initialization failure");
+        }
     }
 
     // 2. Cleanup session state

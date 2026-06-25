@@ -21,8 +21,10 @@ where
 
     // Check if code is already captured (pushed via Monitor API)
     if let Ok(captured_code) = session_manager.get_captured_code(profile).await {
-        tracing::info!(target: "sys", "Using pre-captured code from IPC/Session");
-        return exchange_callback(captured_code).await;
+        if !captured_code.is_empty() {
+            tracing::info!(target: "sys", "Using pre-captured code from IPC/Session");
+            return exchange_callback(captured_code).await;
+        }
     }
 
     let (actual_port, rx) = crate::lifecycle::listener::OAuth2CallbackListener::start(
@@ -30,6 +32,14 @@ where
         profile.to_string(),
     )
     .await?;
+
+    if session.redirect_port != actual_port {
+        let mut updated_session = session.clone();
+        updated_session.redirect_port = actual_port;
+        updated_session.redirect_uri = format!("http://127.0.0.1:{}/callback", actual_port);
+        let _ = pool.as_vault().save_session(updated_session).await;
+    }
+
     tracing::info!(target: "sys", port = %actual_port, "Finalizer listening for callback");
 
     let res = tokio::select! {
@@ -68,7 +78,7 @@ where
     };
 
     if res.is_err() {
-        let _ = session_manager.clear(profile).await;
+        let _ = session_manager.clear_session(session_id).await;
     }
     res
 }

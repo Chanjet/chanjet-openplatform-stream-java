@@ -38,4 +38,4 @@ uuid = { version = "1.12", features = ["v4"] }
 [dev-dependencies]
 cowen-store = { path = "../../services/cowen-store" }
 tempfile = "3.8"
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["full", "test-util"] }

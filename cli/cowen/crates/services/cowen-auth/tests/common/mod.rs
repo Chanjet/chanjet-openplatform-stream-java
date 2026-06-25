@@ -14,6 +14,7 @@ pub struct MockVault {
     pub tokens: Mutex<HashMap<String, Token>>,
     pub refresh_tokens: Mutex<HashMap<String, Token>>,
     pub configs: Mutex<HashMap<String, String>>,
+    pub sessions: Mutex<HashMap<String, AuthSession>>,
 }
 
 impl MockVault {
@@ -23,6 +24,7 @@ impl MockVault {
             tokens: Mutex::new(HashMap::new()),
             refresh_tokens: Mutex::new(HashMap::new()),
             configs: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 
@@ -32,6 +34,7 @@ impl MockVault {
             tokens: Mutex::new(HashMap::new()),
             refresh_tokens: Mutex::new(HashMap::new()),
             configs: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -93,13 +96,13 @@ impl TokenDomain for MockVault {
 #[async_trait]
 impl ConfigDomain for MockVault {
     async fn get_config(&self, _: &str, k: &str) -> CowenResult<String> {
-        self.configs
+        let val = self.configs
             .lock()
             .await
             .get(k)
             .cloned()
             .unwrap_or_else(|| "".to_string());
-        Ok("".to_string())
+        Ok(val)
     }
     async fn set_config(&self, _: &str, k: &str, v: &str) -> CowenResult<()> {
         self.configs
@@ -163,13 +166,20 @@ impl TicketDomain for MockVault {
 
 #[async_trait]
 impl SessionDomain for MockVault {
-    async fn get_session(&self, _: &str) -> CowenResult<AuthSession> {
-        Err(CowenError::Auth("not found".to_string()))
+    async fn get_session(&self, state: &str) -> CowenResult<AuthSession> {
+        self.sessions
+            .lock()
+            .await
+            .get(state)
+            .cloned()
+            .ok_or(CowenError::Auth("not found".to_string()))
     }
-    async fn save_session(&self, _: AuthSession) -> CowenResult<()> {
+    async fn save_session(&self, s: AuthSession) -> CowenResult<()> {
+        self.sessions.lock().await.insert(s.state.clone(), s);
         Ok(())
     }
-    async fn delete_session(&self, _: &str) -> CowenResult<()> {
+    async fn delete_session(&self, state: &str) -> CowenResult<()> {
+        self.sessions.lock().await.remove(state);
         Ok(())
     }
     async fn list_sessions(&self) -> CowenResult<Vec<AuthSession>> {

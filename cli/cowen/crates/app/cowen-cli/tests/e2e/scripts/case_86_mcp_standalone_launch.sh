@@ -37,14 +37,17 @@ echo "🔌 3. 开启 Daemon，测试 cowen-mcp-plugin server 的握手与 StdIO 
 # 等待 daemon 就绪
 sleep 1.0
 
-# 准备一个简易的 JSON-RPC 2.0 请求（查询工具列表）
-MOCK_REQUEST='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+# 准备符合标准 MCP 协议的 JSON-RPC 2.0 请求序列（初始化 + 确认 + 工具查询）
+# 这样才能突破协议拦截，进入插件深层的 OpenAPI 和 Handlers 执行逻辑
+cat << 'EOF_MCP' > "$COWEN_HOME/mcp_mock.jsonl"
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+EOF_MCP
 
-# 将 JSON 请求送入插件的 stdin，并捕获响应
-# 如果 daemon 握手失败，进程会退出码为 1
-# 我们允许这里临时报错或失败，主要是为了执行握手和 server 处理循环的覆盖率代码
-echo "     Feeding mock RPC to standalone server..."
-RESPONSE=$(echo "$MOCK_REQUEST" | "$COWEN_MCP_BIN" --profile "$PROFILE" server 2>/dev/null || true)
+# 将 JSON 请求流水送入插件的 stdin，并捕获响应
+echo "     Feeding mock RPC sequence to standalone server..."
+RESPONSE=$(cat "$COWEN_HOME/mcp_mock.jsonl" | "$COWEN_MCP_BIN" --profile "$PROFILE" server 2>/dev/null || true)
 
 echo "     Response received: $RESPONSE"
 
