@@ -640,6 +640,9 @@ impl NativeSystemCapability for DefaultSystem {
             cmd.env(k, v);
         }
 
+        use cowen_sys::CommandExtSys;
+        cmd.hide_window();
+
         cmd.env("COWEN_PROFILE", profile);
         cmd.env("COWEN_IPC_PORT", port_str);
         cmd.env("COWEN_BRIDGE_TOKEN", bridge_token);

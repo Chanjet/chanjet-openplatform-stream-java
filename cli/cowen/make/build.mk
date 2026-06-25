@@ -137,6 +137,26 @@ linux-x86_64-with-docker: prepare-docker-image
 	$(call SHA256,$(OUTPUT_DIR)/linux-x86_64/$(BINARY)) && \
 	$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
 
+linux-x86_64-cross: build-system-plugins
+	@echo "🐧 Cross-compiling Linux x86_64 [FULL VERSION] natively via cargo-zigbuild v$(VERSION)..."
+	mkdir -p $(OUTPUT_DIR)/linux-x86_64
+	cargo build --release -p cowen-signer
+	CARGO_BIN_NAME_OVERRIDE=$(BINARY) APP_DIR_NAME=.$(BINARY) \
+	DEF_OPENAPI_URL=$(PROD_OPENAPI) DEF_STREAM_URL=$(PROD_STREAM) \
+	BUILTIN_CLIENT_ID=$(OFFICIAL_APP_KEY) \
+	cargo zigbuild --release --target x86_64-unknown-linux-gnu -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-mcp-plugin
+	target/release/cowen-signer sign-plugin --dylib target/x86_64-unknown-linux-gnu/release/libcowen_search_embedding --name cowen-search-embedding --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle --manifest-file crates/plugins/cowen-search-embedding/plugin.json
+	target/release/cowen-signer sign-plugin --dylib target/x86_64-unknown-linux-gnu/release/cowen-mcp-plugin --name cowen-mcp-plugin --version $(VERSION) --dev-key dist_assets/keys/official_dev.pk8 --dev-cert dist_assets/keys/official_dev_cert.json --out-bundle target/x86_64-unknown-linux-gnu/release/cowen-mcp-plugin.bundle --manifest-file crates/plugins/cowen-mcp-plugin/plugin.json
+	cp target/x86_64-unknown-linux-gnu/release/$(BINARY) $(OUTPUT_DIR)/linux-x86_64/$(BINARY)
+	cp target/x86_64-unknown-linux-gnu/release/cowen-daemon $(OUTPUT_DIR)/linux-x86_64/cowen-daemon
+	cp target/x86_64-unknown-linux-gnu/release/libcowen_search_embedding $(OUTPUT_DIR)/linux-x86_64/
+	cp target/x86_64-unknown-linux-gnu/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/linux-x86_64/
+	cp target/x86_64-unknown-linux-gnu/release/cowen-mcp-plugin $(OUTPUT_DIR)/linux-x86_64/
+	cp target/x86_64-unknown-linux-gnu/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/linux-x86_64/
+	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
+	@$(call SHA256,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
+	@$(call VERIFY_BIN,$(OUTPUT_DIR)/linux-x86_64/$(BINARY))
+
 
 linux-aarch64: build-plugins
 	@echo "🐧 Building Linux aarch64 v$(VERSION)..."

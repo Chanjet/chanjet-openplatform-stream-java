@@ -3,8 +3,80 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    {
+        // Check for Administrator privileges
+        let is_elevated = Command::new("net")
+            .arg("session")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !is_elevated {
+            println!("⚠️ Administrative privileges are required to manage Windows services.");
+            println!("🔄 Re-launching with Administrator privileges...");
+            
+            let exe = std::env::current_exe().unwrap();
+            let exe_path = exe.to_string_lossy();
+            
+            // Run exactly the same executable but with Admin rights using PowerShell
+            let _ = Command::new("powershell")
+                .args(&[
+                    "-NoProfile",
+                    "-Command",
+                    &format!("Start-Process -FilePath \"{}\" -Verb RunAs -Wait", exe_path)
+                ])
+                .status();
+            
+            // Exit the non-elevated instance
+            std::process::exit(0);
+        }
+    }
+
     println!("🚀 Starting cowen installation...");
     
+    // Kill running instances to avoid file lock issues on Windows
+    #[cfg(target_os = "windows")]
+    {
+        println!("🛑 Stopping running instances...");
+        let sc_stop1 = Command::new("sc").args(&["stop", "cowen.exeDaemon"]).output();
+        if let Ok(out) = sc_stop1 {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if !stdout.trim().is_empty() || !stderr.trim().is_empty() {
+                println!("> sc stop cowen.exeDaemon\nSTDOUT: {}\nSTDERR: {}", stdout.trim(), stderr.trim());
+            }
+        }
+        let sc_stop2 = Command::new("sc").args(&["stop", "cowenDaemon"]).output();
+        if let Ok(out) = sc_stop2 {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            if !stdout.trim().is_empty() || !stderr.trim().is_empty() {
+                println!("> sc stop cowenDaemon\nSTDOUT: {}\nSTDERR: {}", stdout.trim(), stderr.trim());
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        
+        let cmds = vec![
+            "cowen-daemon.exe",
+            "cowen.exe",
+            "cowen-mcp-plugin.exe",
+            "libcowen_search_embedding.exe"
+        ];
+        for p in cmds {
+            println!("> taskkill /F /T /IM {}", p);
+            let out = Command::new("taskkill").args(&["/F", "/T", "/IM", p]).output();
+            if let Ok(o) = out {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                if !stdout.trim().is_empty() || !stderr.trim().is_empty() {
+                    println!("> taskkill {}\nSTDOUT: {}\nSTDERR: {}", p, stdout.trim(), stderr.trim());
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
     // Embed binaries
     let cowen_bytes = include_bytes!(r#"../../../bin/windows-x86_64/cowen.exe"#);
     let daemon_bytes = include_bytes!(r#"../../../bin/windows-x86_64/cowen-daemon.exe"#);
@@ -18,6 +90,11 @@ fn main() {
     let search_exe_bundle = include_bytes!(r#"../../../bin/windows-x86_64/libcowen_search_embedding.bundle"#);
     #[cfg(not(has_search_exe))]
     let search_exe_bundle: &[u8] = &[];
+    
+    #[cfg(has_search_exe)]
+    let onnxruntime_dll = include_bytes!(r#"../../cowen/dist_assets/windows/onnxruntime.dll"#);
+    #[cfg(not(has_search_exe))]
+    let onnxruntime_dll: &[u8] = &[];
 
     #[cfg(has_mcp_exe)]
     let mcp_exe_bytes = include_bytes!(r#"../../../bin/windows-x86_64/cowen-mcp-plugin.exe"#);
@@ -43,50 +120,77 @@ fn main() {
     }
     
     let dest = install_dir.join("cowen.exe");
-    fs::write(&dest, cowen_bytes).expect("Failed to write cowen.exe");
-    println!("✅ Copied cowen.exe to {}", install_dir.display());
+    if let Err(e) = fs::write(&dest, cowen_bytes) {
+        println!("❌ Failed to write cowen.exe: {}. Please ensure it is not running and try again.", e);
+        Command::new("cmd").args(&["/c", "pause"]).status().unwrap_or_default();
+        std::process::exit(1);
+    }
+    println!("✅ Copied cowen.exe -> {}", dest.display());
     
     let daemon_dest = install_dir.join("cowen-daemon.exe");
-    fs::write(&daemon_dest, daemon_bytes).expect("Failed to write cowen-daemon.exe");
-    println!("✅ Copied cowen-daemon.exe to {}", install_dir.display());
+    if let Err(e) = fs::write(&daemon_dest, daemon_bytes) {
+        println!("❌ Failed to write cowen-daemon.exe: {}. Please ensure it is not running and try again.", e);
+        Command::new("cmd").args(&["/c", "pause"]).status().unwrap_or_default();
+        std::process::exit(1);
+    }
+    println!("✅ Copied cowen-daemon.exe -> {}", daemon_dest.display());
     
     // Install system plugins
     let system_plugins_dir = PathBuf::from(&home).join(".cowen").join("system_plugins");
     if !system_plugins_dir.exists() {
-        fs::create_dir_all(&system_plugins_dir).expect("Failed to create system_plugins directory");
+        fs::create_dir_all(&system_plugins_dir).unwrap_or_default();
     }
-    fs::write(system_plugins_dir.join("cowen_wasm_auth_selfbuilt.wasm"), selfbuilt_wasm_bytes)
-        .expect("Failed to write cowen_wasm_auth_selfbuilt.wasm");
-    fs::write(system_plugins_dir.join("cowen_wasm_auth_selfbuilt.bundle"), selfbuilt_bundle_bytes)
-        .expect("Failed to write cowen_wasm_auth_selfbuilt.bundle");
-    fs::write(system_plugins_dir.join("cowen_wasm_auth_storeapp.wasm"), storeapp_wasm_bytes)
-        .expect("Failed to write cowen_wasm_auth_storeapp.wasm");
-    fs::write(system_plugins_dir.join("cowen_wasm_auth_storeapp.bundle"), storeapp_bundle_bytes)
-        .expect("Failed to write cowen_wasm_auth_storeapp.bundle");
-    println!("📦 Installed Wasm system plugins to {}", system_plugins_dir.display());
+    
+    let write_sys_plugin = |name: &str, data: &[u8]| {
+        let dest_path = system_plugins_dir.join(name);
+        if let Err(e) = fs::write(&dest_path, data) {
+            println!("❌ Failed to write {}: {}", dest_path.display(), e);
+            Command::new("cmd").args(&["/c", "pause"]).status().unwrap_or_default();
+            std::process::exit(1);
+        }
+        println!("✅ Copied {} -> {}", name, dest_path.display());
+    };
+    
+    println!("📦 Installing Wasm system plugins...");
+    write_sys_plugin("cowen_wasm_auth_selfbuilt.wasm", selfbuilt_wasm_bytes);
+    write_sys_plugin("cowen_wasm_auth_selfbuilt.bundle", selfbuilt_bundle_bytes);
+    write_sys_plugin("cowen_wasm_auth_storeapp.wasm", storeapp_wasm_bytes);
+    write_sys_plugin("cowen_wasm_auth_storeapp.bundle", storeapp_bundle_bytes);
     
     let plugins_dir = PathBuf::from(&home).join(".cowen").join("plugins");
     let mut plugins_installed = false;
 
+    let write_plugin = |name: &str, data: &[u8]| {
+        let dest_path = plugins_dir.join(name);
+        if let Err(e) = fs::write(&dest_path, data) {
+            println!("❌ Failed to write {}: {}", dest_path.display(), e);
+            Command::new("cmd").args(&["/c", "pause"]).status().unwrap_or_default();
+            std::process::exit(1);
+        }
+        println!("✅ Copied {} -> {}", name, dest_path.display());
+    };
+
     if !search_exe_bytes.is_empty() {
-        if !plugins_dir.exists() { fs::create_dir_all(&plugins_dir).unwrap(); }
-        fs::write(plugins_dir.join("libcowen_search_embedding.exe"), search_exe_bytes).unwrap();
-        fs::write(plugins_dir.join("libcowen_search_embedding.bundle"), search_exe_bundle).unwrap();
-        println!("🧩 Installed AI plugin (EXE) to {}", plugins_dir.display());
+        println!("🧩 Installing AI plugin...");
+        if !plugins_dir.exists() { fs::create_dir_all(&plugins_dir).unwrap_or_default(); }
+        write_plugin("libcowen_search_embedding.exe", search_exe_bytes);
+        write_plugin("libcowen_search_embedding.bundle", search_exe_bundle);
+        write_plugin("onnxruntime.dll", onnxruntime_dll);
         plugins_installed = true;
     }
 
     if !mcp_exe_bytes.is_empty() {
-        if !plugins_dir.exists() { fs::create_dir_all(&plugins_dir).unwrap(); }
-        fs::write(plugins_dir.join("cowen-mcp-plugin.exe"), mcp_exe_bytes).unwrap();
-        fs::write(plugins_dir.join("cowen-mcp-plugin.bundle"), mcp_bundle_bytes).unwrap();
-        println!("🧩 Installed MCP plugin to {}", plugins_dir.display());
+        println!("🧩 Installing MCP plugin...");
+        if !plugins_dir.exists() { fs::create_dir_all(&plugins_dir).unwrap_or_default(); }
+        write_plugin("cowen-mcp-plugin.exe", mcp_exe_bytes);
+        write_plugin("cowen-mcp-plugin.bundle", mcp_bundle_bytes);
         plugins_installed = true;
     }
 
     if plugins_installed {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        let _ = Command::new(&dest).args(&["plugins", "enable", "cowen-search-embedding"]).status();
+        // Use the actual binary name "libcowen_search_embedding" for enabling
+        let _ = Command::new(&dest).args(&["plugins", "enable", "libcowen_search_embedding"]).status();
         let _ = Command::new(&dest).args(&["plugins", "enable", "cowen-mcp-plugin"]).status();
         println!("✅ Plugins enabled.");
     }
@@ -139,6 +243,12 @@ fn main() {
     let _ = Command::new(&dest)
         .args(&["daemon", "service", "install"])
         .status();
+
+    #[cfg(target_os = "windows")]
+    {
+        println!("🚀 Starting daemon service...");
+        let _ = Command::new("sc").args(&["start", "cowen.exeDaemon"]).output();
+    }
 
     println!("\n🎉 Installation complete! Please RESTART your terminal.");
     Command::new("cmd").args(&["/c", "pause"]).status().unwrap();

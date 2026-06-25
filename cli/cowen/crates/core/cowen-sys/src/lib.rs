@@ -344,6 +344,31 @@ pub fn get_onnx_library_name() -> &'static str {
     return "libonnxruntime.so";
 }
 
+pub trait CommandExtSys {
+    fn hide_window(&mut self) -> &mut Self;
+}
+
+impl CommandExtSys for std::process::Command {
+    fn hide_window(&mut self) -> &mut Self {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            self.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        self
+    }
+}
+
+impl CommandExtSys for tokio::process::Command {
+    fn hide_window(&mut self) -> &mut Self {
+        #[cfg(target_os = "windows")]
+        {
+            self.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

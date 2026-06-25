@@ -193,9 +193,12 @@ impl DaemonClient {
     }
 
     async fn try_ping_existing_daemon(&self) -> Result<Option<(Channel, AuthInterceptor)>> {
-        if let Ok((channel, interceptor)) = self.connect_to_daemon().await {
-            let mut retry_count = 0;
-            loop {
+        let mut retry_count = 0;
+        let app_dir = crate::config::get_app_dir();
+        let pid_file = app_dir.join("master_daemon.pid");
+
+        loop {
+            if let Ok((channel, interceptor)) = self.connect_to_daemon().await {
                 let mut test_client = NativeWorkerServiceClient::with_interceptor(
                     channel.clone(),
                     interceptor.clone(),
@@ -205,12 +208,23 @@ impl DaemonClient {
                 {
                     return Ok(Some((channel, interceptor)));
                 }
-                retry_count += 1;
-                if retry_count >= 3 {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(500)).await;
             }
+
+            if pid_file.exists() {
+                if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
+                    if let Some(pid) = pid_str.lines().next().and_then(|s| s.parse::<u32>().ok()) {
+                        if cowen_sys::get_process_manager().is_process_alive(pid).await {
+                            retry_count += 1;
+                            if retry_count >= 30 {
+                                break;
+                            }
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            continue;
+                        }
+                    }
+                }
+            }
+            break;
         }
         Ok(None)
     }
@@ -285,7 +299,13 @@ impl DaemonClient {
                 )
             })?;
 
-        let child = std::process::Command::new(daemon_path)
+        #[allow(unused_mut)]
+        let mut child_cmd = std::process::Command::new(daemon_path);
+
+        use cowen_sys::CommandExtSys;
+        child_cmd.hide_window();
+
+        let child = child_cmd
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::from(stdout_file))
             .stderr(std::process::Stdio::from(stderr_file))

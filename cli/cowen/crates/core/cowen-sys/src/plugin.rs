@@ -184,105 +184,128 @@ impl RpcPluginClient {
         method: &str,
         params: serde_json::Value,
     ) -> anyhow::Result<serde_json::Value> {
-        let mut child_guard = self.child.lock().unwrap();
+        let mut retries = 1;
+        loop {
+            let mut child_guard = self.child.lock().unwrap();
 
-        // Spawn the Rust Sidecar process on demand if not already running
-        if child_guard.is_none() {
-            tracing::info!(target: "sys", "Spawning Rust Sidecar: {:?}", self.binary_path);
+            // Spawn the Rust Sidecar process on demand if not already running
+            if child_guard.is_none() {
+                tracing::info!(target: "sys", "Spawning Rust Sidecar: {:?}", self.binary_path);
 
-            // Safe privilege audit
-            let mut compute_heavy = false;
-            if let Ok(loader) = PluginLoader::new(&self.binary_path) {
-                compute_heavy = loader.enforce_privilege("ComputeHeavy");
-            }
+                // Safe privilege audit
+                let mut compute_heavy = false;
+                if let Ok(loader) = PluginLoader::new(&self.binary_path) {
+                    compute_heavy = loader.enforce_privilege("ComputeHeavy");
+                }
 
-            let mut allowed_roots = vec![];
-            if let Ok(workspace) = std::env::var("COWEN_WORKSPACE") {
-                allowed_roots.push(PathBuf::from(workspace));
-            } else if let Ok(cwd) = std::env::current_dir() {
-                allowed_roots.push(cwd);
-            }
+                let mut allowed_roots = vec![];
+                if let Ok(workspace) = std::env::var("COWEN_WORKSPACE") {
+                    allowed_roots.push(PathBuf::from(workspace));
+                } else if let Ok(cwd) = std::env::current_dir() {
+                    allowed_roots.push(cwd);
+                }
 
-            let mut cmd = crate::create_sandboxed_command(
-                &self.binary_path,
-                &cowen_infra::path::get_app_dir(),
-                &allowed_roots,
-            );
-            cmd.stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                // Safe credential injection in-memory (Option A requirement)
-                .env("COWEN_BRIDGE_TOKEN", &self.bridge_token);
+                let mut cmd = crate::create_sandboxed_command(
+                    &self.binary_path,
+                    &cowen_infra::path::get_app_dir(),
+                    &allowed_roots,
+                );
+                cmd.stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    // Safe credential injection in-memory (Option A requirement)
+                    .env("COWEN_BRIDGE_TOKEN", &self.bridge_token);
 
-            // Inject JWT for TCP IPC (Phase 1 iteration)
-            if let Some(token) = &self.ipc_token {
-                cmd.env("COWEN_PLUGIN_IPC_TOKEN", token);
-            }
+                // Inject JWT for TCP IPC (Phase 1 iteration)
+                if let Some(token) = &self.ipc_token {
+                    cmd.env("COWEN_PLUGIN_IPC_TOKEN", token);
+                }
 
-            if compute_heavy {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::process::CommandExt;
-                    unsafe {
-                        cmd.pre_exec(|| {
-                            // nice value 15 (lower scheduling priority) to avoid starving host gateway hot path threads
-                            libc::setpriority(libc::PRIO_PROCESS, 0, 15);
-                            Ok(())
-                        });
+                if compute_heavy {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::process::CommandExt;
+                        unsafe {
+                            cmd.pre_exec(|| {
+                                // nice value 15 (lower scheduling priority) to avoid starving host gateway hot path threads
+                                libc::setpriority(libc::PRIO_PROCESS, 0, 15);
+                                Ok(())
+                            });
+                        }
                     }
                 }
+
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                }
+
+                let child = cmd
+                    .spawn()
+                    .map_err(|e| anyhow::anyhow!("Failed to spawn Sidecar child process: {}", e))?;
+                *child_guard = Some(child);
             }
 
-            let child = cmd
-                .spawn()
-                .map_err(|e| anyhow::anyhow!("Failed to spawn Sidecar child process: {}", e))?;
-            *child_guard = Some(child);
+            let child = child_guard.as_mut().unwrap();
+
+            macro_rules! handle_dead_pipe {
+                ($msg:expr) => {{
+                    let _ = child.kill();
+                    *child_guard = None;
+                    if retries > 0 {
+                        retries -= 1;
+                        continue;
+                    }
+                    return Err(anyhow::anyhow!($msg));
+                }};
+            }
+
+            // 1. Write request line to Stdio
+            let stdin = match child.stdin.as_mut() {
+                Some(s) => s,
+                None => handle_dead_pipe!("Sidecar stdin pipeline closed"),
+            };
+
+            let request = JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: Some(serde_json::json!(1)),
+                method: method.to_string(),
+                params: Some(params.clone()),
+            };
+
+            let request_str = serde_json::to_string(&request)?;
+
+            if stdin.write_all(request_str.as_bytes()).is_err()
+                || stdin.write_all(b"\n").is_err()
+                || stdin.flush().is_err()
+            {
+                handle_dead_pipe!("Failed to write to Sidecar process");
+            }
+
+            // 2. Read single line response from Stdio
+            let stdout = match child.stdout.as_mut() {
+                Some(s) => s,
+                None => handle_dead_pipe!("Sidecar stdout pipeline closed"),
+            };
+
+            let mut reader = BufReader::new(stdout);
+            let mut response_line = String::new();
+
+            if reader.read_line(&mut response_line).is_err() || response_line.trim().is_empty() {
+                handle_dead_pipe!("Sidecar returned empty stdout/EOF");
+            }
+
+            let response: JsonRpcResponse = serde_json::from_str(&response_line)?;
+            if let Some(err) = response.error {
+                return Err(anyhow::anyhow!(
+                    "Sidecar Error {}: {}",
+                    err.code,
+                    err.message
+                ));
+            }
+
+            return Ok(response.result.unwrap_or_default());
         }
-
-        let child = child_guard.as_mut().unwrap();
-
-        // 1. Write request line to Stdio
-        let stdin = child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Sidecar stdin pipeline closed"))?;
-        let request = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            id: Some(serde_json::json!(1)),
-            method: method.to_string(),
-            params: Some(params),
-        };
-
-        let request_str = serde_json::to_string(&request)?;
-        stdin.write_all(request_str.as_bytes())?;
-        stdin.write_all(b"\n")?;
-        stdin.flush()?;
-
-        // 2. Read single line response from Stdio
-        let stdout = child
-            .stdout
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Sidecar stdout pipeline closed"))?;
-        let mut reader = BufReader::new(stdout);
-        let mut response_line = String::new();
-        reader.read_line(&mut response_line)?;
-
-        if response_line.trim().is_empty() {
-            // Child process might have died or EOF. Kill and clear child cache.
-            let _ = child.kill();
-            *child_guard = None;
-            return Err(anyhow::anyhow!("Sidecar returned empty stdout/EOF"));
-        }
-
-        let response: JsonRpcResponse = serde_json::from_str(&response_line)?;
-        if let Some(err) = response.error {
-            return Err(anyhow::anyhow!(
-                "Sidecar JSON-RPC Error: code={}, message={}",
-                err.code,
-                err.message
-            ));
-        }
-
-        Ok(response.result.unwrap_or(serde_json::Value::Null))
     }
 }
 

@@ -31,6 +31,7 @@ impl-package-macos: build-system-plugins
 	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm pkg_core_root/usr/local/share/cowen/system_plugins/ || true
 	cp target/release/libcowen_search_embedding pkg_plugin_ai_root/usr/local/share/cowen/staging/ || true
 	if [ -f "pkg_plugin_ai_root/usr/local/share/cowen/staging/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_plugin_ai_root/usr/local/share/cowen/staging/ || exit 1; fi
+	if [ -f "pkg_plugin_ai_root/usr/local/share/cowen/staging/libcowen_search_embedding" ]; then cp dist_assets/macos/libonnxruntime.dylib pkg_plugin_ai_root/usr/local/share/cowen/staging/ || exit 1; fi
 	cp target/release/cowen-mcp-plugin pkg_plugin_mcp_root/usr/local/share/cowen/staging/ || true
 	if [ -f "pkg_plugin_mcp_root/usr/local/share/cowen/staging/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle pkg_plugin_mcp_root/usr/local/share/cowen/staging/ || exit 1; fi
 	@chmod +x dist_assets/macos/scripts_core/postinstall
@@ -62,11 +63,16 @@ package-linux-x86_64-with-docker: clean linux-x86_64-with-docker
 	@echo "📦 Packaging Linux x86_64 (Docker Build)..."
 	@$(MAKE) impl-package-linux-x86_64
 
+package-linux-x86_64-cross: clean linux-x86_64-cross
+	@echo "📦 Packaging Linux x86_64 (Cross Build via zigbuild)..."
+	@$(MAKE) impl-package-linux-x86_64
+
 package-linux-aarch64: clean linux-aarch64 build-system-plugins
 	@echo "📦 Packaging Linux aarch64..."
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
 	cp target/release/libcowen_search_embedding pkg_root_aarch64/lib/ || true
 	if [ -f "pkg_root_aarch64/lib/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_root_aarch64/lib/ || exit 1; fi
+	if [ -f "pkg_root_aarch64/lib/libcowen_search_embedding" ]; then cp dist_assets/linux/libonnxruntime.so pkg_root_aarch64/lib/ || exit 1; fi
 	cp target/release/cowen-mcp-plugin pkg_root_aarch64/lib/ || true
 	if [ -f "pkg_root_aarch64/lib/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle pkg_root_aarch64/lib/ || exit 1; fi
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
@@ -97,59 +103,10 @@ package-windows-x86_64: clean windows-x86_64
 	@echo "🔍 Automating Windows package verification..."
 	powershell -NoProfile -ExecutionPolicy Bypass -File "crates/app/cowen-cli/tests/runners/verify_windows_pkg.ps1" -SetupExePath "$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.exe"
 
-package-windows-x86_64-cross: windows-x86_64-cross
-	@echo "📦 Cross-packaging Windows x86_64 on macOS/Linux..."
-	mkdir -p $(OUTPUT_DIR)/windows-x86_64/release
-	rm -rf $(OUTPUT_DIR)/windows-x86_64/tmp_pkg
-	mkdir -p $(OUTPUT_DIR)/windows-x86_64/tmp_pkg
-	cp $(OUTPUT_DIR)/windows-x86_64/$(BINARY).exe $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/
-	cp $(OUTPUT_DIR)/windows-x86_64/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/
-	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/
-	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/README.txt
-	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/
-	cp -r dist_assets/usage $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/
-	@if [ -f "../../assets/plugins/windows-x86_64/libcowen_search_embedding.exe" ]; then \
-		echo "✅ Found stable libcowen_search_embedding.exe in assets, copying into package..."; \
-		mkdir -p $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/plugins; \
-		cp ../../assets/plugins/windows-x86_64/libcowen_search_embedding.exe $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/; \
-		cp ../../assets/plugins/windows-x86_64/libcowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/ || true; \
-	elif [ -f "$(OUTPUT_DIR)/windows-x86_64/libcowen_search_embedding.exe" ]; then \
-		echo "✅ Found libcowen_search_embedding.exe in output dir (copied from cross compilation), copying into package..."; \
-		cp $(OUTPUT_DIR)/windows-x86_64/libcowen_search_embedding.exe $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/; \
-		cp $(OUTPUT_DIR)/windows-x86_64/libcowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/ || true; \
-	elif [ -f "target/x86_64-pc-windows-msvc/release/libcowen_search_embedding.exe" ]; then \
-		echo "✅ Found libcowen_search_embedding.exe in target, copying into package..."; \
-		cp target/x86_64-pc-windows-msvc/release/libcowen_search_embedding.exe $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/; \
-		cp target/x86_64-pc-windows-msvc/release/libcowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/ || true; \
-	else \
-		echo "⚠️ WARNING: libcowen_search_embedding.exe not found. The package will be compiled WITHOUT AI embedding features."; \
-	fi
-	@if [ -f "$(OUTPUT_DIR)/windows-x86_64/cowen-mcp-plugin.exe" ]; then \
-		echo "✅ Found cowen-mcp-plugin.exe in output dir (copied from cross compilation), copying into package..."; \
-		cp $(OUTPUT_DIR)/windows-x86_64/cowen-mcp-plugin.exe $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/; \
-		cp $(OUTPUT_DIR)/windows-x86_64/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/ || true; \
-	elif [ -f "target/x86_64-pc-windows-msvc/release/cowen-mcp-plugin.exe" ]; then \
-		echo "✅ Found cowen-mcp-plugin.exe in target, copying into package..."; \
-		cp target/x86_64-pc-windows-msvc/release/cowen-mcp-plugin.exe $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/; \
-		cp target/x86_64-pc-windows-msvc/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/ || true; \
-	fi
-	@echo "🗜️ Zipping Windows package..."
-	mkdir -p $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/system_plugins
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/system_plugins/ || true
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/system_plugins/ || true
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/system_plugins/ || true
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/system_plugins/ || true
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm $(OUTPUT_DIR)/windows-x86_64/tmp_pkg/system_plugins/ || true
-	cd $(OUTPUT_DIR)/windows-x86_64/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86_64.zip .
-	rm -rf $(OUTPUT_DIR)/windows-x86_64/tmp_pkg
-	@$(call MD5,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip)
-	@$(call SHA256,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip)
-	@echo "✅ Cross-packaging completed: $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64.zip"
 
-package-windows-x86_64-with-docker: package-windows-x86_64-setup-cross
 
-package-windows-x86_64-setup-cross: windows-x86_64-cross build-system-plugins
-	@echo "📦 Packaging Windows x86_64 Setup natively via cargo-zigbuild..."
+package-windows-x86_64-cross: windows-x86_64-cross build-system-plugins
+	@echo "📦 Packaging Windows Setup natively via cargo-zigbuild..."
 	mkdir -p $(OUTPUT_DIR)/windows-x86_64/release
 	cp CHANGELOG.md ../cowen_setup/ || true
 	WINAPI_X64_LIB_DIR=$$(cargo metadata --format-version 1 | tr ',' '\n' | grep winapi-x86_64-pc-windows-gnu | grep src_path | head -n 1 | cut -d '"' -f 4 | sed 's/\/src\/lib.rs/\/lib/g'); \
@@ -159,58 +116,12 @@ package-windows-x86_64-setup-cross: windows-x86_64-cross build-system-plugins
 	@$(call SHA256,$(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip)
 	@echo "✅ Native cross packaging completed: $(OUTPUT_DIR)/windows-x86_64/release/$(BINARY)-v$(VERSION)-windows-x86_64-setup.zip"
 
-package-windows-x86-cross: windows-x86-cross
-	@echo "📦 Cross-packaging Windows x86 (32-bit) on macOS/Linux..."
-	mkdir -p $(OUTPUT_DIR)/windows-x86/release
-	rm -rf $(OUTPUT_DIR)/windows-x86/tmp_pkg
-	mkdir -p $(OUTPUT_DIR)/windows-x86/tmp_pkg
-	cp $(OUTPUT_DIR)/windows-x86/$(BINARY).exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/
-	cp $(OUTPUT_DIR)/windows-x86/cowen-daemon.exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/
-	cp CHANGELOG.md $(OUTPUT_DIR)/windows-x86/tmp_pkg/
-	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/windows-x86/tmp_pkg/README.txt
-	cp ./dist_assets/windows/install.ps1 $(OUTPUT_DIR)/windows-x86/tmp_pkg/
-	@if [ -f "../../assets/plugins/windows-x86/cowen_search_embedding.dll" ]; then \
-		echo "✅ Found stable 32-bit cowen_search_embedding.dll in assets, copying into package..."; \
-		cp ../../assets/plugins/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/;
-		cp ../../assets/plugins/windows-x86/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
-	elif [ -f "$(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll" ]; then \
-		echo "✅ Found 32-bit cowen_search_embedding.dll in output dir (copied from Windows), copying into package..."; \
-		cp $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/;
-		cp $(OUTPUT_DIR)/windows-x86/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
-	elif [ -f "target/i686-pc-windows-msvc/release/cowen_search_embedding.dll" ]; then \
-		echo "✅ Found 32-bit cowen_search_embedding.dll in target, copying into package..."; \
-		cp target/i686-pc-windows-msvc/release/cowen_search_embedding.dll $(OUTPUT_DIR)/windows-x86/tmp_pkg/;
-		cp target/i686-pc-windows-msvc/release/cowen_search_embedding.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
-	else \
-		echo "⚠️ WARNING: 32-bit cowen_search_embedding.dll not found. The package will be compiled WITHOUT AI embedding features."; \
-	fi
-	@if [ -f "$(OUTPUT_DIR)/windows-x86/cowen-mcp-plugin.exe" ]; then \
-		echo "✅ Found 32-bit cowen-mcp-plugin.exe in output dir, copying into package..."; \
-		cp $(OUTPUT_DIR)/windows-x86/cowen-mcp-plugin.exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
-		cp $(OUTPUT_DIR)/windows-x86/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
-	elif [ -f "target/i686-pc-windows-msvc/release/cowen-mcp-plugin.exe" ]; then \
-		echo "✅ Found 32-bit cowen-mcp-plugin.exe in target, copying into package..."; \
-		cp target/i686-pc-windows-msvc/release/cowen-mcp-plugin.exe $(OUTPUT_DIR)/windows-x86/tmp_pkg/; \
-		cp target/i686-pc-windows-msvc/release/cowen-mcp-plugin.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/ || true; \
-	fi
-	@echo "🗜️ Zipping Windows package..."
-	mkdir -p $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_storeapp.bundle $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
-	cp target/wasm32-wasip1/release/cowen_wasm_auth_custom.wasm $(OUTPUT_DIR)/windows-x86/tmp_pkg/system_plugins/ || true
-	cd $(OUTPUT_DIR)/windows-x86/tmp_pkg && zip -r ../release/$(BINARY)-v$(VERSION)-windows-x86.zip .
-	rm -rf $(OUTPUT_DIR)/windows-x86/tmp_pkg
-	@$(call MD5,$(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip)
-	@$(call SHA256,$(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip)
-	@echo "✅ Cross-packaging completed: $(OUTPUT_DIR)/windows-x86/release/$(BINARY)-v$(VERSION)-windows-x86.zip"
-
 # 内部复用的 Linux 打包逻辑
 impl-package-linux-x86_64: build-system-plugins
 	mkdir -p $(OUTPUT_DIR)/linux-x86_64/release pkg_root/lib
 	cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding pkg_root/lib/ || true
 	if [ -f "pkg_root/lib/libcowen_search_embedding" ]; then cp $(OUTPUT_DIR)/linux-x86_64/libcowen_search_embedding.bundle pkg_root/lib/ || exit 1; fi
+	if [ -f "pkg_root/lib/libcowen_search_embedding" ]; then cp dist_assets/linux/libonnxruntime.so pkg_root/lib/ || exit 1; fi
 	cp $(OUTPUT_DIR)/linux-x86_64/cowen-mcp-plugin pkg_root/lib/ || true
 	if [ -f "pkg_root/lib/cowen-mcp-plugin" ]; then cp $(OUTPUT_DIR)/linux-x86_64/cowen-mcp-plugin.bundle pkg_root/lib/ || exit 1; fi
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-x86_64/
@@ -228,3 +139,5 @@ impl-package-linux-x86_64: build-system-plugins
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 	@$(call SHA256,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 
+package-all-on-macos: clean package-macos-aarch64 package-linux-x86_64-cross package-windows-x86_64-cross
+	@echo "🎉 All packages successfully built on macOS!"

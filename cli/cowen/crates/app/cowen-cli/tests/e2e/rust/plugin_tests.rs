@@ -647,3 +647,83 @@ fn test_mcp_plugin_no_subcommand_prints_help() {
         stdout_str
     );
 }
+
+#[test]
+fn test_plugin_auto_restart_on_kill() {
+    let dir = tempdir().unwrap();
+    let plugins_dir = dir.path().join("plugins");
+    fs::create_dir_all(&plugins_dir).unwrap();
+
+    let search_pattern = if cfg!(target_os = "windows") {
+        "libcowen_search_embedding.exe"
+    } else {
+        "libcowen_search_embedding"
+    };
+
+    let target_dir = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join("debug")
+        .join("deps");
+    let mut plugin_src = target_dir.join(search_pattern);
+    if !plugin_src.exists() {
+        plugin_src = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("debug")
+            .join(search_pattern);
+    }
+    if !plugin_src.exists() {
+        eprintln!("⚠️ Skipping test_plugin_auto_restart_on_kill: plugin binary not found.");
+        return;
+    }
+
+    // Use a unique name to avoid killing other tests' plugins
+    let unique_name = if cfg!(target_os = "windows") {
+        "libcowen_test_restart_123.exe"
+    } else {
+        "libcowen_test_restart_123"
+    };
+    let plugin_dest = plugins_dir.join(unique_name);
+    fs::copy(&plugin_src, &plugin_dest).unwrap();
+
+    let client = cowen_sys::plugin::RpcPluginClient::new(
+        plugin_dest.clone(),
+        "test_tenant".to_string(),
+        None,
+    );
+
+    // Initial call
+    let req = serde_json::json!({});
+    let res = client.call_tool("cowen.capabilities.info", req.clone());
+    assert!(res.is_ok(), "First call should succeed, got: {:?}", res);
+
+    // Kill the process
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("pkill")
+            .arg("-9")
+            .arg("-f")
+            .arg("libcowen_test_restart_123")
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .arg("/F")
+            .arg("/IM")
+            .arg("libcowen_test_restart_123.exe")
+            .status();
+    }
+
+    // Give OS a moment to clean up pipes
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // Second call should automatically restart and succeed
+    let res2 = client.call_tool("cowen.capabilities.info", req);
+    assert!(
+        res2.is_ok(),
+        "Second call should automatically restart the process and succeed, got: {:?}",
+        res2
+    );
+}

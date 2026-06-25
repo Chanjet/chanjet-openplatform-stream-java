@@ -38,5 +38,5 @@ TEST_STREAM  = https://stream-open-chanapp.inte.chanjet.com
         windows-plugin-x64 windows-plugin-x86 test-macos-aarch64 \
         test test-linux test-win test-macos check-cross \
         package package-macos-aarch64 package-linux-x86_64 package-linux-x86_64-with-docker \
-        package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-cross package-windows-x86-cross clean install run prepare-docker-image prepare-docker-machine stop-docker-machine
+        package-linux-aarch64 package-windows-x86_64 package-windows-x86_64-cross clean install run prepare-docker-image prepare-docker-machine stop-docker-machine
 
