@@ -187,8 +187,26 @@ fn main() {
         plugins_installed = true;
     }
 
+    // Setup Autostart Service
+    println!("📟 Setting up autostart service...");
+    let _ = Command::new(&dest)
+        .args(&["daemon", "service", "install"])
+        .status();
+
+    #[cfg(target_os = "windows")]
+    {
+        println!("🚀 Starting daemon service...");
+        let _ = Command::new("sc")
+            .args(&["start", "cowen.exeDaemon"])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+            
+        // Wait for the service to start and bind its IPC port
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
+
     if plugins_installed {
-        std::thread::sleep(std::time::Duration::from_secs(1));
         // Use the actual binary name "libcowen_search_embedding" for enabling
         let _ = Command::new(&dest).args(&["plugins", "enable", "libcowen_search_embedding"]).status();
         let _ = Command::new(&dest).args(&["plugins", "enable", "cowen-mcp-plugin"]).status();
@@ -238,17 +256,7 @@ fn main() {
         }
     }
 
-    // Setup Autostart Service
-    println!("📟 Setting up autostart service...");
-    let _ = Command::new(&dest)
-        .args(&["daemon", "service", "install"])
-        .status();
 
-    #[cfg(target_os = "windows")]
-    {
-        println!("🚀 Starting daemon service...");
-        let _ = Command::new("sc").args(&["start", "cowen.exeDaemon"]).output();
-    }
 
     println!("\n🎉 Installation complete! Please RESTART your terminal.");
     Command::new("cmd").args(&["/c", "pause"]).status().unwrap();
