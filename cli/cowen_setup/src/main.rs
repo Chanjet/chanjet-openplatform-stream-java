@@ -30,6 +30,21 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         println!("🛑 Stopping running instances...");
+
+        println!("> sc stop cowen.exeDaemon");
+        let _ = Command::new("sc")
+            .args(&["stop", "cowen.exeDaemon"])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+
+        println!("> sc stop cowenDaemon");
+        let _ = Command::new("sc")
+            .args(&["stop", "cowenDaemon"])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+
         let _ = Command::new("taskkill")
             .args(&["/F", "/T", "/IM", "cowen-daemon.exe"])
             .stdout(std::process::Stdio::inherit())
