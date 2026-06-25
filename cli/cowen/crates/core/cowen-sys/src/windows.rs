@@ -145,7 +145,9 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
 
     async fn status(&self, bin_name: &str) -> anyhow::Result<String> {
         let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
-        let is_installed = if let Ok(run_key) = hkcu.open_subkey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run") {
+        let is_installed = if let Ok(run_key) =
+            hkcu.open_subkey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run")
+        {
             run_key.get_value::<String, _>(bin_name).is_ok()
         } else {
             false
