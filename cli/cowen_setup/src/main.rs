@@ -7,20 +7,20 @@ fn main() {
     {
         // Legacy cleanup: If the old SYSTEM-level Windows Service exists, prompt UAC to delete it.
         // We do this in a separate elevated process so `setup.exe` remains in the current user session.
-        let check_service = Command::new("sc").args(&["query", "cowen.exeDaemon"]).output();
-        if let Ok(out) = check_service {
-            if String::from_utf8_lossy(&out.stdout).contains("cowen.exeDaemon") {
-                println!("⚠️ Detected legacy system service 'cowen.exeDaemon'. Requesting Administrator privileges to remove it...");
-                let script = "sc.exe stop cowen.exeDaemon; sc.exe delete cowen.exeDaemon";
-                let _ = Command::new("powershell")
-                    .args(&[
-                        "-NoProfile",
-                        "-Command",
-                        &format!("Start-Process powershell -ArgumentList '-NoProfile -Command \"{}\"' -Verb RunAs -Wait", script)
-                    ])
-                    .status();
-                println!("✅ Legacy system service removed.");
-            }
+        let out1 = Command::new("sc").args(&["query", "cowen.exeDaemon"]).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        let out2 = Command::new("sc").args(&["query", "cowenDaemon"]).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        
+        if out1.contains("cowen.exeDaemon") || out2.contains("cowenDaemon") {
+            println!("⚠️ Detected legacy system service. Requesting Administrator privileges to remove it...");
+            let script = "sc.exe stop cowen.exeDaemon; sc.exe delete cowen.exeDaemon; sc.exe stop cowenDaemon; sc.exe delete cowenDaemon; taskkill /F /T /IM cowen-daemon.exe; taskkill /F /T /IM cowen.exe";
+            let _ = Command::new("powershell")
+                .args(&[
+                    "-NoProfile",
+                    "-Command",
+                    &format!("Start-Process powershell -ArgumentList '-NoProfile -Command \"{}\"' -Verb RunAs -Wait", script)
+                ])
+                .status();
+            println!("✅ Legacy system service removed.");
         }
     }
 
