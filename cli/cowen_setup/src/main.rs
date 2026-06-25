@@ -5,35 +5,22 @@ use std::process::Command;
 fn main() {
     #[cfg(target_os = "windows")]
     {
-        // Check for Administrator privileges reliably
-        let is_elevated = Command::new("powershell")
-            .args(&[
-                "-NoProfile",
-                "-Command",
-                "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"
-            ])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
-            .unwrap_or(false);
-
-        if !is_elevated {
-            println!("⚠️ Administrative privileges are required to manage Windows services.");
-            println!("🔄 Re-launching with Administrator privileges...");
-            
-            let exe = std::env::current_exe().unwrap();
-            let exe_path = exe.to_string_lossy();
-            
-            // Run exactly the same executable but with Admin rights using PowerShell
-            let _ = Command::new("powershell")
-                .args(&[
-                    "-NoProfile",
-                    "-Command",
-                    &format!("Start-Process -FilePath \"{}\" -Verb RunAs -Wait", exe_path)
-                ])
-                .status();
-            
-            // Exit the non-elevated instance
-            std::process::exit(0);
+        // Legacy cleanup: If the old SYSTEM-level Windows Service exists, prompt UAC to delete it.
+        // We do this in a separate elevated process so `setup.exe` remains in the current user session.
+        let check_service = Command::new("sc").args(&["query", "cowen.exeDaemon"]).output();
+        if let Ok(out) = check_service {
+            if String::from_utf8_lossy(&out.stdout).contains("cowen.exeDaemon") {
+                println!("⚠️ Detected legacy system service 'cowen.exeDaemon'. Requesting Administrator privileges to remove it...");
+                let script = "sc.exe stop cowen.exeDaemon; sc.exe delete cowen.exeDaemon";
+                let _ = Command::new("powershell")
+                    .args(&[
+                        "-NoProfile",
+                        "-Command",
+                        &format!("Start-Process powershell -ArgumentList '-NoProfile -Command \"{}\"' -Verb RunAs -Wait", script)
+                    ])
+                    .status();
+                println!("✅ Legacy system service removed.");
+            }
         }
     }
 
@@ -43,17 +30,8 @@ fn main() {
     #[cfg(target_os = "windows")]
     {
         println!("🛑 Stopping running instances...");
-        
-        println!("> sc stop cowen.exeDaemon");
-        let _ = Command::new("sc")
-            .args(&["stop", "cowen.exeDaemon"])
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status();
-
-        println!("> sc stop cowenDaemon");
-        let _ = Command::new("sc")
-            .args(&["stop", "cowenDaemon"])
+        let _ = Command::new("taskkill")
+            .args(&["/F", "/T", "/IM", "cowen-daemon.exe"])
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
             .status();
@@ -61,7 +39,6 @@ fn main() {
         std::thread::sleep(std::time::Duration::from_millis(1000));
         
         let cmds = vec![
-            "cowen-daemon.exe",
             "cowen.exe",
             "cowen-mcp-plugin.exe",
             "libcowen_search_embedding.exe"
@@ -193,18 +170,6 @@ fn main() {
         .args(&["daemon", "service", "install"])
         .status();
 
-    #[cfg(target_os = "windows")]
-    {
-        println!("🚀 Starting daemon service...");
-        let _ = Command::new("sc")
-            .args(&["start", "cowen.exeDaemon"])
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .status();
-            
-        // Wait for the service to start and bind its IPC port
-        std::thread::sleep(std::time::Duration::from_secs(2));
-    }
 
     if plugins_installed {
         // Use the actual binary name "libcowen_search_embedding" for enabling

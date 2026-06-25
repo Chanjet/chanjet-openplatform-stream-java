@@ -113,101 +113,54 @@ impl WinServiceManager {
 #[async_trait::async_trait]
 impl cowen_infra::sys::ServiceManager for WinServiceManager {
     async fn install(&self, bin_name: &str, bin_path: &str, _log_dir: &str) -> anyhow::Result<()> {
-        let service_name = format!("{}Daemon", bin_name);
-
-        let check_output = std::process::Command::new("sc")
-            .arg("query")
-            .arg(&service_name)
-            .output();
-
-        let exists = check_output
-            .map(|out| out.status.success())
-            .unwrap_or(false);
-
-        if exists {
-            let app_dir = cowen_infra::path::get_app_dir();
-            let _ = std::process::Command::new("sc")
-                .arg("config")
-                .arg(&service_name)
-                .arg("binPath=")
-                .arg(format!(
-                    "\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"",
-                    bin_path,
-                    app_dir.to_string_lossy()
-                ))
-                .status();
-            println!(
-                "✅ Windows Service '{}' already exists. Configuration updated.",
-                service_name
-            );
-            return Ok(());
-        }
-
         let app_dir = cowen_infra::path::get_app_dir();
-        let status = std::process::Command::new("sc")
-            .arg("create")
-            .arg(&service_name)
-            .arg("binPath=")
-            .arg(format!(
-                "\"{}\" --auto-start-all --run-as-service --app-dir \"{}\"",
-                bin_path,
-                app_dir.to_string_lossy()
-            ))
-            .arg("start=")
-            .arg("auto")
-            .status()?;
-        if status.success() {
-            println!("✅ Successfully installed Windows Service.");
-            println!("📍 Service Name: {}", service_name);
-            Ok(())
-        } else {
-            anyhow::bail!("Failed to create Windows Service via sc create.")
-        }
+        let cmd = format!(
+            "\"{}\" --auto-start-all --app-dir \"{}\"",
+            bin_path,
+            app_dir.to_string_lossy()
+        );
+
+        let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        let run_key = hkcu.open_subkey_with_flags(
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+            winreg::enums::KEY_SET_VALUE,
+        )?;
+
+        run_key.set_value(bin_name, &cmd)?;
+        println!("✅ Successfully installed Windows autostart (Registry HKCU\\Run).");
+        Ok(())
     }
 
     async fn uninstall(&self, bin_name: &str) -> anyhow::Result<()> {
-        let service_name = format!("{}Daemon", bin_name);
-        let _ = std::process::Command::new("sc")
-            .arg("stop")
-            .arg(&service_name)
-            .status();
-        let status = std::process::Command::new("sc")
-            .arg("delete")
-            .arg(&service_name)
-            .status()?;
-        if status.success() {
-            println!("✅ Successfully removed Windows Service.");
-            Ok(())
-        } else {
-            anyhow::bail!("Failed to delete Windows Service.")
+        let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        if let Ok(run_key) = hkcu.open_subkey_with_flags(
+            "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+            winreg::enums::KEY_SET_VALUE,
+        ) {
+            let _ = run_key.delete_value(bin_name);
         }
+        println!("✅ Successfully removed Windows autostart.");
+        Ok(())
     }
 
     async fn status(&self, bin_name: &str) -> anyhow::Result<String> {
-        let service_name = format!("{}Daemon", bin_name);
-        let output = std::process::Command::new("sc")
-            .arg("query")
-            .arg(&service_name)
-            .output();
+        let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        let is_installed = if let Ok(run_key) = hkcu.open_subkey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run") {
+            run_key.get_value::<String, _>(bin_name).is_ok()
+        } else {
+            false
+        };
 
-        let (is_exists, status_str) = match output {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                if stdout.contains("RUNNING") {
-                    (true, cowen_infra::sys::STATUS_ACTIVE)
-                } else if stdout.contains("STOPPED") {
-                    (true, cowen_infra::sys::STATUS_INACTIVE)
-                } else {
-                    (true, cowen_infra::sys::STATUS_UNKNOWN)
-                }
-            }
-            _ => (false, cowen_infra::sys::STATUS_NOT_REGISTERED),
+        let status_str = if is_installed {
+            cowen_infra::sys::STATUS_ACTIVE
+        } else {
+            cowen_infra::sys::STATUS_NOT_REGISTERED
         };
 
         Ok(cowen_infra::sys::format_service_status(
             "Windows",
-            &service_name,
-            is_exists,
+            &format!("HKCU\\Run\\{}", bin_name),
+            is_installed,
             status_str,
         ))
     }
