@@ -49,10 +49,15 @@ PROXY_PORT_NEW=$(get_unused_port)
     --proxy-port $PROXY_PORT_NEW >/dev/null
 
 echo -e "${BOLD}3. Check status of new_profile (Expect: Connected)${NC}"
-# We wait a short moment for it to theoretically connect
-sleep 3
+echo -e "  Waiting for daemon connection and token..."
+for i in {1..15}; do
+    STATUS_OUT=$("$COWEN_BIN" status --profile new_profile)
+    if echo "$STATUS_OUT" | grep -q -i "Connected" && ! echo "$STATUS_OUT" | grep -q "Not initialized"; then
+        break
+    fi
+    sleep 1
+done
 
-STATUS_OUT=$("$COWEN_BIN" status --profile new_profile)
 echo "$STATUS_OUT"
 
 if echo "$STATUS_OUT" | grep -q "Bridge Connection" && echo "$STATUS_OUT" | grep -q -i "Connected"; then
