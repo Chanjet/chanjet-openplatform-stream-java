@@ -28,3 +28,29 @@ pub fn deobfs(data: &[u8], seed: u8) -> String {
     }
     String::from_utf8(out).unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_obfs_macro_and_deobfs() {
+        let original = "secret_value_123";
+        let obfuscated_str = obfs!("secret_value_123");
+        assert_eq!(obfuscated_str, original);
+    }
+
+    #[test]
+    fn test_deobfs_manual() {
+        let seed = 123u8;
+        let original = b"hello world!";
+        let mut obfuscated = Vec::new();
+        for (i, &b) in original.iter().enumerate() {
+            let key = seed.wrapping_add(i as u8).wrapping_mul(0x6D);
+            obfuscated.push(b ^ key);
+        }
+        
+        let deobfuscated = deobfs(&obfuscated, seed);
+        assert_eq!(deobfuscated, "hello world!");
+    }
+}

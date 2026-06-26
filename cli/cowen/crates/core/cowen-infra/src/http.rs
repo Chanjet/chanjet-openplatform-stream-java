@@ -22,3 +22,22 @@ pub fn get_user_agent(version: &str) -> String {
         std::env::consts::ARCH
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_user_agent() {
+        let ua = get_user_agent("1.0.0");
+        assert!(ua.starts_with("Cowen/1.0.0 ("));
+        assert!(ua.contains(std::env::consts::OS));
+        assert!(ua.contains(std::env::consts::ARCH));
+    }
+
+    #[test]
+    fn test_create_client() {
+        let client = create_client("test_agent");
+        assert!(client.is_ok());
+    }
+}

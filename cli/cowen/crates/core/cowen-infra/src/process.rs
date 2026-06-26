@@ -35,3 +35,26 @@ pub fn extract_profile_from_cmdline(pid: u32) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_bin_name() {
+        let name = get_bin_name();
+        assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn test_set_process_name() {
+        // Just verify it doesn't panic
+        set_process_name("test_name");
+    }
+
+    #[test]
+    fn test_extract_profile_from_cmdline() {
+        let profile = extract_profile_from_cmdline(std::process::id());
+        let _ = profile; // May or may not be Some, but should not panic
+    }
+}

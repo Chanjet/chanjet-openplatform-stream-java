@@ -151,3 +151,55 @@ pub fn mask_url(url: &str) -> String {
     }
     url.to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mask_string() {
+        assert_eq!(mask_string(""), "********");
+        assert_eq!(mask_string("short"), "********");
+        assert_eq!(mask_string("exactlytwelv"), "********");
+        assert_eq!(mask_string("thisislongenough1234"), "thisislo...1234");
+    }
+
+    #[test]
+    fn test_mask_sensitive_json() {
+        let input = r#"{"accessToken": "supersecrettoken12345", "normal": "value"}"#;
+        let expected = r#"{"accessToken": "supersec...2345", "normal": "value"}"#;
+        assert_eq!(mask_sensitive_json(input), expected);
+
+        let input_short = r#"{"appSecret": "short"}"#;
+        let expected_short = r#"{"appSecret": "********"}"#;
+        assert_eq!(mask_sensitive_json(input_short), expected_short);
+
+        let no_match = r#"{"myToken": "secret"}"#;
+        assert_eq!(mask_sensitive_json(no_match), no_match);
+    }
+
+    #[test]
+    fn test_mask_url_query() {
+        let url = "https://example.com/api?accessToken=mysecrettoken12345&other=1";
+        let expected = "https://example.com/api?accessToken=mysecret...2345&other=1";
+        assert_eq!(mask_url_query(url), expected);
+
+        let url_short = "https://example.com/api?appSecret=short&foo=bar";
+        let expected_short = "https://example.com/api?appSecret=********&foo=bar";
+        assert_eq!(mask_url_query(url_short), expected_short);
+    }
+
+    #[test]
+    fn test_mask_tail() {
+        assert_eq!(mask_tail("hello", 10), "hello");
+        assert_eq!(mask_tail("hello world", 5), "******world");
+    }
+
+    #[test]
+    fn test_mask_url() {
+        assert_eq!(mask_url("https://user:password@example.com"), "https://user:***@example.com");
+        assert_eq!(mask_url("https://user@example.com"), "https://***@example.com");
+        assert_eq!(mask_url("https://example.com"), "https://example.com");
+        assert_eq!(mask_url("https://example.com/foo@bar"), "https://example.com/foo@bar");
+    }
+}
