@@ -838,3 +838,99 @@ impl AuthClient {
 }
 
 pub use cowen_common::openapi::{find_matching_spec_path, get_operation, is_path_in_whitelist};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_clean_non_standard_fields() {
+        let mut val = json!({
+            "x-custom": "value",
+            "normal": "data",
+            "nested": {
+                "x-internal": 123,
+                "valid": true
+            },
+            "parameters": [
+                {
+                    "name": "Content-Type",
+                    "in": "header"
+                },
+                {
+                    "name": "Authorization",
+                    "in": "header"
+                }
+            ]
+        });
+
+        AuthClient::clean_non_standard_fields(&mut val);
+
+        let expected = json!({
+            "normal": "data",
+            "nested": {
+                "valid": true
+            },
+            "parameters": [
+                {
+                    "name": "Authorization",
+                    "in": "header"
+                }
+            ]
+        });
+
+        assert_eq!(val, expected);
+    }
+
+    #[test]
+    fn test_try_load_stale_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("cache.yaml");
+        let spec = json!({"openapi": "3.0.0"});
+        let yaml_data = serde_yaml::to_string(&spec).unwrap();
+        std::fs::write(&cache_path, yaml_data).unwrap();
+
+        let loaded = AuthClient::try_load_stale_cache(&cache_path).unwrap();
+        assert_eq!(loaded, spec);
+
+        let missing = AuthClient::try_load_stale_cache(&dir.path().join("missing.yaml"));
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_save_spec_to_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("nested").join("cache.yaml");
+        let spec = json!({"openapi": "3.0.0"});
+
+        // Mock objects just to call save_spec_to_cache
+        use cowen_store::StoreVault;
+        use cowen_store::file::FileStore;
+        let store = Arc::new(FileStore::new(dir.path().join("vault"), Some("fingerprint")).unwrap());
+        let vault = Arc::new(StoreVault::new(store.clone(), store.clone()));
+        let pool: Arc<dyn TokenPool> = Arc::new(crate::VaultTokenPool::new(vault));
+        
+        let client = AuthClient::builder(pool).build();
+        let res = client.save_spec_to_cache(&cache_path, &spec);
+        assert!(res.is_ok());
+        assert!(cache_path.exists());
+    }
+
+    #[test]
+    fn test_try_load_fresh_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_path = dir.path().join("cache.yaml");
+        let spec = json!({"openapi": "3.0.0"});
+        let yaml_data = serde_yaml::to_string(&spec).unwrap();
+        std::fs::write(&cache_path, yaml_data).unwrap();
+
+        // Fresh cache
+        let loaded = AuthClient::try_load_fresh_cache(&cache_path).unwrap();
+        assert_eq!(loaded, Some(spec));
+
+        // Missing cache
+        let missing = AuthClient::try_load_fresh_cache(&dir.path().join("missing.yaml")).unwrap();
+        assert!(missing.is_none());
+    }
+}

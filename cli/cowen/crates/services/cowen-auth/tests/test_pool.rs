@@ -46,3 +46,29 @@ async fn test_vault_token_pool_lifecycle() {
     pool.delete_access_token(profile).await.unwrap();
     assert!(pool.get_access_token(profile).await.is_err());
 }
+
+#[tokio::test]
+async fn test_vault_token_pool_more() {
+    let dir = tempdir().unwrap();
+    let vault_path = dir.path().join("test_more.vault");
+    let store = Arc::new(FileStore::new(vault_path, Some("fingerprint")).unwrap());
+    let vault = Arc::new(StoreVault::new(store.clone(), store.clone()));
+    let pool = VaultTokenPool::new(vault);
+    let app_key = "test_app_key_more";
+
+    let now = Utc::now().round_subsecs(0);
+    let token = Token {
+        value: "token-more".to_string(),
+        expires_at: now + Duration::hours(2),
+        created_at: now,
+    };
+
+    pool.set_app_access_token(app_key, &token).await.unwrap();
+    let retrieved = pool.get_app_access_token(app_key).await.unwrap();
+    assert_eq!(retrieved.value, "token-more");
+
+    pool.delete_app_access_token(app_key).await.unwrap();
+    assert!(pool.get_app_access_token(app_key).await.is_err());
+
+    pool.clear_cache("any"); // Cover clear_cache
+}
