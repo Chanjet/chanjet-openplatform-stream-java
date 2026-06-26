@@ -25,3 +25,10 @@ tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 urlencoding = "2.1"
 uuid = { version = "1.12", features = ["v4"] }
+
+[dev-dependencies]
+cucumber = "0.23.0"
+
+[[test]]
+name = "bdd_runner"
+harness = false
