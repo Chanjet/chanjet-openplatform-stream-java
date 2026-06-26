@@ -49,7 +49,7 @@ mod tests {
             let key = seed.wrapping_add(i as u8).wrapping_mul(0x6D);
             obfuscated.push(b ^ key);
         }
-        
+
         let deobfuscated = deobfs(&obfuscated, seed);
         assert_eq!(deobfuscated, "hello world!");
     }

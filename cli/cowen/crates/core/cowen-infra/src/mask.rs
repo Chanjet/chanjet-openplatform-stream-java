@@ -197,9 +197,18 @@ mod tests {
 
     #[test]
     fn test_mask_url() {
-        assert_eq!(mask_url("https://user:password@example.com"), "https://user:***@example.com");
-        assert_eq!(mask_url("https://user@example.com"), "https://***@example.com");
+        assert_eq!(
+            mask_url("https://user:password@example.com"),
+            "https://user:***@example.com"
+        );
+        assert_eq!(
+            mask_url("https://user@example.com"),
+            "https://***@example.com"
+        );
         assert_eq!(mask_url("https://example.com"), "https://example.com");
-        assert_eq!(mask_url("https://example.com/foo@bar"), "https://example.com/foo@bar");
+        assert_eq!(
+            mask_url("https://example.com/foo@bar"),
+            "https://example.com/foo@bar"
+        );
     }
 }
