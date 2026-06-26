@@ -37,7 +37,14 @@ sleep 1
 
 "$COWEN_BIN" daemon start --profile sidecar --foreground >"$COWEN_HOME/daemon.log" 2>&1 < /dev/null &
 DAEMON_PID=$!
-sleep 5
+
+echo -e "  Waiting for daemon to start..."
+for i in {1..15}; do
+    if grep -q "Local Proxy Server listening on" "$COWEN_HOME/daemon.log"; then
+        break
+    fi
+    sleep 1
+done
 
 if grep -q "Local Proxy Server listening on" "$COWEN_HOME/daemon.log"; then
     echo -e "  ${GREEN}✓${NC} Daemon is running in foreground"
