@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct RequestLog {
     pub method: String,
     pub url: String,
@@ -23,7 +24,15 @@ impl InMemoryHttpSender {
             requests: Arc::new(Mutex::new(Vec::new())),
         }
     }
+}
 
+impl Default for InMemoryHttpSender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InMemoryHttpSender {
     pub async fn push_response(&self, status: u16, body: &str) {
         let mut guard = self.responses.lock().await;
         guard.push(SimpleResponse {

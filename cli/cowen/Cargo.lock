@@ -946,6 +946,7 @@ dependencies = [
  "cowen-infra",
  "cowen-store",
  "cowen-sys",
+ "cucumber",
  "fs2",
  "indicatif",
  "inventory",

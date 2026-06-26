@@ -1,15 +1,15 @@
 mod mock;
 
 use cucumber::{given, then, when, World};
-use std::sync::Arc;
-use tokio::sync::oneshot;
 use reqwest::Client;
+use std::sync::Arc;
 use tempfile::tempdir;
+use tokio::sync::oneshot;
 
-use cowen_common::config::{AppConfig, Config, GatewayConfig, AuthRoutingConfig};
+use cowen_common::config::{AppConfig, AuthRoutingConfig, Config, GatewayConfig};
+use cowen_common::vault::Vault;
 use cowen_store::file::FileStore;
 use cowen_store::StoreVault;
-use cowen_common::vault::Vault;
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -55,15 +55,17 @@ async fn given_gateway_started(world: &mut GatewayWorld, _bind_addr: String) {
         routes: vec![],
     };
     // Configure default whitelist for /health
-    let mut auth_routing = AuthRoutingConfig::default();
-    auth_routing.bypass_rules = vec!["/api/v1/health".to_string(), "/health".to_string()];
+    let auth_routing = AuthRoutingConfig {
+        bypass_rules: vec!["/api/v1/health".to_string(), "/health".to_string()],
+        ..Default::default()
+    };
     gateway_config.auth_routing = auth_routing;
-    
+
     let app_config = AppConfig::default();
 
     let dir = tempdir().unwrap();
     let store = Arc::new(FileStore::new(dir.path(), None).unwrap());
-    
+
     let temp_vault = StoreVault::new(store.clone(), store.clone());
     temp_vault.migrate().await.unwrap();
 

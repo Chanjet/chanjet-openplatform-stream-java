@@ -15,6 +15,12 @@ impl MockClient {
     }
 }
 
+impl Default for MockClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl Client for MockClient {
     async fn get_token(
@@ -68,19 +74,11 @@ impl Client for MockClient {
         Ok(())
     }
 
-    async fn get_app_access_token(
-        &self,
-        _profile: &str,
-        _cfg: &Config,
-    ) -> CowenResult<Token> {
+    async fn get_app_access_token(&self, _profile: &str, _cfg: &Config) -> CowenResult<Token> {
         Err(CowenError::Auth("not found".into()))
     }
 
-    async fn refresh_app_access_token(
-        &self,
-        _profile: &str,
-        _cfg: &Config,
-    ) -> CowenResult<Token> {
+    async fn refresh_app_access_token(&self, _profile: &str, _cfg: &Config) -> CowenResult<Token> {
         Err(CowenError::Auth("not found".into()))
     }
 
@@ -113,23 +111,35 @@ impl Client for MockClient {
         Ok(serde_json::json!({}))
     }
 
-    async fn on_maintenance_tick(&self, _profile: &str, _cfg: &Config) -> CowenResult<()> { Ok(()) }
-    
-    async fn requires_initial_push(&self, _cfg: &Config) -> bool { false }
-    
+    async fn on_maintenance_tick(&self, _profile: &str, _cfg: &Config) -> CowenResult<()> {
+        Ok(())
+    }
+
+    async fn requires_initial_push(&self, _cfg: &Config) -> bool {
+        false
+    }
+
     async fn handle_platform_event(
         &self,
         _profile: &str,
         _cfg: &Config,
         _event: cowen_auth::provider::PlatformEvent,
-    ) -> CowenResult<()> { Ok(()) }
-    
-    fn requires_ticket(&self, _cfg: &Config) -> bool { false }
-    
-    fn supports_webhooks(&self, _cfg: &Config) -> bool { false }
-    
-    fn supports_api_call(&self, _cfg: &Config) -> bool { false }
-    
+    ) -> CowenResult<()> {
+        Ok(())
+    }
+
+    fn requires_ticket(&self, _cfg: &Config) -> bool {
+        false
+    }
+
+    fn supports_webhooks(&self, _cfg: &Config) -> bool {
+        false
+    }
+
+    fn supports_api_call(&self, _cfg: &Config) -> bool {
+        false
+    }
+
     async fn perform_login(
         &self,
         _profile: &str,
@@ -137,15 +147,21 @@ impl Client for MockClient {
         _force: bool,
         _finalize: Option<&str>,
         _daemon_service: Option<std::sync::Arc<dyn cowen_common::daemon::DaemonService>>,
-    ) -> CowenResult<()> { Ok(()) }
+    ) -> CowenResult<()> {
+        Ok(())
+    }
 
     async fn get_diagnostics(
         &self,
         _ctx: &cowen_common::status::StatusContext<'_>,
-    ) -> CowenResult<Vec<cowen_common::status::StatusEntry>> { Ok(vec![]) }
+    ) -> CowenResult<Vec<cowen_common::status::StatusEntry>> {
+        Ok(vec![])
+    }
 
     fn get_provider(
         &self,
         _mode: &cowen_common::models::AuthMode,
-    ) -> Option<std::sync::Arc<dyn cowen_auth::provider::AuthProvider>> { None }
+    ) -> Option<std::sync::Arc<dyn cowen_auth::provider::AuthProvider>> {
+        None
+    }
 }

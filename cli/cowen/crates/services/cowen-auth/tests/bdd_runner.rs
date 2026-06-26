@@ -86,10 +86,12 @@ async fn mock_unauthorized(world: &mut AuthWorld, status: u16) {
 async fn init_and_request_token(world: &mut AuthWorld) {
     let temp_dir = tempfile::tempdir().unwrap();
     let app_cfg = AppConfig::default();
-    let vault = cowen_store::create_vault(&app_cfg, temp_dir.path(), "test_fingerprint").await.unwrap();
-    
+    let vault = cowen_store::create_vault(&app_cfg, temp_dir.path(), "test_fingerprint")
+        .await
+        .unwrap();
+
     let pool = Arc::new(VaultTokenPool::new(vault.clone()));
-    
+
     if world.config.app_mode == AuthMode::Oauth2 {
         let t = cowen_common::models::Token {
             value: "expired_token".to_string(),
@@ -97,7 +99,7 @@ async fn init_and_request_token(world: &mut AuthWorld) {
             created_at: chrono::Utc::now() - chrono::Duration::try_seconds(7200).unwrap(),
         };
         let _ = vault.save_access_token("test", t).await;
-        
+
         let rt = cowen_common::models::Token {
             value: "valid_refresh_token".to_string(),
             expires_at: chrono::Utc::now() + chrono::Duration::try_seconds(86400).unwrap(),
@@ -105,14 +107,15 @@ async fn init_and_request_token(world: &mut AuthWorld) {
         };
         let _ = vault.save_refresh_token("test", rt).await;
     } else if world.config.app_mode == AuthMode::SelfBuilt {
-        let _ = vault.set_secret("test", "app_ticket", "test_app_ticket").await;
+        let _ = vault
+            .set_secret("test", "app_ticket", "test_app_ticket")
+            .await;
     }
-    
+
     // We cannot use create_auth_client directly because we need to inject the mock.
     let sender: Arc<dyn cowen_auth::client::HttpSender> = world.http_sender.clone();
-    let mut builder = AuthClient::builder(pool.clone())
-        .with_http_sender(sender.clone());
-    
+    let builder = AuthClient::builder(pool.clone()).with_http_sender(sender.clone());
+
     let client = builder
         .register(
             AuthMode::SelfBuilt,
@@ -140,14 +143,16 @@ async fn init_and_request_token(world: &mut AuthWorld) {
     let token_result = client
         .get_token("test", &world.config, &reqwest::header::HeaderMap::new())
         .await;
-    
-    
+
     world.token_result = Some(token_result);
 }
 
 #[then("the returned token should be valid")]
 async fn check_token_valid(world: &mut AuthWorld) {
-    let res = world.token_result.as_ref().expect("Token was not requested");
+    let res = world
+        .token_result
+        .as_ref()
+        .expect("Token was not requested");
     match res {
         Ok(t) => {
             assert_eq!(t.value, "mocked_access_token");
@@ -167,20 +172,29 @@ async fn check_http_calls(world: &mut AuthWorld, times: usize) {
 
 #[then("it should fall back to vault or throw expected diagnostics error")]
 async fn check_fallback_error(world: &mut AuthWorld) {
-    let res = world.token_result.as_ref().expect("Token was not requested");
+    let res = world
+        .token_result
+        .as_ref()
+        .expect("Token was not requested");
     match res {
         Ok(_) => panic!("Expected error due to 401, but got token"),
         Err(e) => {
             let e_str = format!("{:?}", e);
             println!("Actual error string: {}", e_str);
-            assert!(e_str.contains("401") || e_str.contains("Unauthorized") || e_str.contains("NotFound") || e_str.contains("Store") || e_str.contains("Serialization") || e_str.contains("Fetch") || e_str.contains("CowenError"));
+            assert!(
+                e_str.contains("401")
+                    || e_str.contains("Unauthorized")
+                    || e_str.contains("NotFound")
+                    || e_str.contains("Store")
+                    || e_str.contains("Serialization")
+                    || e_str.contains("Fetch")
+                    || e_str.contains("CowenError")
+            );
         }
     }
 }
 
 #[tokio::main]
 async fn main() {
-    AuthWorld::cucumber()
-        .run_and_exit("tests/features/")
-        .await;
+    AuthWorld::cucumber().run_and_exit("tests/features/").await;
 }
