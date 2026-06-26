@@ -32,7 +32,16 @@ echo -e " ${GREEN}[FOUND]${NC}"
 
 # Assert that the browser mock was called correctly
 echo -n "   Verifying browser trigger..."
-if grep -q "Browser mock triggered for URL" "$COWEN_HOME/init.log" 2>/dev/null; then
+BROWSER_TRIGGERED=0
+for i in {1..20}; do
+    if grep -q "Browser mock triggered for URL" "$COWEN_HOME/init.log" 2>/dev/null; then
+        BROWSER_TRIGGERED=1
+        break
+    fi
+    sleep 0.5
+done
+
+if [ $BROWSER_TRIGGERED -eq 1 ]; then
     echo -e " ${GREEN}[OK]${NC}"
 else
     kill "$INIT_PID" 2>/dev/null
