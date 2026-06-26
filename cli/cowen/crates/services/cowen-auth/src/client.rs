@@ -275,6 +275,11 @@ impl AuthClientBuilder {
         self
     }
 
+    pub fn with_http_sender(mut self, sender: Arc<dyn HttpSender>) -> Self {
+        self.http_sender = sender;
+        self
+    }
+
     pub fn build(self) -> AuthClient {
         AuthClient {
             pool: self.pool,
