@@ -2,10 +2,5 @@
 ignore = [
     "RUSTSEC-2023-0071", # rsa - Marvin Attack (No fixed upgrade is available!)
     "RUSTSEC-2024-0436", # paste - unmaintained
-    "RUSTSEC-2026-0097", # rand 0.7.3 - unsound logger
-    "RUSTSEC-2024-0437", # protobuf 2.28.0 - Crash due to uncontrolled recursion
-    "RUSTSEC-2026-0104", # rustls-webpki - Reachable panic in certificate revocation list parsing
-    "RUSTSEC-2026-0098", # rustls-webpki - Name constraints for URI names were incorrectly accepted
-    "RUSTSEC-2026-0099", # rustls-webpki - Name constraints were accepted for certificates asserting a wildcard name
     "RUSTSEC-2025-0134"  # rustls-pemfile - unmaintained
 ]
