@@ -164,12 +164,12 @@ async fn test_oauth2_intercept_request() {
 #[tokio::test]
 async fn test_oauth2_get_token_fast_path() {
     use cowen_common::config::Config;
-    
+
     let vault = Arc::new(common::MockVault::new());
     let pool: Arc<dyn TokenPool> = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
     let sender = Arc::new(common::MockHttpSender::new());
     let provider = OAuth2Provider::new(pool.clone(), sender);
-    
+
     pool.set_access_token(
         "test_fast_path",
         &cowen_common::models::Token {
@@ -177,11 +177,16 @@ async fn test_oauth2_get_token_fast_path() {
             created_at: chrono::Utc::now(),
             expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
         },
-    ).await.unwrap();
-    
+    )
+    .await
+    .unwrap();
+
     let config = Config::default_with_profile("test_fast_path");
     let headers = reqwest::header::HeaderMap::new();
-    let token = provider.get_token("test_fast_path", &config, &headers).await.unwrap();
+    let token = provider
+        .get_token("test_fast_path", &config, &headers)
+        .await
+        .unwrap();
     assert_eq!(token.value, "mock_oauth_token_fast");
 }
 
@@ -189,25 +194,31 @@ async fn test_oauth2_get_token_fast_path() {
 async fn test_oauth2_get_token_vault_fallback() {
     use cowen_common::config::Config;
     use cowen_common::domain::TokenDomain;
-    
+
     let vault = Arc::new(common::MockVault::new());
     let pool: Arc<dyn TokenPool> = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
     let sender = Arc::new(common::MockHttpSender::new());
     let provider = OAuth2Provider::new(pool.clone(), sender);
-    
+
     // Set in vault but NOT in pool
-    vault.save_access_token(
-        "test_vault_fallback",
-        cowen_common::models::Token {
-            value: "mock_oauth_token_vault".to_string(),
-            created_at: chrono::Utc::now(),
-            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-        },
-    ).await.unwrap();
-    
+    vault
+        .save_access_token(
+            "test_vault_fallback",
+            cowen_common::models::Token {
+                value: "mock_oauth_token_vault".to_string(),
+                created_at: chrono::Utc::now(),
+                expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+            },
+        )
+        .await
+        .unwrap();
+
     let config = Config::default_with_profile("test_vault_fallback");
     let headers = reqwest::header::HeaderMap::new();
-    let token = provider.get_token("test_vault_fallback", &config, &headers).await.unwrap();
+    let token = provider
+        .get_token("test_vault_fallback", &config, &headers)
+        .await
+        .unwrap();
     assert_eq!(token.value, "mock_oauth_token_vault");
 }
 
@@ -215,33 +226,41 @@ async fn test_oauth2_get_token_vault_fallback() {
 async fn test_oauth2_get_token_refresh_expired() {
     use cowen_common::config::Config;
     use cowen_common::domain::TokenDomain;
-    
+
     let vault = Arc::new(common::MockVault::new());
     let pool: Arc<dyn TokenPool> = Arc::new(cowen_auth::VaultTokenPool::new(vault.clone()));
     let sender = Arc::new(common::MockHttpSender::new());
     let provider = OAuth2Provider::new(pool.clone(), sender);
-    
+
     // Set expired access token and expired refresh token
-    vault.save_access_token(
-        "test_refresh_exp",
-        cowen_common::models::Token {
-            value: "mock_oauth_token_exp".to_string(),
-            created_at: chrono::Utc::now() - chrono::Duration::hours(2),
-            expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
-        },
-    ).await.unwrap();
-    vault.save_refresh_token(
-        "test_refresh_exp",
-        cowen_common::models::Token {
-            value: "mock_refresh_token_exp".to_string(),
-            created_at: chrono::Utc::now() - chrono::Duration::days(2),
-            expires_at: chrono::Utc::now() - chrono::Duration::days(1),
-        },
-    ).await.unwrap();
-    
+    vault
+        .save_access_token(
+            "test_refresh_exp",
+            cowen_common::models::Token {
+                value: "mock_oauth_token_exp".to_string(),
+                created_at: chrono::Utc::now() - chrono::Duration::hours(2),
+                expires_at: chrono::Utc::now() - chrono::Duration::hours(1),
+            },
+        )
+        .await
+        .unwrap();
+    vault
+        .save_refresh_token(
+            "test_refresh_exp",
+            cowen_common::models::Token {
+                value: "mock_refresh_token_exp".to_string(),
+                created_at: chrono::Utc::now() - chrono::Duration::days(2),
+                expires_at: chrono::Utc::now() - chrono::Duration::days(1),
+            },
+        )
+        .await
+        .unwrap();
+
     let config = Config::default_with_profile("test_refresh_exp");
     let headers = reqwest::header::HeaderMap::new();
-    let res = provider.get_token("test_refresh_exp", &config, &headers).await;
+    let res = provider
+        .get_token("test_refresh_exp", &config, &headers)
+        .await;
     assert!(res.is_err());
     let err_msg = res.unwrap_err().to_string();
     assert!(err_msg.contains("OAuth2 session expired") || err_msg.contains("expired"));

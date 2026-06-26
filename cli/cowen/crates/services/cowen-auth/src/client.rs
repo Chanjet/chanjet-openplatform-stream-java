@@ -905,12 +905,13 @@ mod tests {
         let spec = json!({"openapi": "3.0.0"});
 
         // Mock objects just to call save_spec_to_cache
-        use cowen_store::StoreVault;
         use cowen_store::file::FileStore;
-        let store = Arc::new(FileStore::new(dir.path().join("vault"), Some("fingerprint")).unwrap());
+        use cowen_store::StoreVault;
+        let store =
+            Arc::new(FileStore::new(dir.path().join("vault"), Some("fingerprint")).unwrap());
         let vault = Arc::new(StoreVault::new(store.clone(), store.clone()));
         let pool: Arc<dyn TokenPool> = Arc::new(crate::VaultTokenPool::new(vault));
-        
+
         let client = AuthClient::builder(pool).build();
         let res = client.save_spec_to_cache(&cache_path, &spec);
         assert!(res.is_ok());

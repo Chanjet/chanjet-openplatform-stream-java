@@ -1,9 +1,13 @@
 use async_trait::async_trait;
+use chrono::Utc;
 use cowen_auth::client::{HttpSender, SimpleResponse};
 use cowen_auth::pool::TokenPool;
 use cowen_auth::provider::self_built::SelfBuiltProvider;
-use cowen_auth::provider::{AuthProvider, InterceptRequestContext, PlatformEvent, ProxyRequestAction};
+use cowen_auth::provider::{
+    AuthProvider, InterceptRequestContext, PlatformEvent, ProxyRequestAction,
+};
 use cowen_auth::VaultTokenPool;
+use cowen_common::domain::TicketDomain;
 use cowen_common::models::{Ticket, Token};
 use cowen_common::{Config, CowenResult};
 use cowen_store::file::FileStore;
@@ -11,8 +15,6 @@ use cowen_store::StoreVault;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tempfile::tempdir;
-use chrono::Utc;
-use cowen_common::domain::TicketDomain;
 
 struct MockHttpSender {
     pub call_count: Arc<AtomicUsize>,
@@ -28,7 +30,7 @@ impl HttpSender for MockHttpSender {
         _body: serde_json::Value,
     ) -> CowenResult<SimpleResponse> {
         self.call_count.fetch_add(1, Ordering::SeqCst);
-        
+
         if url.contains("generateToken") {
             if let Some(ref resp) = self.generate_token_response {
                 return Ok(SimpleResponse {
@@ -37,7 +39,7 @@ impl HttpSender for MockHttpSender {
                 });
             }
         }
-        
+
         Ok(SimpleResponse {
             status: 200,
             body: serde_json::json!({
@@ -120,7 +122,16 @@ async fn test_do_network_request_for_token_success() {
     let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault.clone()));
 
     // Insert fake appTicket
-    vault.save_app_ticket("AK_TEST", Ticket { value: "mock_ticket_123".to_string(), created_at: Utc::now() }).await.unwrap();
+    vault
+        .save_app_ticket(
+            "AK_TEST",
+            Ticket {
+                value: "mock_ticket_123".to_string(),
+                created_at: Utc::now(),
+            },
+        )
+        .await
+        .unwrap();
 
     let call_count = Arc::new(AtomicUsize::new(0));
     let sender = Arc::new(MockHttpSender {
@@ -142,11 +153,13 @@ async fn test_do_network_request_for_token_success() {
         ..Config::default_with_profile("test")
     };
 
-    let token = provider.get_token("test", &config, &reqwest::header::HeaderMap::new()).await;
+    let token = provider
+        .get_token("test", &config, &reqwest::header::HeaderMap::new())
+        .await;
     assert!(token.is_ok());
     let token = token.unwrap();
     assert_eq!(token.value, "mock_access_token_abc");
-    
+
     // Ensure token is persisted in vault
     let cached = pool.get_app_access_token("AK_TEST").await.unwrap();
     assert_eq!(cached.value, "mock_access_token_abc");
@@ -174,9 +187,11 @@ async fn test_obtain_app_ticket_missing() {
         ..Config::default_with_profile("test")
     };
 
-    let res = provider.get_token("test", &config, &reqwest::header::HeaderMap::new()).await;
+    let res = provider
+        .get_token("test", &config, &reqwest::header::HeaderMap::new())
+        .await;
     assert!(res.is_err());
-    
+
     // It should have triggered a push. Wait up to 3 seconds for 3 attempts.
     // Call count should be >= 1 for the push request.
     assert!(call_count.load(Ordering::SeqCst) >= 1);
@@ -201,7 +216,7 @@ async fn test_handle_platform_event_app_ticket() {
             }
         })),
     });
-    
+
     let provider = SelfBuiltProvider::new(pool.clone(), sender);
 
     let config = Config {
@@ -210,7 +225,13 @@ async fn test_handle_platform_event_app_ticket() {
         ..Config::default_with_profile("test")
     };
 
-    let res = provider.handle_platform_event("test", &config, PlatformEvent::AppTicket("new_ticket_event_123".to_string())).await;
+    let res = provider
+        .handle_platform_event(
+            "test",
+            &config,
+            PlatformEvent::AppTicket("new_ticket_event_123".to_string()),
+        )
+        .await;
     assert!(res.is_ok());
 
     // Verify ticket was saved
@@ -233,11 +254,16 @@ async fn test_intercept_request_injects_headers() {
     let vault = Arc::new(StoreVault::new(store.clone(), store.clone()));
     let pool: Arc<dyn TokenPool> = Arc::new(VaultTokenPool::new(vault.clone()));
 
-    pool.set_app_access_token("AK_TEST_INJECT", &Token {
-        value: "mock_active_token".to_string(),
-        created_at: Utc::now(),
-        expires_at: Utc::now() + chrono::Duration::hours(2),
-    }).await.unwrap();
+    pool.set_app_access_token(
+        "AK_TEST_INJECT",
+        &Token {
+            value: "mock_active_token".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::hours(2),
+        },
+    )
+    .await
+    .unwrap();
 
     let sender = Arc::new(MockHttpSender {
         call_count: Arc::new(AtomicUsize::new(0)),
@@ -260,10 +286,19 @@ async fn test_intercept_request_injects_headers() {
         spec: &spec,
     };
 
-    let action = provider.intercept_request("test", &config, ctx).await.unwrap();
+    let action = provider
+        .intercept_request("test", &config, ctx)
+        .await
+        .unwrap();
     if let ProxyRequestAction::Forward { headers } = action {
-        assert_eq!(headers.get("openToken").unwrap().to_str().unwrap(), "mock_active_token");
-        assert_eq!(headers.get("appKey").unwrap().to_str().unwrap(), "AK_TEST_INJECT");
+        assert_eq!(
+            headers.get("openToken").unwrap().to_str().unwrap(),
+            "mock_active_token"
+        );
+        assert_eq!(
+            headers.get("appKey").unwrap().to_str().unwrap(),
+            "AK_TEST_INJECT"
+        );
     } else {
         panic!("Expected Forward action");
     }
@@ -295,11 +330,13 @@ async fn test_initialize_saves_secrets() {
         auto_start: false,
         ..Default::default()
     };
-    
+
     let mut cfg_mgr = cowen_config::ConfigManager::new().unwrap();
     cfg_mgr.app_dir = dir.path().to_path_buf();
 
-    let res = provider.initialize("test", &mut config, vault.clone(), &cfg_mgr, params, None).await;
+    let res = provider
+        .initialize("test", &mut config, vault.clone(), &cfg_mgr, params, None)
+        .await;
     assert!(res.is_ok());
 
     // check vault
@@ -330,7 +367,7 @@ async fn test_get_diagnostics() {
         app_secret: "AS_DIAG".to_string(),
         ..Config::default_with_profile("test")
     };
-    
+
     let app_config = cowen_common::config::AppConfig::default();
 
     let ctx = StatusContext {
