@@ -67,14 +67,20 @@ package-linux-x86_64-cross: clean linux-x86_64-cross
 	@echo "📦 Packaging Linux x86_64 (Cross Build via zigbuild)..."
 	@$(MAKE) impl-package-linux-x86_64
 
-package-linux-aarch64: clean linux-aarch64 build-system-plugins
-	@echo "📦 Packaging Linux aarch64..."
+package-linux-aarch64-cross: clean linux-aarch64-cross
+	@echo "📦 Packaging Linux aarch64 (Cross Build via zigbuild)..."
+	@$(MAKE) impl-package-linux-aarch64
+
+# 将默认的 package-linux-aarch64 指向完整的跨平台构建
+package-linux-aarch64: package-linux-aarch64-cross
+
+impl-package-linux-aarch64: build-system-plugins
 	mkdir -p $(OUTPUT_DIR)/linux-aarch64/release pkg_root_aarch64/lib
-	cp target/release/libcowen_search_embedding pkg_root_aarch64/lib/ || true
-	if [ -f "pkg_root_aarch64/lib/libcowen_search_embedding" ]; then cp target/release/libcowen_search_embedding.bundle pkg_root_aarch64/lib/ || exit 1; fi
+	cp $(OUTPUT_DIR)/linux-aarch64/libcowen_search_embedding pkg_root_aarch64/lib/ || true
+	if [ -f "pkg_root_aarch64/lib/libcowen_search_embedding" ]; then cp $(OUTPUT_DIR)/linux-aarch64/libcowen_search_embedding.bundle pkg_root_aarch64/lib/ || exit 1; fi
 	if [ -f "pkg_root_aarch64/lib/libcowen_search_embedding" ]; then cp dist_assets/linux/libonnxruntime.so pkg_root_aarch64/lib/ || exit 1; fi
-	cp target/release/cowen-mcp-plugin pkg_root_aarch64/lib/ || true
-	if [ -f "pkg_root_aarch64/lib/cowen-mcp-plugin" ]; then cp target/release/cowen-mcp-plugin.bundle pkg_root_aarch64/lib/ || exit 1; fi
+	cp $(OUTPUT_DIR)/linux-aarch64/cowen-mcp-plugin pkg_root_aarch64/lib/ || true
+	if [ -f "pkg_root_aarch64/lib/cowen-mcp-plugin" ]; then cp $(OUTPUT_DIR)/linux-aarch64/cowen-mcp-plugin.bundle pkg_root_aarch64/lib/ || exit 1; fi
 	cp ./dist_assets/linux/install.sh $(OUTPUT_DIR)/linux-aarch64/
 	cp ./dist_assets/QUICK_START.txt $(OUTPUT_DIR)/linux-aarch64/README.txt
 	cp CHANGELOG.md $(OUTPUT_DIR)/linux-aarch64/
@@ -139,5 +145,5 @@ impl-package-linux-x86_64: build-system-plugins
 	@$(call MD5,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 	@$(call SHA256,$(OUTPUT_DIR)/linux-x86_64/release/$(BINARY)-v$(VERSION)-linux-x86_64.tar.gz)
 
-package-all-on-macos: clean package-macos-aarch64 package-linux-x86_64-cross package-windows-x86_64-cross
+package-all-on-macos: clean package-macos-aarch64 package-linux-x86_64-cross package-linux-aarch64 package-windows-x86_64-cross
 	@echo "🎉 All packages successfully built on macOS!"

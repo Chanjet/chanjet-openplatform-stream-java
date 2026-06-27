@@ -233,3 +233,321 @@ async fn test_config_engine_comprehensive() {
     let out3 = String::from_utf8(list.assert().success().get_output().stdout.clone()).unwrap();
     assert!(out3.contains("******"), "db_url not masked");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_behaviors() {
+    let dir = tempdir().unwrap();
+    let home = dir.path().to_str().unwrap().to_string();
+
+    let run_init = |profile: &str, keys: bool, expect_success: bool| {
+        let mut cmd = Command::cargo_bin("cowen").unwrap();
+        cmd.env("COWEN_HOME", &home).env("HOME", &home).args([
+            "-p",
+            profile,
+            "init",
+            "--app-mode",
+            "self-built",
+        ]);
+        if keys {
+            cmd.args([
+                "--app-key",
+                "K",
+                "--app-secret",
+                "S",
+                "--certificate",
+                "C",
+                "--encrypt-key",
+                "E",
+            ]);
+        }
+        if expect_success {
+            cmd.assert().success();
+        } else {
+            cmd.assert().failure();
+        }
+    };
+
+    let run_reset = |profile: Option<&str>| {
+        let mut cmd = Command::cargo_bin("cowen").unwrap();
+        cmd.env("COWEN_HOME", &home).env("HOME", &home).arg("reset");
+        if let Some(p) = profile {
+            cmd.args(["-p", p]);
+        }
+        cmd.assert().success();
+    };
+
+    let check_profile_list = |profile: &str, should_exist: bool| {
+        let mut cmd = Command::cargo_bin("cowen").unwrap();
+        cmd.env("COWEN_HOME", &home)
+            .env("HOME", &home)
+            .args(["profile", "list"]);
+        let out = cmd.output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if should_exist {
+            assert!(stdout.contains(profile));
+        } else {
+            assert!(!stdout.contains(profile));
+        }
+    };
+
+    // Test 1: Reset specific profile
+    let p1 = "p1";
+    run_init(p1, true, true);
+    assert!(dir.path().join(format!("{}.yaml", p1)).exists());
+    run_reset(Some(p1));
+    assert!(!dir.path().join(format!("{}.yaml", p1)).exists());
+    check_profile_list(p1, false);
+
+    // Test 2: Missing keys after reset
+    let p2 = "p2";
+    run_init(p2, true, true);
+    run_reset(Some(p2));
+    run_init(p2, false, false); // should fail because keys are gone
+
+    // Test 3: Full reset
+    let p3 = "p3";
+    run_init(p3, true, true);
+    run_reset(None);
+    assert!(!dir.path().join(format!("{}.yaml", p3)).exists());
+    check_profile_list(p3, false);
+}
+
+#[tokio::test]
+async fn test_config_file_initialization_import() {
+    let _profile = "case_82";
+    let (dir, home) = setup_config_env();
+
+    let port_p1 = get_unused_port();
+    let proxy_port_p1 = get_unused_port();
+    let _port_p2 = get_unused_port();
+    let _proxy_port_p2 = get_unused_port();
+
+    let template_p1 = dir.path().join("p1_template.yaml");
+    std::fs::write(
+        &template_p1,
+        format!(
+            r#"
+app_key: "mock_app_key_1"
+app_mode: "store-app"
+webhook_target: "http://127.0.0.1:9299/callback"
+proxy_port: {}
+proxy_enabled: true
+gateway:
+  bind_address: "127.0.0.1:{}"
+  routes:
+    - path: "/**"
+      upstream: "http://127.0.0.1:9299"
+storage:
+  type: "sqlite"
+log:
+  level: "info"
+"#,
+            proxy_port_p1, port_p1
+        ),
+    )
+    .unwrap();
+
+    let mut init_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    init_cmd.env("COWEN_HOME", &home).env("HOME", &home).args([
+        "init",
+        "--profile",
+        "p1",
+        "--file",
+        template_p1.to_str().unwrap(),
+        "--app-secret",
+        "my_secret_key",
+        "--encrypt-key",
+        "1234567890123456",
+    ]);
+    init_cmd.status().unwrap();
+
+    let cfg = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"))
+        .env("COWEN_HOME", &home)
+        .env("HOME", &home)
+        .args(["config", "--profile", "p1"])
+        .output()
+        .unwrap();
+    let cfg_str = String::from_utf8_lossy(&cfg.stdout);
+    assert!(cfg_str.contains("mock_app_key_1"));
+    assert!(cfg_str.contains(&proxy_port_p1.to_string()));
+
+    // B. With configured profile 'p1' (Pre-filled non-sensitive values)
+    let temp_p1_exp = dir.path().join("temp_p1_exp.yaml");
+    let exp = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"))
+        .env("COWEN_HOME", &home)
+        .env("HOME", &home)
+        .args(["config", "template", "--profile", "p1"])
+        .output()
+        .unwrap();
+    std::fs::write(&temp_p1_exp, &exp.stdout).unwrap();
+    let exp_str = String::from_utf8_lossy(&exp.stdout);
+    assert!(exp_str.contains("mock_app_key_1"));
+    assert!(!exp_str.lines().any(|l| l.starts_with("app_secret:")));
+    assert!(!exp_str.lines().any(|l| l.starts_with("encrypt_key:")));
+
+    // C. Re-initialization overrides config
+    let template_p1_new = dir.path().join("p1_template_new.yaml");
+    let new_proxy_port = get_unused_port();
+    std::fs::write(
+        &template_p1_new,
+        format!(
+            r#"
+app_key: "mock_app_key_1"
+app_mode: "store-app"
+webhook_target: "http://127.0.0.1:9299/callback_new"
+proxy_port: {}
+proxy_enabled: true
+gateway:
+  bind_address: "127.0.0.1:{}"
+"#,
+            new_proxy_port, port_p1
+        ),
+    )
+    .unwrap();
+
+    let mut init_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    init_cmd.env("COWEN_HOME", &home).env("HOME", &home).args([
+        "init",
+        "--profile",
+        "p1",
+        "--file",
+        template_p1_new.to_str().unwrap(),
+    ]);
+    init_cmd.status().unwrap();
+
+    let cfg2 = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"))
+        .env("COWEN_HOME", &home)
+        .env("HOME", &home)
+        .args(["config", "--profile", "p1"])
+        .output()
+        .unwrap();
+    let cfg_str2 = String::from_utf8_lossy(&cfg2.stdout);
+    assert!(cfg_str2.contains("callback_new"));
+    assert!(cfg_str2.contains(&new_proxy_port.to_string()));
+
+    let secret = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"))
+        .env("COWEN_HOME", &home)
+        .env("HOME", &home)
+        .args(["config", "get", "--profile", "p1", "app_secret"])
+        .output()
+        .unwrap();
+    let secret_str = String::from_utf8_lossy(&secret.stdout);
+    assert!(secret_str.contains("my_secret_key"));
+}
+
+fn get_unused_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+#[tokio::test]
+async fn test_config_template_roundtrip() {
+    let profile1 = "p1_case_83";
+    let profile2 = "p2_case_83";
+    let (dir, home) = setup_config_env();
+
+    let port_gw = get_unused_port();
+    let port_proxy = get_unused_port();
+    let mock_url = "http://127.0.0.1:9999";
+
+    let orig_yaml = dir.path().join("orig_template.yaml");
+    std::fs::write(
+        &orig_yaml,
+        format!(
+            r#"
+app_key: "key_roundtrip_test"
+app_mode: "store-app"
+webhook_target: "{}/webhook"
+proxy_port: {}
+proxy_enabled: true
+gateway:
+  bind_address: "127.0.0.1:{}"
+  auth_sync_hook: "{}/sync"
+  auth_routing:
+    mode: "STRICT"
+    bypass_rules:
+      - "/v1/ping"
+      - "/static/**"
+    require_rules:
+      - "**"
+  routes:
+    - path: "/open-api/**"
+      upstream: "openapi"
+      strip_prefix: "/open-api"
+    - path: "/**"
+      upstream: "{}"
+"#,
+            mock_url, port_proxy, port_gw, mock_url, mock_url
+        ),
+    )
+    .unwrap();
+
+    let mut init_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    init_cmd.env("COWEN_HOME", &home).env("HOME", &home).args([
+        "init",
+        "--profile",
+        profile1,
+        "--file",
+        orig_yaml.to_str().unwrap(),
+        "--app-secret",
+        "mysecret",
+        "--encrypt-key",
+        "1234567890123456",
+    ]);
+    init_cmd.status().unwrap();
+
+    let exp_yaml = dir.path().join("exported_template.yaml");
+    let exp = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"))
+        .env("COWEN_HOME", &home)
+        .env("HOME", &home)
+        .args(["config", "template", "--profile", profile1])
+        .output()
+        .unwrap();
+    std::fs::write(&exp_yaml, &exp.stdout).unwrap();
+
+    let exp_str = String::from_utf8_lossy(&exp.stdout);
+    assert!(exp_str.contains("gateway:"));
+    assert!(exp_str.contains(&format!("bind_address: \"127.0.0.1:{}\"", port_gw)));
+    assert!(exp_str.contains("auth_sync_hook:"));
+    assert!(exp_str.contains("mode: \"STRICT\""));
+    assert!(exp_str.contains("- \"/v1/ping\""));
+
+    // Reset profile1 to avoid port conflicts with profile2
+    let mut reset_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    reset_cmd.env("COWEN_HOME", &home).env("HOME", &home).args([
+        "reset",
+        "--profile",
+        profile1,
+        "--no-telemetry",
+    ]);
+    reset_cmd.status().unwrap();
+
+    // Init profile 2 with exported template
+    let mut init2_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    init2_cmd.env("COWEN_HOME", &home).env("HOME", &home).args([
+        "init",
+        "--profile",
+        profile2,
+        "--file",
+        exp_yaml.to_str().unwrap(),
+        "--app-secret",
+        "mysecret",
+        "--encrypt-key",
+        "1234567890123456",
+    ]);
+    init2_cmd.status().unwrap();
+
+    let cfg2 = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"))
+        .env("COWEN_HOME", &home)
+        .env("HOME", &home)
+        .args(["config", "--profile", profile2])
+        .output()
+        .unwrap();
+    let cfg2_str = String::from_utf8_lossy(&cfg2.stdout);
+    assert!(cfg2_str.contains("key_roundtrip_test"));
+    assert!(cfg2_str.contains(&format!("bind_address: 127.0.0.1:{}", port_gw)));
+    assert!(cfg2_str.contains("- /v1/ping"));
+}

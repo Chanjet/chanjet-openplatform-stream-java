@@ -233,12 +233,21 @@ pub(crate) async fn try_permanent_code_recovery(
     let app_key = cfg.app_key.trim();
 
     let (upc, opc, target_name) = if let Some(uid) = user_id {
+        let upc_res = vault.get_user_permanent_code(app_key, org_id, uid).await;
+        if let Err(ref e) = upc_res {
+            tracing::error!(target: "sys", "UPC GET ERROR: {}", e);
+            println!(
+                "!!!!! UPC GET ERROR: {} (app_key='{}', org_id='{}', uid='{}')",
+                e, app_key, org_id, uid
+            );
+        }
+        let opc_res = vault.get_org_permanent_code(app_key, org_id).await;
+        if let Err(ref e) = opc_res {
+            tracing::error!(target: "sys", "OPC GET ERROR: {}", e);
+        }
         (
-            vault
-                .get_user_permanent_code(app_key, org_id, uid)
-                .await
-                .ok(),
-            vault.get_org_permanent_code(app_key, org_id).await.ok(),
+            upc_res.ok(),
+            opc_res.ok(),
             format!("user {} in org {}", uid, org_id),
         )
     } else {

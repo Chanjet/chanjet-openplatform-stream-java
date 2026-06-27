@@ -4,7 +4,7 @@ setup_workspace "case_63_daemon_startup_optimization"
 unset COWEN_MONITOR_PORT
 DUMMY_PORT=$(get_unused_port)
 
-start_mock
+# start_mock
 "$COWEN_BIN" init --profile main \
     --app-mode self-built \
     --app-key AK_SB \

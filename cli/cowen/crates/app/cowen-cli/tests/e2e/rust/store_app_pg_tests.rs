@@ -264,3 +264,190 @@ async fn test_store_app_pg_ticket_persistence() {
     let token2 = String::from_utf8_lossy(&output.stdout).trim().to_string();
     assert!(!token2.is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_postgres_shared_storage() {
+    let pg_url = match setup_postgres_db("case_32") {
+        Some(url) => url,
+        None => {
+            println!("Skipping test_postgres_shared_storage: PostgreSQL not available");
+            return;
+        }
+    };
+
+    let dir = tempdir().unwrap();
+    let home_1 = dir.path().join("home_1");
+    let home_2 = dir.path().join("home_2");
+    std::fs::create_dir_all(&home_1).unwrap();
+    std::fs::create_dir_all(&home_2).unwrap();
+
+    let home_1_str = home_1.to_str().unwrap().to_string();
+    let home_2_str = home_2.to_str().unwrap().to_string();
+
+    let (mock_port, _) = spawn_mock_server().await;
+    let mock_url = format!("http://127.0.0.1:{}", mock_port);
+    let mock_ws = format!("ws://127.0.0.1:{}/connect", mock_port);
+    let proxy_port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+
+    let app_config = serde_json::json!({
+        "storage": {
+            "store": "postgres",
+            "db_url": pg_url
+        },
+        "log": {
+            "level": "debug"
+        },
+        "telemetry_enabled": false,
+        "ai_enabled": false
+    });
+
+    std::fs::write(
+        home_1.join("app.yaml"),
+        serde_yaml::to_string(&app_config).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        home_2.join("app.yaml"),
+        serde_yaml::to_string(&app_config).unwrap(),
+    )
+    .unwrap();
+
+    let mut init_cmd = Command::cargo_bin("cowen").unwrap();
+    init_cmd.env("COWEN_HOME", &home_1_str);
+    init_cmd.env("HOME", &home_1_str);
+    init_cmd
+        .arg("init")
+        .arg("--profile")
+        .arg("main")
+        .arg("--app-mode")
+        .arg("self-built")
+        .arg("--app-key")
+        .arg("AK_PG")
+        .arg("--app-secret")
+        .arg("AS_PG")
+        .arg("--certificate")
+        .arg("CERT_PG")
+        .arg("--encrypt-key")
+        .arg("1234567890123456")
+        .arg("--openapi-url")
+        .arg(&mock_url)
+        .arg("--stream-url")
+        .arg(&mock_ws)
+        .arg("--webhook-target")
+        .arg(format!("{}/webhook_sink", mock_url))
+        .arg("--proxy-port")
+        .arg(proxy_port.to_string());
+
+    init_cmd.assert().success();
+
+    let mut daemon_cmd_1 = StdCommand::new(assert_cmd::cargo::cargo_bin("cowen"));
+    daemon_cmd_1.env("COWEN_HOME", &home_1_str);
+    daemon_cmd_1.env("HOME", &home_1_str);
+    daemon_cmd_1
+        .arg("daemon")
+        .arg("start")
+        .arg("--profile")
+        .arg("main")
+        .arg("--foreground");
+    let mut daemon_child_1 = daemon_cmd_1.spawn().unwrap();
+
+    // Broadcast token update
+    let client = reqwest::Client::new();
+    let payload = serde_json::json!({
+        "msgType": "APP_TICKET",
+        "msg_type": "APP_TICKET",
+        "appKey": "AK_PG",
+        "bizContent": {
+            "appTicket": "ticket_pg_shared_123"
+        },
+        "time": "2026-06-27 12:00:00"
+    });
+
+    // We send APP_TICKET to trigger auth. But Node 1 might not have connected yet.
+    // Let's just wait a bit, then send.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let _ = client
+        .post(format!("{}/control/broadcast", mock_url))
+        .json(&payload)
+        .send()
+        .await;
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Node 2 daemon start
+    let mut daemon_cmd_2 = StdCommand::new(assert_cmd::cargo::cargo_bin("cowen"));
+    daemon_cmd_2.env("COWEN_HOME", &home_2_str);
+    daemon_cmd_2.env("HOME", &home_2_str);
+    daemon_cmd_2
+        .arg("daemon")
+        .arg("start")
+        .arg("--profile")
+        .arg("default")
+        .arg("--foreground");
+    let mut daemon_child_2 = daemon_cmd_2.spawn().unwrap();
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Node 2 should see main profile
+    let mut status_cmd = Command::cargo_bin("cowen").unwrap();
+    status_cmd.env("COWEN_HOME", &home_2_str);
+    status_cmd.env("HOME", &home_2_str);
+    status_cmd.arg("status").arg("--all");
+    let status_out = String::from_utf8_lossy(&status_cmd.output().unwrap().stdout).to_string();
+    assert!(
+        status_out.contains("main"),
+        "Node 2 did not discover main profile"
+    );
+
+    // Fetch token from Node 1
+    let mut token_cmd_1 = Command::cargo_bin("cowen").unwrap();
+    token_cmd_1.env("COWEN_HOME", &home_1_str);
+    token_cmd_1.env("HOME", &home_1_str);
+    token_cmd_1
+        .arg("auth")
+        .arg("token")
+        .arg("--profile")
+        .arg("main")
+        .arg("--format")
+        .arg("json");
+    let out_1 = String::from_utf8_lossy(&token_cmd_1.output().unwrap().stdout).to_string();
+    let j_1 = serde_json::from_str::<serde_json::Value>(&out_1).unwrap();
+    let t_1 = j_1
+        .get("access_token")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Fetch token from Node 2
+    let mut token_cmd_2 = Command::cargo_bin("cowen").unwrap();
+    token_cmd_2.env("COWEN_HOME", &home_2_str);
+    token_cmd_2.env("HOME", &home_2_str);
+    token_cmd_2
+        .arg("auth")
+        .arg("token")
+        .arg("--profile")
+        .arg("main")
+        .arg("--format")
+        .arg("json");
+    let out_2 = String::from_utf8_lossy(&token_cmd_2.output().unwrap().stdout).to_string();
+    let j_2 = serde_json::from_str::<serde_json::Value>(&out_2).unwrap();
+    let t_2 = j_2
+        .get("access_token")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    assert_eq!(t_1, t_2, "Tokens from both nodes should match");
+    assert!(!t_1.is_empty(), "Token should not be empty");
+
+    let _ = daemon_child_1.kill();
+    let _ = daemon_child_1.wait();
+    let _ = daemon_child_2.kill();
+    let _ = daemon_child_2.wait();
+}

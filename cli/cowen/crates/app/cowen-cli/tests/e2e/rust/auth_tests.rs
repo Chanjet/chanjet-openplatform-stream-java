@@ -730,3 +730,260 @@ async fn test_oauth2_refresh_continuous_request_bug() {
 
     let _ = dir;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_auth_ipc_sync() {
+    let (addr, _server_handle) = start_mock_platform().await;
+    let openapi_url = format!("http://{}", addr);
+    let (dir, home) =
+        crate::e2e::rust::auth_tests::setup_auth_env("case_51", "oauth2", &openapi_url);
+
+    // 1. Start daemon
+    let mut cmd_daemon = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    cmd_daemon.env("COWEN_HOME", &home);
+    cmd_daemon.env("HOME", &home);
+    cmd_daemon.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_daemon.args(["daemon", "start", "--foreground"]);
+
+    // We spawn it so it runs in background of test
+    let mut child = cmd_daemon.spawn().unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // 2. Trigger OAuth2 Init Flow
+    let mut cmd_init = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    cmd_init.env("COWEN_HOME", &home);
+    cmd_init.env("HOME", &home);
+    cmd_init.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_init.args([
+        "init",
+        "--profile",
+        "case_51",
+        "--app-mode",
+        "oauth2",
+        "--openapi-url",
+        &openapi_url,
+        "--stream-url",
+        &openapi_url,
+        "--webhook-target",
+        &format!("{}/webhook_sink", openapi_url),
+        "--no-telemetry",
+    ]);
+
+    // Use a background process for init to capture redirect URI
+    let mut init_child = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"))
+        .env("COWEN_HOME", &home)
+        .env("HOME", &home)
+        .env("COWEN_FS_FINGERPRINT", "test_fingerprint")
+        .args([
+            "init",
+            "--profile",
+            "case_51",
+            "--app-mode",
+            "oauth2",
+            "--openapi-url",
+            &openapi_url,
+            "--stream-url",
+            &openapi_url,
+            "--webhook-target",
+            &format!("{}/webhook_sink", openapi_url),
+            "--no-telemetry",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    let mut port = None;
+    let mut state_val = None;
+
+    // We need to read from init stdout without blocking indefinitely.
+    if let Some(stdout) = init_child.stdout.take() {
+        let mut reader = std::io::BufReader::new(stdout);
+        use std::io::BufRead;
+        for line_res in (&mut reader).lines() {
+            let line = line_res.unwrap_or_default();
+            if line.contains("redirect_uri=") {
+                // e.g. redirect_uri=http%3A%2F%2F127.0.0.1%3A50529%2Fcallback
+                // Extract port
+                let parts: Vec<&str> = line.split("127.0.0.1%3A").collect();
+                if parts.len() > 1 {
+                    let port_part: String = parts[1]
+                        .chars()
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect();
+                    port = Some(port_part);
+                }
+
+                let state_parts: Vec<&str> = line.split("state=").collect();
+                if state_parts.len() > 1 {
+                    let st: String = state_parts[1].chars().take_while(|c| *c != '&').collect();
+                    state_val = Some(st);
+                }
+                break;
+            }
+        }
+        // Consume the rest of stdout in a background thread to prevent SIGPIPE
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            use std::io::Read;
+            let mut reader = reader;
+            let _ = reader.read_to_string(&mut buf);
+        });
+    }
+
+    assert!(port.is_some(), "Could not find redirect port");
+    let port = port.unwrap();
+    let state_val = state_val.unwrap_or_else(|| "123".to_string());
+
+    // 3. Simulate Browser Callback
+    let client = reqwest::Client::new();
+    let cb_url = format!(
+        "http://127.0.0.1:{}/callback?code=mock_auth_code_case_51&state={}",
+        port, state_val
+    );
+    let res = client.get(&cb_url).send().await;
+    assert!(res.is_ok());
+
+    let status = init_child.wait().unwrap();
+    if !status.success() {
+        eprintln!("Init exited with {:?}", status);
+        assert!(
+            status.success(),
+            "Init should complete successfully after callback"
+        );
+    }
+    // 5. Verify Token in Vault
+    let mut cmd_status = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    cmd_status.env("COWEN_HOME", &home);
+    cmd_status.env("HOME", &home);
+    cmd_status.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_status.args(["status", "--profile", "case_51"]);
+
+    let output = String::from_utf8_lossy(&cmd_status.output().unwrap().stdout).to_string();
+    assert!(
+        output.contains("AccessToken"),
+        "Token should be present in status"
+    );
+
+    // Clean up
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = dir;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_profile_rename_auth() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let home_str = home.to_str().unwrap();
+
+    let (mock_addr, _jh) = start_mock_platform().await;
+    let mock_url = format!("http://{}", mock_addr);
+    let mock_ws = format!("ws://{}/connect", mock_addr);
+    let proxy_port = mock_addr.port() + 110;
+
+    let profile = "p1";
+
+    let mut init_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    init_cmd.env("COWEN_HOME", home_str);
+    init_cmd.env("HOME", home_str);
+    init_cmd.args([
+        "init",
+        "--profile",
+        profile,
+        "--app-mode",
+        "oauth2",
+        "--openapi-url",
+        &mock_url,
+        "--stream-url",
+        &mock_ws,
+        "--proxy-port",
+        &proxy_port.to_string(),
+    ]);
+
+    let mut init_child = init_cmd.spawn().expect("failed to spawn init");
+
+    // Wait for auth session
+    let db_path = home.join("cowen.db");
+    let mut session_json = String::new();
+    for _ in 0..40 {
+        if db_path.exists() {
+            let out = std::process::Command::new("sqlite3")
+                .arg(&db_path)
+                .arg("SELECT item_value FROM cowen_token WHERE profile='global' AND item_key LIKE 'session:%' LIMIT 1;")
+                .output()
+                .unwrap();
+            let res = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !res.is_empty() {
+                session_json = res;
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(!session_json.is_empty(), "Timeout waiting for auth session");
+
+    let session: serde_json::Value = serde_json::from_str(&session_json).unwrap();
+    let redirect_port = session.get("redirect_port").unwrap().as_u64().unwrap();
+    let state = session.get("state").unwrap().as_str().unwrap();
+
+    // Simulate browser callback
+    let client = reqwest::Client::new();
+    let callback_url = format!(
+        "http://127.0.0.1:{}/callback?code=mock_code&state={}",
+        redirect_port, state
+    );
+
+    let mut success = false;
+    for _ in 0..40 {
+        if let Ok(resp) = client.get(&callback_url).send().await {
+            if resp.status().is_success() {
+                success = true;
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert!(success, "Redirect port unreachable");
+
+    let _ = init_child.wait().unwrap();
+
+    // Verify initial login status
+    let mut status_cmd = Command::cargo_bin("cowen").unwrap();
+    status_cmd.env("COWEN_HOME", home_str);
+    status_cmd.env("HOME", home_str);
+    status_cmd.args(["status", "--profile", profile]);
+    let status_out = String::from_utf8_lossy(&status_cmd.output().unwrap().stdout).to_string();
+    assert!(
+        !status_out.contains("Not logged in or session expired"),
+        "Initial login failed"
+    );
+
+    // Rename profile
+    let mut rename_cmd = Command::cargo_bin("cowen").unwrap();
+    rename_cmd.env("COWEN_HOME", home_str);
+    rename_cmd.env("HOME", home_str);
+    rename_cmd.args(["profile", "rename", profile, "p2"]);
+    rename_cmd.assert().success();
+
+    // Verify file system residuals
+    let entries = std::fs::read_dir(&home).unwrap();
+    for entry in entries.flatten() {
+        let name = entry.file_name().into_string().unwrap();
+        assert!(!name.starts_with(profile), "Residual file found: {}", name);
+    }
+
+    // Verify status after rename
+    let mut status2_cmd = Command::cargo_bin("cowen").unwrap();
+    status2_cmd.env("COWEN_HOME", home_str);
+    status2_cmd.env("HOME", home_str);
+    status2_cmd.args(["status", "--profile", "p2"]);
+    let status2_out = String::from_utf8_lossy(&status2_cmd.output().unwrap().stdout).to_string();
+    assert!(
+        !status2_out.contains("Not logged in or session expired"),
+        "Authentication lost after rename"
+    );
+}

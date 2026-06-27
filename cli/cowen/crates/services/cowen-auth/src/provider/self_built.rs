@@ -870,8 +870,10 @@ async fn start_self_built_daemon(
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             retries -= 1;
         }
+        // Give the Bridge WS connection time to establish before triggering push.
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
     } else {
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
     }
 
     println!("🚀 Mode is 'SelfBuilt': Triggering proactive AppTicket push...");

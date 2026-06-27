@@ -140,11 +140,7 @@ fn test_status_all() {
 
     // 3. Profile 3: Broken (malformed yaml)
     let broken_path = Path::new(cowen_home).join("broken.yaml");
-    fs::write(
-        &broken_path,
-        "storage:\n  store: unknown_store\n",
-    )
-    .unwrap();
+    fs::write(&broken_path, "storage:\n  store: unknown_store\n").unwrap();
 
     // 4. Empty profile (should be ignored)
     let empty_path = Path::new(cowen_home).join(".yaml");

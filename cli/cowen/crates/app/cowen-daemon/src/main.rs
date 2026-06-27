@@ -206,7 +206,7 @@ BUILD_TIME={}",
 
 async fn init_telemetry_and_vault(
     cfg_mgr: &ConfigManager,
-    app_dir: &PathBuf,
+    app_dir: &std::path::Path,
 ) -> Result<(
     Arc<cowen_monitor::telemetry_db::TelemetryDb>,
     Arc<dyn Vault>,

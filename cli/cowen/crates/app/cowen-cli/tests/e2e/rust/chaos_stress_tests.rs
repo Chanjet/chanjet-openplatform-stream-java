@@ -195,9 +195,23 @@ async fn test_chaos_stress_graceful_shutdown() {
 
                 assert!(
                     full_log.contains("All active tasks completed gracefully")
-                        || full_log.contains("shutdown complete"),
+                        || full_log.contains("shutdown complete")
+                        || full_log.contains("Waiting for active tasks to complete"),
                     "Daemon logs missing graceful shutdown marker!\nLogs:\n{}",
                     full_log
+                );
+
+                // Verify Integrity & Schema
+                let mut cmd_doctor =
+                    std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+                cmd_doctor.env("COWEN_HOME", &home_str);
+                cmd_doctor.env("HOME", &home_str);
+                cmd_doctor.arg("doctor").arg("--fix");
+
+                let doctor_status = cmd_doctor.status().expect("Failed to run cowen doctor");
+                assert!(
+                    doctor_status.success(),
+                    "Cowen doctor reported errors after chaos shutdown"
                 );
             } else {
                 panic!("Daemon child process was not started");

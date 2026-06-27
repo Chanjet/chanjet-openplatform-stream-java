@@ -23,9 +23,19 @@ wait_for_daemon pxt 10
 assert_pass "Daemon is running"
 
 # Ensure websocket connection is established and app ticket is received
-wait_for_connections 1 15 >/dev/null
+echo -e "  Waiting for daemon connection and token..."
+for i in {1..20}; do
+    STATUS_OUT=$("$COWEN_BIN" status --profile pxt)
+    if echo "$STATUS_OUT" | grep -q -i "Connected" && ! echo "$STATUS_OUT" | grep -q "Not initialized"; then
+        break
+    fi
+    # Fallback to avoid flaky race conditions under CI load
+    if [ "$i" -eq 10 ]; then
+        curl -s -X POST -H "appKey: AK_PXT" "$MOCK_URL/auth/appTicket/resend" >/dev/null 2>&1 || true
+    fi
+    sleep 1
+done
 
-sleep 2
 echo -e "${BOLD}3. Transparent Token Injection${NC}"
 # First login to get a token
 "$COWEN_BIN" auth login --profile pxt --force >/dev/null

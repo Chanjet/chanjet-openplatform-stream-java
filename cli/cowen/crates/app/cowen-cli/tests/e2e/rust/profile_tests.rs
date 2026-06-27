@@ -156,6 +156,18 @@ async fn test_profile_management() {
         "Config doesn't contain migrated KEY_B"
     );
 
+    // Verify token was also migrated by checking status
+    let mut cmd_status_c = Command::cargo_bin("cowen").unwrap();
+    cmd_status_c.env("COWEN_HOME", &home_str);
+    cmd_status_c.env("HOME", &home_str);
+    cmd_status_c.args(["status"]);
+    let status_c_out = String::from_utf8_lossy(&cmd_status_c.output().unwrap().stdout).to_string();
+    assert!(
+        !status_c_out.contains("Not logged in"),
+        "Authentication lost after rename! token migration failed: {}",
+        status_c_out
+    );
+
     // When: We switch back to prof_a and issue reset
     let mut cmd_use_a_again = Command::cargo_bin("cowen").unwrap();
     cmd_use_a_again.env("COWEN_HOME", &home_str);
@@ -180,4 +192,158 @@ async fn test_profile_management() {
         !cfg_reset_out.contains("KEY_A"),
         "Config should not contain KEY_A after reset"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_profile_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    let home_str = dir.path().to_str().unwrap().to_string();
+
+    let init = |profile: &str, app_key: &str| {
+        let mut cmd = Command::cargo_bin("cowen").unwrap();
+        cmd.env("COWEN_HOME", &home_str);
+        cmd.env("HOME", &home_str);
+        cmd.args([
+            "init",
+            "-p",
+            profile,
+            "--app-mode",
+            "self-built",
+            "--app-key",
+            app_key,
+            "--app-secret",
+            "sec",
+            "--certificate",
+            "cert",
+            "--encrypt-key",
+            "1234567890123456",
+        ])
+        .assert()
+        .success();
+    };
+
+    init("profile_a", "key_a");
+    init("profile_b", "key_b");
+
+    // Switch to profile_a
+    Command::cargo_bin("cowen")
+        .unwrap()
+        .env("COWEN_HOME", &home_str)
+        .env("HOME", &home_str)
+        .args(["profile", "use", "profile_a"])
+        .assert()
+        .success();
+
+    // Reset current profile_a
+    Command::cargo_bin("cowen")
+        .unwrap()
+        .env("COWEN_HOME", &home_str)
+        .env("HOME", &home_str)
+        .args(["reset", "-p", "profile_a"])
+        .assert()
+        .success();
+
+    // Verify it disappeared from list
+    let list_out = String::from_utf8_lossy(
+        &Command::cargo_bin("cowen")
+            .unwrap()
+            .env("COWEN_HOME", &home_str)
+            .env("HOME", &home_str)
+            .args(["profile", "list"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .to_string();
+    assert!(!list_out.contains("profile_a"));
+    assert!(list_out.contains("profile_b"));
+
+    // Verify fallback to another profile
+    let current = String::from_utf8_lossy(
+        &Command::cargo_bin("cowen")
+            .unwrap()
+            .env("COWEN_HOME", &home_str)
+            .env("HOME", &home_str)
+            .args(["profile", "current"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .to_string();
+    assert!(
+        current.trim() == "profile_b" || current.trim() == "default",
+        "Fell back to: {}",
+        current
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_reset_behaviors() {
+    let dir = tempfile::tempdir().unwrap();
+    let home_str = dir.path().to_str().unwrap().to_string();
+
+    let init = |profile: &str| {
+        let mut cmd = Command::cargo_bin("cowen").unwrap();
+        cmd.env("COWEN_HOME", &home_str);
+        cmd.env("HOME", &home_str);
+        cmd.args([
+            "init",
+            "-p",
+            profile,
+            "--app-mode",
+            "self-built",
+            "--app-key",
+            "ak",
+            "--app-secret",
+            "as",
+            "--certificate",
+            "cert",
+            "--encrypt-key",
+            "1234567890123456",
+        ])
+        .assert()
+        .success();
+    };
+
+    // Test missing keys after reset
+    init("p2");
+    Command::cargo_bin("cowen")
+        .unwrap()
+        .env("COWEN_HOME", &home_str)
+        .env("HOME", &home_str)
+        .args(["reset", "-p", "p2"])
+        .assert()
+        .success();
+
+    // Init without keys should fail
+    Command::cargo_bin("cowen")
+        .unwrap()
+        .env("COWEN_HOME", &home_str)
+        .env("HOME", &home_str)
+        .args(["init", "-p", "p2", "--app-mode", "self-built"])
+        .assert()
+        .failure();
+
+    // Test Full Reset
+    init("p3");
+    Command::cargo_bin("cowen")
+        .unwrap()
+        .env("COWEN_HOME", &home_str)
+        .env("HOME", &home_str)
+        .args(["reset"])
+        .assert()
+        .success();
+
+    let list_out = String::from_utf8_lossy(
+        &Command::cargo_bin("cowen")
+            .unwrap()
+            .env("COWEN_HOME", &home_str)
+            .env("HOME", &home_str)
+            .args(["profile", "list"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .to_string();
+    assert!(!list_out.contains("p3"));
 }

@@ -55,6 +55,10 @@ for i in {1..15}; do
     if echo "$STATUS_OUT" | grep -q -i "Connected" && ! echo "$STATUS_OUT" | grep -q "Not initialized"; then
         break
     fi
+    # Fallback to avoid flaky race conditions under CI load
+    if [ "$i" -eq 5 ]; then
+        curl -s -X POST -H "appKey: TEST_NEW" "$MOCK_URL/auth/appTicket/resend" >/dev/null 2>&1 || true
+    fi
     sleep 1
 done
 

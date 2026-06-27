@@ -536,3 +536,60 @@ async fn test_api_list_self_built_refresh_timeout() {
 
     let _ = dir;
 }
+
+#[test]
+fn test_api_list_and_spec_formats() {
+    let (dir, home, _killer) = setup_test_env(false);
+
+    let profile = "test_api";
+
+    // test api list json format
+    let mut cmd_json = Command::cargo_bin("cowen").unwrap();
+    cmd_json.env("COWEN_HOME", &home);
+    cmd_json.arg("--profile").arg(profile);
+    cmd_json.arg("api").arg("list").arg("--format").arg("json");
+
+    let output_json = cmd_json.assert().success().get_output().clone();
+    let stdout_json = String::from_utf8_lossy(&output_json.stdout);
+
+    // Validate JSON output
+    assert!(
+        stdout_json.contains("\"/v1/users\""),
+        "Output: {}",
+        stdout_json
+    );
+    assert!(stdout_json.contains("\"List users\""));
+
+    // test api list yaml format
+    let mut cmd_yaml = Command::cargo_bin("cowen").unwrap();
+    cmd_yaml.env("COWEN_HOME", &home);
+    cmd_yaml.arg("--profile").arg(profile);
+    cmd_yaml.arg("api").arg("list").arg("--format").arg("yaml");
+
+    let output_yaml = cmd_yaml.assert().success().get_output().clone();
+    let stdout_yaml = String::from_utf8_lossy(&output_yaml.stdout);
+
+    // Validate YAML output
+    assert!(stdout_yaml.contains("path: /v1/users"));
+    assert!(stdout_yaml.contains("summary: List users"));
+
+    // test api spec raw format
+    let mut cmd_spec_raw = Command::cargo_bin("cowen").unwrap();
+    cmd_spec_raw.env("COWEN_HOME", &home);
+    cmd_spec_raw.arg("--profile").arg(profile);
+    cmd_spec_raw
+        .arg("api")
+        .arg("spec")
+        .arg("GET")
+        .arg("/v1/users")
+        .arg("--raw");
+
+    let output_spec_raw = cmd_spec_raw.assert().success().get_output().clone();
+    let stdout_spec_raw = String::from_utf8_lossy(&output_spec_raw.stdout);
+
+    // Validate raw spec output (should just be raw JSON/YAML part of the openapi spec)
+    assert!(stdout_spec_raw.contains("summary"));
+    assert!(stdout_spec_raw.contains("List users"));
+
+    let _ = dir;
+}

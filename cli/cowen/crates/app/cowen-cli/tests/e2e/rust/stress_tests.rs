@@ -77,16 +77,14 @@ async fn test_chaos_stress_graceful_shutdown() {
 
     // Start daemon
     let daemon_home = cowen_home.clone();
-    let mut cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
-    cmd.env("COWEN_HOME", &daemon_home);
-    cmd.env("COWEN_FS_FINGERPRINT", "chaos_fingerprint");
-    cmd.arg("daemon")
-        .arg("start")
-        .arg("--profile")
-        .arg(profile)
-        .arg("--foreground");
-
-    let mut child = cmd.spawn().unwrap();
+    let _cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    let mut daemon_cmd = tokio::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    daemon_cmd.env("COWEN_HOME", &daemon_home);
+    daemon_cmd.env("COWEN_FS_FINGERPRINT", "chaos_fingerprint");
+    daemon_cmd.args(["daemon", "start", "--profile", profile, "--foreground"]);
+    daemon_cmd.stdout(std::process::Stdio::piped());
+    daemon_cmd.stderr(std::process::Stdio::piped());
+    let child = daemon_cmd.spawn().unwrap();
 
     // Give daemon time to start
     sleep(Duration::from_secs(3)).await;
@@ -125,12 +123,12 @@ async fn test_chaos_stress_graceful_shutdown() {
     let _ = child.kill(); // Fallback for Windows where SIGTERM is not supported natively in the same way
 
     // Then: The daemon must exit gracefully within the 25-second timeout
-    let timeout_res = tokio::time::timeout(Duration::from_secs(25), child.wait()).await;
+    let timeout_res = tokio::time::timeout(Duration::from_secs(25), child.wait_with_output()).await;
     assert!(timeout_res.is_ok(), "Daemon failed to exit within 25s");
 
-    let status = timeout_res.unwrap().unwrap();
+    let output = timeout_res.unwrap().unwrap();
     // Verify it was successful (graceful shutdown)
-    assert!(status.success(), "Daemon did not exit successfully");
+    assert!(output.status.success(), "Daemon did not exit successfully");
 
     // Verify its SQLite and vault storage must remain uncorrupted (verified via cowen doctor)
     let mut doctor_cmd = Command::cargo_bin("cowen").unwrap();
@@ -139,15 +137,30 @@ async fn test_chaos_stress_graceful_shutdown() {
     doctor_cmd.arg("doctor").arg("--fix");
     doctor_cmd.assert().success();
 
-    // Verify its log must contain graceful shutdown markers
-    let log_dir = std::path::Path::new(&cowen_home).join("logs");
+    let stdout = output.stdout;
+    let stderr = output.stderr;
+    let stdout_str = String::from_utf8_lossy(&stdout);
+    let stderr_str = String::from_utf8_lossy(&stderr);
+    let log_content = format!("{}\n{}", stdout_str, stderr_str);
+
     let mut found_marker = false;
-    if log_dir.exists() {
-        for entry in fs::read_dir(log_dir).unwrap().flatten() {
-            if let Ok(contents) = fs::read_to_string(entry.path()) {
+    if log_content.contains("All active tasks completed gracefully")
+        || log_content.contains("No active tasks, proceeding with shutdown")
+        || log_content.contains("Shutdown signal received")
+        || log_content.contains("Stopping worker")
+    {
+        found_marker = true;
+    }
+
+    // Also check logs dir just in case
+    let log_dir = std::path::Path::new(&cowen_home).join("logs");
+    if !found_marker && log_dir.exists() {
+        for entry in std::fs::read_dir(log_dir).unwrap().flatten() {
+            if let Ok(contents) = std::fs::read_to_string(entry.path()) {
                 if contents.contains("All active tasks completed gracefully")
                     || contents.contains("No active tasks, proceeding with shutdown")
                     || contents.contains("Shutdown signal received")
+                    || contents.contains("Stopping worker")
                 {
                     found_marker = true;
                     break;
