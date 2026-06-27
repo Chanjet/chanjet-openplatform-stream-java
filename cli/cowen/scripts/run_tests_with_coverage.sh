@@ -96,49 +96,18 @@ if command -v cargo-llvm-cov &> /dev/null; then
         --exclude cowen-ai \
         --exclude cowen-doctor \
         --exclude cowen-signer \
-        --lib --bins $TARGET_FLAG -- --test-threads=4
+        $TARGET_FLAG -- --test-threads=4
 else
     echo "❌ Error: cargo-llvm-cov is required to run tests with coverage."
     exit 1
 fi
 
-# 4. Build instrumented binaries for E2E tests
-echo "🚀 3. Compiling core binaries with coverage instrumentations..."
-CARGO_TARGET_DIR="$CARGO_TARGET_DIR/llvm-cov-target" cargo build -j ${MAX_PARALLEL:-4} -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer -p cowen-mcp-plugin $TARGET_FLAG
-
-# Copy the binaries to the single-nested directory where run_parallel.sh expects them
-mkdir -p "$COV_TARGET/debug"
-cp "$COV_TARGET/llvm-cov-target/debug/cowen" "$COV_TARGET/debug/" || true
-cp "$COV_TARGET/llvm-cov-target/debug/cowen-daemon" "$COV_TARGET/debug/" || true
-cp "$COV_TARGET/llvm-cov-target/debug/cowen-signer" "$COV_TARGET/debug/" || true
-cp "$COV_TARGET/llvm-cov-target/debug/cowen-mcp-plugin" "$COV_TARGET/debug/" || true
-cp "$COV_TARGET/llvm-cov-target/debug/libcowen_search_embedding" "$COV_TARGET/debug/" || true
-
-# 5. Run parallel E2E tests (injects coverage)
-if [ "$SKIP_E2E" != "true" ]; then
-    echo "🏃 4. Launching parallel E2E test suites..."
-    export SKIP_BUILD=true
-    export COWEN_SKIP_BROWSER=true
-    export TEST_BASE="$COV_BASE/cowen_tests"
-    export BASE_PORT_START=18000
-
-    # Execute parallel E2E test runner and capture exit code
-    set +e
-    crates/app/cowen-cli/tests/runners/run_parallel.sh
-    E2E_EXIT_CODE=$?
-    set -e
-
-    # 6. Copy E2E profraw telemetry data to merge folder
-    echo "📦 5. Copying E2E telemetry trace data..."
-    cp "$COV_DATA"/*.profraw "$COV_TARGET/" || echo "⚠️ Warning: No E2E profraw files found."
-else
-    echo "⏭️ 4. Skipping E2E test suites (SKIP_E2E=true)..."
-    E2E_EXIT_CODE=0
-    echo "📦 5. Skipping E2E profraw copy..."
-fi
+# We have fully migrated bash tests to Rust e2e tests
+echo "⏭️ Skipping legacy bash E2E test suites (fully migrated to Rust)..."
+E2E_EXIT_CODE=0
 
 # 7. Merge profraw traces using llvm-profdata
-echo "📊 6. Merging all profiling telemetry..."
+echo "📊 Merging all profiling telemetry..."
 LLVM_PROFDATA=$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | grep host | cut -d' ' -f2)/bin/llvm-profdata
 
 # Run rapid multi-threaded corrupt profraw validation
