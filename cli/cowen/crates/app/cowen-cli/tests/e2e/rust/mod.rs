@@ -14,3 +14,5 @@ pub mod store_app_pg_tests;
 pub mod store_app_tests;
 pub mod stress_tests;
 pub mod sync_tests;
+pub mod cli_status_tests;
+pub mod cli_doctor_tests;
