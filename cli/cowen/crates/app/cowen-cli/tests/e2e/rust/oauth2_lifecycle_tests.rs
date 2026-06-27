@@ -20,6 +20,7 @@ async fn test_auth_oauth2_flow() {
     let mut child = std::process::Command::new(&cowen_bin)
         .env("COWEN_HOME", &home)
         .env("HOME", &home)
+        .env("COWEN_SKIP_BROWSER", "true")
         .env("COWEN_FS_FINGERPRINT", "sync_fingerprint")
         .arg("--profile")
         .arg(profile)

@@ -249,5 +249,11 @@ gateway:
     assert!(res_order.contains("org888"));
     assert!(res_order.contains("/list"));
     
-    child_b.kill().unwrap();
+    {
+    #[cfg(unix)]
+    let _ = std::process::Command::new("kill").arg("-15").arg(child_b.id().to_string()).status();
+    #[cfg(windows)]
+    let _ = child_b.kill();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+}
 }

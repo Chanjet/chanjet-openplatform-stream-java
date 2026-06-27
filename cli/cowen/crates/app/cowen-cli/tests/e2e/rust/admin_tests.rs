@@ -40,7 +40,13 @@ async fn test_cli_admin_commands() {
     ]);
     let mut audit_child = audit_cmd.spawn().unwrap();
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    audit_child.kill().unwrap();
+    {
+    #[cfg(unix)]
+    let _ = std::process::Command::new("kill").arg("-15").arg(audit_child.id().to_string()).status();
+    #[cfg(windows)]
+    let _ = audit_child.kill();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+}
     
     // Events
     let events = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"))

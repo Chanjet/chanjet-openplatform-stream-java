@@ -84,7 +84,8 @@ async fn test_chaos_stress_graceful_shutdown() {
     daemon_cmd.args(["daemon", "start", "--profile", profile, "--foreground"]);
     daemon_cmd.stdout(std::process::Stdio::piped());
     daemon_cmd.stderr(std::process::Stdio::piped());
-    let child = daemon_cmd.spawn().unwrap();
+    #[allow(unused_mut)]
+    let mut child = daemon_cmd.spawn().unwrap();
 
     // Give daemon time to start
     sleep(Duration::from_secs(3)).await;
@@ -120,7 +121,16 @@ async fn test_chaos_stress_graceful_shutdown() {
         .status()
         .unwrap();
     #[cfg(windows)]
-    let _ = child.kill(); // Fallback for Windows where SIGTERM is not supported natively in the same way
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    } // Fallback for Windows where SIGTERM is not supported natively in the same way
 
     // Then: The daemon must exit gracefully within the 25-second timeout
     let timeout_res = tokio::time::timeout(Duration::from_secs(25), child.wait_with_output()).await;

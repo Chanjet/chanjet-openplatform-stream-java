@@ -5,6 +5,16 @@
 
 set -e
 
+cleanup_daemons() {
+    echo "🧹 Cleaning up stray daemon processes from tests..."
+    pkill -9 -f ".*/target/.*cowen-daemon" || true
+    pkill -9 -f ".*/target/.*cowen-mcp-plugin" || true
+    pkill -9 -f ".*/target/.*cowen-signer" || true
+    pkill -9 -f ".*/var/folders.*/cowen-daemon" || true
+    pkill -9 -f ".*/tmp.*/cowen-daemon" || true
+}
+trap cleanup_daemons EXIT INT TERM
+
 # Make sure we are in the workspace root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
@@ -36,7 +46,7 @@ COV_DATA="${COV_BASE}/llvm-cov-data"
 REPORT_TXT="${COV_BASE}/coverage_report.txt"
 GATE_FILE=".coverage_gate_${OS_NAME}"
 
-export CARGO_TARGET_DIR="$(pwd)/$COV_TARGET"
+export CARGO_TARGET_DIR="$(pwd)/$COV_BASE"
 export RUSTFLAGS="-Cinstrument-coverage --cfg=coverage"
 export LLVM_PROFILE_FILE="$(pwd)/$COV_DATA/cowen-%p-%m.profraw"
 export RUSTC_WRAPPER=""
@@ -52,7 +62,10 @@ echo "🧹 1. Cleaning previous coverage telemetry and build artifacts..."
 if command -v cargo-llvm-cov &> /dev/null; then
     cargo llvm-cov clean --workspace
 fi
-rm -rf "$COV_BASE" || (sleep 1 && rm -rf "$COV_BASE") || true
+if [ -d "$COV_BASE" ]; then
+    mv "$COV_BASE" "target/trash_$RANDOM" 2>/dev/null || true
+fi
+rm -rf target/trash_* || true
 mkdir -p "$COV_DATA" "$COV_TARGET/debug"
 
 # 3. Run unit and integration tests (injects coverage)
@@ -85,7 +98,17 @@ if [ "$OS_NAME" = "windows-cross" ]; then
 fi
 
 if command -v cargo-llvm-cov &> /dev/null; then
+    export RUST_TEST_THREADS=4
+    E2E_EXIT_CODE=0
+    echo "🏗️ Building binaries with LLVM coverage instrumentation..."
+    eval "$(cargo llvm-cov show-env)"
+    export RUSTFLAGS="$RUSTFLAGS -C instrument-coverage"
+    export LLVM_PROFILE_FILE="$(pwd)/$COV_DATA/cowen-%p-%m.profraw"
+    CARGO_TARGET_DIR="$CARGO_TARGET_DIR/llvm-cov-target" cargo build -j ${MAX_PARALLEL:-4} -p cowen-cli -p cowen-daemon -p cowen-search-embedding -p cowen-signer -p cowen-mcp-plugin $TARGET_FLAG
+    
+    echo "🧪 Running unit tests and API E2E tests with nextest (Coverage Mode)..."
     cargo llvm-cov --no-report --workspace -j ${MAX_PARALLEL:-4} \
+        $TARGET_FLAG \
         --exclude cowen-wasm-auth-selfbuilt \
         --exclude cowen-wasm-auth-storeapp \
         --exclude cowen-grpc-facade \
@@ -96,7 +119,7 @@ if command -v cargo-llvm-cov &> /dev/null; then
         --exclude cowen-ai \
         --exclude cowen-doctor \
         --exclude cowen-signer \
-        $TARGET_FLAG -- --test-threads=4
+        $TARGET_FLAG || E2E_EXIT_CODE=$?
 else
     echo "❌ Error: cargo-llvm-cov is required to run tests with coverage."
     exit 1
@@ -106,16 +129,21 @@ fi
 echo "⏭️ Skipping legacy bash E2E test suites (fully migrated to Rust)..."
 E2E_EXIT_CODE=0
 
-# 7. Merge profraw traces using llvm-profdata
-echo "📊 Merging all profiling telemetry..."
-LLVM_PROFDATA=$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | grep host | cut -d' ' -f2)/bin/llvm-profdata
+echo "⏳ Gracefully stopping any lingering daemons to flush coverage data..."
+pkill -15 -f cowen-daemon || true
+sleep 3
+
+# cargo llvm-cov might dump profraw files directly in COV_BASE instead of COV_DATA
+mv "$COV_BASE"/*.profraw "$COV_DATA"/ 2>/dev/null || true
+
 
 # Run rapid multi-threaded corrupt profraw validation
 echo "🧹 Filtering out corrupt profiling files..."
+LLVM_PROFDATA=$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | grep host | cut -d' ' -f2)/bin/llvm-profdata
 python3 -c "
 import os, glob, subprocess
 from concurrent.futures import ThreadPoolExecutor
-files = glob.glob('$COV_TARGET/*.profraw')
+files = glob.glob('$COV_DATA/*.profraw')
 def check_file(f):
     if not os.path.exists(f): return
     if os.path.getsize(f) < 1024:
@@ -130,28 +158,9 @@ with ThreadPoolExecutor(max_workers=32) as ex:
     list(ex.map(check_file, files))
 "
 
-$LLVM_PROFDATA merge -sparse "$COV_TARGET"/*.profraw -o "$COV_TARGET/cowen.profdata"
-
 # 8. Generate unified coverage report using llvm-cov
 echo "📊 7. Extracting and generating code coverage reports..."
-LLVM_COV=$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | grep host | cut -d' ' -f2)/bin/llvm-cov
-
-# Search for the compiled binary objects
-OBJECTS=""
-for f in "$COV_TARGET/debug/deps"/*; do
-    if [ -f "$f" ]; then
-        if [ -x "$f" ] || [[ "$f" == *.dylib ]]; then
-            if [[ "$f" != *.d ]]; then
-                OBJECTS="$OBJECTS -object $f"
-            fi
-        fi
-    fi
-done
-
-# Explicitly add core executable targets for symbol resolution
-OBJECTS="$OBJECTS -object $COV_TARGET/debug/cowen -object $COV_TARGET/debug/cowen-daemon -object $COV_TARGET/debug/cowen-signer -object $COV_TARGET/debug/cowen-mcp-plugin"
-
-$LLVM_COV report -use-color=0 -instr-profile="$COV_TARGET/cowen.profdata" $OBJECTS -ignore-filename-regex "(registry/src|toolchains/|debug/build|cranelift|target-lexicon|mssql\.rs)" > "$REPORT_TXT"
+cargo llvm-cov report --ignore-filename-regex "(registry/src|toolchains/|debug/build|cranelift|target-lexicon|mssql\.rs)" > "$REPORT_TXT"
 
 # 9. Execute python coverage gate to print breakdown and enforce quality gate threshold
 if [ "$E2E_EXIT_CODE" -ne 0 ]; then

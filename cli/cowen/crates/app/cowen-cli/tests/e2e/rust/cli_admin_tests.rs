@@ -50,7 +50,16 @@ async fn test_cli_admin_commands() {
     audit_cmd.args(["audit", "--lines", "5", "--profile", profile]);
     let mut audit_child = audit_cmd.spawn().unwrap();
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    let _ = audit_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(audit_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = audit_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = audit_child.wait();
 
     // 2. cowen events
@@ -115,7 +124,16 @@ async fn test_cli_admin_commands() {
         .unwrap();
     writeln!(file, "log line 4 (append)").unwrap();
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    let _ = follow_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(follow_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = follow_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = follow_child.wait();
 
     // 5. cowen dlq

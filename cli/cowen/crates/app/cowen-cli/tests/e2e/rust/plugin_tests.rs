@@ -1281,6 +1281,13 @@ async fn test_mcp_standalone_launch() {
 
     // As long as it doesn't panic and starts up properly, we're good.
     // Real validation of protocol is done.
+
+    // Cleanup daemon
+    let mut stop_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    stop_cmd.env("COWEN_HOME", &home);
+    stop_cmd.env("HOME", &home);
+    stop_cmd.args(["daemon", "stop", "--profile", profile]);
+    let _ = stop_cmd.status();
 }
 
 #[tokio::test]
@@ -1319,10 +1326,13 @@ async fn test_wasm_plugin_pipeline() {
     if !wasm_src.exists() {
         let mut build_cmd = std::process::Command::new("cargo");
         build_cmd
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("RUSTFLAGS")
             .current_dir(manifest_dir.join("../../plugins/cowen-wasm-auth-selfbuilt"))
             .args(["build", "--release", "--target", "wasm32-wasip1"]);
         build_cmd.status().unwrap();
-        wasm_src = manifest_dir.join("../../plugins/cowen-wasm-auth-selfbuilt/target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm");
+        wasm_src = manifest_dir
+            .join("../../../target/wasm32-wasip1/release/cowen_wasm_auth_selfbuilt.wasm");
     }
 
     let plugins_dir = home.join("plugins");
@@ -1390,24 +1400,47 @@ routes:
     let mut sql_cmd = std::process::Command::new("sqlite3");
     sql_cmd.args([
         db_path.to_str().unwrap(),
-        &format!("INSERT OR REPLACE INTO cowen_token (profile, item_key, item_value, expires_at) VALUES ('{}', 'access', '{{\"value\":\"wasm_mocked_token\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"created_at\":\"2026-01-01T00:00:00Z\"}}', 4070880000);", profile)
+        &format!("CREATE TABLE IF NOT EXISTS cowen_token (profile TEXT NOT NULL, item_key TEXT NOT NULL, item_value TEXT NOT NULL, expires_at INTEGER NULL, PRIMARY KEY (profile, item_key)); INSERT OR REPLACE INTO cowen_token (profile, item_key, item_value, expires_at) VALUES ('{}', 'access', '{{\"value\":\"wasm_mocked_token\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"created_at\":\"2026-01-01T00:00:00Z\"}}', 4070880000);", profile)
     ]);
-    sql_cmd.status().unwrap();
+    let out1 = sql_cmd.output().unwrap();
+    if !out1.status.success() {
+        panic!("sql_cmd failed: {}", String::from_utf8_lossy(&out1.stderr));
+    }
 
     let mut sql_cmd2 = std::process::Command::new("sqlite3");
     sql_cmd2.args([
         db_path.to_str().unwrap(),
-        "INSERT OR REPLACE INTO cowen_app_token (app_key, token_value, expires_at, created_at) VALUES ('dummy_app_key', 'wasm_mocked_token', '2099-01-01 00:00:00', '2026-01-01 00:00:00');"
+        "CREATE TABLE IF NOT EXISTS cowen_app_token (app_key TEXT PRIMARY KEY, token_value TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL); INSERT OR REPLACE INTO cowen_app_token (app_key, token_value, expires_at, created_at) VALUES ('dummy_app_key', 'wasm_mocked_token', '2099-01-01 00:00:00', '2026-01-01 00:00:00');"
     ]);
-    sql_cmd2.status().unwrap();
+    let out2 = sql_cmd2.output().unwrap();
+    if !out2.status.success() {
+        panic!("sql_cmd2 failed: {}", String::from_utf8_lossy(&out2.stderr));
+    }
+
+    let mut sql_cmd3 = std::process::Command::new("sqlite3");
+    sql_cmd3.args([
+        db_path.to_str().unwrap(),
+        "CREATE TABLE IF NOT EXISTS cowen_ticket (app_key TEXT PRIMARY KEY, ticket_value TEXT NOT NULL, created_at TEXT NOT NULL); INSERT OR REPLACE INTO cowen_ticket (app_key, ticket_value, created_at) VALUES ('dummy_app_key', 'mocked_ticket_value', '2026-01-01 00:00:00');"
+    ]);
+    let out3 = sql_cmd3.output().unwrap();
+    if !out3.status.success() {
+        panic!("sql_cmd3 failed: {}", String::from_utf8_lossy(&out3.stderr));
+    }
 
     let mut daemon_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
     daemon_cmd
         .env("COWEN_HOME", &home)
         .env("HOME", &home)
-        .args(["daemon", "start", "--profile", profile]);
+        .args([
+            "daemon",
+            "start",
+            "--profile",
+            profile,
+            "--monitor-port",
+            "0",
+        ]);
     assert!(daemon_cmd.status().unwrap().success());
-    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
 
     // Call mock reset just in case
     reqwest::Client::new()
@@ -1421,8 +1454,23 @@ routes:
     let res = client
         .post(format!("http://127.0.0.1:{}/v1/app/data/get", proxy_port))
         .send()
-        .await
-        .unwrap();
+        .await;
+
+    if let Err(e) = &res {
+        if let Ok(entries) = std::fs::read_dir(home.join("logs")) {
+            for entry in entries.flatten() {
+                if entry.path().is_file() {
+                    let log = std::fs::read_to_string(entry.path()).unwrap_or_default();
+                    println!(
+                        "========== DAEMON LOG ==========\n{}\n===============================",
+                        log
+                    );
+                }
+            }
+        }
+        panic!("Request failed: {:?}", e);
+    }
+    let res = res.unwrap();
     let text = res.text().await.unwrap();
 
     // If wasm is not triggered, it might fail. Let's just do a soft check since it's a direct port
@@ -1431,4 +1479,11 @@ routes:
         assert!(text.contains("wasm_mocked_token") || text.contains("mock_at_sb_"));
         assert!(text.contains("dummy_app_key"));
     }
+
+    // Cleanup daemon
+    let mut stop_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    stop_cmd.env("COWEN_HOME", &home);
+    stop_cmd.env("HOME", &home);
+    stop_cmd.args(["daemon", "stop", "--profile", profile]);
+    let _ = stop_cmd.status();
 }

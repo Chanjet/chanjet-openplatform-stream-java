@@ -20,9 +20,10 @@ impl Drop for DaemonKiller {
                 if let Ok(pid) = pid_str.trim().parse::<i32>() {
                     eprintln!("DEBUG_TEST: DaemonKiller killing master daemon pid {}", pid);
                     let kill_status = std::process::Command::new("kill")
-                        .arg("-9")
+                        .arg("-15")
                         .arg(pid.to_string())
                         .status();
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                     eprintln!("DEBUG_TEST: kill -9 status: {:?}", kill_status);
                 }
             }

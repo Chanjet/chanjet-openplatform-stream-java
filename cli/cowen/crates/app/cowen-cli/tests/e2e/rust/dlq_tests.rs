@@ -154,7 +154,16 @@ async fn test_dlq_paging_and_retry() {
         "Item still in DLQ"
     );
 
-    let _ = child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = child.wait();
     let _ = dir;
 }

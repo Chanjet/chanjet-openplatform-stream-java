@@ -387,6 +387,7 @@ async fn test_init_default_app_mode() {
     let mut child = std::process::Command::new(bin_path)
         .env("COWEN_HOME", &home)
         .env("HOME", &home)
+        .env("COWEN_SKIP_BROWSER", "true")
         .args([
             "init",
             "--profile",
@@ -405,7 +406,16 @@ async fn test_init_default_app_mode() {
 
     // Wait for the db to be initialized
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-    let _ = child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = child.wait(); // Terminate the blocking init
 
     // Check database for oauth2 mode
@@ -600,7 +610,16 @@ async fn test_sidecar_startup() {
         "Credentials should be injected"
     );
 
-    let _ = child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = child.wait();
 
     // Test 2: Global Store Override (Need a fresh home)

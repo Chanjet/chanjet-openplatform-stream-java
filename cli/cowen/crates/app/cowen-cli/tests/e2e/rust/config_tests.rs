@@ -128,7 +128,16 @@ async fn test_config_hot_reload() {
     stop_cmd.args(["daemon", "stop", "--profile", "hot_reload_test"]);
     stop_cmd.assert().success();
 
-    let _ = daemon_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child.wait();
 }
 

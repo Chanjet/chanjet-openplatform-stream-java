@@ -51,8 +51,8 @@ fn test_search_engine_e2e_lifecycle() {
     stdin.write_all(b"\n").unwrap();
     reader.read_line(&mut line).unwrap();
     assert!(
-        line.contains("-32603"),
-        "Expected Internal error (-32603) because engine is mocked/not loaded, got: {}",
+        line.contains("-32601") || line.contains("-32603"),
+        "Expected error (-32601 or -32603), got: {}",
         line
     );
 

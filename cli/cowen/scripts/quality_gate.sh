@@ -158,7 +158,12 @@ if ! command -v cargo-llvm-cov &> /dev/null; then
     echo "⚠️  cargo-llvm-cov not found. Skipping coverage check."
 else
     # Clean previous coverage artifacts to avoid "failed to collect object files" errors
-    RUSTC_WRAPPER="" cargo llvm-cov clean
+    # Move existing target to a trash folder before removing to bypass APFS lazy unlink races and 'os error 66'
+    if [ -d "target/llvm-cov-target" ]; then
+        mv target/llvm-cov-target "target/trash_$RANDOM" 2>/dev/null || true
+    fi
+    rm -rf target/trash_* || true
+    RUSTC_WRAPPER="" cargo llvm-cov clean || true
     # Enforce history-based dynamic coverage quality gate on cowen-auth crate
     # NOTE: sccache interferes with llvm-cov by stripping profiling data, so we must explicitly disable it.
     mkdir -p target

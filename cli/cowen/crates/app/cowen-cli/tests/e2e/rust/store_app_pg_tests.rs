@@ -446,8 +446,26 @@ async fn test_postgres_shared_storage() {
     assert_eq!(t_1, t_2, "Tokens from both nodes should match");
     assert!(!t_1.is_empty(), "Token should not be empty");
 
-    let _ = daemon_child_1.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child_1.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child_1.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child_1.wait();
-    let _ = daemon_child_2.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child_2.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child_2.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child_2.wait();
 }

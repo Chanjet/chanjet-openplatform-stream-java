@@ -1593,7 +1593,16 @@ async fn test_store_app_shared_storage() {
     cmd_stop_2.args(["daemon", "stop", "--profile", "main"]);
     let _ = cmd_stop_2.output();
 
-    let _ = daemon_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child.wait();
 }
 
@@ -1780,7 +1789,16 @@ async fn test_daemon_lifecycle_race() {
     stop_cmd.args(["daemon", "stop", "--profile", "main"]);
     stop_cmd.assert().success();
 
-    let _ = fg_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(fg_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = fg_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = fg_child.wait();
 }
 #[tokio::test(flavor = "multi_thread")]
@@ -2218,7 +2236,16 @@ async fn test_daemon_slow_ping_recovery() {
 
     tcp_handle.abort();
     uds_handle.abort();
-    let _ = child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = child.wait();
     let _ = std::fs::remove_file(&sock_path);
 }
@@ -2660,7 +2687,16 @@ async fn test_daemon_robustness_check() {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
 
-    let _ = child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = child.wait();
 
     if let Some(log_line) = found_delay {
@@ -2975,6 +3011,7 @@ async fn test_status_oauth2_stale() {
         init_cmd
             .env("COWEN_HOME", &home_clone)
             .env("HOME", &home_clone)
+            .env("COWEN_SKIP_BROWSER", "true")
             .args([
                 "init",
                 "--profile",

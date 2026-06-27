@@ -754,6 +754,7 @@ async fn test_auth_ipc_sync() {
     cmd_init.env("COWEN_HOME", &home);
     cmd_init.env("HOME", &home);
     cmd_init.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd_init.env("COWEN_SKIP_BROWSER", "true");
     cmd_init.args([
         "init",
         "--profile",
@@ -774,6 +775,7 @@ async fn test_auth_ipc_sync() {
         .env("COWEN_HOME", &home)
         .env("HOME", &home)
         .env("COWEN_FS_FINGERPRINT", "test_fingerprint")
+        .env("COWEN_SKIP_BROWSER", "true")
         .args([
             "init",
             "--profile",
@@ -868,7 +870,16 @@ async fn test_auth_ipc_sync() {
     );
 
     // Clean up
-    let _ = child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = child.wait();
     let _ = dir;
 }
@@ -883,13 +894,17 @@ async fn test_profile_rename_auth() {
     let (mock_addr, _jh) = start_mock_platform().await;
     let mock_url = format!("http://{}", mock_addr);
     let mock_ws = format!("ws://{}/connect", mock_addr);
-    let proxy_port = mock_addr.port() + 110;
-
+    let proxy_port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
     let profile = "p1";
 
     let mut init_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
     init_cmd.env("COWEN_HOME", home_str);
     init_cmd.env("HOME", home_str);
+    init_cmd.env("COWEN_SKIP_BROWSER", "true");
     init_cmd.args([
         "init",
         "--profile",

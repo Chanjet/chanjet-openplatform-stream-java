@@ -329,9 +329,27 @@ async fn test_redis_shared_storage() {
     assert_ne!(token_1, token_3, "Token did not renew after redis deletion");
     assert!(!token_3.is_empty());
 
-    let _ = daemon_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child.wait();
-    let _ = redis_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(redis_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = redis_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = redis_child.wait();
 }
 #[tokio::test(flavor = "multi_thread")]
@@ -485,7 +503,16 @@ async fn test_redis_fault_tolerance() {
     assert!(!token_1.is_empty(), "Failed to get initial token");
 
     // Stop Redis
-    let _ = redis_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(redis_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = redis_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = redis_child.wait();
     let _ = redis_child.wait();
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -531,7 +558,16 @@ async fn test_redis_fault_tolerance() {
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Restart daemon
-    let _ = daemon_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child.wait();
     let _ = daemon_child.wait();
 
@@ -576,9 +612,27 @@ async fn test_redis_fault_tolerance() {
         .to_string();
     assert!(!token_3.is_empty(), "Token 3 is empty");
 
-    let _ = daemon_child_2.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child_2.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child_2.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child_2.wait();
-    let _ = redis_child_2.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(redis_child_2.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = redis_child_2.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = redis_child_2.wait();
 }
 #[tokio::test(flavor = "multi_thread")]
@@ -787,9 +841,27 @@ async fn test_hybrid_data_drift() {
     let list_out = String::from_utf8_lossy(&list_cmd.output().unwrap().stdout).to_string();
     assert!(!list_out.contains("AS_HYBRID")); // Sanity check
 
-    let _ = daemon_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child.wait();
-    let _ = redis_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(redis_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = redis_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = redis_child.wait();
 }
 
@@ -1020,8 +1092,26 @@ async fn test_mysql_shared_storage() {
     assert_eq!(t_1, t_2, "Tokens from both nodes should match");
     assert!(!t_1.is_empty(), "Token should not be empty");
 
-    let _ = daemon_child_1.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child_1.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child_1.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child_1.wait();
-    let _ = daemon_child_2.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child_2.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child_2.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child_2.wait();
 }

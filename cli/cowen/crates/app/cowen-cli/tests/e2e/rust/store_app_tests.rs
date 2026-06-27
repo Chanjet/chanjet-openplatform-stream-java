@@ -269,7 +269,16 @@ async fn test_ticket_auto_resend() {
     );
 
     // Cleanup
-    let _ = daemon_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child.wait();
     let _ = dir;
 }
@@ -407,7 +416,16 @@ async fn test_store_app_multi_org_stress() {
         "Found records with empty org_id in cowen_permanent_code"
     );
 
-    let _ = daemon_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(daemon_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = daemon_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     let _ = daemon_child.wait();
     let _ = dir;
 }
@@ -422,6 +440,7 @@ async fn test_sidecar_scaling_stress() {
     let redis_port = 6382; // distinct from other tests
     let mut redis_cmd = std::process::Command::new("redis-server");
     redis_cmd.args(["--port", &redis_port.to_string(), "--save", ""]);
+    #[allow(unused_mut)]
     let mut redis_child = match redis_cmd.spawn() {
         Ok(c) => c,
         Err(_) => {
@@ -547,10 +566,29 @@ async fn test_sidecar_scaling_stress() {
         "Tokens should be consistent across cluster"
     );
 
+    #[allow(unused_mut)]
     for mut child in pids {
-        let _ = child.kill();
+        {
+            #[cfg(unix)]
+            let _ = std::process::Command::new("kill")
+                .arg("-15")
+                .arg(child.id().to_string())
+                .status();
+            #[cfg(windows)]
+            let _ = child.kill();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
     }
-    let _ = redis_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(redis_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = redis_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -563,6 +601,7 @@ async fn test_sidecar_self_built_stress() {
     let redis_port = 6383; // distinct from other tests
     let mut redis_cmd = std::process::Command::new("redis-server");
     redis_cmd.args(["--port", &redis_port.to_string(), "--save", ""]);
+    #[allow(unused_mut)]
     let mut redis_child = match redis_cmd.spawn() {
         Ok(c) => c,
         Err(_) => {
@@ -690,8 +729,27 @@ async fn test_sidecar_self_built_stress() {
         "Tokens should be consistent across cluster"
     );
 
+    #[allow(unused_mut)]
     for mut child in pids {
-        let _ = child.kill();
+        {
+            #[cfg(unix)]
+            let _ = std::process::Command::new("kill")
+                .arg("-15")
+                .arg(child.id().to_string())
+                .status();
+            #[cfg(windows)]
+            let _ = child.kill();
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
     }
-    let _ = redis_child.kill();
+    {
+        #[cfg(unix)]
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(redis_child.id().to_string())
+            .status();
+        #[cfg(windows)]
+        let _ = redis_child.kill();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 }
