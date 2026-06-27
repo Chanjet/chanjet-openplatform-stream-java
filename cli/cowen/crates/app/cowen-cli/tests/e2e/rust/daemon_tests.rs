@@ -1596,3 +1596,190 @@ async fn test_store_app_shared_storage() {
     let _ = daemon_child.kill();
     let _ = daemon_child.wait();
 }
+
+#[tokio::test]
+async fn test_graceful_shutdown_drain() {
+    let (mock_port, _mock_guard) = super::mock_server::spawn_mock_server().await;
+    let mock_url = format!("http://127.0.0.1:{}", mock_port);
+
+    let (_dir, home, _killer) = setup_daemon_env("main", &mock_url);
+
+    // 1. Configure delay in mock server to simulate slow webhook processing
+    let client = reqwest::Client::new();
+    client
+        .post(format!("{}/control/config", mock_url))
+        .json(&serde_json::json!({"webhook_delay_ms": 3000}))
+        .send()
+        .await
+        .unwrap();
+
+    // 2. Initialize profile
+    let mut init_cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    init_cmd.env("COWEN_HOME", &home);
+    init_cmd.env("HOME", &home);
+    init_cmd.args([
+        "init",
+        "--profile",
+        "main",
+        "--app-mode",
+        "self-built",
+        "--app-key",
+        "test_key_shutdown",
+        "--app-secret",
+        "test_secret_shutdown",
+        "--encrypt-key",
+        "1234567890123456",
+        "--certificate",
+        "test_cert",
+        "--openapi-url",
+        &mock_url,
+        "--stream-url",
+        &format!("ws://127.0.0.1:{}", mock_port),
+        "--webhook-target",
+        &format!("{}/webhook_sink", mock_url),
+    ]);
+    init_cmd.assert().success();
+
+    // 3. Start daemon
+    let home_clone = home.clone();
+    let mut daemon_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    daemon_cmd.env("COWEN_HOME", &home_clone);
+    daemon_cmd.env("HOME", &home_clone);
+    daemon_cmd.args(["daemon", "start", "--profile", "main"]);
+    let mut daemon_child = daemon_cmd.spawn().unwrap();
+    let _ = daemon_child.wait(); // Reap the launcher process
+
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    // 4. Trigger High-Latency Forwarding
+    client
+        .post(format!("{}/control/broadcast", mock_url))
+        .header("appKey", "test_key_shutdown")
+        .json(&serde_json::json!({
+            "msg_type": "DATA_PUSH",
+            "payload": {"some_data": "value_for_shutdown_test"}
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+    // 5. Send Stop Command
+    let mut stop_cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    stop_cmd.env("COWEN_HOME", &home);
+    stop_cmd.env("HOME", &home);
+    stop_cmd.args(["daemon", "stop", "--profile", "main"]);
+    let _ = stop_cmd.assert().success();
+
+    // 6. Wait for daemon to drain (up to 10s)
+    let log_file = format!("{}/logs/daemon.stdout.log", home);
+    let mut graceful_exit = false;
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if let Ok(content) = std::fs::read_to_string(&log_file) {
+            if content.contains("Worker stopped gracefully")
+                || content.contains("All active tasks completed gracefully")
+                || content.contains("Timeout waiting for active tasks")
+            {
+                graceful_exit = true;
+                break;
+            }
+        }
+    }
+
+    assert!(graceful_exit, "Failed to find graceful exit logs");
+
+    let log_content = std::fs::read_to_string(&log_file).unwrap_or_default();
+
+    assert!(
+        log_content.contains("Stopping worker (Draining)")
+            || log_content.contains("Shutdown signal received")
+            || log_content.contains("Waiting for active tasks to complete"),
+        "Missing drain logs. Actual logs:\n{}",
+        log_content
+    );
+
+    // 7. Verify Log Separation
+    let stderr_file = format!("{}/logs/daemon.stderr.log", home);
+    let stderr_content = std::fs::read_to_string(&stderr_file).unwrap_or_default();
+    assert!(!stderr_content.contains(" INFO "), "Log separation broken");
+    assert!(
+        !stderr_content.contains("\"msg_type\":\"ping\""),
+        "Ping logged to stderr"
+    );
+}
+
+#[tokio::test]
+async fn test_daemon_lifecycle_race() {
+    let (_dir, home, _killer) = setup_daemon_env("main", "http://127.0.0.1:8080");
+
+    let mut init_cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    init_cmd.env("COWEN_HOME", &home);
+    init_cmd.env("HOME", &home);
+    init_cmd.args([
+        "init",
+        "--profile",
+        "main",
+        "--app-mode",
+        "self-built",
+        "--app-key",
+        "AK_SB",
+        "--app-secret",
+        "AS_SB",
+        "--encrypt-key",
+        "1234567890123456",
+        "--certificate",
+        "CERT_SB",
+        "--webhook-target",
+        "http://127.0.0.1:8080/cb",
+    ]);
+    init_cmd.assert().success();
+
+    // Foreground start (launchd simulation)
+    let home_clone = home.clone();
+    let mut fg_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
+    fg_cmd.env("COWEN_HOME", &home_clone);
+    fg_cmd.env("HOME", &home_clone);
+    fg_cmd.env("COWEN_ALLOW_PORT_FALLBACK", "0");
+    fg_cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    fg_cmd.args(["daemon", "start", "--profile", "main", "--foreground"]);
+    let mut fg_child = fg_cmd.spawn().unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+    let pid_file = format!("{}/master_daemon.pid", home);
+    let original_pid = std::fs::read_to_string(&pid_file).unwrap_or_default();
+    assert!(!original_pid.is_empty());
+
+    // Concurrent background start
+    let mut bg_cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    bg_cmd.env("COWEN_HOME", &home);
+    bg_cmd.env("HOME", &home);
+    bg_cmd.env("COWEN_ALLOW_PORT_FALLBACK", "0");
+    bg_cmd.env("COWEN_SKIP_DAEMON_RECOVERY", "true");
+    bg_cmd.args(["daemon", "start", "--profile", "main"]);
+
+    // Background start should either succeed (gracefully realize it's running) or just connect.
+    // It shouldn't crash the foreground.
+    bg_cmd.assert().success();
+
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    // Verify PID is identical
+    let actual_pid = std::fs::read_to_string(&pid_file).unwrap_or_default();
+    assert_eq!(
+        original_pid, actual_pid,
+        "Daemon PID changed during concurrent start!"
+    );
+
+    // Stop daemon
+    let mut stop_cmd = assert_cmd::Command::cargo_bin("cowen").unwrap();
+    stop_cmd.env("COWEN_HOME", &home);
+    stop_cmd.env("HOME", &home);
+    stop_cmd.args(["daemon", "stop", "--profile", "main"]);
+    stop_cmd.assert().success();
+
+    let _ = fg_child.kill();
+    let _ = fg_child.wait();
+}

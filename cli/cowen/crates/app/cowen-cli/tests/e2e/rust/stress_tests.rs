@@ -7,7 +7,7 @@ use tokio::time::{sleep, Duration};
 use super::mock_server::spawn_mock_server;
 
 fn setup_chaos_env(
-    profile: &str,
+    _profile: &str,
     openapi_url: &str,
     stream_url: &str,
 ) -> (tempfile::TempDir, String) {
@@ -48,7 +48,7 @@ async fn test_chaos_stress_graceful_shutdown() {
         .unwrap();
 
     let profile = "chaos";
-    let (dir, cowen_home) = setup_chaos_env(profile, &mock_url, &mock_ws);
+    let (_dir, cowen_home) = setup_chaos_env(profile, &mock_url, &mock_ws);
 
     let mut init_cmd = Command::cargo_bin("cowen").unwrap();
     init_cmd.env("COWEN_HOME", &cowen_home);
@@ -115,9 +115,14 @@ async fn test_chaos_stress_graceful_shutdown() {
 
     // Send SIGTERM signal
     let pid = child.id().unwrap() as i32;
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-    }
+    #[cfg(unix)]
+    std::process::Command::new("kill")
+        .arg("-15")
+        .arg(pid.to_string())
+        .status()
+        .unwrap();
+    #[cfg(windows)]
+    let _ = child.kill(); // Fallback for Windows where SIGTERM is not supported natively in the same way
 
     // Then: The daemon must exit gracefully within the 25-second timeout
     let timeout_res = tokio::time::timeout(Duration::from_secs(25), child.wait()).await;
