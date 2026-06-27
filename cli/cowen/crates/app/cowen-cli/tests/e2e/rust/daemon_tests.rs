@@ -1600,7 +1600,7 @@ async fn test_store_app_shared_storage() {
             .arg(daemon_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child.wait();
@@ -1796,7 +1796,7 @@ async fn test_daemon_lifecycle_race() {
             .arg(fg_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = fg_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut fg_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = fg_child.wait();
@@ -2245,7 +2245,7 @@ async fn test_daemon_slow_ping_recovery() {
             .arg(child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = child.wait();
@@ -2704,7 +2704,7 @@ async fn test_daemon_robustness_check() {
             .arg(child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = child.wait();

@@ -280,3 +280,33 @@ pub fn setup_test_env_in_dir(
         home: cowen_home.to_str().unwrap().to_string(),
     }
 }
+
+pub fn graceful_kill_child(child: &mut std::process::Child) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let pid = child.id();
+        let _ = std::process::Command::new("kill")
+            .arg("-15")
+            .arg(pid.to_string())
+            .status();
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    let res = child.kill();
+    let _ = child.wait();
+    res
+}
+
+#[allow(dead_code)]
+pub fn graceful_kill_tokio_child(child: &mut tokio::process::Child) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        if let Some(pid) = child.id() {
+            let _ = std::process::Command::new("kill")
+                .arg("-15")
+                .arg(pid.to_string())
+                .status();
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+    }
+    child.start_kill()
+}

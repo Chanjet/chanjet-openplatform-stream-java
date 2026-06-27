@@ -253,7 +253,7 @@ gateway:
     #[cfg(unix)]
     let _ = std::process::Command::new("kill").arg("-15").arg(child_b.id().to_string()).status();
     #[cfg(windows)]
-    let _ = child_b.kill();
+    let _ = crate::e2e::rust::common::graceful_kill_child(&mut child_b);
     std::thread::sleep(std::time::Duration::from_millis(500));
 }
 }

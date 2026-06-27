@@ -7,7 +7,7 @@ use tempfile::tempdir;
 struct ChildGuard(std::process::Child);
 impl Drop for ChildGuard {
     fn drop(&mut self) {
-        let _ = self.0.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut self.0);
         let _ = self.0.wait();
     }
 }

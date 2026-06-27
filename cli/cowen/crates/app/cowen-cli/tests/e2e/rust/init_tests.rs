@@ -413,7 +413,7 @@ async fn test_init_default_app_mode() {
             .arg(child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = child.wait(); // Terminate the blocking init
@@ -617,7 +617,7 @@ async fn test_sidecar_startup() {
             .arg(child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = child.wait();

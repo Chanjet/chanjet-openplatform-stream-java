@@ -28,7 +28,7 @@ impl Drop for TestDaemonGuard {
         std::thread::sleep(std::time::Duration::from_millis(200));
 
         // 2. Force kill the CLI process just in case
-        let _ = self.child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut self.child);
         let _ = self.child.wait();
 
         // 3. Fallback: Force kill the daemon process directly if it still exists

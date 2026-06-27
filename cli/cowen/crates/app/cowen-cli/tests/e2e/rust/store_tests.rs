@@ -336,7 +336,7 @@ async fn test_redis_shared_storage() {
             .arg(daemon_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child.wait();
@@ -347,7 +347,7 @@ async fn test_redis_shared_storage() {
             .arg(redis_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = redis_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut redis_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = redis_child.wait();
@@ -510,7 +510,7 @@ async fn test_redis_fault_tolerance() {
             .arg(redis_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = redis_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut redis_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = redis_child.wait();
@@ -565,7 +565,7 @@ async fn test_redis_fault_tolerance() {
             .arg(daemon_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child.wait();
@@ -619,7 +619,7 @@ async fn test_redis_fault_tolerance() {
             .arg(daemon_child_2.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child_2.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child_2);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child_2.wait();
@@ -630,7 +630,7 @@ async fn test_redis_fault_tolerance() {
             .arg(redis_child_2.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = redis_child_2.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut redis_child_2);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = redis_child_2.wait();
@@ -848,7 +848,7 @@ async fn test_hybrid_data_drift() {
             .arg(daemon_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child.wait();
@@ -859,7 +859,7 @@ async fn test_hybrid_data_drift() {
             .arg(redis_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = redis_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut redis_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = redis_child.wait();
@@ -1099,7 +1099,7 @@ async fn test_mysql_shared_storage() {
             .arg(daemon_child_1.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child_1.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child_1);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child_1.wait();
@@ -1110,7 +1110,7 @@ async fn test_mysql_shared_storage() {
             .arg(daemon_child_2.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child_2.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child_2);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child_2.wait();

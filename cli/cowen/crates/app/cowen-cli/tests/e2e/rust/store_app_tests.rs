@@ -276,7 +276,7 @@ async fn test_ticket_auto_resend() {
             .arg(daemon_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child.wait();
@@ -423,7 +423,7 @@ async fn test_store_app_multi_org_stress() {
             .arg(daemon_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child.wait();
@@ -575,7 +575,7 @@ async fn test_sidecar_scaling_stress() {
                 .arg(child.id().to_string())
                 .status();
             #[cfg(windows)]
-            let _ = child.kill();
+            let _ = crate::e2e::rust::common::graceful_kill_child(&mut child);
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
     }
@@ -586,7 +586,7 @@ async fn test_sidecar_scaling_stress() {
             .arg(redis_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = redis_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut redis_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 }
@@ -738,7 +738,7 @@ async fn test_sidecar_self_built_stress() {
                 .arg(child.id().to_string())
                 .status();
             #[cfg(windows)]
-            let _ = child.kill();
+            let _ = crate::e2e::rust::common::graceful_kill_child(&mut child);
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
     }
@@ -749,7 +749,7 @@ async fn test_sidecar_self_built_stress() {
             .arg(redis_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = redis_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut redis_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 }

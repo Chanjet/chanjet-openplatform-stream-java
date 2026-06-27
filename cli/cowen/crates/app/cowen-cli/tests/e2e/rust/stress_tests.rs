@@ -143,7 +143,7 @@ async fn test_chaos_stress_graceful_shutdown() {
             .arg(child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_tokio_child(&mut child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     } // Fallback for Windows where SIGTERM is not supported natively in the same way
 

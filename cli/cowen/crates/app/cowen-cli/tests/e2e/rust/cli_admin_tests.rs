@@ -57,7 +57,7 @@ async fn test_cli_admin_commands() {
             .arg(audit_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = audit_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut audit_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = audit_child.wait();
@@ -131,7 +131,7 @@ async fn test_cli_admin_commands() {
             .arg(follow_child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = follow_child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut follow_child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = follow_child.wait();

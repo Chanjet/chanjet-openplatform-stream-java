@@ -453,7 +453,7 @@ async fn test_postgres_shared_storage() {
             .arg(daemon_child_1.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child_1.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child_1);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child_1.wait();
@@ -464,7 +464,7 @@ async fn test_postgres_shared_storage() {
             .arg(daemon_child_2.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = daemon_child_2.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut daemon_child_2);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = daemon_child_2.wait();

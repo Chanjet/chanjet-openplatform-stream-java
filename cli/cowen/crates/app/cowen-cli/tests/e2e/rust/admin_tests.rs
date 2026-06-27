@@ -44,7 +44,7 @@ async fn test_cli_admin_commands() {
     #[cfg(unix)]
     let _ = std::process::Command::new("kill").arg("-15").arg(audit_child.id().to_string()).status();
     #[cfg(windows)]
-    let _ = audit_child.kill();
+    let _ = crate::e2e::rust::common::graceful_kill_child(&mut audit_child);
     std::thread::sleep(std::time::Duration::from_millis(500));
 }
     
@@ -245,7 +245,7 @@ except:
         .output().unwrap();
     let status2_str = String::from_utf8_lossy(&status2.stderr);
     
-    py_child.kill().unwrap_or(());
+    crate::e2e::rust::common::graceful_kill_child(&mut py_child).unwrap_or(());
     
     assert!(status2_str.contains("PID:") || status2_str.contains("python3") || status2_str.contains("Unknown Process"));
 }

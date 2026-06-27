@@ -877,7 +877,7 @@ async fn test_auth_ipc_sync() {
             .arg(child.id().to_string())
             .status();
         #[cfg(windows)]
-        let _ = child.kill();
+        let _ = crate::e2e::rust::common::graceful_kill_child(&mut child);
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let _ = child.wait();

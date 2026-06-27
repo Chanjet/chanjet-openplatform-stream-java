@@ -131,9 +131,9 @@ async fn test_cluster_idempotency() {
     println!("Received {} messages", received_count);
 
     // Kill daemons
-    child_a.kill().ok();
+    crate::e2e::rust::common::graceful_kill_child(&mut child_a).ok();
     child_a.wait().ok();
-    child_b.kill().ok();
+    crate::e2e::rust::common::graceful_kill_child(&mut child_b).ok();
     child_b.wait().ok();
 
     assert!(

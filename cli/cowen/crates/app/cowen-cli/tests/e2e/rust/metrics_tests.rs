@@ -102,6 +102,6 @@ async fn test_metrics_health() {
         "Metrics missing active_connections"
     );
 
-    child.kill().ok();
+    crate::e2e::rust::common::graceful_kill_child(&mut child).ok();
     child.wait().ok();
 }
