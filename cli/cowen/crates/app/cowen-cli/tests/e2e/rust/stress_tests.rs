@@ -72,6 +72,20 @@ async fn test_chaos_stress_graceful_shutdown() {
 
     init_cmd.assert().success();
 
+    // Stop the background daemon spawned by `init` to allow foreground daemon to acquire the lock
+    let pid_file = std::path::Path::new(&cowen_home).join("master_daemon.pid");
+    if let Ok(content) = std::fs::read_to_string(&pid_file) {
+        if let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>() {
+            let _ = std::process::Command::new("kill")
+                .arg("-15")
+                .arg(pid.to_string())
+                .status();
+        }
+    }
+
+    // Wait for the daemon to fully exit and release the file lock
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
     // Remove IPC port if it exists to avoid race
     let _ = fs::remove_file(std::path::Path::new(&cowen_home).join("ipc.port"));
 
@@ -113,6 +127,7 @@ async fn test_chaos_stress_graceful_shutdown() {
     sleep(Duration::from_millis(1500)).await;
 
     // Send SIGTERM signal
+    #[allow(unused_variables)]
     let pid = child.id().unwrap() as i32;
     #[cfg(unix)]
     std::process::Command::new("kill")

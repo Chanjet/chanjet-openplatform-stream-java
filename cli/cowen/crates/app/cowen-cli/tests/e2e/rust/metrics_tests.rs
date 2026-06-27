@@ -39,6 +39,19 @@ async fn test_metrics_health() {
     ]);
     assert!(init_cmd.status().unwrap().success(), "Init failed");
 
+    // Stop the background daemon spawned by `init` to allow foreground daemon to acquire the lock
+    let pid_file = home.path().join("master_daemon.pid");
+    if let Ok(content) = std::fs::read_to_string(&pid_file) {
+        if let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>() {
+            let _ = std::process::Command::new("kill")
+                .arg("-15")
+                .arg(pid.to_string())
+                .status();
+        }
+    }
+    // Wait for the daemon to fully exit and release the file lock
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
     let mut daemon_cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin("cowen"));
     daemon_cmd.env("COWEN_HOME", home_path);
     daemon_cmd.args(["daemon", "start", "--profile", "main", "--foreground"]);

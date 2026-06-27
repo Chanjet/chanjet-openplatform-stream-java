@@ -324,17 +324,19 @@ impl DaemonClient {
 
     async fn wait_for_daemon_start_and_ping(
         &self,
-        log_dir: &Path,
-        mut child: std::process::Child,
+        log_dir: Option<&Path>,
+        mut child: Option<std::process::Child>,
     ) -> Result<(Channel, AuthInterceptor)> {
         let append_stderr_tail = |mut err_msg: String| -> String {
-            if let Ok(stderr) = std::fs::read_to_string(log_dir.join("daemon.stderr.log")) {
-                let tail: Vec<&str> = stderr.lines().rev().take(10).collect();
-                if !tail.is_empty() {
-                    err_msg.push_str("\nDaemon stderr tail:\n");
-                    for line in tail.into_iter().rev() {
-                        err_msg.push_str(line);
-                        err_msg.push('\n');
+            if let Some(dir) = log_dir {
+                if let Ok(stderr) = std::fs::read_to_string(dir.join("daemon.stderr.log")) {
+                    let tail: Vec<&str> = stderr.lines().rev().take(10).collect();
+                    if !tail.is_empty() {
+                        err_msg.push_str("\nDaemon stderr tail:\n");
+                        for line in tail.into_iter().rev() {
+                            err_msg.push_str(line);
+                            err_msg.push('\n');
+                        }
                     }
                 }
             }
@@ -342,9 +344,12 @@ impl DaemonClient {
         };
 
         for _ in 0..150 {
-            if let Ok(Some(status)) = child.try_wait() {
-                let err_msg = format!("Daemon process exited prematurely with status: {}", status);
-                bail!("{}", append_stderr_tail(err_msg));
+            if let Some(c) = &mut child {
+                if let Ok(Some(status)) = c.try_wait() {
+                    let err_msg =
+                        format!("Daemon process exited prematurely with status: {}", status);
+                    bail!("{}", append_stderr_tail(err_msg));
+                }
             }
 
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -377,11 +382,23 @@ impl DaemonClient {
             }
         }
 
-        let daemon_path = self.resolve_daemon_executable_path()?;
-        let (log_dir, child) = self.setup_daemon_logs_and_spawn(&daemon_path)?;
+        let svc_manager = cowen_sys::get_service_manager();
+        let bin_name = cowen_sys::get_daemon_binary_name();
 
-        eprintln!("🚀 Starting daemon...");
-        self.wait_for_daemon_start_and_ping(&log_dir, child).await
+        if svc_manager.is_installed(bin_name).await.unwrap_or(false) {
+            eprintln!("🚀 Delegating daemon startup to system service manager...");
+            if let Err(e) = svc_manager.start_service(bin_name).await {
+                bail!("Failed to start system service: {}", e);
+            }
+            self.wait_for_daemon_start_and_ping(None, None).await
+        } else {
+            let daemon_path = self.resolve_daemon_executable_path()?;
+            let (log_dir, child) = self.setup_daemon_logs_and_spawn(&daemon_path)?;
+
+            eprintln!("🚀 Starting daemon...");
+            self.wait_for_daemon_start_and_ping(Some(&log_dir), Some(child))
+                .await
+        }
     }
 
     pub async fn connect_to_daemon(&self) -> Result<(Channel, AuthInterceptor)> {

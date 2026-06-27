@@ -96,6 +96,25 @@ async fn run_main(
         tracing::error!("FATAL DAEMON PANIC: {}", payload);
     }));
 
+    // Check for existing instance using fd-lock
+    let lock_file_path = cowen_common::config::get_app_dir().join("cowen-daemon.lock");
+    let lock_file = match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&lock_file_path)
+    {
+        Ok(f) => f,
+        Err(e) => anyhow::bail!("Failed to open lock file {:?}: {}", lock_file_path, e),
+    };
+
+    let mut flock = fd_lock::RwLock::new(lock_file);
+    let _write_guard = match flock.try_write() {
+        Ok(guard) => guard,
+        Err(_) => anyhow::bail!("cowen-daemon is already running (failed to acquire lock)."),
+    };
+
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let ipc_port = listener.local_addr()?.port();
 

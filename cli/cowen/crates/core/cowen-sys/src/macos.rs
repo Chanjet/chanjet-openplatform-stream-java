@@ -60,6 +60,7 @@ fn get_macos_plist_path(bin_name: &str) -> anyhow::Result<std::path::PathBuf> {
 
 #[async_trait::async_trait]
 impl cowen_infra::sys::ServiceManager for MacServiceManager {
+    // #lizard forgives
     async fn install(&self, bin_name: &str, bin_path: &str, log_dir: &str) -> anyhow::Result<()> {
         let plist_path = get_macos_plist_path(bin_name)?;
         std::fs::create_dir_all(log_dir)?;
@@ -156,6 +157,43 @@ impl cowen_infra::sys::ServiceManager for MacServiceManager {
             plist_path.exists(),
             status_str,
         ))
+    }
+
+    async fn is_installed(&self, bin_name: &str) -> anyhow::Result<bool> {
+        let plist_path = get_macos_plist_path(bin_name)?;
+        Ok(plist_path.exists())
+    }
+
+    async fn start_service(&self, bin_name: &str) -> anyhow::Result<()> {
+        let plist_path = get_macos_plist_path(bin_name)?;
+        if !plist_path.exists() {
+            anyhow::bail!("Service not installed");
+        }
+        let status = std::process::Command::new("launchctl")
+            .arg("load")
+            .arg("-w")
+            .arg(&plist_path)
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("Failed to start macOS LaunchAgent");
+        }
+        Ok(())
+    }
+
+    async fn stop_service(&self, bin_name: &str) -> anyhow::Result<()> {
+        let plist_path = get_macos_plist_path(bin_name)?;
+        if !plist_path.exists() {
+            return Ok(());
+        }
+        let status = std::process::Command::new("launchctl")
+            .arg("unload")
+            .arg("-w")
+            .arg(&plist_path)
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("Failed to stop macOS LaunchAgent");
+        }
+        Ok(())
     }
 }
 

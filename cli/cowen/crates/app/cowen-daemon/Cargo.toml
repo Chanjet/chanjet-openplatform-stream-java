@@ -18,6 +18,7 @@ cowen-server = { path = "../../app/cowen-server" }
 cowen-store = { path = "../../services/cowen-store", features = ["all-stores"] }
 cowen-sys = { path = "../../core/cowen-sys" }
 cowen-wasm-facade = { path = "../../adapters/cowen-wasm-facade" }
+fd-lock = "4.0.4"
 rustls = { version = "0.23", features = ["ring"] }
 serde_yaml = "0.9"
 

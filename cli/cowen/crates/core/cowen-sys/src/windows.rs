@@ -166,6 +166,30 @@ impl cowen_infra::sys::ServiceManager for WinServiceManager {
             status_str,
         ))
     }
+
+    async fn is_installed(&self, bin_name: &str) -> anyhow::Result<bool> {
+        let is_installed = if let Ok(hkcu) =
+            winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+                .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+        {
+            hkcu.get_value::<String, _>(bin_name).is_ok()
+        } else {
+            false
+        };
+        Ok(is_installed)
+    }
+
+    async fn start_service(&self, _bin_name: &str) -> anyhow::Result<()> {
+        anyhow::bail!("start_service is not natively supported for HKCU\\Run services on Windows. Please use 'cowen daemon start' instead.");
+    }
+
+    async fn stop_service(&self, bin_name: &str) -> anyhow::Result<()> {
+        let exe_name = format!("{}.exe", bin_name);
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/IM", &exe_name])
+            .status();
+        Ok(())
+    }
 }
 
 #[cfg(windows)]

@@ -159,6 +159,45 @@ WantedBy=default.target
             status_str,
         ))
     }
+
+    async fn is_installed(&self, bin_name: &str) -> anyhow::Result<bool> {
+        let service_path = get_linux_service_path(bin_name)?;
+        Ok(service_path.exists())
+    }
+
+    async fn start_service(&self, bin_name: &str) -> anyhow::Result<()> {
+        let service_path = get_linux_service_path(bin_name)?;
+        if !service_path.exists() {
+            anyhow::bail!("Service not installed");
+        }
+        let unit_name = format!("{}-daemon", bin_name);
+        let status = std::process::Command::new("systemctl")
+            .arg("--user")
+            .arg("start")
+            .arg(&unit_name)
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("Failed to start systemd user service");
+        }
+        Ok(())
+    }
+
+    async fn stop_service(&self, bin_name: &str) -> anyhow::Result<()> {
+        let service_path = get_linux_service_path(bin_name)?;
+        if !service_path.exists() {
+            return Ok(());
+        }
+        let unit_name = format!("{}-daemon", bin_name);
+        let status = std::process::Command::new("systemctl")
+            .arg("--user")
+            .arg("stop")
+            .arg(&unit_name)
+            .status()?;
+        if !status.success() {
+            anyhow::bail!("Failed to stop systemd user service");
+        }
+        Ok(())
+    }
 }
 
 /// 设置当前进程的显示名称 (Linux 实现)

@@ -61,6 +61,12 @@ pub mod traits {
         async fn uninstall(&self, bin_name: &str) -> anyhow::Result<()>;
         /// 查询系统服务状态
         async fn status(&self, bin_name: &str) -> anyhow::Result<String>;
+        /// 判断服务是否已安装
+        async fn is_installed(&self, bin_name: &str) -> anyhow::Result<bool>;
+        /// 启动系统服务
+        async fn start_service(&self, bin_name: &str) -> anyhow::Result<()>;
+        /// 停止系统服务
+        async fn stop_service(&self, bin_name: &str) -> anyhow::Result<()>;
     }
 }
 

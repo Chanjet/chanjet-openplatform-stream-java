@@ -76,6 +76,18 @@ impl ServiceManager for MockWindowsSys {
     async fn status(&self, _bin_name: &str) -> anyhow::Result<String> {
         Ok("🔍 Windows Service Status:\n  - Status: REGISTERED\n  - State: RUNNING".to_string())
     }
+
+    async fn is_installed(&self, _bin_name: &str) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
+    async fn start_service(&self, _bin_name: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn stop_service(&self, _bin_name: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 impl SysFingerprint for MockWindowsSys {

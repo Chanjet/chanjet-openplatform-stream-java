@@ -91,6 +91,20 @@ async fn test_chaos_stress_graceful_shutdown() {
                 String::from_utf8_lossy(&output.stderr)
             );
 
+            // Stop the background daemon spawned by `init` to allow foreground daemon to acquire the lock
+            let pid_file = std::path::Path::new(&home_str).join("master_daemon.pid");
+            if let Ok(content) = std::fs::read_to_string(&pid_file) {
+                if let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>() {
+                    let _ = std::process::Command::new("kill")
+                        .arg("-15")
+                        .arg(pid.to_string())
+                        .status();
+                }
+            }
+
+            // Wait for the daemon to fully exit and release the file lock
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
             // Wait a bit to ensure background daemon created by `init` is stable.
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
