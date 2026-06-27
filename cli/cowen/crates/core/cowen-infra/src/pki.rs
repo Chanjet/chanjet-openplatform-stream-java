@@ -171,6 +171,8 @@ pub fn verify_plugin_bundle_with_root(dylib_path: &Path, root_pub_key: &[u8]) ->
     Ok(())
 }
 
+pub static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,6 +193,7 @@ mod tests {
 
     #[test]
     fn test_valid_plugin_signature() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let (root_pair, dev_pair) = generate_keys();
         let root_pub = root_pair.public_key().as_ref();
 
@@ -251,6 +254,7 @@ mod tests {
 
     #[test]
     fn test_tampered_binary_hash() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let (root_pair, dev_pair) = generate_keys();
         let root_pub = root_pair.public_key().as_ref();
 
@@ -310,6 +314,7 @@ mod tests {
 
     #[test]
     fn test_dev_mode_bypass() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let dir = tempdir().unwrap();
         let dylib_path = dir.path().join("unsigned_plugin.dylib");
         fs::write(&dylib_path, b"data").unwrap();

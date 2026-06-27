@@ -56,5 +56,9 @@ mod tests {
     fn test_extract_profile_from_cmdline() {
         let profile = extract_profile_from_cmdline(std::process::id());
         let _ = profile; // May or may not be Some, but should not panic
+
+        // Test with invalid PID to ensure it returns None without panic
+        let invalid_profile = extract_profile_from_cmdline(u32::MAX);
+        assert_eq!(invalid_profile, None);
     }
 }

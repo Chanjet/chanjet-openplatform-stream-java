@@ -175,6 +175,79 @@ fn test_api_list() {
     let _ = dir;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_openapi_whitelist() {
+    let (addr, _server_handle) = crate::e2e::rust::mock_server::spawn_mock_server().await;
+    let (dir, home, _killer) = setup_test_env(false);
+
+    // Override the profile to use the mock server for actual requests
+    let profile = "test_api";
+    let config_path = std::path::Path::new(&home).join(format!("{}.yaml", profile));
+    let config = json!({
+        "app_key": "test_key",
+        "openapi_url": format!("http://127.0.0.1:{}", addr),
+        "stream_url": format!("http://127.0.0.1:{}", addr),
+        "webhook_target": "http://localhost:8082",
+        "app_mode": "oauth2",
+        "ai_enabled": false,
+        "version": 1,
+        "log": {
+            "level": "info"
+        }
+    });
+    fs::write(config_path, serde_yaml::to_string(&config).unwrap()).unwrap();
+
+    // 1. Test Whitelisted Path (should be forwarded)
+    let mut cmd1 = Command::cargo_bin("cowen").unwrap();
+    cmd1.env("COWEN_HOME", &home);
+    cmd1.arg("--profile").arg("test_api");
+    cmd1.arg("api")
+        .arg("POST")
+        .arg("/v1/users")
+        .arg("--data")
+        .arg("{\"name\":\"Alice\"}");
+
+    // Note: The mock server does not actually have /v1/users, but it will be forwarded
+    // by cowen-cli because it's in the OpenAPI spec. The mock server will return 404,
+    // but what we care about is that it IS NOT blocked locally by cowen-cli.
+    let output1 = cmd1.output().unwrap();
+    let stdout1 = String::from_utf8_lossy(&output1.stdout);
+    let stderr1 = String::from_utf8_lossy(&output1.stderr);
+
+    // Check it wasn't blocked locally
+    assert!(!stderr1.to_lowercase().contains("not in whitelist"));
+    assert!(!stdout1.to_lowercase().contains("not in whitelist"));
+
+    // 2. Test Non-Whitelisted Path (should be blocked)
+    let mut cmd2 = Command::cargo_bin("cowen").unwrap();
+    cmd2.env("COWEN_HOME", &home);
+    cmd2.arg("--profile").arg("test_api");
+    cmd2.arg("api")
+        .arg("POST")
+        .arg("/v1/evil/hacker/path")
+        .arg("--data")
+        .arg("{\"cmd\":\"rm -rf\"}");
+
+    let output2 = cmd2.output().unwrap();
+    let stderr2 = String::from_utf8_lossy(&output2.stderr);
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+
+    // Check it was blocked
+    let blocked = stderr2.to_lowercase().contains("not in whitelist")
+        || stdout2.to_lowercase().contains("not in whitelist")
+        || stderr2.to_lowercase().contains("not found in openapi spec")
+        || stdout2.to_lowercase().contains("not found in openapi spec")
+        || stderr2.to_lowercase().contains("forbidden")
+        || stdout2.to_lowercase().contains("forbidden");
+    assert!(
+        blocked,
+        "Expected request to be blocked locally. Output: {}\n{}",
+        stdout2, stderr2
+    );
+
+    let _ = dir;
+}
+
 #[test]
 fn test_api_list_pagination() {
     let (dir, home, _killer) = setup_test_env(false);

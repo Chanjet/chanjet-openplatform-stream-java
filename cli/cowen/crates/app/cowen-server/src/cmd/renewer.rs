@@ -20,15 +20,8 @@ pub fn calculate_next_check_delay(
     }
 
     // Goal: Check at 80% of remaining lifetime
-    let mut delay = (remaining as f64 * 0.8) as i64;
-
-    // Clamp to [30, 3600]
-    if delay < 30 {
-        delay = 30;
-    }
-    if delay > 3600 {
-        delay = 3600;
-    }
+    let delay = (remaining as f64 * 0.8) as i64;
+    let mut delay = delay.clamp(30, 3600);
 
     // Add jitter: ±60s (but don't go below 10s)
     let jitter = rand::thread_rng().gen_range(-60..60);

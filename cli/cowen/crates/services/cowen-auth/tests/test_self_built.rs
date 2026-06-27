@@ -238,11 +238,19 @@ async fn test_handle_platform_event_app_ticket() {
     let ticket = vault.get_app_ticket("AK_TEST_EVENT").await.unwrap();
     assert_eq!(ticket.value, "new_ticket_event_123");
 
-    // Proactive refresh happens in a spawned task after 1.5 seconds.
-    tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+    // Proactive refresh happens in a spawned task after 1.5 seconds + up to 500ms jitter.
+    // We retry checking for up to 5 seconds to avoid race conditions in slow CI environments.
+    let mut cached_token = None;
+    for _ in 0..50 {
+        if let Ok(token) = pool.get_app_access_token("AK_TEST_EVENT").await {
+            cached_token = Some(token);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 
     // Verify token was refreshed proactively
-    let cached = pool.get_app_access_token("AK_TEST_EVENT").await.unwrap();
+    let cached = cached_token.expect("Token was not refreshed proactively within 5 seconds");
     assert_eq!(cached.value, "mock_access_token_from_event");
 }
 

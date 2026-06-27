@@ -1,8 +1,14 @@
 pub mod api_tests;
 pub mod auth_tests;
+pub mod chaos_stress_tests;
 pub mod cli;
 pub mod common;
 pub mod daemon_tests;
+pub mod init_tests;
+pub mod mock_server;
 pub mod oauth2_lifecycle_tests;
 pub mod plugin_tests;
+pub mod profile_tests;
+pub mod store_app_pg_tests;
+pub mod store_app_tests;
 pub mod sync_tests;

@@ -323,7 +323,8 @@ async fn test_auth_login_complex_error_serialization() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_auth_logout_login_sequence() {
+async fn test_auth_logout_login_flow() {
+    // [Given] A self-built app initialized with active token and ticket
     let (addr, _server_handle) = start_mock_platform().await;
     let openapi_url = format!("http://{}", addr);
     let (dir, home) = setup_auth_env("seq_profile", "self-built", &openapi_url);
@@ -361,7 +362,7 @@ async fn test_auth_logout_login_sequence() {
         .await
         .unwrap();
 
-    // 1. Logout first (Ensure clean state)
+    // [When] The user performs a logout
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.env("HOME", &home);
@@ -384,7 +385,7 @@ async fn test_auth_logout_login_sequence() {
         .await
         .unwrap();
 
-    // 2. Login (Should trigger network refresh because logout cleared the token)
+    // [When] The user attempts to login again without providing any new parameters
     let mut cmd = Command::cargo_bin("cowen").unwrap();
     cmd.env("COWEN_HOME", &home);
     cmd.env("HOME", &home);
@@ -398,8 +399,78 @@ async fn test_auth_logout_login_sequence() {
         .success()
         .stdout(predicates::str::contains("Token is active and ready"));
 
+    // [Then] A new valid network token should be fetched and the profile should be active
     let token = vault.get_app_access_token("test_key").await.unwrap();
     assert_eq!(token.value, "mock_at_sb_12345");
+
+    let _ = dir;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_oauth2_refresh_via_token_cmd() {
+    let (addr, _server_handle) = start_mock_platform().await;
+    let openapi_url = format!("http://{}", addr);
+    let (dir, home) = setup_auth_env("oa2_refresh", "oauth2", &openapi_url);
+
+    let app_cfg = cowen_common::config::AppConfig {
+        openapi_url: openapi_url.clone(),
+        stream_url: openapi_url.clone(),
+        ..Default::default()
+    };
+    let vault =
+        cowen_store::create_vault(&app_cfg, std::path::Path::new(&home), "test_fingerprint")
+            .await
+            .unwrap();
+
+    vault
+        .set_config("oa2_refresh", "app_key", "test_key")
+        .await
+        .unwrap();
+    vault
+        .set_secret("oa2_refresh", "app_secret", "test_secret")
+        .await
+        .unwrap();
+
+    // 1. Set EXPIRED access token and VALID refresh token
+    let expired_at = cowen_common::models::Token {
+        value: "expired_access_token".to_string(),
+        expires_at: chrono::Utc::now() - chrono::Duration::seconds(10), // Expired!
+        created_at: chrono::Utc::now() - chrono::Duration::minutes(30),
+    };
+    vault
+        .save_access_token("oa2_refresh", expired_at)
+        .await
+        .unwrap();
+
+    let valid_rt = cowen_common::models::Token {
+        value: "valid_refresh_token".to_string(),
+        expires_at: chrono::Utc::now() + chrono::Duration::days(1),
+        created_at: chrono::Utc::now() - chrono::Duration::minutes(30),
+    };
+    vault
+        .save_refresh_token("oa2_refresh", valid_rt)
+        .await
+        .unwrap();
+
+    // 2. Run cowen auth token
+    let mut cmd = Command::cargo_bin("cowen").unwrap();
+    cmd.env("COWEN_HOME", &home);
+    cmd.env("HOME", &home);
+    cmd.env("COWEN_FS_FINGERPRINT", "test_fingerprint");
+    cmd.arg("auth")
+        .arg("token")
+        .arg("--profile")
+        .arg("oa2_refresh");
+
+    // It should succeed and get a new token via refresh flow
+    let output = cmd.assert().success().get_output().stdout.clone();
+    let new_token_str = String::from_utf8(output).unwrap();
+    assert!(!new_token_str.trim().is_empty());
+    assert!(!new_token_str.contains("expired_access_token"));
+
+    // Verify DB was updated
+    let new_at = vault.get_access_token("oa2_refresh").await.unwrap();
+    assert_eq!(new_at.value, "mock_at_oa2_new"); // from the mock server
 
     let _ = dir;
 }

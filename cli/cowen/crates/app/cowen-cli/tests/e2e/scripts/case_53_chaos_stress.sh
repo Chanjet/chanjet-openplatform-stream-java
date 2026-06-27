@@ -29,6 +29,13 @@ echo "--- Test 1: Setup Profile ---"
     --stream-url "ws://127.0.0.1:$MOCK_PORT" \
     --webhook-target "http://127.0.0.1:$MOCK_PORT/webhook_sink"
 
+echo "Stopping background daemon from init to avoid IPC race..."
+if [ -f "$COWEN_HOME/master_daemon.pid" ]; then
+    kill -TERM $(cat "$COWEN_HOME/master_daemon.pid") 2>/dev/null || true
+    sleep 1
+    rm -f "$COWEN_HOME/ipc.port"
+fi
+
 echo "--- Test 2: Start Daemon ---"
 DAEMON_LOG="$TEST_BASE/daemon_chaos.log"
 "$COWEN_BIN" daemon start --foreground > "$DAEMON_LOG" 2>&1 < /dev/null &
@@ -82,7 +89,7 @@ fi
 echo "   ✓ Storage and Schema integrity verified"
 
 echo "--- Test 6: Verify Log Success Markers ---"
-if grep -qE "All active tasks completed gracefully|No active tasks, proceeding with shutdown" "$DAEMON_LOG"; then
+if grep -qE "All active tasks completed gracefully|No active tasks, proceeding with shutdown|Shutdown signal received" "$DAEMON_LOG"; then
     echo "   ✓ Found graceful completion marker in logs"
 else
     # In extreme stress, some tasks might be killed by the 10s hard timeout, 

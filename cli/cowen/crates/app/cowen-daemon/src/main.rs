@@ -286,7 +286,9 @@ async fn start_monitor_server(
     telemetry_db: Arc<cowen_monitor::telemetry_db::TelemetryDb>,
 ) -> Result<(u16, tokio::sync::oneshot::Sender<()>)> {
     let mut m_port = app_cfg.monitor_port;
-    let mut allow_fallback = std::env::var("COWEN_ALLOW_PORT_FALLBACK").is_ok();
+    let mut allow_fallback = std::env::var("COWEN_ALLOW_PORT_FALLBACK")
+        .map(|v| v != "0" && v != "false")
+        .unwrap_or(false);
     if m_port == 0 {
         m_port = 1588;
         allow_fallback = true;

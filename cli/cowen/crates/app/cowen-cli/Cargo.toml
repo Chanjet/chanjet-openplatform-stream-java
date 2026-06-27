@@ -34,7 +34,7 @@ chrono = "0.4"
 
 [dev-dependencies]
 assert_cmd = "2.0"
-axum = { version = "0.8", features = ["json"] }
+axum = { version = "0.8", features = ["json", "ws"] }
 cowen-store = { path = "../../services/cowen-store" }
 predicates = "3.1"
 sysinfo = "0.38"

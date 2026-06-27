@@ -165,3 +165,35 @@ impl Client for MockClient {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[tokio::test]
+    async fn test_mock_client_coverage() {
+        use cowen_auth::client::Client;
+        let client = super::MockClient::new();
+        let cfg = cowen_common::config::Config::default_with_profile("default");
+        let headers = reqwest::header::HeaderMap::new();
+
+        let _ = client.refresh_token("default", &cfg, &headers).await;
+        let _ = client.trigger_push("default", &cfg, false).await;
+        let _ = client.get_openapi_spec("default", &cfg, false).await;
+        let _ = client.get_dynamic_interface_list("default", &cfg).await;
+        let _ = client.clear_token("default", &cfg).await;
+        let _ = client.get_app_access_token("default", &cfg).await;
+        let _ = client.refresh_app_access_token("default", &cfg).await;
+        let _ = client
+            .exchange_temp_code("default", &cfg, "org", "code")
+            .await;
+        let _ = client
+            .get_user_access_token("default", &cfg, "org", "user")
+            .await;
+        let _ = client.intercept_exchange("default", &cfg, &[]).await;
+        let _ = client.on_maintenance_tick("default", &cfg).await;
+        let _ = client.requires_initial_push(&cfg).await;
+        let _ = client.requires_ticket(&cfg);
+        let _ = client.supports_webhooks(&cfg);
+        let _ = client.supports_api_call(&cfg);
+    }
+}

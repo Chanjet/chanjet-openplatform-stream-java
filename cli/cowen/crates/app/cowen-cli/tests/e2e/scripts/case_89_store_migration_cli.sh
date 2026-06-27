@@ -57,7 +57,7 @@ sleep 3
 wait_for_daemon "$PROFILE" 10
 
 # 用 CLI 去 get config，如果能读到迁移后的值证明迁移成功！
-MIGRATED_VAL=$("$COWEN_BIN" config get webhook_target --profile "$PROFILE" 2>&1 || true)
+MIGRATED_VAL=$("$COWEN_BIN" config get webhook_target --profile "$PROFILE" 2>/dev/null || true)
 if [ "$MIGRATED_VAL" != "http://localhost:9999" ]; then
     echo "❌ Debug config get result: $MIGRATED_VAL"
     fail_suite "Migrated config value webhook_target mismatch: expected 'http://localhost:9999', got '$MIGRATED_VAL'"

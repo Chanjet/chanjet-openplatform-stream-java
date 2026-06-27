@@ -5,7 +5,8 @@ use std::fs;
 use cowen_common::config::AppConfig;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_oauth2_full_lifecycle_and_recovery() {
+async fn test_auth_oauth2_flow() {
+    // [Given] A mock platform and a freshly initialized OAuth2 profile
     let (addr, _server_handle) = start_mock_platform().await;
     let openapi_url = format!("http://{}", addr);
 
@@ -15,7 +16,7 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     let exe_suffix = std::env::consts::EXE_SUFFIX;
     let cowen_bin = bin_dir.join(format!("cowen{}", exe_suffix));
 
-    // 1. Run 'cowen init' in background
+    // [When] The user runs 'cowen init' for an OAuth2 app
     let mut child = std::process::Command::new(&cowen_bin)
         .env("COWEN_HOME", &home)
         .env("HOME", &home)
@@ -59,7 +60,7 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
 
     let session = session.expect("Timeout waiting for OAuth2 session to be created in DB");
 
-    // 3. Simulate browser callback
+    // [When] The user completes the browser authentication callback
     let callback_url = format!(
         "http://127.0.0.1:{}/callback?code=mock_code_123&state={}",
         session.redirect_port, session.state
@@ -82,7 +83,7 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     let status = child.wait().unwrap();
     assert!(status.success());
 
-    // 5. Verify daemon can start
+    // [Then] The daemon should start successfully
     let mut cmd_start = Command::new(&cowen_bin);
     cmd_start.env("COWEN_HOME", &home);
     cmd_start.env("HOME", &home);
@@ -110,7 +111,7 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     // Wait for it to be actually running
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    // 6. Simulate crash (kill -9)
+    // [When] The daemon crashes unexpectedly
     let pid_file = std::path::Path::new(&home).join("master_daemon.pid");
     if pid_file.exists() {
         let pid_str = fs::read_to_string(&pid_file).unwrap();
@@ -138,7 +139,7 @@ async fn test_oauth2_full_lifecycle_and_recovery() {
     // Wait for it to be gone
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    // 7. Verify recovery / restart works
+    // [Then] The daemon should recover and start normally on the next invocation
     let mut cmd_recover = Command::new(&cowen_bin);
     cmd_recover.env("COWEN_HOME", &home);
     cmd_recover.env("HOME", &home);

@@ -198,7 +198,9 @@ impl DaemonClient {
         let pid_file = app_dir.join("master_daemon.pid");
 
         loop {
+            eprintln!("DEBUG: trying to connect to daemon...");
             if let Ok((channel, interceptor)) = self.connect_to_daemon().await {
+                eprintln!("DEBUG: connect_to_daemon returned Ok");
                 let mut test_client = NativeWorkerServiceClient::with_interceptor(
                     channel.clone(),
                     interceptor.clone(),
@@ -209,10 +211,14 @@ impl DaemonClient {
                     return Ok(Some((channel, interceptor)));
                 }
             }
-
+            eprintln!(
+                "DEBUG: connect_to_daemon failed, checking pid file at {:?}",
+                pid_file
+            );
             if pid_file.exists() {
                 if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
                     if let Some(pid) = pid_str.lines().next().and_then(|s| s.parse::<u32>().ok()) {
+                        eprintln!("DEBUG: pid_file exists, pid = {}", pid);
                         if cowen_sys::get_process_manager().is_process_alive(pid).await {
                             retry_count += 1;
                             if retry_count >= 30 {
@@ -226,6 +232,7 @@ impl DaemonClient {
             }
             break;
         }
+        eprintln!("DEBUG: returning Ok(None) from try_ping");
         Ok(None)
     }
 }

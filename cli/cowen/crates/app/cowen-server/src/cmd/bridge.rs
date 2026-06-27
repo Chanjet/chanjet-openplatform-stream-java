@@ -16,6 +16,7 @@ fn should_enable_webhooks(config: &Config, auth: &dyn Client) -> bool {
 
 /// 自建模式专用流桥执行器
 /// 负责处理 WebSocket 长连接、API 反向代理以及消息转发
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     profile: &str,
     config: &Config,
@@ -78,6 +79,7 @@ pub async fn run(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn setup_dispatcher(
     client: &connector_sdk::GatewayClient,
     requires_stream: bool,

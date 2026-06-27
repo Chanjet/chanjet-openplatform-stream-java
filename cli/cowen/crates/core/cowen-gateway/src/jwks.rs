@@ -144,3 +144,79 @@ impl KeyProvider for JwksManager {
         Ok(key_bytes)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cowen_common::config::{AppConfig, StorageConfig};
+    use cowen_store::create_vault;
+    use tempfile::tempdir;
+
+    async fn setup_vault() -> Arc<dyn Vault> {
+        let dir = tempdir().unwrap();
+        let cfg = AppConfig {
+            storage: StorageConfig {
+                store: "local".to_string(),
+                db_url: None,
+                cache: "memory".to_string(),
+                cache_url: None,
+            },
+            ..AppConfig::default()
+        };
+        create_vault(&cfg, dir.path(), "test-fp").await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_sync_and_rotate_empty_vault() {
+        let vault = setup_vault().await;
+        let manager = JwksManager::new(vault, "default").await.unwrap();
+
+        let (kid, key) = manager.get_active_key().await.unwrap();
+        assert!(!kid.is_empty());
+        assert_eq!(key.len(), 32);
+
+        let retrieved_key = manager.get_key_by_kid(&kid).await.unwrap();
+        assert_eq!(key, retrieved_key);
+    }
+
+    #[tokio::test]
+    async fn test_sync_and_rotate_recent_key() {
+        let vault = setup_vault().await;
+        let manager1 = JwksManager::new(vault.clone(), "default").await.unwrap();
+        let (kid1, key1) = manager1.get_active_key().await.unwrap();
+
+        // Re-initialize manager, it should not rotate the key
+        let manager2 = JwksManager::new(vault.clone(), "default").await.unwrap();
+        let (kid2, key2) = manager2.get_active_key().await.unwrap();
+
+        assert_eq!(kid1, kid2);
+        assert_eq!(key1, key2);
+    }
+
+    #[tokio::test]
+    async fn test_sync_and_rotate_old_key() {
+        let vault = setup_vault().await;
+        let manager1 = JwksManager::new(vault.clone(), "default").await.unwrap();
+        let (kid1, key1) = manager1.get_active_key().await.unwrap();
+
+        // Manually manipulate the vault to make the key old
+        let mut jwks: Jwks =
+            serde_json::from_str(&vault.get_secret("default", JWKS_KEY).await.unwrap()).unwrap();
+        jwks.keys[0].created_at = Utc::now() - chrono::Duration::days(ROTATION_DAYS + 1);
+        vault
+            .set_secret("default", JWKS_KEY, &serde_json::to_string(&jwks).unwrap())
+            .await
+            .unwrap();
+
+        // Re-initialize, it should rotate
+        let manager2 = JwksManager::new(vault.clone(), "default").await.unwrap();
+        let (kid2, key2) = manager2.get_active_key().await.unwrap();
+
+        assert_ne!(kid1, kid2);
+        assert_ne!(key1, key2);
+
+        // Old key should still be retrievable
+        let old_key = manager2.get_key_by_kid(&kid1).await.unwrap();
+        assert_eq!(old_key, key1);
+    }
+}

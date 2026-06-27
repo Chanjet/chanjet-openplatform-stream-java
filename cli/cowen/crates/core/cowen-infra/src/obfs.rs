@@ -38,6 +38,9 @@ mod tests {
         let original = "secret_value_123";
         let obfuscated_str = obfs!("secret_value_123");
         assert_eq!(obfuscated_str, original);
+
+        let empty = obfs!("");
+        assert_eq!(empty, "");
     }
 
     #[test]
@@ -52,5 +55,8 @@ mod tests {
 
         let deobfuscated = deobfs(&obfuscated, seed);
         assert_eq!(deobfuscated, "hello world!");
+
+        // Edge case: empty data
+        assert_eq!(deobfs(&[], 0), "");
     }
 }

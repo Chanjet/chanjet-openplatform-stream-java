@@ -11,6 +11,7 @@ trap cleanup_suite EXIT
 
 # Disable port fallback so the concurrent daemon correctly detects the port collision
 export COWEN_ALLOW_PORT_FALLBACK=0
+export COWEN_SKIP_DAEMON_RECOVERY=true
 
 echo -e "${BOLD}1. Initialization${NC}"
 "$COWEN_BIN" init --profile main \
@@ -23,7 +24,18 @@ echo -e "${BOLD}1. Initialization${NC}"
 assert_pass "Profile initialized"
 
 # Stop the auto-started daemon so we can test the explicit lifecycle
-"$COWEN_BIN" daemon stop --profile main >/dev/null
+OLD_PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid" 2>/dev/null || echo "")
+"$COWEN_BIN" daemon stop --all >/dev/null
+
+if [ -n "$OLD_PID" ]; then
+    kill -15 "$OLD_PID" 2>/dev/null || true
+    for i in {1..10}; do
+        if ! kill -0 "$OLD_PID" 2>/dev/null; then
+            break
+        fi
+        sleep 1
+    done
+fi
 sleep 1
 
 echo -e "${BOLD}2. Start daemon in foreground (simulate launchd)${NC}"
@@ -31,12 +43,13 @@ echo -e "${BOLD}2. Start daemon in foreground (simulate launchd)${NC}"
 "$COWEN_BIN" daemon start --profile main --foreground > "$COWEN_HOME/launchd.log" 2>&1 < /dev/null &
 LAUNCHD_PID=$!
 
-# Give it a fraction of a second to simulate the port binding / startup delay
-sleep 0.2
+# Wait for foreground daemon to become healthy before reading its PID file
+wait_for_daemon main 10
+ORIGINAL_PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid" 2>/dev/null || echo "")
 
-# Wait briefly for foreground daemon to write its PID file
-sleep 1
-ORIGINAL_PID=$(head -n 1 "$COWEN_HOME/master_daemon.pid")
+if [ -z "$ORIGINAL_PID" ]; then
+    fail_suite "Foreground daemon failed to write pidfile"
+fi
 
 echo -e "${BOLD}3. Concurrent start in background (simulate user CLI action)${NC}"
 # This should NOT crash the existing daemon, nor crash itself. It should just send IPC or wait.

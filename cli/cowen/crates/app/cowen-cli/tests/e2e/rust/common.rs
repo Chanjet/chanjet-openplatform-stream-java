@@ -146,7 +146,19 @@ pub fn setup_test_env(
     crate::e2e::rust::common::DaemonKiller,
 ) {
     let dir = tempdir().unwrap();
-    let cowen_home = dir.path().join(".cowen");
+    let home = dir.path().to_str().unwrap().to_string();
+    let killer = setup_test_env_in_dir(profile, mode, openapi_url, &home);
+    let cowen_home = std::path::PathBuf::from(home).join(".cowen");
+    (dir, cowen_home.to_str().unwrap().to_string(), killer)
+}
+
+pub fn setup_test_env_in_dir(
+    profile: &str,
+    mode: &str,
+    openapi_url: &str,
+    home: &str,
+) -> crate::e2e::rust::common::DaemonKiller {
+    let cowen_home = std::path::PathBuf::from(home).join(".cowen");
     fs::create_dir_all(&cowen_home).unwrap();
 
     let profiles_dir = cowen_home.join("profiles");
@@ -172,7 +184,7 @@ pub fn setup_test_env(
     fs::write(app_config_path, serde_yaml::to_string(&app_config).unwrap()).unwrap();
 
     // Setup Binaries
-    let bin_dir = dir.path().join("bin");
+    let bin_dir = std::path::PathBuf::from(home).join("bin");
     fs::create_dir_all(&bin_dir).unwrap();
 
     let current_dir = std::env::current_dir().unwrap();
@@ -263,11 +275,7 @@ pub fn setup_test_env(
         ); // Simplification for error reporting
     }
 
-    (
-        dir,
-        cowen_home.to_str().unwrap().to_string().clone(),
-        crate::e2e::rust::common::DaemonKiller {
-            home: cowen_home.to_str().unwrap().to_string(),
-        },
-    )
+    crate::e2e::rust::common::DaemonKiller {
+        home: cowen_home.to_str().unwrap().to_string(),
+    }
 }

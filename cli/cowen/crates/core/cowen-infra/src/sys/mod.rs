@@ -108,6 +108,23 @@ mod tests {
     use crate::sys::mock::MockWindowsSys;
     use std::sync::Arc;
 
+    #[test]
+    fn test_derive_fallback_fingerprint() {
+        let fp = derive_fallback_fingerprint("test_os").unwrap();
+        assert!(!fp.is_empty());
+    }
+
+    #[test]
+    fn test_format_service_status() {
+        let status1 = format_service_status("Mac", "cowen", true, STATUS_ACTIVE);
+        assert!(status1.contains("EXISTS"));
+        assert!(status1.contains("Mac"));
+
+        let status2 = format_service_status("Win", "cowen", false, STATUS_INACTIVE);
+        assert!(status2.contains("MISSING"));
+        assert!(status2.contains("Win"));
+    }
+
     #[tokio::test]
     async fn test_mock_windows_sys_unit_flows() {
         let mock = Arc::new(MockWindowsSys::new());

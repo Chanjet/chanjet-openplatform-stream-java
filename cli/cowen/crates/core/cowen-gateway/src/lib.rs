@@ -1085,4 +1085,40 @@ mod tests {
             "/invoice?foo=bar"
         );
     }
+
+    #[test]
+    fn test_parse_bind_address() {
+        assert!(parse_bind_address("127.0.0.1:8080").is_ok());
+        assert!(parse_bind_address("invalid").is_err());
+    }
+
+    #[test]
+    fn test_generate_fingerprint() {
+        let req = Request::builder()
+            .header("user-agent", "test-agent")
+            .header("x-forwarded-for", "192.168.1.1")
+            .body(Body::empty())
+            .unwrap();
+        let fp = generate_fingerprint(&req);
+        assert!(!fp.is_empty());
+    }
+
+    #[test]
+    fn test_parse_token_and_identity() {
+        let json_val = serde_json::json!({
+            "access_token": "test-token",
+            "expires_in": 3600
+        });
+        let (token, org_id, user_id, app_id) = parse_token_and_identity(&json_val);
+        assert_eq!(token.value, "test-token");
+        assert_eq!(org_id, "");
+        assert!(user_id.is_none());
+        assert!(app_id.is_none());
+    }
+
+    #[test]
+    fn test_error_response() {
+        let resp = error_response(StatusCode::BAD_REQUEST, "Test error");
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
 }

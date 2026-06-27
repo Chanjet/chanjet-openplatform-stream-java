@@ -104,3 +104,48 @@ impl IpcBinder for MockWindowsSys {
         Ok(r#"{"port":1234,"token":"mock-windows-ipc-token-secret"}"#.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_mock_windows_sys_all_methods() {
+        let mock = MockWindowsSys::default();
+
+        // ProcessManager
+        assert_eq!(mock.current_pid(), 1234);
+        assert!(mock.is_process_alive(1234).await);
+        assert!(mock.kill_process(1234, false).await.is_ok());
+        assert!(mock.daemonize().await.is_ok());
+
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        mock.set_stop_channel(tx);
+
+        assert!(mock.run_as_service(Box::new(|| Ok(()))).await.is_ok());
+
+        let mut cmd = std::process::Command::new("echo");
+        let _ = mock.spawn_daemon(&mut cmd);
+
+        assert!(mock.get_port_occupier(8080).await.is_none());
+
+        // ServiceManager
+        assert!(mock.install("bin", "path", "log").await.is_ok());
+        assert!(mock.uninstall("bin").await.is_ok());
+        assert!(mock.status("bin").await.is_ok());
+
+        // SysFingerprint
+        assert!(mock.get_machine_id().is_ok());
+
+        // IpcBinder
+        assert!(mock.bind_ipc_listener("127.0.0.1:0").await.is_ok());
+
+        let path = std::path::Path::new("/tmp");
+        let (_tx2, rx2) = tokio::sync::mpsc::channel(1);
+        assert!(mock
+            .serve_handshake(path, "".to_string(), rx2)
+            .await
+            .is_ok());
+        assert!(mock.fetch_handshake(path).await.is_ok());
+    }
+}

@@ -39,26 +39,26 @@ impl ProfileWorker {
     }
 
     pub fn is_active(&self) -> bool {
-        match self.status {
+        matches!(
+            self.status,
             WorkerStatus::Starting
-            | WorkerStatus::Running
-            | WorkerStatus::Backoff { .. }
-            | WorkerStatus::Draining => true,
-            _ => false,
-        }
+                | WorkerStatus::Running
+                | WorkerStatus::Backoff { .. }
+                | WorkerStatus::Draining
+        )
     }
 
     pub fn can_start(&self) -> bool {
-        match self.status {
-            WorkerStatus::Created | WorkerStatus::Stopped | WorkerStatus::Failed { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self.status,
+            WorkerStatus::Created | WorkerStatus::Stopped | WorkerStatus::Failed { .. }
+        )
     }
 
     pub fn can_stop(&self) -> bool {
-        match self.status {
-            WorkerStatus::Starting | WorkerStatus::Running | WorkerStatus::Backoff { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self.status,
+            WorkerStatus::Starting | WorkerStatus::Running | WorkerStatus::Backoff { .. }
+        )
     }
 }
