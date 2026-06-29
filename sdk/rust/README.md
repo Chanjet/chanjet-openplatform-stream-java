@@ -83,3 +83,10 @@ SDK 中的 `dispatcher` 会帮您自动完成数据解密。通过 `on_app_notic
 ## 许可证
 
 MIT
+
+## 更新日志 (Changelog)
+
+### v0.1.0 (2026-06)
+- **首发**: 提供基于 `tokio` 和 `tokio-tungstenite` 的高性能 Webhook-to-WebSocket 桥接客户端。
+- **机制**: 内置死信队列 (DLQ)、指数退避与随机抖动重连、自动加解密及消息签名防篡改。
+- **路由**: 提供 `MessageDispatcher`，支持针对事件的闭包拦截与业务分发（如 `on_app_ticket`、`on_order_status`），并内置秘钥净化机制（SanitizeKey）。
