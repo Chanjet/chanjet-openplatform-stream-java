@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
     let app_key = env::var("APP_KEY").expect("APP_KEY must be set");
     let app_secret = env::var("APP_SECRET").expect("APP_SECRET must be set");
     let encrypt_key = env::var("ENCRYPT_KEY").ok();
-    let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| "https://gateway.chanjet.com".to_string());
+    let gateway_url = env::var("GATEWAY_URL").unwrap_or_default();
 
     let options = ClientOptions {
         app_key,

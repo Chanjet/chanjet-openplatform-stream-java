@@ -59,7 +59,10 @@ pub struct GatewayClient {
 }
 
 impl GatewayClient {
-    pub fn new(options: ClientOptions) -> Self {
+    pub fn new(mut options: ClientOptions) -> Self {
+        if options.gateway_url.trim().is_empty() {
+            options.gateway_url = "https://stream-open.chanapp.chanjet.com".to_string();
+        }
         let hostname = hostname::get()
             .unwrap_or_default()
             .to_string_lossy()
