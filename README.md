@@ -1,7 +1,7 @@
 # 畅捷通 Stream Gateway Java SDK
 
 [![Java Version](https://img.shields.io/badge/Java-21+-oracle.svg)](https://www.oracle.com/java/technologies/downloads/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 本 SDK 是专为畅捷通开放平台 ISV 打造的轻量级通讯框架。它不仅屏蔽了底层 WebSocket 的连接管理细节，还内置了强大的消息自动解密、POJO 自动分发及好系列业务适配能力。
 
@@ -49,7 +49,7 @@ dispatcher.onAppNotice("GoodsIssue", (msg, content) -> {
 GatewayClient client = GatewayClient.builder()
     .appKey("your_app_key")
     .appSecret("your_app_secret_32_chars")
-    .gatewayUrl("wss://open.chanjet.com/gateway")
+    // .gatewayUrl("https://stream-open.chanapp.chanjet.com") // 可选，默认连接至畅捷通开放平台生产环境
     .build();
 
 client.useDispatcher(dispatcher);
@@ -92,7 +92,7 @@ SDK 现已内置以下标准模型，您可以直接在监听器中使用：
 
 ## 📖 示例项目
 更多详尽的使用场景（如 Spring Boot 集成、复杂复合键分发等），请参考源码树中的：
-👉 [**sdk-java-demo**](../java-demo/README.md)
+👉 [**sdk-java-demo**](demo/README.md)
 
 ## ⚖️ 许可
-Apache License 2.0
+MIT License
