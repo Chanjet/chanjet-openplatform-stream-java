@@ -1,7 +1,7 @@
 chanjet:
   app-key: ${APP_KEY:your_app_key}
   app-secret: ${APP_SECRET:your_app_secret_32_chars}
-  gateway-url: ${GATEWAY_URL:wss://open.chanjet.com/gateway}
+  gateway-url: ${GATEWAY_URL:}
 
 logging:
   level:

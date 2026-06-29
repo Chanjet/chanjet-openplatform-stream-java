@@ -20,7 +20,7 @@ public class DemoService {
     @Value("${chanjet.app-secret:test_secret}")
     private String appSecret;
 
-    @Value("${chanjet.gateway-url:wss://open.chanjet.com/gateway}")
+    @Value("${chanjet.gateway-url:}")
     private String gatewayUrl;
 
     @PostConstruct

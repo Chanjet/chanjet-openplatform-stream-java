@@ -56,8 +56,11 @@ public class GatewayClient {
         this.appKey = builder.appKey;
         this.appSecret = builder.appSecret;
         this.encryptKey = (builder.encryptKey != null) ? builder.encryptKey : builder.appSecret;
-        this.gatewayUrl = builder.gatewayUrl;
-        
+        if (builder.gatewayUrl == null || builder.gatewayUrl.trim().isEmpty()) {
+            this.gatewayUrl = "https://stream-open.chanapp.chanjet.com";
+        } else {
+            this.gatewayUrl = builder.gatewayUrl;
+        }
         // 自动生成唯一 ClientId: appKey@hostname_pid_uuid
         String hostname = getHostname();
         long pid = ProcessHandle.current().pid();
