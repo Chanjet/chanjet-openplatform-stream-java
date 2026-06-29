@@ -2,7 +2,7 @@ module com.chanjet/go-sdk-demo
 
 go 1.26.1
 
-replace com.chanjet/connector-sdk-go => ../go
+replace com.chanjet/connector-sdk-go => ..
 
 require (
 	com.chanjet/connector-sdk-go v0.0.0-00010101000000-000000000000
