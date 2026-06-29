@@ -3,12 +3,14 @@ import os from 'os';
 import { CryptoUtils } from './crypto-utils.js';
 import { EventFrame, AckFrame } from './protocol.js';
 import { MessageDispatcher } from './message-dispatcher.js';
+import { DlqProvider } from './dlq.js';
 
 export interface GatewayClientOptions {
     appKey: string;
     appSecret: string;
     encryptKey?: string;
     gatewayUrl: string;
+    dlqProvider?: DlqProvider;
     reconnectOptions?: {
         maxDelay?: number;
         initialDelay?: number;
@@ -33,13 +35,16 @@ export class GatewayClient {
     private attempt = 0;
     private eventHandler: EventHandler | null = null;
     private messageDispatcher: MessageDispatcher | null = null;
+    private dlqProvider: DlqProvider | null = null;
     private reconnectTimer: NodeJS.Timeout | null = null;
+    private heartbeatTimer: NodeJS.Timeout | null = null;
 
     constructor(options: GatewayClientOptions) {
         this.appKey = options.appKey;
         this.appSecret = options.appSecret;
         this.encryptKey = options.encryptKey || options.appSecret;
         this.gatewayUrl = options.gatewayUrl;
+        this.dlqProvider = options.dlqProvider || null;
         
         // 自动生成唯一 ClientId: appKey@hostname_pid_random
         const hostname = os.hostname();
@@ -72,6 +77,10 @@ export class GatewayClient {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
+        if (this.heartbeatTimer) {
+            clearTimeout(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
         if (this.ws) {
             this.ws.close(1000, 'SDK Stop');
             this.ws = null;
@@ -101,27 +110,75 @@ export class GatewayClient {
                 console.log('[GatewayClient] WebSocket connected.');
                 this.connected = true;
                 this.attempt = 0;
+                this.resetHeartbeat();
             });
 
             this.ws.on('message', async (data) => {
+                this.resetHeartbeat();
                 try {
                     const text = data.toString();
                     const root = JSON.parse(text);
-                    const msgType = root.msg_type;
+                    const msgType = root.msg_type || root.msgType;
 
                     if (msgType === 'event') {
                         const frame = root as EventFrame;
                         let success = false;
+                        let dlqStored = false;
                         
                         if (this.messageDispatcher) {
-                            success = await this.messageDispatcher.dispatch(frame, this.encryptKey);
+                            try {
+                                success = await this.messageDispatcher.dispatch(frame, this.encryptKey);
+                            } catch (e: any) {
+                                console.error(`[GatewayClient] Event dispatch exception:`, e);
+                                success = false;
+                            }
                         } else if (this.eventHandler) {
-                            success = await this.eventHandler(frame);
+                            try {
+                                success = await this.eventHandler(frame);
+                            } catch (e: any) {
+                                console.error(`[GatewayClient] EventHandler exception:`, e);
+                                success = false;
+                            }
+                        }
+
+                        if (!success && this.dlqProvider) {
+                            try {
+                                await this.dlqProvider.store(frame.msg_id, text);
+                                dlqStored = true;
+                            } catch (e) {
+                                console.error(`[GatewayClient] Failed to store message to DLQ:`, e);
+                                // If DLQ fails, we must send 500 to let server retry
+                                this.sendAck(frame.msg_id, false, `DLQ store failed: ${(e as Error).message}`);
+                                return;
+                            }
+                        }
+
+                        if (success && dlqStored && this.dlqProvider) {
+                            try {
+                                await this.dlqProvider.remove(frame.msg_id);
+                            } catch (e) {
+                                console.error(`[GatewayClient] Failed to remove message from DLQ:`, e);
+                            }
                         }
                         
-                        this.sendAck(frame.msg_id, success);
+                        this.sendAck(frame.msg_id, success || dlqStored);
                     } else if (msgType === 'ping') {
                         this.ws?.send(JSON.stringify({ msg_type: 'pong' }));
+                    } else if (msgType) {
+                        // Top-level system messages
+                        const msgId = root.msg_id || root.msgId || root.id || 'unknown';
+                        let success = false;
+                        if (this.messageDispatcher) {
+                            try {
+                                success = await this.messageDispatcher.dispatchValue(root);
+                            } catch (e: any) {
+                                console.error(`[GatewayClient] System message dispatch exception:`, e);
+                                success = false;
+                            }
+                        }
+                        if (msgId !== 'unknown') {
+                            this.sendAck(msgId, success);
+                        }
                     }
                 } catch (e) {
                     console.error('[GatewayClient] Error processing message:', e);
@@ -194,12 +251,22 @@ export class GatewayClient {
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }
 
-    private sendAck(msgId: string, success: boolean) {
+    private resetHeartbeat() {
+        if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
+        this.heartbeatTimer = setTimeout(() => {
+            console.warn('[GatewayClient] Heartbeat timeout. No messages received for 30s. Triggering reconnect.');
+            if (this.ws) {
+                this.ws.terminate();
+            }
+        }, 30000);
+    }
+
+    private sendAck(msgId: string, success: boolean, customMessage?: string) {
         if (!this.ws || !this.connected) return;
         const ack: AckFrame = {
             msg_id: msgId,
             code: success ? 200 : 500,
-            message: success ? 'success' : 'failed',
+            message: customMessage || (success ? 'success' : 'failed'),
             timestamp: Date.now()
         };
         this.ws.send(JSON.stringify(ack));

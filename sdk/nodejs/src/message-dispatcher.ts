@@ -9,6 +9,14 @@ export type MessageHandler<T extends BaseMessage> = (message: T) => Promise<bool
  */
 export class MessageDispatcher {
     private handlerRegistry = new Map<string, MessageHandler<any>>();
+    private fallbackHandler: MessageHandler<any> | null = null;
+
+    /**
+     * 设置兜底的 fallback 处理器，当找不到对应 msgType 时调用。
+     */
+    setFallbackHandler(handler: MessageHandler<any>) {
+        this.fallbackHandler = handler;
+    }
 
     /**
      * 注册消息处理器。
@@ -76,8 +84,22 @@ export class MessageDispatcher {
                 root = JSON.parse(decrypted);
             }
 
+            return await this.dispatchValue(root, frame.headers);
+        } catch (e) {
+            console.error(`[MessageDispatcher] Dispatch failed for msg ${frame.msg_id}:`, e);
+            return false;
+        }
+    }
+
+    /**
+     * 执行分发逻辑，直接根据 root 对象进行路由
+     * @param root 解析后或解密后的 JSON 对象
+     * @param headers 可选的请求头信息
+     */
+    async dispatchValue(root: any, headers?: Record<string, string>): Promise<boolean> {
+        try {
             // 2. 路由计算
-            let msgType = root.msgType;
+            let msgType = root.msgType || root.msg_type || 'UNKNOWN';
 
             if (msgType === 'APP_NOTICE') {
                 const biz = root.bizContent || {};
@@ -95,20 +117,22 @@ export class MessageDispatcher {
             }
 
             const handler = this.handlerRegistry.get(msgType);
-            if (!handler) {
+            const message: BaseMessage = {
+                ...root,
+                msgId: root.id || root.msgId || root.msg_id, // 兼容性自动填充
+                headers: headers
+            };
+
+            if (handler) {
+                return await handler(message);
+            } else if (this.fallbackHandler) {
+                return await this.fallbackHandler(message);
+            } else {
                 console.warn(`[MessageDispatcher] No handler for msgType: ${msgType}. Skipping.`);
                 return true;
             }
-
-            const message: BaseMessage = {
-                ...root,
-                msgId: root.id || root.msgId, // 兼容性自动填充
-                headers: frame.headers
-            };
-
-            return await handler(message);
         } catch (e) {
-            console.error(`[MessageDispatcher] Dispatch failed for msg ${frame.msg_id}:`, e);
+            console.error(`[MessageDispatcher] dispatchValue failed:`, e);
             return false;
         }
     }
