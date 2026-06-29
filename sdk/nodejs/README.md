@@ -109,3 +109,11 @@ dispatcher.onAppNotice('GoodsIssue', async (msg) => {
 ## 许可证
 
 MIT
+
+## 更新日志 (Changelog)
+
+### v0.2.0 (2026-06)
+- **新增**: 死信队列 (DLQ) 机制，支持通过配置 `DlqProvider` 接口暂存处理异常的消息，防止发生漏单。
+- **新增**: 断线重连升级为指数退避 (Exponential Backoff) 与随机抖动重连，并开放自定义 `maxBackoff` 和 `reconnectInterval` 配置项。
+- **新增**: 增强 `MessageDispatcher` 路由，增加兜底处理器 `setFallbackHandler`，以及专属 `onOrderStatus` 与 `onAppNotice` 宏方法。
+- **优化**: 增强解密引擎鲁棒性，自动净化（Sanitize）传入秘钥中可能包含的不可见控制字符，并对齐兼容 32 位 Hex 秘钥。
