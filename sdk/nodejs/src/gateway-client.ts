@@ -9,7 +9,7 @@ export interface GatewayClientOptions {
     appKey: string;
     appSecret: string;
     encryptKey?: string;
-    gatewayUrl: string;
+    gatewayUrl?: string;
     dlqProvider?: DlqProvider;
     reconnectOptions?: {
         maxDelay?: number;
@@ -43,7 +43,7 @@ export class GatewayClient {
         this.appKey = options.appKey;
         this.appSecret = options.appSecret;
         this.encryptKey = options.encryptKey || options.appSecret;
-        this.gatewayUrl = options.gatewayUrl;
+        this.gatewayUrl = options.gatewayUrl || 'https://stream-open.chanapp.chanjet.com';
         this.dlqProvider = options.dlqProvider || null;
         
         // 自动生成唯一 ClientId: appKey@hostname_pid_random

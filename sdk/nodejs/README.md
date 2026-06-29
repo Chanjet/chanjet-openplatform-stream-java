@@ -16,7 +16,7 @@ import { GatewayClient, MessageDispatcher } from '@chanjet/connector-sdk';
 const client = new GatewayClient({
     appKey: '你的AppKey',
     appSecret: '你的AppSecret',
-    gatewayUrl: 'http://gateway-host:8080'
+    // gatewayUrl: 'http://gateway-host:8080' // 可选，默认连接至畅捷通开放平台生产环境
 });
 
 const dispatcher = new MessageDispatcher();
