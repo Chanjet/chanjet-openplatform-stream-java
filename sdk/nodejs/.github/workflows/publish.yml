@@ -1,34 +1,34 @@
-name: Publish Node.js SDK to npm
+# This workflow will run tests using node and then publish a package to npm when a release is created
+# For more information see: https://docs.github.com/en/actions/publishing-packages/publishing-nodejs-packages
 
-# 当推送带有 'v' 前缀的 Tag (如 v0.2.0) 时触发发布
+name: Node.js Package
+
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [created]
 
 jobs:
-  publish-npm:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Checkout repository
-        uses: actions/checkout@v4
-
-      - name: 2. Setup Node.js environment
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
-          # 这个配置是告诉 npm 认证信息从 NODE_AUTH_TOKEN 环境变量读取
-          registry-url: 'https://registry.npmjs.org'
+          node-version: 20
+      - run: npm ci
+      - run: npm test
 
-      - name: 3. Install dependencies
-        run: npm ci
-
-      - name: 4. Compile TypeScript (Build)
-        run: npm run build
-
-      - name: 5. Publish to npm
-        run: npm publish --access public
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish --access public
         env:
-          # NODE_AUTH_TOKEN 是 setup-node 内置约定的变量名
-          # 需要你在 GitHub 仓库的 Secrets 中配置一个 NPM_TOKEN
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
