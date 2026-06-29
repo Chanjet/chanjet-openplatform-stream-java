@@ -35,7 +35,7 @@ describe('MessageDispatcher', () => {
 
         const businessMsg = JSON.stringify({ msgType: 'SECURE_TYPE', secret_data: 'shhh' });
         
-        const encryptKey = '<DUMMY_KEY_16>';
+        const encryptKey = '1234567890123456';
         const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(encryptKey), null);
         let encrypted = cipher.update(businessMsg, 'utf8', 'base64');
         encrypted += cipher.final('base64');
@@ -73,5 +73,38 @@ describe('MessageDispatcher', () => {
         const result = await dispatcher.dispatch(frame, secret);
         expect(result).toBe(true);
         expect(handler).toHaveBeenCalled();
+    });
+    test('should use fallback handler when no handler matches', async () => {
+        const fallback = jest.fn((_msg: any) => Promise.resolve(false));
+        dispatcher.setFallbackHandler(fallback as any);
+
+        const frame: EventFrame = {
+            msg_type: 'event',
+            msg_id: '4',
+            app_key: 'ak',
+            target_client_id: 'c1',
+            payload: JSON.stringify({ msgType: 'UNKNOWN_TYPE' }),
+            timestamp: Date.now()
+        };
+
+        const result = await dispatcher.dispatch(frame, secret);
+        expect(result).toBe(false);
+        expect(fallback).toHaveBeenCalled();
+    });
+
+    test('should route directly via dispatchValue', async () => {
+        const handler = jest.fn((_msg: any) => Promise.resolve(true));
+        dispatcher.register('RAW_MESSAGE', handler as any);
+
+        const rawRoot = { msgType: 'RAW_MESSAGE', data: 'direct' };
+        
+        // No EventFrame wrapper, direct dispatchValue
+        const result = await dispatcher.dispatchValue(rawRoot, {});
+        expect(result).toBe(true);
+        expect(handler).toHaveBeenCalledWith({
+            ...rawRoot,
+            headers: {},
+            msgId: undefined
+        });
     });
 });

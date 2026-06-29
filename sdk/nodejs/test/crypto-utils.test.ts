@@ -13,7 +13,7 @@ describe('CryptoUtils', () => {
     });
 
     test('aesDecrypt should decrypt valid payload', () => {
-        const encryptKey = '<DUMMY_KEY_16>';
+        const encryptKey = '1234567890123456';
         const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from(encryptKey), null);
         let enc = cipher.update('{"hello":"world"}', 'utf8', 'base64');
         enc += cipher.final('base64');
