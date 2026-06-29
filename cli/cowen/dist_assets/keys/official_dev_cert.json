@@ -1,9 +1,0 @@
-{
-  "developer_id": "openplatform",
-  "organization": "com.chanjet",
-  "country": "china",
-  "pub": "dc8081062903302f4c5ea5e60dbbfc01ea8babee578ed13123985fa296251b3d",
-  "issued_at": 1779765616,
-  "expires_at": 1811301616,
-  "sig": "a50e436483f6b93ef4181b817780dde5e494de10dbfdc5c65f576c1d4a4a2b471318af1704b59dad72e13184b5db4cbd61246dbc78b61235d356e9225ebd010e"
-}

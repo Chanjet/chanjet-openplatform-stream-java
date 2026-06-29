@@ -1,4 +1,0 @@
-[allowlist]
-paths = [
-    '''cli/cowen/dist_assets/keys/.*'''
-]

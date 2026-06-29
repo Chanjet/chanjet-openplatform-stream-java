@@ -1,9 +1,0 @@
-{
-  "name": "nodejs-sdk-demo",
-  "version": "0.1.0",
-  "type": "module",
-  "dependencies": {
-    "@chanjet_openplatform/open_stream_sdk": "file:..",
-    "dotenv": "^17.3.1"
-  }
-}

@@ -1,9 +1,0 @@
-[package]
-name = "cowen_setup"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-
-[build-dependencies]
-embed-resource = "3.0.9"
