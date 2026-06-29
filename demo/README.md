@@ -12,14 +12,17 @@
 ## 🛠️ 如何运行
 
 ### 1. 配置参数
-修改 `src/main/resources/application.yml` 或通过环境变量注入：
 
-```yaml
-chanjet:
-  app-key: "您的AppKey"
-  app-secret: "您的AppSecret"
-  gateway-url: "wss://open.chanjet.com/gateway"
+Demo 项目现已支持通过 `.env` 文件快速注入环境变量。
+您只需在 `sdk/java/demo` 目录下复制一份 `.env.example`，重命名为 `.env`，填入您的凭证即可：
+
+```env
+APP_KEY=your_app_key
+APP_SECRET=your_app_secret_32_chars
+# GATEWAY_URL=wss://open.chanjet.com/gateway # 可选，默认指向生产环境
 ```
+
+*(底层原理：通过集成的 `spring-dotenv`，系统启动时会自动将 `.env` 变量映射到 `application.yml` 中的 `${APP_KEY}` 占位符。)*
 
 ### 2. 编译并启动
 确保本地已安装 Java 21+ 和 Maven。
