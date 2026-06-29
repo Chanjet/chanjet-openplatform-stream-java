@@ -1,5 +1,5 @@
 {
-  "name": "@chanjet/connector-sdk",
+  "name": "@chanjet_openplatform/open_stream_sdk",
   "version": "0.2.0",
   "description": "Official Node.js SDK for Open Streaming Connector",
   "main": "dist/index.js",
@@ -18,6 +18,9 @@
   ],
   "author": "Chanjet",
   "license": "MIT",
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "ws": "^8.18.1"
   },

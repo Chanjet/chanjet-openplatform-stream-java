@@ -19,7 +19,7 @@
 npm install
 ```
 
-> **注意**：此处默认使用相对路径 (`file:..`) 链接外层的 SDK。如果您将此 Demo 拷贝为独立项目使用，请修改 `package.json` 中的依赖为实际的包名版本（如 `npm i @chanjet/connector-sdk`）。
+> **注意**：此处默认使用相对路径 (`file:..`) 链接外层的 SDK。如果您将此 Demo 拷贝为独立项目使用，请修改 `package.json` 中的依赖为实际的包名版本（如 `npm i @chanjet_openplatform/open_stream_sdk`）。
 
 ### 2. 配置环境变量
 

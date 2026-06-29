@@ -5,13 +5,13 @@
 ## 安装
 
 ```bash
-npm install @chanjet/connector-sdk
+npm install @chanjet_openplatform/open_stream_sdk
 ```
 
 ## 快速开始
 
 ```javascript
-import { GatewayClient, MessageDispatcher } from '@chanjet/connector-sdk';
+import { GatewayClient, MessageDispatcher } from '@chanjet_openplatform/open_stream_sdk';
 
 const client = new GatewayClient({
     appKey: '你的AppKey',

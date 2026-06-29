@@ -1,4 +1,4 @@
-import { GatewayClient, MessageDispatcher } from '@chanjet/connector-sdk';
+import { GatewayClient, MessageDispatcher } from '@chanjet_openplatform/open_stream_sdk';
 import 'dotenv/config'; // 自动加载当前目录下的 .env 文件
 
 const APP_KEY = process.env.APP_KEY;
