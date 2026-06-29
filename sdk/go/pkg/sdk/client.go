@@ -69,6 +69,10 @@ func NewGatewayClient(options ClientOptions) *GatewayClient {
 		options.MaxBackoff = 60 * time.Second
 	}
 
+	if options.GatewayURL == "" {
+		options.GatewayURL = "https://stream-open.chanapp.chanjet.com"
+	}
+
 	return &GatewayClient{
 		options:    options,
 		encryptKey: encryptKey,
