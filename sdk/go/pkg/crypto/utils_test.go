@@ -16,11 +16,14 @@ func TestHmacSha256(t *testing.T) {
 }
 
 func TestAesDecrypt(t *testing.T) {
-	key := "<DUMMY_KEY_16>" // 16 bytes
+	key := "<DUMMY_KEY_0016>" // 16 bytes
 	plaintext := `{"hello":"world"}`
 	
 	// 手动构造加密数据以验证解密
-	block, _ := aes.NewCipher([]byte(key))
+	block, err := aes.NewCipher([]byte(key))
+	if err != nil {
+		t.Fatalf("aes.NewCipher failed: %v", err)
+	}
 	bs := block.BlockSize()
 	padded := pkcs7Pad([]byte(plaintext), bs)
 	ciphertext := make([]byte, len(padded))

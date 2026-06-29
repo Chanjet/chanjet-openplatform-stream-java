@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
+	"unicode"
 )
 
 // HmacSha256 计算 HMAC-SHA256 签名，返回小写 16 进制字符串
@@ -17,13 +19,38 @@ func HmacSha256(data, secret string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// SanitizeKey 清理密钥字符串中的不可见字符
+func SanitizeKey(s string) string {
+	var builder strings.Builder
+	for _, c := range s {
+		if c != '\u200B' && c != '\u200C' && c != '\u200D' && c != '\uFEFF' && !unicode.IsControl(c) {
+			builder.WriteRune(c)
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
 // AesDecrypt 执行 AES-128-ECB 解密
 func AesDecrypt(encryptedBase64, decryptKey string) (string, error) {
+	decryptKey = SanitizeKey(decryptKey)
 	if decryptKey == "" {
 		return "", errors.New("invalid decryptKey for AES decryption")
 	}
 
-	key := []byte(decryptKey)
+	var key []byte
+	if len(decryptKey) == 32 {
+		decoded, err := hex.DecodeString(decryptKey)
+		if err != nil {
+			return "", fmt.Errorf("failed to decode 32-character decryption key as hex: %w", err)
+		}
+		key = decoded
+	} else {
+		key = []byte(decryptKey)
+	}
+
+	if len(key) != 16 {
+		return "", fmt.Errorf("AES-128 key must be 16 bytes (or 32 hex characters), got %d", len(key))
+	}
 	ciphertext, err := base64.StdEncoding.DecodeString(encryptedBase64)
 	if err != nil {
 		return "", fmt.Errorf("base64 decode failed: %w", err)

@@ -21,10 +21,14 @@ import (
 
 // ClientOptions 客户端配置选项
 type ClientOptions struct {
-	AppKey     string
-	AppSecret  string
-	EncryptKey string
-	GatewayURL string
+	AppKey            string
+	AppSecret         string
+	EncryptKey        string
+	GatewayURL        string
+	ReconnectInterval time.Duration
+	MaxBackoff        time.Duration
+	Exclusive         bool
+	DlqProvider       DlqProvider
 }
 
 // EventHandler 原始事件处理器
@@ -56,6 +60,13 @@ func NewGatewayClient(options ClientOptions) *GatewayClient {
 	encryptKey := options.EncryptKey
 	if encryptKey == "" {
 		encryptKey = options.AppSecret
+	}
+
+	if options.ReconnectInterval == 0 {
+		options.ReconnectInterval = time.Second
+	}
+	if options.MaxBackoff == 0 {
+		options.MaxBackoff = 60 * time.Second
 	}
 
 	return &GatewayClient{
@@ -123,8 +134,16 @@ func (c *GatewayClient) connectLoop(ctx context.Context) {
 				wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
 			}
 			
-			wsURL += fmt.Sprintf("/connect?app_key=%s&nonce=%s&sign=%s&client_id=%s", 
+			if !strings.HasSuffix(wsURL, "/connect") {
+				wsURL = strings.TrimRight(wsURL, "/") + "/connect"
+			}
+			
+			wsURL += fmt.Sprintf("?app_key=%s&nonce=%s&sign=%s&client_id=%s", 
 					c.options.AppKey, nonce, sign, c.clientID)
+			
+			if c.options.Exclusive {
+				wsURL += "&exclusive=true"
+			}
 
 			log.Printf("[GatewayClient] Dialing WebSocket: %s", wsURL)
 			conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -204,8 +223,14 @@ func (c *GatewayClient) handleReconnect(statusCode int) {
 		delay = time.Duration(5+rand.Intn(10)) * time.Second
 		log.Printf("[GatewayClient] Gateway busy (%d), standby mode. Reconnect in %v", statusCode, delay)
 	} else {
-		sec := math.Min(60, math.Pow(2, float64(c.attempt)))
+		sec := math.Pow(2, math.Min(float64(c.attempt), 6))
 		delay = time.Duration(sec) * time.Second
+		if delay < c.options.ReconnectInterval {
+			delay = c.options.ReconnectInterval
+		}
+		if delay > c.options.MaxBackoff {
+			delay = c.options.MaxBackoff
+		}
 		c.attempt++
 		log.Printf("[GatewayClient] Connection failed (%d), backoff mode. Reconnect in %v", statusCode, delay)
 	}
@@ -232,13 +257,30 @@ func (c *GatewayClient) readLoop(ctx context.Context, conn *websocket.Conn) {
 			var frame protocol.EventFrame
 			json.Unmarshal(message, &frame)
 			
+			dlqStored := false
+			if c.options.DlqProvider != nil {
+				if err := c.options.DlqProvider.Store(frame.MsgID, string(message)); err != nil {
+					log.Printf("[GatewayClient] DLQ store failed: %v", err)
+					c.sendAck(frame.MsgID, false, "DLQ store failed: "+err.Error())
+					continue
+				}
+				dlqStored = true
+			}
+			
 			success := false
 			if c.dispatcher != nil {
 				success, _ = c.dispatcher.Dispatch(frame, c.encryptKey)
 			} else if c.eventHandler != nil {
 				success, _ = c.eventHandler(frame)
 			}
-			c.sendAck(frame.MsgID, success)
+			
+			if success && dlqStored {
+				if err := c.options.DlqProvider.Remove(frame.MsgID); err != nil {
+					log.Printf("[GatewayClient] DLQ remove failed: %v", err)
+				}
+			}
+			
+			c.sendAck(frame.MsgID, success, "")
 		} else if msgType == "ping" {
 			c.mu.Lock()
 			if c.conn != nil {
@@ -255,19 +297,22 @@ func (c *GatewayClient) readLoop(ctx context.Context, conn *websocket.Conn) {
 			if c.dispatcher != nil {
 				success, _ := c.dispatcher.DispatchValue(root, string(message), nil)
 				if msgID != "" {
-					c.sendAck(msgID, success)
+					c.sendAck(msgID, success, "")
 				}
 			}
 		}
 	}
 }
 
-func (c *GatewayClient) sendAck(msgID string, success bool) {
+func (c *GatewayClient) sendAck(msgID string, success bool, errorMessage string) {
 	code := 200
 	msg := "success"
 	if !success {
 		code = 500
 		msg = "failed"
+		if errorMessage != "" {
+			msg = errorMessage
+		}
 	}
 	ack := protocol.AckFrame{
 		MsgID:     msgID,

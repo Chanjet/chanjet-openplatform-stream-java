@@ -16,8 +16,9 @@ type MessageHandler func(message interface{}) (bool, error)
 
 // MessageDispatcher 业务消息分发器
 type MessageDispatcher struct {
-	handlers map[string]MessageHandler
-	mu       sync.RWMutex
+	handlers        map[string]MessageHandler
+	fallbackHandler MessageHandler
+	mu              sync.RWMutex
 }
 
 func NewMessageDispatcher() *MessageDispatcher {
@@ -33,6 +34,13 @@ func (d *MessageDispatcher) Register(msgType string, handler MessageHandler) {
 	d.handlers[msgType] = handler
 }
 
+// SetFallbackHandler 设置兜底的事件处理器
+func (d *MessageDispatcher) SetFallbackHandler(handler MessageHandler) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.fallbackHandler = handler
+}
+
 // OnAppTicket 注册应用票据处理器
 func (d *MessageDispatcher) OnAppTicket(handler func(msg protocol.AppTicketMessage) bool) {
 	d.Register("APP_TICKET", func(message interface{}) (bool, error) {
@@ -44,6 +52,26 @@ func (d *MessageDispatcher) OnAppTicket(handler func(msg protocol.AppTicketMessa
 func (d *MessageDispatcher) OnEntAuthCode(handler func(msg protocol.EntAuthCodeMessage) bool) {
 	d.Register("TEMP_AUTH_CODE", func(message interface{}) (bool, error) {
 		return handler(message.(protocol.EntAuthCodeMessage)), nil
+	})
+}
+
+// OnOrderStatus 注册订单状态处理器
+func (d *MessageDispatcher) OnOrderStatus(handler func(msg protocol.OrderStatusMessage) bool) {
+	d.Register("PAY_ORDER_SUCCESS", func(message interface{}) (bool, error) {
+		return handler(message.(protocol.OrderStatusMessage)), nil
+	})
+}
+
+// OnAppNotice 注册应用通知处理器
+func (d *MessageDispatcher) OnAppNotice(boName string, transType string, handler func(msg protocol.AppNoticeMessage) bool) {
+	var key string
+	if transType != "" {
+		key = fmt.Sprintf("APP_NOTICE:%s:%s", boName, transType)
+	} else {
+		key = fmt.Sprintf("APP_NOTICE:%s", boName)
+	}
+	d.Register(key, func(message interface{}) (bool, error) {
+		return handler(message.(protocol.AppNoticeMessage)), nil
 	})
 }
 
@@ -101,9 +129,17 @@ func (d *MessageDispatcher) DispatchValue(root map[string]interface{}, payloadJS
 
 	d.mu.RLock()
 	handler, ok := d.handlers[msgType]
+	fallback := d.fallbackHandler
 	d.mu.RUnlock()
 
 	if !ok {
+		if fallback != nil {
+			msgObj, err := d.unmarshalToType(msgType, payloadJSON, headers)
+			if err != nil {
+				return false, err
+			}
+			return fallback(msgObj)
+		}
 		log.Printf("[MessageDispatcher] No handler for msgType: %s. Skipping.", msgType)
 		return true, nil
 	}
