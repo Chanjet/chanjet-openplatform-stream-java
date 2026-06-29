@@ -4,7 +4,7 @@ import { GatewayClient, MessageDispatcher } from './dist/index.js';
 const client = new GatewayClient({
     appKey: 'your_app_key',
     appSecret: 'your_app_secret_32_chars_long',
-    // gatewayUrl: 'http://localhost:8080' // 可选，默认连接至畅捷通开放平台生产环境
+    // gatewayUrl: 'https://stream-open.chanapp.chanjet.com' // 可选，默认连接至畅捷通开放平台生产环境
 });
 
 // 2. 初始化分发器
