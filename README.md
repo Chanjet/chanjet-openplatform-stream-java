@@ -15,7 +15,17 @@
 
 ## 📦 快速开始
 
-### 1. 引入依赖 (Maven)
+### 1. 本地安装与引入 (Maven)
+
+由于该 SDK 暂未发布到 Maven 中央仓库，您需要先将其 Clone 到本地，并通过 Maven 安装到本地仓库：
+
+```bash
+git clone git@github.com:Chanjet/chanjet-openplatform-stream-java.git
+cd chanjet-openplatform-stream-java
+mvn clean install -DskipTests
+```
+
+安装完成后，在您的项目中即可正常引入依赖：
 
 ```xml
 <dependency>
