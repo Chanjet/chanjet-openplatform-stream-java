@@ -1,7 +1,7 @@
 {
   "id": "cowen-search-embedding",
   "name": "Cowen Search Embedding Plugin",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Official semantic search embedding plugin via ONNX and Sidecar RPC",
   "command": "./cowen-search-embedding",
   "transport": "stdio",
